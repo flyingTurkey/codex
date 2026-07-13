@@ -1,25 +1,162 @@
 {
-  "version": "1.0.0",
-  "note": "开发占位设计令牌，正式品牌色和Logo须经四川路桥品牌管理确认",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "1.1.0-avocado",
+  "direction": "AIHOT式高密度时间线 + 四川路桥证据化情报卡",
+  "note": "低饱和牛油果主题。四川路桥正式Logo与企业品牌色仍须品牌管理部门确认；事故、撤回和阻断状态不得使用品牌绿代替语义色。",
   "color": {
-    "brand": {"50": "#FFF1F0", "100": "#FFE0DE", "500": "#C93A32", "600": "#AD2F29", "700": "#8C2723"},
-    "ink": {"50": "#F7F9FC", "100": "#EEF2F7", "300": "#CBD5E1", "500": "#64748B", "700": "#334155", "900": "#172033"},
-    "digital": {"50": "#ECFEFF", "500": "#0891B2", "700": "#0E7490"},
-    "safetyRegulation": {"50": "#FFFBEB", "500": "#D97706", "700": "#B45309"},
-    "safetyCase": {"50": "#FEF2F2", "500": "#B91C1C", "700": "#991B1B"},
-    "verified": {"50": "#ECFDF5", "500": "#15803D", "700": "#166534"},
-    "vendorClaim": {"50": "#F5F3FF", "500": "#7C3AED", "700": "#6D28D9"}
+    "canvas": "#F7F8F3",
+    "surface": "#FFFFFF",
+    "surfaceMuted": "#F1F4EC",
+    "border": "#DFE4DB",
+    "borderStrong": "#CFD8C8",
+    "brand": {
+      "50": "#F5F7F2",
+      "100": "#E8EDE4",
+      "200": "#D4DECE",
+      "300": "#B9C9B0",
+      "400": "#98AD8C",
+      "500": "#748B68",
+      "600": "#587248",
+      "700": "#405B32",
+      "800": "#304827",
+      "900": "#23351F"
+    },
+    "corporateAccent": {
+      "50": "#FFF1F0",
+      "500": "#C93A32",
+      "700": "#8C2723"
+    },
+    "ink": {
+      "50": "#F6F7F4",
+      "100": "#EEF1EC",
+      "300": "#C7CEC7",
+      "500": "#66716A",
+      "600": "#536058",
+      "700": "#3F4A43",
+      "900": "#202922"
+    },
+    "digital": {
+      "50": "#EDF7F6",
+      "500": "#4F8882",
+      "700": "#386D68"
+    },
+    "safetyRegulation": {
+      "50": "#FFF8EC",
+      "500": "#B7792C",
+      "700": "#8B5A1F"
+    },
+    "safetyCase": {
+      "50": "#FCF0EF",
+      "500": "#A94B45",
+      "700": "#843A35"
+    },
+    "verified": {
+      "50": "#EEF5EB",
+      "500": "#5A7E4B",
+      "700": "#405F35"
+    },
+    "reviewPending": {
+      "50": "#FFF6E8",
+      "500": "#C68436",
+      "700": "#955F22"
+    },
+    "vendorClaim": {
+      "50": "#F2F3F5",
+      "500": "#68727C",
+      "700": "#4C5560"
+    },
+    "conflict": {
+      "50": "#FFF0EF",
+      "500": "#B64E47",
+      "700": "#8C3732"
+    },
+    "focus": "#587248"
   },
   "font": {
-    "sans": "Inter, Noto Sans SC, system-ui, sans-serif",
-    "mono": "JetBrains Mono, ui-monospace, monospace",
-    "size": {"xs": "12px", "sm": "14px", "base": "16px", "lg": "18px", "xl": "20px", "2xl": "24px", "3xl": "30px"},
-    "lineHeight": {"tight": 1.25, "normal": 1.5, "relaxed": 1.75}
+    "sans": "Noto Sans SC, Source Han Sans SC, Inter, PingFang SC, Microsoft YaHei, system-ui, sans-serif",
+    "mono": "JetBrains Mono, SFMono-Regular, Consolas, ui-monospace, monospace",
+    "numeric": "Inter, Noto Sans SC, system-ui, sans-serif",
+    "size": {
+      "xs": "12px",
+      "sm": "13px",
+      "base": "14px",
+      "md": "16px",
+      "lg": "18px",
+      "xl": "20px",
+      "2xl": "24px",
+      "3xl": "30px"
+    },
+    "lineHeight": {
+      "metadata": "18px",
+      "body": "22px",
+      "title": "24px",
+      "heading": "32px",
+      "relaxed": 1.75
+    },
+    "weight": {
+      "regular": 400,
+      "medium": 500,
+      "semibold": 600,
+      "bold": 700
+    }
   },
-  "space": {"1": "4px", "2": "8px", "3": "12px", "4": "16px", "5": "20px", "6": "24px", "8": "32px", "10": "40px", "12": "48px"},
-  "radius": {"sm": "6px", "md": "10px", "lg": "14px", "pill": "999px"},
-  "shadow": {"card": "0 1px 2px rgba(15,23,42,.06), 0 8px 24px rgba(15,23,42,.05)", "overlay": "0 16px 48px rgba(15,23,42,.18)"},
-  "layout": {"contentMax": "1440px", "sidebar": "240px", "detailMain": "860px", "detailEvidence": "420px", "header": "64px"},
-  "breakpoint": {"sm": "640px", "md": "768px", "lg": "1024px", "xl": "1280px", "2xl": "1536px"}
+  "space": {
+    "1": "4px",
+    "2": "8px",
+    "3": "12px",
+    "4": "16px",
+    "5": "20px",
+    "6": "24px",
+    "7": "28px",
+    "8": "32px",
+    "9": "36px",
+    "10": "40px",
+    "12": "48px"
+  },
+  "radius": {
+    "xs": "4px",
+    "sm": "6px",
+    "md": "9px",
+    "lg": "12px",
+    "xl": "14px",
+    "pill": "999px"
+  },
+  "shadow": {
+    "card": "0 1px 2px rgba(32,41,34,.04)",
+    "hover": "0 5px 18px rgba(32,41,34,.055)",
+    "overlay": "0 18px 46px rgba(32,41,34,.14)"
+  },
+  "layout": {
+    "contentMax": "1720px",
+    "readerMax": "1440px",
+    "sidebar": "216px",
+    "sidebarCompact": "72px",
+    "feedTimeline": "80px",
+    "cardEvidence": "248px",
+    "feedHeader": "148px",
+    "detailMain": "860px",
+    "detailEvidence": "420px",
+    "header": "64px",
+    "cardMinHeight": "188px"
+  },
+  "breakpoint": {
+    "sm": "640px",
+    "md": "768px",
+    "lg": "1024px",
+    "xl": "1280px",
+    "wide": "1440px",
+    "2xl": "1536px"
+  },
+  "motion": {
+    "fast": "140ms",
+    "base": "180ms",
+    "drawer": "220ms",
+    "easing": "cubic-bezier(.2,.8,.2,1)",
+    "reducedMotion": "disable-nonessential"
+  },
+  "icon": {
+    "library": "Iconoir",
+    "defaultSize": "20px",
+    "defaultStroke": "1.5px"
+  }
 }
-

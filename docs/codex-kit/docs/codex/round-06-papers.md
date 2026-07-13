@@ -3,7 +3,7 @@
 ```text
 执行第06轮：接入开放学术元数据并完成论文题录、研究解读和版权边界。
 
-读取：docs/codex-kit/docs/04-data-source-compliance.md、docs/codex-kit/assets/source_registry.csv、docs/codex-kit/assets/content.schema.json、docs/codex-kit/assets/sample_items.json。
+读取：docs/codex-kit/docs/04-data-source-compliance.md、docs/codex-kit/assets/source_registry.csv、docs/codex-kit/assets/content.schema.json、docs/codex-kit/assets/sample_items.json、docs/codex-kit/docs/06-ui-ux-spec.md、docs/codex-kit/docs/ui/02-component-contracts.md。
 
 来源：OpenAlex API作为自动化主切片；Crossref用于DOI和更新关系补充；中国公路学报使用经过批准的RSS或目录固定样本。知网和万方不得绕过登录或付费机制。
 
@@ -18,13 +18,15 @@
 - 题录导出和引用复制；
 - API Mock、固定响应、版权策略和E2E测试。
 
+方案1 UI增量：在既有 /digital 和 IntelligenceCard 上增加论文Tab与 Paper TypeSummary；详情显示DOI、期刊、开放状态、研究成熟度、引用复制和原文入口。元数据、摘要、全文权限用明确文字区分。
+
 硬性规则：
 - 未授权全文不进入对象存储和前台；
 - 论文研究结论不等于工程生产应用；
 - 摘要许可不清时只存元数据和原文链接；
 - 撤稿或更正必须显著显示。
 
-验收：同一DOI从两个来源进入时只形成一个论文条目并保留两个来源；无法开放全文时仍可完成题录检索且无越权内容。
+验收：同一DOI从两个来源进入时只形成一个论文条目并保留两个来源；无法开放全文时仍可完成题录检索且无越权内容；论文卡加入既有Feed回归E2E和axe。
 
 不做：付费数据库抓取、引文网络可视化、自动学术评价。
 ```

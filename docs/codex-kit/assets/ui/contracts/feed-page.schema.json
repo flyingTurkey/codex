@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srbg.example.invalid/schemas/api/v1/feed-page.schema.json",
+  "title": "FeedPage v1",
+  "type": "object",
+  "required": ["items", "next_cursor", "fingerprint", "generated_at", "freshness", "notices"],
+  "properties": {
+    "items": {"type": "array", "items": {"$ref": "#/$defs/item_summary"}},
+    "next_cursor": {"type": ["string", "null"]},
+    "fingerprint": {"type": "string", "minLength": 1},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "freshness": {"enum": ["fresh", "delayed", "partial"]},
+    "notices": {"type": "array", "items": {"$ref": "#/$defs/notice"}}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "notice": {
+      "type": "object",
+      "required": ["code", "severity", "message"],
+      "properties": {
+        "code": {"type": "string"},
+        "severity": {"enum": ["info", "warning", "error"]},
+        "message": {"type": "string"},
+        "source_ids": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": false
+    },
+    "score_summary": {
+      "type": "object",
+      "required": ["rule_version"],
+      "properties": {
+        "relevance": {"type": ["integer", "null"], "minimum": 0, "maximum": 100},
+        "authority": {"type": ["integer", "null"], "minimum": 0, "maximum": 100},
+        "impact": {"type": ["integer", "null"], "minimum": 0, "maximum": 100},
+        "novelty": {"type": ["integer", "null"], "minimum": 0, "maximum": 100},
+        "timeliness": {"type": ["integer", "null"], "minimum": 0, "maximum": 100},
+        "evidence": {"type": ["integer", "null"], "minimum": 0, "maximum": 100},
+        "confidence": {"type": ["integer", "null"], "minimum": 0, "maximum": 100},
+        "heat": {"type": ["integer", "null"], "minimum": 0, "maximum": 100},
+        "rule_version": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "item_summary": {
+      "type": "object",
+      "required": [
+        "id",
+        "publication_revision_id",
+        "projection",
+        "domain",
+        "content_type",
+        "title",
+        "canonical_url",
+        "one_sentence_fact",
+        "source_name",
+        "source_role",
+        "source_published_at",
+        "first_discovered_at",
+        "last_updated_at",
+        "activity_at",
+        "review_status",
+        "publication_status",
+        "evidence_status",
+        "evidence_count",
+        "tags",
+        "relevance_reason",
+        "scores",
+        "type_summary",
+        "is_saved",
+        "detail_available"
+      ],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "publication_revision_id": {"type": ["string", "null"]},
+        "projection": {"enum": ["FULL", "R3_RESTRICTED", "WITHDRAWN"]},
+        "domain": {"enum": ["DIGITAL", "SAFETY"]},
+        "content_type": {"enum": ["DIGITAL_CASE", "JOURNAL_PAPER", "SOFTWARE_PRODUCT", "IOT_PRODUCT", "LOW_ALTITUDE_EQUIPMENT", "AI_EQUIPMENT", "SAFETY_REGULATION", "SAFETY_CASE"]},
+        "title": {"type": "string", "minLength": 1},
+        "canonical_url": {"type": "string", "format": "uri"},
+        "one_sentence_fact": {"type": ["string", "null"]},
+        "source_name": {"type": "string", "minLength": 1},
+        "source_role": {"type": "string", "minLength": 1},
+        "source_published_at": {"type": ["string", "null"], "format": "date-time"},
+        "first_discovered_at": {"type": "string", "format": "date-time"},
+        "last_updated_at": {"type": "string", "format": "date-time"},
+        "activity_at": {"type": "string", "format": "date-time"},
+        "review_status": {"type": "string"},
+        "publication_status": {"type": "string"},
+        "evidence_status": {"type": "string"},
+        "evidence_count": {"type": "integer", "minimum": 0},
+        "tags": {"type": "array", "items": {"type": "string"}},
+        "relevance_reason": {"type": ["string", "null"]},
+        "scores": {"oneOf": [{"$ref": "#/$defs/score_summary"}, {"type": "null"}]},
+        "type_summary": {"type": "object"},
+        "is_saved": {"type": "boolean"},
+        "detail_available": {"type": "boolean"},
+        "restriction_notice": {"type": ["string", "null"]}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"projection": {"const": "R3_RESTRICTED"}}, "required": ["projection"]},
+          "then": {
+            "properties": {
+              "publication_revision_id": {"type": "null"},
+              "one_sentence_fact": {"type": "null"},
+              "relevance_reason": {"type": "null"},
+              "scores": {"type": "null"},
+              "evidence_count": {"const": 0},
+              "tags": {"type": "array", "maxItems": 0},
+              "type_summary": {"type": "object", "maxProperties": 0},
+              "detail_available": {"const": false},
+              "restriction_notice": {"type": "string", "minLength": 1}
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    }
+  }
+}

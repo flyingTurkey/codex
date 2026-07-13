@@ -3,7 +3,7 @@
 ```text
 执行第01轮：完成来源准入、人工导入、不可变原始对象和文档版本的纵向闭环。
 
-读取：docs/codex-kit/docs/04-data-source-compliance.md、docs/codex-kit/docs/08-security-threat-model.md、docs/codex-kit/assets/source_registry.csv、docs/codex-kit/assets/content.schema.json、docs/codex-kit/assets/schemas/source-policy.schema.json、docs/codex-kit/assets/schemas/source-onboarding-record.schema.json、docs/codex-kit/assets/validation/source_onboarding_checklist.json。
+读取：docs/codex-kit/docs/04-data-source-compliance.md、docs/codex-kit/docs/08-security-threat-model.md、docs/codex-kit/docs/06-ui-ux-spec.md、docs/codex-kit/docs/ui/全部文件、docs/codex-kit/assets/source_registry.csv、docs/codex-kit/assets/content.schema.json、docs/codex-kit/assets/schemas/source-policy.schema.json、docs/codex-kit/assets/schemas/source-onboarding-record.schema.json、docs/codex-kit/assets/validation/source_onboarding_checklist.json。
 
 目标：来源管理员可以登记候选来源、执行合规门禁、上传一个HTML或PDF固定样本，系统保存不可变原始对象、建立文档和版本，并在管理端预览元数据。
 
@@ -21,6 +21,8 @@
 - 固定HTML/PDF样本、单元、集成、权限和端到端测试；
 - 指标：上传数、拒绝数、去重数、对象存储错误。
 
+方案1 UI增量：复用第00A轮 AppShell、PageHeader、StatusBadge、ResponsiveDrawer；完成 /admin/sources 来源列表、表单、样本上传、文档元数据预览和真实空态。不得另建管理端主题或导航。开发预览不要求人工预先计算证据摘要哈希，但生产对象仍由服务端计算SHA-256。
+
 测试重点：
 - 同一文件上传两次只有一个raw_object；
 - 同URL内容变化产生新document_version；
@@ -30,7 +32,7 @@
 -伪装扩展名、超大文件和恶意PDF被拒绝；
 -原始对象不能覆盖更新。
 
-验收命令：make lint typecheck test contract-test security-check；新增 make source-fixture-test。
+验收命令：make lint typecheck test contract-test security-check web-e2e web-a11y；新增 make source-fixture-test。
 
 不做：定时抓取、OCR、AI、发布、搜索。
 

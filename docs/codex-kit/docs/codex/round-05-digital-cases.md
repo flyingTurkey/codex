@@ -3,7 +3,7 @@
 ```text
 执行第05轮：完成数字化典型案例的采集、结构化、审核和展示。
 
-读取：docs/codex-kit/docs/01-PRD.md、docs/codex-kit/docs/02-content-model.md、docs/codex-kit/assets/taxonomy.yaml、docs/codex-kit/assets/sample_items.json、docs/codex-kit/assets/ui/copy_examples.md。
+读取：docs/codex-kit/docs/01-PRD.md、docs/codex-kit/docs/02-content-model.md、docs/codex-kit/assets/taxonomy.yaml、docs/codex-kit/assets/sample_items.json、docs/codex-kit/assets/ui/copy_examples.md、docs/codex-kit/docs/06-ui-ux-spec.md、docs/codex-kit/docs/ui/02-component-contracts.md。
 
 来源：选择一个政府/行业协会案例源和一个企业案例源，各自保存固定样本。
 
@@ -17,6 +17,8 @@
 - 审核页支持修改分类、场景、成熟度和归因；
 - 相关性评分v1，公路/桥梁/隧道和四川加权；
 - 固定样本、契约、规则、E2E和无障碍测试。
+
+方案1 UI增量：完成 /digital，扩展既有 IntelligenceCard 的 DigitalCase TypeSummary，显示成熟度、场景、来源性质、厂商声明和“与四川路桥的关系”；不得复制一套数字化卡片。相关性v1必须可解释且标明规则版本，不得显示为“可信度”。
 
 硬性规则：
 - “领先、提升、节约”等量化结果保持发布方归因；

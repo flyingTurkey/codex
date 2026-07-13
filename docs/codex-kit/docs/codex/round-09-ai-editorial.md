@@ -3,7 +3,7 @@
 ```text
 执行第09轮：接入受控模型网关，实现分类、事实、摘要、复核和发布版本。
 
-读取：docs/codex-kit/docs/05-ai-pipeline.md、docs/codex-kit/docs/08-security-threat-model.md、docs/codex-kit/assets/content.schema.json、docs/codex-kit/assets/schemas/classify-output.schema.json、docs/codex-kit/assets/schemas/extract-output.schema.json、docs/codex-kit/assets/schemas/summarize-output.schema.json、docs/codex-kit/assets/schemas/verify-output.schema.json、docs/codex-kit/assets/prompts/全部文件、docs/codex-kit/assets/validation/publication_gate.json、docs/codex-kit/assets/validation/publication_evaluation.schema.json。
+读取：docs/codex-kit/docs/05-ai-pipeline.md、docs/codex-kit/docs/08-security-threat-model.md、docs/codex-kit/docs/06-ui-ux-spec.md、docs/codex-kit/docs/ui/02-component-contracts.md、docs/codex-kit/assets/content.schema.json、docs/codex-kit/assets/schemas/classify-output.schema.json、docs/codex-kit/assets/schemas/extract-output.schema.json、docs/codex-kit/assets/schemas/summarize-output.schema.json、docs/codex-kit/assets/schemas/verify-output.schema.json、docs/codex-kit/assets/prompts/全部文件、docs/codex-kit/assets/validation/publication_gate.json、docs/codex-kit/assets/validation/publication_evaluation.schema.json。
 
 必须交付：
 - 模型网关接口、Mock provider和至少一个可配置OpenAI兼容provider；
@@ -20,6 +20,8 @@
 - R3/R4强制人审、职责分离和理由；
 - 历史回放、影子运行和质量报告；
 - 模型故障降级为题录并保留已发布快照。
+
+方案1 UI增量：完成三栏 ReviewWorkbench，复用 PdfEvidenceViewer、FactList、EvidenceDrawer 和 StatusBadge；信息流/详情增加AI辅助标识、Prompt/模型版本入口、无AI降级、修订和撤回状态。只有accepted claims生成的审核后摘要才能进入完整发布卡。
 
 测试：
 - 文档内“忽略指令/泄露密钥”不改变系统输出；

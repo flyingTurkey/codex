@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srbg.example.invalid/schemas/ui/feed-story-fixtures.schema.json",
+  "title": "UI Feed Story Fixtures",
+  "type": "object",
+  "required": ["schema_version", "fixture_only", "stories"],
+  "properties": {
+    "schema_version": {"const": "ui-story-v1"},
+    "fixture_only": {"const": true},
+    "stories": {
+      "type": "array",
+      "minItems": 8,
+      "items": {"$ref": "#/$defs/story"}
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "story": {
+      "type": "object",
+      "required": ["story_id", "state", "item"],
+      "properties": {
+        "story_id": {"type": "string", "minLength": 3},
+        "state": {"enum": ["FULL", "R3_RESTRICTED", "WITHDRAWN", "SOURCE_DELAYED"]},
+        "item": {"$ref": "#/$defs/item"}
+      },
+      "additionalProperties": false
+    },
+    "item": {
+      "type": "object",
+      "required": ["id", "is_demo", "publishable", "domain", "content_type", "title", "source_name", "activity_at", "review_status", "publication_status", "evidence_status", "tags", "type_summary"],
+      "properties": {
+        "id": {"type": "string"},
+        "is_demo": {"const": true},
+        "publishable": {"const": false},
+        "domain": {"enum": ["DIGITAL", "SAFETY"]},
+        "content_type": {"type": "string"},
+        "title": {"type": "string"},
+        "one_sentence_fact": {"type": ["string", "null"]},
+        "relevance_reason": {"type": ["string", "null"]},
+        "source_name": {"type": "string"},
+        "source_role": {"type": "string"},
+        "activity_at": {"type": "string", "format": "date-time"},
+        "review_status": {"type": "string"},
+        "publication_status": {"type": "string"},
+        "evidence_status": {"type": "string"},
+        "evidence_count": {"type": "integer", "minimum": 0},
+        "tags": {"type": "array", "items": {"type": "string"}},
+        "scores": {"type": ["object", "null"]},
+        "type_summary": {"type": "object"},
+        "restriction_notice": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    }
+  }
+}

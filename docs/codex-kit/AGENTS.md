@@ -36,8 +36,8 @@
 ### UI 与前端约束
 
 - 正式前端只使用 Nuxt 4、Vue 3、TypeScript strict、Tailwind CSS 和 Nuxt UI 4；原型目录不得成为生产依赖，不得引入 React 或第二套全量组件库。
-- `docs/codex-kit/assets/ui/design_tokens.json` 是颜色、字体、间距、圆角、阴影和布局的单一权威；页面不得散落第二套品牌色硬编码。
-- 采用 `docs/codex-kit/assets/ui/references/selected-concept-01.png` 的方案1方向：低饱和牛油果主题、高密度时间线、证据化情报卡。
+- `assets/ui/design_tokens.json` 是颜色、字体、间距、圆角、阴影和布局的单一权威；页面不得散落第二套品牌色硬编码。
+- 采用 `assets/ui/references/selected-concept-01.png` 的方案1方向：低饱和牛油果主题、高密度时间线、证据化情报卡。
 - `/`、`/selected`、`/all`、`/digital`、`/safety` 必须复用同一 `IntelligenceFeedPage`、`TimelineFeed` 和 `IntelligenceCard`；内容类型只通过 `type_summary` 增量扩展。
 - 第02轮冻结 `FeedPage` 和 `ItemSummary` 第一版契约；第08轮前没有真实评分时隐藏评分区域，禁止生成演示分数进入正式页面。
 - 不把多维评分合并成模糊“可信度”；显示分数时必须明确是相关性、影响、权威、证据、置信或热度，并可查看规则版本和分项解释。

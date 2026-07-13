@@ -1,0 +1,38 @@
+:root {
+  --srbg-canvas: #f7f8f3;
+  --srbg-surface: #ffffff;
+  --srbg-surface-muted: #f1f4ec;
+  --srbg-border: #dfe4db;
+  --srbg-border-strong: #cfd8c8;
+  --srbg-ink: #202922;
+  --srbg-ink-muted: #66716a;
+  --srbg-brand-50: #f5f7f2;
+  --srbg-brand-100: #e8ede4;
+  --srbg-brand-500: #748b68;
+  --srbg-brand-600: #587248;
+  --srbg-brand-700: #405b32;
+  --srbg-digital: #4f8882;
+  --srbg-regulation: #b7792c;
+  --srbg-safety-case: #a94b45;
+  --srbg-verified: #5a7e4b;
+  --srbg-review-pending: #c68436;
+  --srbg-vendor-claim: #68727c;
+  --srbg-focus-ring: 0 0 0 3px rgb(88 114 72 / 24%);
+  --srbg-sidebar-width: 216px;
+  --srbg-sidebar-compact-width: 72px;
+  --srbg-feed-timeline-width: 80px;
+  --srbg-card-evidence-width: 248px;
+  --srbg-feed-max-width: 1720px;
+  --srbg-card-radius: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

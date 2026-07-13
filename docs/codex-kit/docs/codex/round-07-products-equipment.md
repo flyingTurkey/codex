@@ -3,7 +3,7 @@
 ```text
 执行第07轮：建立技术产品统一模型并完成软件、物联网、低空和AI设备展示。
 
-读取：docs/codex-kit/docs/01-PRD.md、docs/codex-kit/docs/02-content-model.md、docs/codex-kit/assets/taxonomy.yaml、docs/codex-kit/assets/ui/copy_examples.md、docs/codex-kit/docs/08-security-threat-model.md。
+读取：docs/codex-kit/docs/01-PRD.md、docs/codex-kit/docs/02-content-model.md、docs/codex-kit/assets/taxonomy.yaml、docs/codex-kit/assets/ui/copy_examples.md、docs/codex-kit/docs/08-security-threat-model.md、docs/codex-kit/docs/06-ui-ux-spec.md、docs/codex-kit/assets/ui/fixtures/feed-story-fixtures.json。
 
 来源：至少一个软件厂商和一个低空/设备厂商固定样本；真实来源必须通过来源准入。
 
@@ -18,6 +18,8 @@
 - 产品版本和型号归一候选，人工合并入口；
 - 厂商图片默认不下载，使用占位素材；
 - 契约、门禁、E2E和无障碍测试。
+
+方案1 UI增量：在既有 /digital、FilterPanel、IntelligenceCard 和详情页上增加 SOFTWARE_PRODUCT、IOT_PRODUCT、LOW_ALTITUDE_EQUIPMENT、AI_EQUIPMENT 四种 TypeSummary；必须显示“产品能力/工程证据/许可与限制”，厂商声明使用中性灰，不复制四套卡片。
 
 硬性测试：
 - 厂商宣称不进入verified_capabilities；

@@ -3,7 +3,7 @@
 ```text
 执行第04轮：完成安全事故从初报、续报、调查报告到处罚和整改的事件化展示。
 
-读取：docs/codex-kit/docs/01-PRD.md、docs/codex-kit/docs/02-content-model.md、docs/codex-kit/assets/taxonomy.yaml、docs/codex-kit/assets/sample_items.json、docs/codex-kit/docs/08-security-threat-model.md。
+读取：docs/codex-kit/docs/01-PRD.md、docs/codex-kit/docs/02-content-model.md、docs/codex-kit/assets/taxonomy.yaml、docs/codex-kit/assets/sample_items.json、docs/codex-kit/docs/08-security-threat-model.md、docs/codex-kit/docs/06-ui-ux-spec.md、docs/codex-kit/docs/ui/03-page-state-matrix.md。
 
 必须交付：
 - safety_case_profile、event、event_item、event_relation、claim_conflict迁移；
@@ -17,6 +17,8 @@
 - 从官方通报和调查报告固定样本完成E2E；
 - 撤回、更正和后续关系审计。
 
+方案1 UI增量：在同一 /safety 信息流增加“规定/案例”筛选和 SafetyCase TypeSummary；新增 EventTimeline、已确认事实区、待核实区和事件详情，复用现有卡片、事实与证据组件。调查中、正式调查、整改、冲突均以文字和图标表达。
+
 硬性测试：
 - 同一事故不同阶段不被精确或近似去重删除；
 - 媒体推测不能写入official_direct_causes；
@@ -25,7 +27,7 @@
 - 事故未结案显著显示调查中；
 - 提交人不能审批自己的安全案例。
 
-验收：演示一组初报→续报→调查→整改固定样本，时间线和证据完整，所有R3精选均经过审核。
+验收：演示一组初报→续报→调查→整改固定样本，时间线和证据完整，所有R3精选均经过审核；make web-e2e web-a11y覆盖事件主路径。
 
 不做：媒体线索自动发布、事故等级模型推断、复杂AI摘要。
 ```

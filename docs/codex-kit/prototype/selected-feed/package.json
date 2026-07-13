@@ -1,0 +1,18 @@
+{
+  "name": "selected-feed",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@vitejs/plugin-vue": "6.0.1",
+    "iconoir-vue": "7.11.0",
+    "vite": "6.4.2",
+    "vue": "3.5.22"
+  },
+  "devDependencies": {}
+}

@@ -1,6 +1,9 @@
 asset_id,file_path,owner,license_type,allowed_scope,expiry_at,status,notes
-ASSET-001,assets/ui/brand-placeholder.svg,本开发包,original-placeholder,development_only,,approved,非四川路桥正式标识
-ASSET-002,assets/ui/empty-state.svg,本开发包,original-placeholder,internal_product,,approved,可用于首期空状态
+ASSET-001,assets/ui/brand-placeholder.svg,本开发包,original-placeholder,development_only,,deprecated,方案1改用文字锁定稿；不得在新页面使用
+ASSET-002,assets/ui/empty-state.svg,本开发包,original-placeholder,internal_product,,deprecated,方案1使用Iconoir图标与真实空态文案；不得在新页面使用
 ASSET-003,official-srbg-logo.svg,四川路桥,company-approved,subject_to_brand_approval,,not_provided,由品牌管理部门提供
 ASSET-004,project-photography-set,四川路桥或授权方,documented-license,internal_or_public_per_release,,not_provided,每张照片需登记项目和使用范围
-
+ASSET-005,assets/ui/references/aihot-feed.png,用户提供的AIHOT截图,reference-only,internal_design_reference,,approved,不得作为页面背景或对外再分发
+ASSET-006,assets/ui/references/aihot-agent-page.png,用户提供的AIHOT截图,reference-only,internal_design_reference,,approved,不得作为页面背景或对外再分发
+ASSET-007,assets/ui/references/selected-concept-01.png,本次设计生成素材,generated-design-reference,internal_design_and_development,,approved,方案1视觉真相；正式产品需使用授权品牌素材
+ASSET-008,prototype/selected-feed/node_modules/iconoir-vue,Iconoir Vue contributors,MIT,development_and_production_icons,,approved,正式仓库应通过包管理器安装并保留许可证

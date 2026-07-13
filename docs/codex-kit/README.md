@@ -1,6 +1,6 @@
 # 四川路桥行业数智与安全情报平台（首期）Codex 开发包
 
-版本：`v1.0.0-design-baseline`  
+版本：`v1.1.0-avocado-ui`  
 基准日期：`2026-07-13`  
 适用对象：四川路桥产品负责人、行业编辑、信息化团队、Codex 开发代理
 
@@ -87,6 +87,7 @@
 | `docs/04-data-source-compliance.md` | 来源准入、采集、版权和合规要求 |
 | `docs/05-ai-pipeline.md` | AI 任务、Schema、门禁和模型治理 |
 | `docs/06-ui-ux-spec.md` | 页面、组件、交互、视觉和响应式规范 |
+| `docs/ui/` | 方案1视觉方向、设计系统、组件契约、状态矩阵与切片映射 |
 | `docs/07-slo-test-acceptance.md` | SLO、测试、金标集和上线门禁 |
 | `docs/08-security-threat-model.md` | 安全威胁与强制控制 |
 | `docs/09-operations-runbook.md` | 来源异常、撤回、重跑和灾备手册 |
@@ -98,6 +99,7 @@
 | `assets/schemas/` | AI 各步骤候选输出、来源策略和准入记录 Schema |
 | `assets/prompts/` | 分类、抽取、摘要、核验提示词 |
 | `assets/ui/` | 设计令牌、页面清单、SVG 占位素材 |
+| `prototype/selected-feed/` | 方案1 Vue 交互原型，仅用于视觉与交互参考 |
 | `assets/validation/` | 自动验证规则和发布门禁 |
 
 ## 7. Codex 使用方法
@@ -106,9 +108,10 @@
 2. 将 `docs/codex-kit/AGENTS.md` 复制或合并到仓库根目录的 `AGENTS.md`，使其成为 Codex 的仓库级强制约束。
 3. 先让 Codex 阅读根目录 `AGENTS.md`、`docs/codex-kit/README.md` 和 `docs/codex-kit/docs/codex/00-usage.md`；后续开发包路径均以 `docs/codex-kit/` 为根。
 4. 让 Codex 执行 `docs/codex-kit/docs/codex/01-bootstrap-prompt.md`，只完成仓库初始化和可运行骨架。
-5. 按 `docs/codex-kit/docs/codex/02-rounds.md` 顺序逐轮实施；每轮单独开任务，不要把所有轮次合并为一次超长任务。
-6. 每轮必须先运行基线测试、再实施、再运行该轮验收命令、再提交 Git。
-7. 未通过该轮门禁，不得进入下一轮。
+5. 已执行第00轮后，先执行 `docs/codex-kit/docs/codex/round-00a-ui-foundation.md`，再按 `docs/codex-kit/docs/codex/02-rounds.md` 逐轮实施；每轮单独开任务。
+6. 完整的后续指令顺序见 `docs/codex-kit/docs/codex/03-after-bootstrap-command-sequence.md`。
+7. 每轮必须先运行基线测试、再实施、再运行该轮验收命令、再提交 Git。
+8. 未通过该轮门禁，不得进入下一轮。
 
 开发、演示和素材预览不要求人工预先计算证据摘要哈希；该字段是完整性增强项，不应阻塞页面打开、联调或纵向切片开发。生产发布时由服务端基于规范化字节自动计算并校验 SHA-256，客户端或模型提供的哈希不得作为权威值。
 

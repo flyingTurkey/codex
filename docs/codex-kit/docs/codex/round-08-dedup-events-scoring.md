@@ -3,7 +3,7 @@
 ```text
 执行第08轮：在现有四类内容闭环上实现可解释的去重、事件聚类、独立信源和评分。
 
-读取：docs/codex-kit/docs/02-content-model.md、docs/codex-kit/docs/03-technical-architecture.md、docs/codex-kit/docs/01-PRD.md、docs/codex-kit/assets/taxonomy.yaml。
+读取：docs/codex-kit/docs/02-content-model.md、docs/codex-kit/docs/03-technical-architecture.md、docs/codex-kit/docs/01-PRD.md、docs/codex-kit/assets/taxonomy.yaml、docs/codex-kit/docs/06-ui-ux-spec.md、docs/codex-kit/docs/ui/02-component-contracts.md。
 
 必须交付：
 - URL/外部ID/DOI/文号/哈希精确去重；
@@ -16,6 +16,8 @@
 - 热点页、事件时间线和来源对比；
 - 300对重复/非重复和100事件的首版金标结构；
 - 离线评测命令输出精确率、召回率和聚类纯度。
+
+方案1 UI增量：只从本轮开始在卡片开放真实 ScoreSummary；卡片最多显示一个明确命名的“相关度”摘要，点击后展示相关性、权威、影响、新颖、时效、证据、置信、热度的可用分项、特征解释和规则版本。新增热点、来源对比和人工聚类工作台，复用现有壳层。
 
 硬约束：
 - 不同项目、标段、型号、文号和事故阶段不能仅因文本相似而合并；

@@ -3,7 +3,7 @@
 ```text
 执行第11轮：把平台从功能完成提升为可内测、可监控、可恢复的生产候选版本。
 
-读取：docs/codex-kit/docs/07-slo-test-acceptance.md、docs/codex-kit/docs/08-security-threat-model.md、docs/codex-kit/docs/09-operations-runbook.md、docs/codex-kit/assets/validation/quality_gates.json、docs/codex-kit/assets/validation/readiness_evidence.schema.json。
+读取：docs/codex-kit/docs/07-slo-test-acceptance.md、docs/codex-kit/docs/08-security-threat-model.md、docs/codex-kit/docs/09-operations-runbook.md、docs/codex-kit/docs/06-ui-ux-spec.md、docs/codex-kit/docs/ui/04-responsive-accessibility.md、docs/codex-kit/assets/validation/quality_gates.json、docs/codex-kit/assets/validation/readiness_evidence.schema.json。
 
 必须交付：
 - 来源健康、队列、解析、AI、审核、API、搜索和成本指标；
@@ -19,6 +19,7 @@
 - 发布、回滚、撤回、来源故障和模型异常Runbook可执行验证；
 - 内测种子用户和反馈指标埋点；
 - 上线验收报告。
+- 来源健康、运行中心和质量看板必须复用方案1设计系统；完成用户端与管理端的视觉回归、键盘、200%缩放、axe和性能验收；
 - 上线验收证据必须通过 `readiness_evidence.schema.json`，每项结论记录策略版本与哈希、金标集版本与哈希、原始测试/监控/演练证据引用、执行时间和执行主体；
 - 将 Schema 校验、金标回放、发布门禁对抗测试、安全扫描和 readiness 证据校验设为 CI required checks，提供分支保护/CODEOWNERS 配置说明，不得由普通合并、跳过检查或修改候选输出绕过；
 

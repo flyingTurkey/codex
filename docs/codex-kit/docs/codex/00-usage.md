@@ -20,7 +20,13 @@ D:\CodexProjects\srbg-insight-platform
 
 不要放在桌面、下载目录、OneDrive 同步目录或中文路径层级过深的位置，避免容器、Node 和脚本路径问题。
 
-## 3. 每轮开始方式
+## 3. 第 00 轮后的下一步
+
+如果已经执行 `01-bootstrap-prompt.md`，下一条应发送 `round-00a-ui-foundation.md`，先把方案 1 的设计系统、应用壳层、响应式和无障碍基线落到现有工程，再进入第 01 轮。
+
+完整顺序和可复制固定前言见 `03-after-bootstrap-command-sequence.md`。
+
+## 4. 每轮开始方式
 
 每轮单独创建一个 Codex 任务，先粘贴以下固定前言，再粘贴对应轮次指令：
 
@@ -39,7 +45,7 @@ D:\CodexProjects\srbg-insight-platform
 必须采用测试驱动和纵向切片。未经授权不得扩大范围，不得引入微服务、Kafka、Kubernetes、OpenSearch、图数据库或新的数据库。
 ```
 
-## 4. 每轮结束要求
+## 5. 每轮结束要求
 
 Codex 必须返回：
 
@@ -54,11 +60,12 @@ Codex 必须返回：
 
 若测试失败、验收不完整或门禁未过，Codex 必须明确报告“本轮未完成”，不能用文字解释替代修复。
 
-## 5. 轮次顺序
+## 6. 轮次顺序
 
 | 轮次 | 纵向切片 | 关键结果 |
 |---:|---|---|
 | 00 | 工程基线 | 一条命令启动 Web/API/Worker/Postgres/Redis/MinIO |
+| 00A | 设计系统与壳层 | 牛油果主题、统一组件、响应式和无障碍基线 |
 | 01 | 来源与人工导入 | 来源准入、原始对象、文档版本和预览 |
 | 02 | 首个安全规定源 | HTML发现到审核发布完整闭环 |
 | 03 | PDF/OCR/版本 | 页码证据、差异和摘要失效 |
@@ -71,12 +78,13 @@ Codex 必须返回：
 | 10 | 信息流、搜索、日报 | AI HOT式阅读和内容产品闭环 |
 | 11 | 质量、运维与独立验收 | 金标、SLO、告警、恢复、安全门禁和可验证证据包 |
 
-## 6. 分支与提交
+## 7. 分支与提交
 
 每轮建议使用独立分支：
 
 ```text
 feat/round-00-foundation
+feat/round-00a-ui-foundation
 feat/round-01-source-vault
 ...
 feat/round-11-production-gates
@@ -84,11 +92,11 @@ feat/round-11-production-gates
 
 每个可独立验证的子任务完成后提交一次；不要把整个轮次压成一个无法审查的大提交。
 
-## 7. 环境配置
+## 8. 环境配置
 
 敏感配置只进入 `.env` 和 Secret Manager，仓库只提交 `.env.example`。开发环境可使用 Mock 模型，不应把真实模型密钥作为前四轮的阻塞条件。
 
-## 8. 暂停条件
+## 9. 暂停条件
 
 出现以下情况应停止该轮并报告：
 
