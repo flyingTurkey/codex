@@ -22,7 +22,7 @@ async function expectNoHorizontalOverflow(page: Page): Promise<void> {
 }
 
 async function expectHydratedApp(page: Page): Promise<void> {
-  await expect(page.locator('[aria-busy]')).toHaveAttribute('aria-busy', 'false', {
+  await expect(page.locator('.srbg-app-shell[aria-busy]')).toHaveAttribute('aria-busy', 'false', {
     timeout: 20_000,
   })
 }
@@ -139,7 +139,6 @@ test('mobile drawer has keyboard focus containment, Escape close, and scroll res
   await trigger.focus()
   await page.keyboard.press('Enter')
 
-  expect(browserErrors).toEqual([])
   await expect(trigger).toHaveAttribute('aria-expanded', 'true')
   const dialog = page.getByRole('dialog', { name: '四川路桥·智安情报' })
   await expect(dialog).toBeVisible()
@@ -156,6 +155,7 @@ test('mobile drawer has keyboard focus containment, Escape close, and scroll res
   await expect(dialog).toBeHidden()
   await expect(trigger).toBeFocused()
   expect(await page.evaluate(() => document.body.style.overflow)).toBe(initialOverflow)
+  expect(browserErrors).toEqual([])
 })
 
 const desktopWidths = [
@@ -252,11 +252,30 @@ test('forced colors preserves a visible focus indicator and text-plus-icon statu
 
   const status = page.getByText('工程基线可用', { exact: true }).locator('..')
   await expect(status).toBeVisible()
-  await expect(status.locator('svg')).toHaveCount(1)
+  const statusIcon = status.locator('svg')
+  await expect(statusIcon).toBeVisible()
+  const iconBox = await statusIcon.boundingBox()
+  expect(iconBox).not.toBeNull()
+  expect(iconBox!.width).toBeGreaterThan(0)
+  expect(iconBox!.height).toBeGreaterThan(0)
+
+  const iconStyle = await statusIcon.evaluate((element) => {
+    const style = getComputedStyle(element)
+    return { display: style.display, visibility: style.visibility }
+  })
+  expect(iconStyle.display).not.toBe('none')
+  expect(iconStyle.visibility).toBe('visible')
+
+  const pathStrokes = await statusIcon.locator('path').evaluateAll((paths) =>
+    paths.map((path) => getComputedStyle(path).stroke),
+  )
+  expect(pathStrokes.length).toBeGreaterThan(0)
+  expect(pathStrokes.every((stroke) => stroke !== 'none')).toBe(true)
 })
 
 test('@a11y root has an entirely empty axe violations array', async ({ page }) => {
   await page.goto('/')
+  await expectHydratedApp(page)
   await expect(page.getByRole('heading', { level: 1, name: '今日精选' })).toBeVisible()
 
   const results = await new AxeBuilder({ page }).analyze()

@@ -12,6 +12,9 @@ for (const viewport of visualViewports) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height })
     await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
     await page.goto('/')
+    await expect(page.locator('.srbg-app-shell[aria-busy="false"]')).toBeVisible({
+      timeout: 20_000,
+    })
     await expect(page.getByRole('heading', { level: 1, name: '今日精选' })).toBeVisible()
     await expect(page.getByText('API v1 · Schema 1.0.0', { exact: true })).toBeVisible()
 
