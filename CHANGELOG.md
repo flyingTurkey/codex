@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+### Round 00A — 方案1设计系统与应用壳层
+
+- 以 `design_tokens.json` 为单一视觉权威，建立类型安全的 `@srbg/ui`、Tailwind 与 Nuxt UI 主题映射；
+- 为 Nuxt 4 接入统一应用壳层、共享 `IntelligenceFeedPage`、频道导航和真实 API/Schema 工程状态与空态；
+- 完成响应式侧栏/抽屉、键盘与焦点管理、reduced-motion、axe 和四断点视觉回归，并修复 UUIDv7 请求标识与 SPA 导航；
+- 本轮未修改后端、业务 API 或数据库迁移。
+
 ### Round 00 — 工程基线
 
 - 建立 `apps/web`、`apps/api`、`apps/worker`、`packages/contracts`、`infra` monorepo；
