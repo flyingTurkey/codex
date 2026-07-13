@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 
 import AppIcon from './AppIcon.vue'
 import AppSidebar from './AppSidebar.vue'
@@ -27,6 +27,11 @@ const emit = defineEmits<{
 }>()
 
 const mobileNavigationOpen = ref(false)
+const navigationReady = ref(false)
+
+onMounted(() => {
+  navigationReady.value = true
+})
 
 function handleNavigation(item: AppNavigationItem, event: MouseEvent): void {
   emit('navigate', item, event)
@@ -39,7 +44,7 @@ function handleMobileNavigation(item: AppNavigationItem, event: MouseEvent): voi
 </script>
 
 <template>
-  <div class="srbg-app-shell">
+  <div class="srbg-app-shell" :aria-busy="!navigationReady">
     <a class="srbg-skip-link" href="#main-content">跳到主内容</a>
 
     <div class="srbg-app-shell__desktop-sidebar">
@@ -66,6 +71,7 @@ function handleMobileNavigation(item: AppNavigationItem, event: MouseEvent): voi
         aria-label="打开导航"
         aria-haspopup="dialog"
         :aria-expanded="mobileNavigationOpen"
+        :disabled="!navigationReady"
         @click="mobileNavigationOpen = true"
       >
         <AppIcon name="Menu" />

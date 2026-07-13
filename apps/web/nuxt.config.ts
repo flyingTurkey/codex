@@ -30,4 +30,9 @@ export default defineNuxtConfig({
     strict: true,
     typeCheck: true,
   },
+  vite: {
+    optimizeDeps: {
+      include: ['iconoir-vue/regular'],
+    },
+  },
 })

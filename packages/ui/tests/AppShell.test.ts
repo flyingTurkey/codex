@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
 import { mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
 
 import { AppShell, AppSidebar, type AppNavigationItem } from '../src/index'
 
@@ -48,6 +49,9 @@ describe('AppShell', () => {
       },
     })
 
+    await nextTick()
+    expect(wrapper.attributes('aria-busy')).toBe('false')
+    expect(wrapper.get<HTMLButtonElement>('.srbg-app-shell__menu').element.disabled).toBe(false)
     expect(wrapper.getComponent(AppSidebar).props('responsiveCompact')).toBe(true)
 
     await wrapper.get('.srbg-app-shell__menu').trigger('click')
@@ -86,6 +90,7 @@ describe('AppShell', () => {
       },
     })
 
+    await nextTick()
     await wrapper.get('.srbg-app-shell__menu').trigger('click')
     const drawerSidebar = wrapper.findAllComponents(AppSidebar)[1]
     await drawerSidebar?.get('a[href="/selected"]').trigger('click')

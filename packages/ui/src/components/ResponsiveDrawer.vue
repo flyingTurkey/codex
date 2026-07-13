@@ -73,7 +73,7 @@ onBeforeUnmount(unlockBody)
         :aria-labelledby="titleId"
         :aria-describedby="description ? descriptionId : undefined"
       >
-        <header class="srbg-drawer__header">
+        <div class="srbg-drawer__header">
           <div>
             <h2 :id="titleId">{{ title }}</h2>
             <p v-if="description" :id="descriptionId">{{ description }}</p>
@@ -81,7 +81,7 @@ onBeforeUnmount(unlockBody)
           <button class="srbg-drawer__close" type="button" :aria-label="closeLabel" @click="close">
             <AppIcon name="Xmark" />
           </button>
-        </header>
+        </div>
         <div class="srbg-drawer__content">
           <slot />
         </div>

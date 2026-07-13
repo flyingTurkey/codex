@@ -124,6 +124,14 @@ describe('application shell contract', () => {
     expect(source).not.toContain('config.internalApiBase,')
   })
 
+  it('prebundles the shared Iconoir entry before browser hydration', () => {
+    const source = readFileSync(resolve(process.cwd(), 'nuxt.config.ts'), 'utf8')
+
+    expect(source).toMatch(
+      /vite:\s*\{[\s\S]*?optimizeDeps:\s*\{[\s\S]*?include:\s*\['iconoir-vue\/regular'\]/,
+    )
+  })
+
   it('reuses IntelligenceFeedPage for every feed route and honest placeholder route', () => {
     const directPages = ['selected.vue', 'all.vue', 'digital.vue', 'safety.vue', 'daily.vue', 'saved.vue']
 
