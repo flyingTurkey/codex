@@ -3,7 +3,7 @@ export default defineNuxtConfig({
     head: {
       htmlAttrs: { lang: 'zh-CN' },
       meta: [
-        { name: 'description', content: '四川路桥行业数智与安全情报平台演示环境' },
+        { name: 'description', content: '四川路桥行业数智与安全情报平台' },
         { name: 'color-scheme', content: 'light' },
       ],
       title: '四川路桥·智安情报',

@@ -1,0 +1,91 @@
+import { existsSync, readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
+import { describe, expect, it } from 'vitest'
+
+const appRoot = resolve(process.cwd(), 'app')
+const navigationModules = import.meta.glob<{
+  adminNavigation: readonly { label: string }[]
+  primaryNavigation: readonly { activePaths?: readonly string[]; label: string; to: string }[]
+}>('../app/navigatio[n].ts', { eager: true })
+
+function readAppFile(relativePath: string): string {
+  return readFileSync(resolve(appRoot, relativePath), 'utf8')
+}
+
+describe('application shell contract', () => {
+  it('keeps one UApp while delegating page chrome to the default Nuxt layout', () => {
+    const source = readAppFile('app.vue')
+
+    expect(source.match(/<UApp(?:\s|>)/g)).toHaveLength(1)
+    expect(source).toContain('<NuxtLayout>')
+    expect(source).toContain('<NuxtPage />')
+  })
+
+  it('defines the locked navigation and keeps management explicitly disabled', () => {
+    const navigationPath = resolve(appRoot, 'navigation.ts')
+    const layoutPath = resolve(appRoot, 'layouts/default.vue')
+
+    expect(existsSync(navigationPath), 'navigation.ts should exist').toBe(true)
+    expect(existsSync(layoutPath), 'layouts/default.vue should exist').toBe(true)
+    if (!existsSync(navigationPath) || !existsSync(layoutPath)) return
+
+    const navigation = navigationModules['../app/navigation.ts']
+    expect(navigation, 'navigation.ts should be importable').toBeDefined()
+    if (!navigation) return
+
+    const { adminNavigation, primaryNavigation } = navigation
+    expect(primaryNavigation.map((item) => [item.label, item.to])).toEqual([
+      ['今日精选', '/'],
+      ['全部动态', '/all'],
+      ['数字化', '/digital'],
+      ['安全情报', '/safety'],
+      ['行业日报', '/daily'],
+      ['收藏', '/saved'],
+    ])
+    expect(primaryNavigation[0]?.activePaths).toEqual(['/selected'])
+    expect(adminNavigation.map((item) => item.label)).toEqual(['管理入口'])
+
+    const layoutSource = readAppFile('layouts/default.vue')
+    expect(layoutSource.match(/<AppShell(?:\s|>)/g)).toHaveLength(1)
+    expect(layoutSource).toContain('const showAdmin = false')
+    expect(layoutSource).toContain(':show-admin="showAdmin"')
+  })
+
+  it('keeps the real version request bounded and exposes only safe Problem Details', () => {
+    const source = readAppFile('pages/index.vue')
+
+    expect(source).toContain('/api/v1/version')
+    expect(source).toMatch(/retry:\s*0/)
+    expect(source).toMatch(/timeout:\s*2_000/)
+    expect(source).toContain('ProblemDetails')
+    expect(source).not.toContain('error.value?.stack')
+    expect(source).not.toContain('config.internalApiBase,')
+  })
+
+  it('reuses IntelligenceFeedPage for every feed route and honest placeholder route', () => {
+    const directPages = ['selected.vue', 'all.vue', 'digital.vue', 'safety.vue', 'daily.vue', 'saved.vue']
+
+    expect(readAppFile('components/HomeDashboard.vue')).toContain('<IntelligenceFeedPage')
+    for (const page of directPages) {
+      const path = resolve(appRoot, 'pages', page)
+      expect(existsSync(path), `pages/${page} should exist`).toBe(true)
+      if (existsSync(path)) expect(readAppFile(`pages/${page}`)).toContain('<IntelligenceFeedPage')
+    }
+  })
+
+  it('does not introduce future feed, card, scoring, or publication contracts', () => {
+    const productionSources = [
+      'components/HomeDashboard.vue',
+      'pages/index.vue',
+      'app.vue',
+    ]
+      .filter((path) => existsSync(resolve(appRoot, path)))
+      .map(readAppFile)
+      .join('\n')
+
+    expect(productionSources).not.toMatch(
+      /TimelineFeed|IntelligenceCard|interface\s+FeedPage|interface\s+ItemSummary|PublicationService/,
+    )
+  })
+})

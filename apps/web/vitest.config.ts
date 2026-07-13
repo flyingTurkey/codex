@@ -7,5 +7,10 @@ export default defineConfig({
     environment: 'happy-dom',
     globals: true,
     include: ['tests/**/*.test.ts'],
+    server: {
+      deps: {
+        inline: ['@srbg/ui'],
+      },
+    },
   },
 })

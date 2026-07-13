@@ -16,6 +16,7 @@
   "dependencies": {
     "@nuxt/ui": "4.9.0",
     "@srbg/contracts": "workspace:*",
+    "@srbg/ui": "workspace:*",
     "nuxt": "4.4.8",
     "vue": "3.5.39"
   },
