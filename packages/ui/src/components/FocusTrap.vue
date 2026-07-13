@@ -24,15 +24,31 @@ const focusableSelector = [
   'input:not([disabled])',
   'select:not([disabled])',
   'textarea:not([disabled])',
-  '[tabindex]:not([tabindex="-1"])',
+  '[tabindex]',
 ].join(',')
 
 function focusableElements(): HTMLElement[] {
   if (!container.value) return []
-  return Array.from(container.value.querySelectorAll<HTMLElement>(focusableSelector)).filter(isTabbable)
+  const candidates = Array.from(
+    container.value.querySelectorAll<HTMLElement>(focusableSelector),
+  ).filter((element) => isAvailableFocusTarget(element) && element.tabIndex >= 0)
+
+  return candidates.filter((element) => {
+    if (!(element instanceof HTMLInputElement) || element.type !== 'radio' || !element.name) {
+      return true
+    }
+    const group = candidates.filter(
+      (candidate): candidate is HTMLInputElement =>
+        candidate instanceof HTMLInputElement &&
+        candidate.type === 'radio' &&
+        candidate.name === element.name &&
+        candidate.form === element.form,
+    )
+    return element === (group.find((radio) => radio.checked) ?? group[0])
+  })
 }
 
-function isTabbable(element: HTMLElement): boolean {
+function isAvailableFocusTarget(element: HTMLElement): boolean {
   if (element.matches(':disabled')) return false
   if (element.closest('[hidden], [inert], [aria-hidden="true"], fieldset[disabled]')) return false
   if (element instanceof HTMLInputElement && element.type === 'hidden') return false
@@ -49,13 +65,30 @@ function isTabbable(element: HTMLElement): boolean {
   return true
 }
 
+function isProgrammaticallyFocusable(element: HTMLElement): boolean {
+  return (
+    isAvailableFocusTarget(element) &&
+    (element.tabIndex >= 0 || element.hasAttribute('tabindex'))
+  )
+}
+
+function focusFallback(): void {
+  if (!container.value) return
+  const fallback = focusableElements()[0] ?? container.value
+  fallback.focus()
+  if (document.activeElement !== fallback && fallback !== container.value) container.value.focus()
+}
+
 function focusInitial(): void {
   if (!container.value) return
   const requested = props.initialFocus
     ? container.value.querySelector<HTMLElement>(props.initialFocus)
     : undefined
-  const target = (requested && isTabbable(requested) ? requested : undefined) ?? focusableElements()[0] ?? container.value
-  target.focus()
+  if (requested && isProgrammaticallyFocusable(requested)) {
+    requested.focus()
+    if (document.activeElement === requested) return
+  }
+  focusFallback()
 }
 
 function restoreFocus(): void {

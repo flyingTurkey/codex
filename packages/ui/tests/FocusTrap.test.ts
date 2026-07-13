@@ -79,4 +79,144 @@ describe('FocusTrap', () => {
     wrapper.unmount()
     returnTarget.remove()
   })
+
+  it('excludes every negative tabindex value from the Tab loop', async () => {
+    const wrapper = mount(FocusTrap, {
+      attachTo: document.body,
+      props: { active: false },
+      slots: {
+        default: `
+          <button id="negative-head" type="button" tabindex="-2">负值开头</button>
+          <button id="tabbable-first" type="button">第一项</button>
+          <button id="tabbable-last" type="button">最后一项</button>
+          <button id="negative-tail" type="button" tabindex="-3">负值结尾</button>
+        `,
+      },
+    })
+
+    await wrapper.setProps({ active: true })
+    await nextTick()
+
+    wrapper.get<HTMLButtonElement>('#tabbable-last').element.focus()
+    await wrapper.get('#tabbable-last').trigger('keydown', { key: 'Tab' })
+    expect(document.activeElement?.id).toBe('tabbable-first')
+
+    wrapper.get<HTMLButtonElement>('#tabbable-first').element.focus()
+    await wrapper.get('#tabbable-first').trigger('keydown', { key: 'Tab', shiftKey: true })
+    expect(document.activeElement?.id).toBe('tabbable-last')
+
+    wrapper.unmount()
+  })
+
+  it('uses only the checked radio as the Tab stop for a checked group', async () => {
+    const wrapper = mount(FocusTrap, {
+      attachTo: document.body,
+      props: { active: false },
+      slots: {
+        default: `
+          <input id="checked-before" name="checked-group" type="radio">
+          <input id="checked-stop" name="checked-group" type="radio" checked>
+          <button id="checked-boundary" type="button">边界</button>
+          <input id="checked-after" name="checked-group" type="radio">
+        `,
+      },
+    })
+
+    await wrapper.setProps({ active: true })
+    await nextTick()
+
+    wrapper.get<HTMLButtonElement>('#checked-boundary').element.focus()
+    await wrapper.get('#checked-boundary').trigger('keydown', { key: 'Tab' })
+    expect(document.activeElement?.id).toBe('checked-stop')
+
+    await wrapper.get('#checked-stop').trigger('keydown', { key: 'Tab', shiftKey: true })
+    expect(document.activeElement?.id).toBe('checked-boundary')
+
+    wrapper.unmount()
+  })
+
+  it('uses the first available radio as the Tab stop when a group has no selection', async () => {
+    const wrapper = mount(FocusTrap, {
+      attachTo: document.body,
+      props: { active: false },
+      slots: {
+        default: `
+          <input id="unchecked-disabled" name="unchecked-group" type="radio" disabled>
+          <div hidden><input id="unchecked-hidden" name="unchecked-group" type="radio"></div>
+          <input id="unchecked-first" name="unchecked-group" type="radio">
+          <button id="unchecked-boundary" type="button">边界</button>
+          <input id="unchecked-second" name="unchecked-group" type="radio">
+        `,
+      },
+    })
+
+    await wrapper.setProps({ active: true })
+    await nextTick()
+
+    wrapper.get<HTMLButtonElement>('#unchecked-boundary').element.focus()
+    await wrapper.get('#unchecked-boundary').trigger('keydown', { key: 'Tab' })
+    expect(document.activeElement?.id).toBe('unchecked-first')
+
+    wrapper.unmount()
+  })
+
+  it('keeps same-name radio groups in different forms as separate Tab stops', async () => {
+    const wrapper = mount(FocusTrap, {
+      attachTo: document.body,
+      props: { active: false },
+      slots: {
+        default: `
+          <form><input id="form-a-radio" name="shared-name" type="radio" checked></form>
+          <button id="between-forms" type="button">中间项</button>
+          <form><input id="form-b-radio" name="shared-name" type="radio"></form>
+        `,
+      },
+    })
+
+    await wrapper.setProps({ active: true })
+    await nextTick()
+
+    await wrapper.get('#form-a-radio').trigger('keydown', { key: 'Tab', shiftKey: true })
+    expect(document.activeElement?.id).toBe('form-b-radio')
+
+    wrapper.unmount()
+  })
+
+  it('accepts an explicit negative tabindex as the programmatic initial focus target', async () => {
+    const wrapper = mount(FocusTrap, {
+      attachTo: document.body,
+      props: { active: false, initialFocus: '#programmatic-target' },
+      slots: {
+        default: `
+          <div id="programmatic-target" tabindex="-1">程序焦点</div>
+          <button id="programmatic-fallback" type="button">回退</button>
+        `,
+      },
+    })
+
+    await wrapper.setProps({ active: true })
+    await nextTick()
+    expect(document.activeElement?.id).toBe('programmatic-target')
+
+    wrapper.unmount()
+  })
+
+  it('falls back to the first tabbable when initialFocus points to a plain heading', async () => {
+    const wrapper = mount(FocusTrap, {
+      attachTo: document.body,
+      props: { active: false, initialFocus: '#plain-heading' },
+      slots: {
+        default: `
+          <h2 id="plain-heading">普通标题</h2>
+          <button id="heading-fallback" type="button">回退</button>
+        `,
+      },
+    })
+
+    await wrapper.setProps({ active: true })
+    await nextTick()
+    expect(document.activeElement?.id).toBe('heading-fallback')
+
+    wrapper.unmount()
+  })
 })
