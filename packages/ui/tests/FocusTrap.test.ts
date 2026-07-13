@@ -258,6 +258,59 @@ describe('FocusTrap', () => {
     wrapper.unmount()
   })
 
+  it('orders positive tabindex values before ordinary controls in browser Tab order', async () => {
+    const wrapper = mount(FocusTrap, {
+      attachTo: document.body,
+      props: { active: false },
+      slots: {
+        default: `
+          <button id="ordinary-first" type="button">普通开头</button>
+          <button id="positive-three" type="button" tabindex="3">正值三</button>
+          <button id="positive-one" type="button" tabindex="1">正值一</button>
+          <button id="ordinary-last" type="button">普通结尾</button>
+        `,
+      },
+    })
+
+    await wrapper.setProps({ active: true })
+    await nextTick()
+    expect(document.activeElement?.id).toBe('positive-one')
+
+    await wrapper.get('#positive-one').trigger('keydown', { key: 'Tab', shiftKey: true })
+    expect(document.activeElement?.id).toBe('ordinary-last')
+
+    await wrapper.get('#ordinary-last').trigger('keydown', { key: 'Tab' })
+    expect(document.activeElement?.id).toBe('positive-one')
+
+    wrapper.unmount()
+  })
+
+  it('keeps equal positive tabindex values in DOM order', async () => {
+    const wrapper = mount(FocusTrap, {
+      attachTo: document.body,
+      props: { active: false },
+      slots: {
+        default: `
+          <button id="equal-first" type="button" tabindex="2">同值开头</button>
+          <button id="lower-positive" type="button" tabindex="1">较低值</button>
+          <button id="equal-last" type="button" tabindex="2">同值结尾</button>
+        `,
+      },
+    })
+
+    await wrapper.setProps({ active: true })
+    await nextTick()
+    expect(document.activeElement?.id).toBe('lower-positive')
+
+    await wrapper.get('#lower-positive').trigger('keydown', { key: 'Tab', shiftKey: true })
+    expect(document.activeElement?.id).toBe('equal-last')
+
+    await wrapper.get('#equal-last').trigger('keydown', { key: 'Tab' })
+    expect(document.activeElement?.id).toBe('lower-positive')
+
+    wrapper.unmount()
+  })
+
   it('accepts an explicit negative tabindex as the programmatic initial focus target', async () => {
     const wrapper = mount(FocusTrap, {
       attachTo: document.body,

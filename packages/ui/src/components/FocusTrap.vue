@@ -45,7 +45,7 @@ function focusableElements(): HTMLElement[] {
     container.value.querySelectorAll<HTMLElement>(focusableSelector),
   ).filter(isTabStop)
 
-  return candidates.filter((element) => {
+  const radioTabStops = candidates.filter((element) => {
     if (!(element instanceof HTMLInputElement) || element.type !== 'radio' || !element.name) {
       return true
     }
@@ -58,6 +58,20 @@ function focusableElements(): HTMLElement[] {
     )
     return element === (group.find((radio) => radio.checked) ?? group[0])
   })
+
+  return radioTabStops
+    .map((element, domIndex) => ({ element, domIndex }))
+    .sort((left, right) => {
+      const leftTabIndex = left.element.tabIndex
+      const rightTabIndex = right.element.tabIndex
+      if (leftTabIndex > 0 && rightTabIndex <= 0) return -1
+      if (leftTabIndex <= 0 && rightTabIndex > 0) return 1
+      if (leftTabIndex > 0 && rightTabIndex > 0 && leftTabIndex !== rightTabIndex) {
+        return leftTabIndex - rightTabIndex
+      }
+      return left.domIndex - right.domIndex
+    })
+    .map(({ element }) => element)
 }
 
 function isTabStop(element: HTMLElement): boolean {
