@@ -20,12 +20,15 @@ describe('AppSidebar', () => {
         adminNavigation,
         currentPath: '/digital/cases',
         showAdmin: false,
+        responsiveCompact: true,
       },
       slots: { footer: '<span data-test="footer">测试用户</span>' },
     })
 
     expect(wrapper.get('nav').attributes('aria-label')).toBe('主导航')
     expect(wrapper.get('a[href="/digital"]').attributes('aria-current')).toBe('page')
+    expect(wrapper.attributes('data-responsive-compact')).toBe('true')
+    expect(wrapper.get('a[href="/digital"]').attributes('title')).toBe('数字化')
     expect(wrapper.find('a[href="/selected"]').attributes('aria-current')).toBeUndefined()
     expect(wrapper.find('a[href="/admin"]').exists()).toBe(false)
     expect(wrapper.get('[data-test="footer"]').text()).toBe('测试用户')

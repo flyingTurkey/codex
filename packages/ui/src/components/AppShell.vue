@@ -37,6 +37,7 @@ const mobileNavigationOpen = ref(false)
         :admin-navigation="adminNavigation"
         :current-path="currentPath"
         :show-admin="showAdmin"
+        responsive-compact
       >
         <template v-if="$slots['sidebar-footer']" #footer>
           <slot name="sidebar-footer" />
@@ -133,25 +134,14 @@ const mobileNavigationOpen = ref(false)
     grid-template-columns: var(--srbg-layout-sidebar-compact) minmax(0, 1fr);
   }
 
-  .srbg-app-shell__desktop-sidebar :deep(.srbg-sidebar__brand-name),
-  .srbg-app-shell__desktop-sidebar :deep(.srbg-sidebar__brand-subtitle),
-  .srbg-app-shell__desktop-sidebar :deep(.srbg-sidebar__label) {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
-    clip-path: inset(50%);
-  }
-
-  .srbg-app-shell__desktop-sidebar :deep(.srbg-sidebar__link) {
-    justify-content: center;
-    padding-inline: 0;
-  }
-
   .srbg-app-shell__main {
     padding: var(--spacing-7);
+  }
+}
+
+@media (min-width: 80rem) and (max-width: 89.999rem) {
+  .srbg-app-shell {
+    grid-template-columns: calc(var(--srbg-layout-sidebar) - var(--spacing-4)) minmax(0, 1fr);
   }
 }
 

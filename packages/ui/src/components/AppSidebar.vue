@@ -11,12 +11,14 @@ const props = withDefaults(
     currentPath: string
     showAdmin?: boolean
     compact?: boolean
+    responsiveCompact?: boolean
   }>(),
   {
     brandSubtitle: undefined,
     adminNavigation: () => [],
     showAdmin: false,
     compact: false,
+    responsiveCompact: false,
   },
 )
 
@@ -33,8 +35,12 @@ function isActive(item: AppNavigationItem): boolean {
 </script>
 
 <template>
-  <aside class="srbg-sidebar" :data-compact="compact || undefined">
-    <div class="srbg-sidebar__brand" :title="compact ? brand : undefined">
+  <aside
+    class="srbg-sidebar"
+    :data-compact="compact || undefined"
+    :data-responsive-compact="responsiveCompact || undefined"
+  >
+    <div class="srbg-sidebar__brand" :title="compact || responsiveCompact ? brand : undefined">
       <strong class="srbg-sidebar__brand-name">{{ brand }}</strong>
       <span v-if="brandSubtitle" class="srbg-sidebar__brand-subtitle">{{ brandSubtitle }}</span>
     </div>
@@ -47,7 +53,7 @@ function isActive(item: AppNavigationItem): boolean {
         :class="{ 'srbg-sidebar__link--active': isActive(item) }"
         :href="item.to"
         :aria-current="isActive(item) ? 'page' : undefined"
-        :title="compact ? item.label : undefined"
+        :title="compact || responsiveCompact ? item.label : undefined"
         @click="emit('navigate', item)"
       >
         <AppIcon :name="item.icon" />
@@ -67,7 +73,7 @@ function isActive(item: AppNavigationItem): boolean {
         :class="{ 'srbg-sidebar__link--active': isActive(item) }"
         :href="item.to"
         :aria-current="isActive(item) ? 'page' : undefined"
-        :title="compact ? item.label : undefined"
+        :title="compact || responsiveCompact ? item.label : undefined"
         @click="emit('navigate', item)"
       >
         <AppIcon :name="item.icon" />
@@ -189,6 +195,36 @@ function isActive(item: AppNavigationItem): boolean {
 .srbg-sidebar[data-compact] .srbg-sidebar__link {
   justify-content: center;
   padding-inline: 0;
+}
+
+@media (min-width: 64rem) and (max-width: 79.999rem) {
+  .srbg-sidebar[data-responsive-compact] {
+    align-items: stretch;
+    padding-inline: var(--spacing-2);
+  }
+
+  .srbg-sidebar[data-responsive-compact] .srbg-sidebar__brand {
+    overflow: hidden;
+    padding-inline: 0;
+    text-align: center;
+  }
+
+  .srbg-sidebar[data-responsive-compact] .srbg-sidebar__brand-name,
+  .srbg-sidebar[data-responsive-compact] .srbg-sidebar__brand-subtitle,
+  .srbg-sidebar[data-responsive-compact] .srbg-sidebar__label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    clip-path: inset(50%);
+  }
+
+  .srbg-sidebar[data-responsive-compact] .srbg-sidebar__link {
+    justify-content: center;
+    padding-inline: 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

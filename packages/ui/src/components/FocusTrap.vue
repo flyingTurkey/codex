@@ -29,9 +29,24 @@ const focusableSelector = [
 
 function focusableElements(): HTMLElement[] {
   if (!container.value) return []
-  return Array.from(container.value.querySelectorAll<HTMLElement>(focusableSelector)).filter(
-    (element) => element.getAttribute('aria-hidden') !== 'true',
-  )
+  return Array.from(container.value.querySelectorAll<HTMLElement>(focusableSelector)).filter(isTabbable)
+}
+
+function isTabbable(element: HTMLElement): boolean {
+  if (element.matches(':disabled')) return false
+  if (element.closest('[hidden], [inert], [aria-hidden="true"], fieldset[disabled]')) return false
+  if (element instanceof HTMLInputElement && element.type === 'hidden') return false
+
+  let current: HTMLElement | null = element
+  while (current) {
+    const style = window.getComputedStyle(current)
+    if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse') {
+      return false
+    }
+    if (current === container.value) break
+    current = current.parentElement
+  }
+  return true
 }
 
 function focusInitial(): void {
@@ -39,7 +54,7 @@ function focusInitial(): void {
   const requested = props.initialFocus
     ? container.value.querySelector<HTMLElement>(props.initialFocus)
     : undefined
-  const target = requested ?? focusableElements()[0] ?? container.value
+  const target = (requested && isTabbable(requested) ? requested : undefined) ?? focusableElements()[0] ?? container.value
   target.focus()
 }
 
