@@ -2,4 +2,11 @@ packages:
   - apps/web
   - packages/contracts
 
-onlyBuiltDependencies: []
+allowBuilds:
+  '@parcel/watcher': true
+  esbuild: true
+  unrs-resolver: true
+  vue-demi: true
+
+nodeVersion: 24.14.0
+engineStrict: true
