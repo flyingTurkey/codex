@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { AppShell } from '@srbg/ui'
+import { AppShell, type AppNavigationItem } from '@srbg/ui'
 
-import { adminNavigation, primaryNavigation } from '../navigation'
+import { adminNavigation, handleAppNavigation, primaryNavigation } from '../navigation'
 
 const route = useRoute()
 const showAdmin = false
+
+function handleNavigation(item: AppNavigationItem, event: MouseEvent): void {
+  handleAppNavigation(item, event, (to) => navigateTo(to))
+}
 </script>
 
 <template>
@@ -15,6 +19,7 @@ const showAdmin = false
     :admin-navigation="adminNavigation"
     :current-path="route.path"
     :show-admin="showAdmin"
+    @navigate="handleNavigation"
   >
     <slot />
   </AppShell>

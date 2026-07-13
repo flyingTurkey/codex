@@ -6,6 +6,11 @@ import { describe, expect, it } from 'vitest'
 const appRoot = resolve(process.cwd(), 'app')
 const navigationModules = import.meta.glob<{
   adminNavigation: readonly { label: string }[]
+  handleAppNavigation: (
+    item: { to: string },
+    event: MouseEvent,
+    navigate: (to: string) => unknown,
+  ) => void
   primaryNavigation: readonly { activePaths?: readonly string[]; label: string; to: string }[]
 }>('../app/navigatio[n].ts', { eager: true })
 
@@ -50,6 +55,59 @@ describe('application shell contract', () => {
     expect(layoutSource.match(/<AppShell(?:\s|>)/g)).toHaveLength(1)
     expect(layoutSource).toContain('const showAdmin = false')
     expect(layoutSource).toContain(':show-admin="showAdmin"')
+    expect(layoutSource).toContain('@navigate="handleNavigation"')
+  })
+
+  it('uses client routing for an unmodified primary-button navigation event', () => {
+    const navigation = navigationModules['../app/navigation.ts']
+    const handleAppNavigation = navigation?.handleAppNavigation
+    expect(handleAppNavigation, 'navigation.ts should export handleAppNavigation').toBeTypeOf('function')
+    if (!handleAppNavigation) return
+
+    const event = new MouseEvent('click', { button: 0, cancelable: true })
+    const destinations: string[] = []
+
+    handleAppNavigation({ to: '/digital' }, event, (to) => destinations.push(to))
+
+    expect(event.defaultPrevented).toBe(true)
+    expect(destinations).toEqual(['/digital'])
+  })
+
+  it('respects a navigation event already cancelled by an upstream listener', () => {
+    const navigation = navigationModules['../app/navigation.ts']
+    const handleAppNavigation = navigation?.handleAppNavigation
+    expect(handleAppNavigation, 'navigation.ts should export handleAppNavigation').toBeTypeOf('function')
+    if (!handleAppNavigation) return
+
+    const event = new MouseEvent('click', { button: 0, cancelable: true })
+    const destinations: string[] = []
+    event.preventDefault()
+
+    handleAppNavigation({ to: '/all' }, event, (to) => destinations.push(to))
+
+    expect(event.defaultPrevented).toBe(true)
+    expect(destinations).toEqual([])
+  })
+
+  it.each([
+    ['middle button', { button: 1 }],
+    ['control click', { button: 0, ctrlKey: true }],
+    ['meta click', { button: 0, metaKey: true }],
+    ['shift click', { button: 0, shiftKey: true }],
+    ['alt click', { altKey: true, button: 0 }],
+  ])('preserves native navigation for %s', (_label, init) => {
+    const navigation = navigationModules['../app/navigation.ts']
+    const handleAppNavigation = navigation?.handleAppNavigation
+    expect(handleAppNavigation, 'navigation.ts should export handleAppNavigation').toBeTypeOf('function')
+    if (!handleAppNavigation) return
+
+    const event = new MouseEvent('click', { ...init, cancelable: true })
+    const destinations: string[] = []
+
+    handleAppNavigation({ to: '/safety' }, event, (to) => destinations.push(to))
+
+    expect(event.defaultPrevented).toBe(false)
+    expect(destinations).toEqual([])
   })
 
   it('keeps the real version request bounded and exposes only safe Problem Details', () => {
@@ -59,6 +117,9 @@ describe('application shell contract', () => {
     expect(source).toMatch(/retry:\s*0/)
     expect(source).toMatch(/timeout:\s*2_000/)
     expect(source).toContain('ProblemDetails')
+    expect(source).toContain('useState')
+    expect(source).toContain('createUuidV7')
+    expect(source).not.toContain('web-version-check')
     expect(source).not.toContain('error.value?.stack')
     expect(source).not.toContain('config.internalApiBase,')
   })

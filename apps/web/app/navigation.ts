@@ -1,5 +1,27 @@
 import type { AppNavigationItem } from '@srbg/ui'
 
+type Navigate = (to: string) => unknown
+
+export function handleAppNavigation(
+  item: Pick<AppNavigationItem, 'to'>,
+  event: MouseEvent,
+  navigate: Navigate,
+): void {
+  if (
+    event.defaultPrevented
+    || event.button !== 0
+    || event.ctrlKey
+    || event.metaKey
+    || event.shiftKey
+    || event.altKey
+  ) {
+    return
+  }
+
+  event.preventDefault()
+  void navigate(item.to)
+}
+
 export const primaryNavigation = [
   {
     id: 'selected',

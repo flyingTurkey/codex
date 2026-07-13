@@ -6,7 +6,7 @@ import HomeDashboard from '../app/components/HomeDashboard.vue'
 
 const unavailableProblem: ProblemDetails = {
   detail: '版本服务暂时无法响应，请稍后重试。',
-  request_id: 'web-version-check',
+  request_id: '018f6f44-0000-7000-8000-000000000000',
   status: 503,
   title: '工程基线连接暂不可用',
   type: 'about:blank',
