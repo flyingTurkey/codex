@@ -12,10 +12,20 @@ const schemaFiles = (await readdir(schemaDir))
   .sort()
 
 const publicExports = {
+  'create-source-request.schema.json': ['CreateSourceRequest'],
   'cursor-page.schema.json': ['CursorPageDictStrUnionStrIntBoolNoneType'],
+  'document-detail.schema.json': ['DocumentDetail'],
+  'fixture-upload-response.schema.json': ['FixtureUploadResponse'],
   'liveness-response.schema.json': ['LivenessResponse'],
+  'me-response.schema.json': ['MeResponse'],
   'problem-details.schema.json': ['ProblemDetails'],
   'readiness-response.schema.json': ['DependencyCheck', 'ReadinessResponse'],
+  'source-action-request.schema.json': ['SourceActionRequest'],
+  'source-detail.schema.json': ['SourceDetail'],
+  'source-onboarding-submission.schema.json': ['SourceOnboardingSubmission'],
+  'source-policy-submission.schema.json': ['SourcePolicySubmission'],
+  'source-summary.schema.json': ['SourceSummary'],
+  'source-transition-request.schema.json': ['SourceTransitionRequest'],
   'version-response.schema.json': ['VersionResponse'],
 }
 

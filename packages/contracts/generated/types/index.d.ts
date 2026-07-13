@@ -1,8 +1,18 @@
 // Generated from canonical Pydantic contracts. Do not edit directly.
 
+export type { CreateSourceRequest } from './create-source-request.schema'
 export type { CursorPageDictStrUnionStrIntBoolNoneType } from './cursor-page.schema'
+export type { DocumentDetail } from './document-detail.schema'
+export type { FixtureUploadResponse } from './fixture-upload-response.schema'
 export type { LivenessResponse } from './liveness-response.schema'
+export type { MeResponse } from './me-response.schema'
 export type { ProblemDetails } from './problem-details.schema'
 export type { DependencyCheck } from './readiness-response.schema'
 export type { ReadinessResponse } from './readiness-response.schema'
+export type { SourceActionRequest } from './source-action-request.schema'
+export type { SourceDetail } from './source-detail.schema'
+export type { SourceOnboardingSubmission } from './source-onboarding-submission.schema'
+export type { SourcePolicySubmission } from './source-policy-submission.schema'
+export type { SourceSummary } from './source-summary.schema'
+export type { SourceTransitionRequest } from './source-transition-request.schema'
 export type { VersionResponse } from './version-response.schema'

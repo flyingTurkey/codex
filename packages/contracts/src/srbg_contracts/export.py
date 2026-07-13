@@ -6,18 +6,38 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from srbg_contracts.models import (
+    CreateSourceRequest,
     CursorPage,
+    DocumentDetail,
+    FixtureUploadResponse,
     LivenessResponse,
+    MeResponse,
     ProblemDetails,
     ReadinessResponse,
+    SourceActionRequest,
+    SourceDetail,
+    SourceOnboardingSubmission,
+    SourcePolicySubmission,
+    SourceSummary,
+    SourceTransitionRequest,
     VersionResponse,
 )
 
 SCHEMA_MODELS: dict[str, type[BaseModel]] = {
     "cursor-page.schema.json": CursorPage[dict[str, str | int | bool | None]],
+    "create-source-request.schema.json": CreateSourceRequest,
+    "document-detail.schema.json": DocumentDetail,
+    "fixture-upload-response.schema.json": FixtureUploadResponse,
     "liveness-response.schema.json": LivenessResponse,
+    "me-response.schema.json": MeResponse,
     "problem-details.schema.json": ProblemDetails,
     "readiness-response.schema.json": ReadinessResponse,
+    "source-action-request.schema.json": SourceActionRequest,
+    "source-detail.schema.json": SourceDetail,
+    "source-onboarding-submission.schema.json": SourceOnboardingSubmission,
+    "source-policy-submission.schema.json": SourcePolicySubmission,
+    "source-summary.schema.json": SourceSummary,
+    "source-transition-request.schema.json": SourceTransitionRequest,
     "version-response.schema.json": VersionResponse,
 }
 

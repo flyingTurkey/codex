@@ -1,10 +1,19 @@
 <script setup lang="ts">
+import type { MeResponse } from '@srbg/contracts'
 import { AppShell, type AppNavigationItem } from '@srbg/ui'
+import { computed } from 'vue'
 
 import { adminNavigation, handleAppNavigation, primaryNavigation } from '../navigation'
 
 const route = useRoute()
-const showAdmin = false
+const { data: identity } = await useFetch<MeResponse>('/api/v1/me', {
+  retry: 0,
+  timeout: 2_000,
+})
+const showAdmin = computed(() =>
+  route.path.startsWith('/admin')
+  || Boolean(identity.value?.roles.some((role) => ['source_admin', 'platform_admin'].includes(role))),
+)
 
 function handleNavigation(item: AppNavigationItem, event: MouseEvent): void {
   handleAppNavigation(item, event, (to) => navigateTo(to))

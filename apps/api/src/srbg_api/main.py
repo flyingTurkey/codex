@@ -2,13 +2,15 @@
 
 import asyncio
 import logging
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, PlainTextResponse
 from srbg_contracts import (
     API_VERSION,
     CONTENT_SCHEMA_VERSION,
@@ -22,22 +24,39 @@ from srbg_contracts import (
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from srbg_api.config import get_settings
+from srbg_api.document_vault.security import UploadRejected
 from srbg_api.health import HealthChecker, build_default_checkers, run_check
 from srbg_api.identifiers import uuid7
 from srbg_api.logging import configure_logging
+from srbg_api.source_registry.api import AdminSourceService
+from srbg_api.source_registry.api import router as source_vault_router
+from srbg_api.source_registry.repository import RepositoryConflict, SourceNotFound
+from srbg_api.source_registry.service import SourceServiceRejected, build_default_source_service
 
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
-def create_app(checkers: Mapping[str, HealthChecker] | None = None) -> FastAPI:
+def create_app(
+    checkers: Mapping[str, HealthChecker] | None = None,
+    source_service: AdminSourceService | None = None,
+) -> FastAPI:
     configure_logging()
     settings = get_settings()
     dependency_checkers = (
         dict(checkers) if checkers is not None else build_default_checkers(settings)
     )
-    app = FastAPI(title="SRBG Insight API", version="0.1.0")
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        yield
+        close = getattr(source_service, "close", None)
+        if close is not None:
+            await close()
+
+    app = FastAPI(title="SRBG Insight API", version="0.1.0", lifespan=lifespan)
+    app.state.source_service = source_service
     logger = logging.getLogger("srbg.api")
 
     @app.middleware("http")
@@ -73,6 +92,113 @@ def create_app(checkers: Mapping[str, HealthChecker] | None = None) -> FastAPI:
         )
         return JSONResponse(
             status_code=exc.status_code,
+            content=problem.model_dump(mode="json"),
+            media_type="application/problem+json",
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def request_validation_handler(
+        request: Request,
+        _: RequestValidationError,
+    ) -> JSONResponse:
+        problem = ProblemDetails(
+            title="Request validation failed",
+            status=422,
+            detail="The request does not match the API contract",
+            instance=str(request.url.path),
+            request_id=request.state.request_id,
+        )
+        return JSONResponse(
+            status_code=422,
+            content=problem.model_dump(mode="json"),
+            media_type="application/problem+json",
+        )
+
+    @app.exception_handler(SourceNotFound)
+    async def not_found_handler(request: Request, exc: SourceNotFound) -> JSONResponse:
+        problem = ProblemDetails(
+            title="Resource not found",
+            status=404,
+            detail=str(exc),
+            instance=str(request.url.path),
+            request_id=request.state.request_id,
+        )
+        return JSONResponse(
+            status_code=404,
+            content=problem.model_dump(mode="json"),
+            media_type="application/problem+json",
+        )
+
+    @app.exception_handler(SourceServiceRejected)
+    async def source_rejected_handler(
+        request: Request,
+        exc: SourceServiceRejected,
+    ) -> JSONResponse:
+        problem = ProblemDetails(
+            title="Source admission rejected",
+            status=exc.status_code,
+            detail=exc.detail,
+            instance=str(request.url.path),
+            request_id=request.state.request_id,
+        )
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=problem.model_dump(mode="json"),
+            media_type="application/problem+json",
+        )
+
+    @app.exception_handler(UploadRejected)
+    async def upload_rejected_handler(
+        request: Request,
+        exc: UploadRejected,
+    ) -> JSONResponse:
+        problem = ProblemDetails(
+            title="Fixture rejected",
+            status=422,
+            detail=str(exc),
+            instance=str(request.url.path),
+            request_id=request.state.request_id,
+        )
+        return JSONResponse(
+            status_code=422,
+            content=problem.model_dump(mode="json"),
+            media_type="application/problem+json",
+        )
+
+    @app.exception_handler(RepositoryConflict)
+    async def repository_conflict_handler(
+        request: Request,
+        exc: RepositoryConflict,
+    ) -> JSONResponse:
+        problem = ProblemDetails(
+            title="Source vault conflict",
+            status=409,
+            detail=str(exc),
+            instance=str(request.url.path),
+            request_id=request.state.request_id,
+        )
+        return JSONResponse(
+            status_code=409,
+            content=problem.model_dump(mode="json"),
+            media_type="application/problem+json",
+        )
+
+    @app.exception_handler(Exception)
+    async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResponse:
+        logger.exception(
+            "request_failed",
+            exc_info=exc,
+            extra={"request_id": request.state.request_id, "path": request.url.path},
+        )
+        problem = ProblemDetails(
+            title="Internal server error",
+            status=500,
+            detail="The service could not complete the request",
+            instance=str(request.url.path),
+            request_id=request.state.request_id,
+        )
+        return JSONResponse(
+            status_code=500,
             content=problem.model_dump(mode="json"),
             media_type="application/problem+json",
         )
@@ -115,6 +241,15 @@ def create_app(checkers: Mapping[str, HealthChecker] | None = None) -> FastAPI:
             content_schema_version=CONTENT_SCHEMA_VERSION,
         )
 
+    app.include_router(source_vault_router)
+
+    @app.get("/metrics", response_class=PlainTextResponse, include_in_schema=False)
+    async def metrics() -> str:
+        service = app.state.source_service
+        if service is None or not hasattr(service, "metrics"):
+            return ""
+        return str(service.metrics.render_prometheus())
+
     return app
 
 
@@ -122,4 +257,4 @@ async def _missing_checker() -> None:
     raise RuntimeError("dependency checker is not configured")
 
 
-app = create_app()
+app = create_app(source_service=build_default_source_service(get_settings()))

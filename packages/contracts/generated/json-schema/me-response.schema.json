@@ -1,0 +1,47 @@
+{
+  "$defs": {
+    "UserRole": {
+      "enum": [
+        "viewer",
+        "editor",
+        "reviewer",
+        "source_admin",
+        "platform_admin",
+        "auditor"
+      ],
+      "title": "UserRole",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "display_name": {
+      "title": "Display Name",
+      "type": "string"
+    },
+    "local_identity": {
+      "title": "Local Identity",
+      "type": "boolean"
+    },
+    "roles": {
+      "items": {
+        "$ref": "#/$defs/UserRole"
+      },
+      "title": "Roles",
+      "type": "array"
+    },
+    "user_id": {
+      "format": "uuid",
+      "title": "User Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "user_id",
+    "display_name",
+    "roles",
+    "local_identity"
+  ],
+  "title": "MeResponse",
+  "type": "object"
+}

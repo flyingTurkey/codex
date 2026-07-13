@@ -38,7 +38,7 @@ describe('application shell contract', () => {
     expect(source).toContain('<NuxtPage />')
   })
 
-  it('defines the locked navigation and keeps management explicitly disabled', () => {
+  it('defines the locked navigation and exposes management only to admin context', () => {
     const navigationPath = resolve(appRoot, 'navigation.ts')
     const layoutPath = resolve(appRoot, 'layouts/default.vue')
 
@@ -64,7 +64,8 @@ describe('application shell contract', () => {
 
     const layoutSource = readAppFile('layouts/default.vue')
     expect(layoutSource.match(/<AppShell(?:\s|>)/g)).toHaveLength(1)
-    expect(layoutSource).toContain('const showAdmin = false')
+    expect(layoutSource).toContain("route.path.startsWith('/admin')")
+    expect(layoutSource).toContain("['source_admin', 'platform_admin'].includes(role)")
     expect(layoutSource).toContain(':show-admin="showAdmin"')
     expect(layoutSource).toContain('@navigate="handleNavigation"')
   })

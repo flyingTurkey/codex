@@ -1,0 +1,62 @@
+{
+  "$defs": {
+    "OnboardingCheckEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Code",
+          "type": "string"
+        },
+        "evidence_ref": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Evidence Ref",
+          "type": "string"
+        },
+        "evidence_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Sha256"
+        }
+      },
+      "required": [
+        "code",
+        "evidence_ref"
+      ],
+      "title": "OnboardingCheckEvidence",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "checks": {
+      "items": {
+        "$ref": "#/$defs/OnboardingCheckEvidence"
+      },
+      "minItems": 11,
+      "title": "Checks",
+      "type": "array"
+    },
+    "valid_until": {
+      "format": "date-time",
+      "title": "Valid Until",
+      "type": "string"
+    }
+  },
+  "required": [
+    "checks",
+    "valid_until"
+  ],
+  "title": "SourceOnboardingSubmission",
+  "type": "object"
+}

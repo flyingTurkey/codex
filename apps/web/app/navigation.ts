@@ -38,5 +38,5 @@ export const primaryNavigation = [
 ] as const satisfies readonly AppNavigationItem[]
 
 export const adminNavigation = [
-  { id: 'admin', label: '管理入口', to: '/admin', icon: 'Settings' },
+  { id: 'admin', label: '管理入口', to: '/admin/sources', icon: 'Settings' },
 ] as const satisfies readonly AppNavigationItem[]

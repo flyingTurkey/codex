@@ -1,0 +1,177 @@
+{
+  "$defs": {
+    "DocumentDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "canonical_url": {
+          "title": "Canonical Url",
+          "type": "string"
+        },
+        "current_version": {
+          "$ref": "#/$defs/DocumentVersionSummary"
+        },
+        "document_kind": {
+          "enum": [
+            "HTML",
+            "PDF"
+          ],
+          "title": "Document Kind",
+          "type": "string"
+        },
+        "first_discovered_at": {
+          "format": "date-time",
+          "title": "First Discovered At",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "raw_object": {
+          "$ref": "#/$defs/RawObjectSummary"
+        },
+        "source_id": {
+          "format": "uuid",
+          "title": "Source Id",
+          "type": "string"
+        },
+        "source_name": {
+          "title": "Source Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "source_id",
+        "source_name",
+        "canonical_url",
+        "document_kind",
+        "first_discovered_at",
+        "current_version",
+        "raw_object"
+      ],
+      "title": "DocumentDetail",
+      "type": "object"
+    },
+    "DocumentVersionSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "acquired_at": {
+          "format": "date-time",
+          "title": "Acquired At",
+          "type": "string"
+        },
+        "content_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Content Hash",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "original_filename": {
+          "title": "Original Filename",
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Title"
+        },
+        "version_number": {
+          "minimum": 1,
+          "title": "Version Number",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "version_number",
+        "content_hash",
+        "original_filename",
+        "title",
+        "acquired_at"
+      ],
+      "title": "DocumentVersionSummary",
+      "type": "object"
+    },
+    "RawObjectSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "byte_size": {
+          "minimum": 0,
+          "title": "Byte Size",
+          "type": "integer"
+        },
+        "detected_mime": {
+          "enum": [
+            "text/html",
+            "application/pdf"
+          ],
+          "title": "Detected Mime",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "scan_status": {
+          "$ref": "#/$defs/ScanStatus"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "sha256",
+        "detected_mime",
+        "byte_size",
+        "scan_status"
+      ],
+      "title": "RawObjectSummary",
+      "type": "object"
+    },
+    "ScanStatus": {
+      "enum": [
+        "CLEAN",
+        "REJECTED"
+      ],
+      "title": "ScanStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "document": {
+      "$ref": "#/$defs/DocumentDetail"
+    },
+    "raw_object_deduplicated": {
+      "title": "Raw Object Deduplicated",
+      "type": "boolean"
+    },
+    "version_created": {
+      "title": "Version Created",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "document",
+    "raw_object_deduplicated",
+    "version_created"
+  ],
+  "title": "FixtureUploadResponse",
+  "type": "object"
+}

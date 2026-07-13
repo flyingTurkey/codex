@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     s3_secret_key: str = Field(default_factory=lambda: "development-only")
     s3_bucket: str = "srbg-raw"
     s3_region: str = "us-east-1"
+    clamav_host: str = "clamav"
+    clamav_port: int = Field(default=3310, ge=1, le=65535)
+    fixture_max_bytes: int = Field(default=50 * 1024 * 1024, ge=1)
+    fixture_max_pdf_pages: int = Field(default=1000, ge=1, le=10000)
     external_io_timeout_seconds: float = Field(default=2.0, gt=0, le=30)
 
 

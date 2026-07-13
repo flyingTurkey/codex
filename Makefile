@@ -10,8 +10,18 @@ endif
 -include .env
 export WEB_PORT API_PORT
 
+POSTGRES_PORT ?= 5432
+MINIO_PORT ?= 9000
+
 COMPOSE = docker compose --project-directory . -f infra/compose/compose.yaml
 TRIVY_IMAGE = aquasec/trivy:0.69.3
+ifeq ($(OS),Windows_NT)
+SOURCE_DB_ENV = set "SRBG_DATABASE_URL=postgresql+asyncpg://srbg:srbg_local_only@127.0.0.1:$(POSTGRES_PORT)/srbg" &&
+SOURCE_TEST_ENV = set "SRBG_RUN_SOURCE_INTEGRATION=1" && set "SRBG_DATABASE_URL=postgresql+asyncpg://srbg:srbg_local_only@127.0.0.1:$(POSTGRES_PORT)/srbg" && set "SRBG_S3_ENDPOINT_URL=http://127.0.0.1:$(MINIO_PORT)" &&
+else
+SOURCE_DB_ENV = SRBG_DATABASE_URL=postgresql+asyncpg://srbg:srbg_local_only@127.0.0.1:$(POSTGRES_PORT)/srbg
+SOURCE_TEST_ENV = SRBG_RUN_SOURCE_INTEGRATION=1 SRBG_DATABASE_URL=postgresql+asyncpg://srbg:srbg_local_only@127.0.0.1:$(POSTGRES_PORT)/srbg SRBG_S3_ENDPOINT_URL=http://127.0.0.1:$(MINIO_PORT)
+endif
 UV_CACHE_DIR ?= $(CURDIR)/.cache/uv
 UV_PYTHON_INSTALL_DIR ?= $(CURDIR)/.tools/python
 PLAYWRIGHT_BROWSERS_PATH ?= $(CURDIR)/.cache/ms-playwright
@@ -21,7 +31,7 @@ export UV_PYTHON_INSTALL_DIR
 export PLAYWRIGHT_BROWSERS_PATH
 
 .PHONY: setup dev runtime-ready down lint typecheck test contract-test security-check smoke \
-	resilience-test fixture-replay quality-gate web-e2e web-a11y
+	resilience-test fixture-replay quality-gate web-e2e web-a11y source-fixture-test
 
 setup:
 	$(UV) sync --frozen --all-packages
@@ -76,9 +86,18 @@ resilience-test:
 	$(UV) run python -m scripts.resilience_test
 
 fixture-replay:
-	@echo "Round 00 has no content adapters or replay fixtures."
+	$(UV) run python -m pytest \
+		apps/api/tests/test_upload_security.py \
+		apps/api/tests/test_document_vault_service.py \
+		apps/api/tests/test_clamav_scanner.py -q
 
 quality-gate: lint typecheck test contract-test security-check
+
+source-fixture-test:
+	$(COMPOSE) up --detach --wait postgres minio
+	$(COMPOSE) run --rm minio-init
+	$(SOURCE_DB_ENV) $(UV) run alembic -c apps/api/alembic.ini upgrade head
+	$(SOURCE_TEST_ENV) $(UV) run python -m pytest apps/api/tests/test_source_fixture_integration.py -q
 
 web-e2e: runtime-ready
 	$(PNPM) --filter @srbg/web e2e

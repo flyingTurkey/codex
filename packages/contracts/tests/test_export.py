@@ -10,10 +10,20 @@ def test_exported_json_schemas_are_deterministic(tmp_path: Path) -> None:
     contract_export.write_schemas(tmp_path)
 
     expected_names = {
+        "create-source-request.schema.json",
         "cursor-page.schema.json",
+        "document-detail.schema.json",
+        "fixture-upload-response.schema.json",
         "liveness-response.schema.json",
+        "me-response.schema.json",
         "problem-details.schema.json",
         "readiness-response.schema.json",
+        "source-action-request.schema.json",
+        "source-detail.schema.json",
+        "source-onboarding-submission.schema.json",
+        "source-policy-submission.schema.json",
+        "source-summary.schema.json",
+        "source-transition-request.schema.json",
         "version-response.schema.json",
     }
     assert {path.name for path in tmp_path.glob("*.json")} == expected_names

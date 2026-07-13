@@ -1,0 +1,104 @@
+{
+  "$defs": {
+    "AuthorityLevel": {
+      "enum": [
+        "A0",
+        "A1",
+        "B1",
+        "B2",
+        "C1",
+        "C2"
+      ],
+      "title": "AuthorityLevel",
+      "type": "string"
+    },
+    "SourceChannel": {
+      "enum": [
+        "DIGITAL",
+        "SAFETY",
+        "BOTH"
+      ],
+      "title": "SourceChannel",
+      "type": "string"
+    },
+    "SourceType": {
+      "enum": [
+        "government",
+        "standards",
+        "journal",
+        "research_institute",
+        "association",
+        "enterprise",
+        "media",
+        "academic_api",
+        "academic_database"
+      ],
+      "title": "SourceType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "authority_level": {
+      "$ref": "#/$defs/AuthorityLevel"
+    },
+    "base_url": {
+      "maxLength": 2048,
+      "pattern": "^https?://[^\\s]+$",
+      "title": "Base Url",
+      "type": "string"
+    },
+    "channel": {
+      "$ref": "#/$defs/SourceChannel"
+    },
+    "collection_method": {
+      "maxLength": 50,
+      "minLength": 1,
+      "title": "Collection Method",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "owner": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Owner",
+      "type": "string"
+    },
+    "poll_interval_minutes": {
+      "maximum": 10080,
+      "minimum": 1,
+      "title": "Poll Interval Minutes",
+      "type": "integer"
+    },
+    "priority": {
+      "enum": [
+        "P0",
+        "P1",
+        "P2"
+      ],
+      "title": "Priority",
+      "type": "string"
+    },
+    "source_type": {
+      "$ref": "#/$defs/SourceType"
+    }
+  },
+  "required": [
+    "name",
+    "base_url",
+    "channel",
+    "source_type",
+    "authority_level",
+    "priority",
+    "collection_method",
+    "poll_interval_minutes",
+    "owner"
+  ],
+  "title": "CreateSourceRequest",
+  "type": "object"
+}

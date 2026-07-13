@@ -11,10 +11,27 @@ def test_compose_uses_pinned_services_and_loopback_ports() -> None:
     assert "postgres:17.10-bookworm" in compose
     assert "redis:7.4.7-alpine3.21" in compose
     assert "minio/minio:RELEASE.2025-09-07T16-13-09Z" in compose
+    assert (
+        "clamav/clamav:1.5.2-debian13-slim"
+        "@sha256:14e2e0805c6a5ff6728ea591c05565e0f0954d93e8701919012c3a8c44e20674"
+        in compose
+    )
     assert ":latest" not in compose
     assert "127.0.0.1:${WEB_PORT:-3000}:3000" in compose
     assert "127.0.0.1:${API_PORT:-8000}:8000" in compose
     assert "service_completed_successfully" in compose
+
+
+def test_source_upload_runtime_requires_private_healthy_clamav() -> None:
+    compose = (ROOT / "infra/compose/compose.yaml").read_text(encoding="utf-8")
+
+    assert "SRBG_CLAMAV_HOST: ${SRBG_CLAMAV_HOST:-clamav}" in compose
+    assert "SRBG_CLAMAV_PORT: ${SRBG_CLAMAV_PORT:-3310}" in compose
+    assert "  clamav:\n" in compose
+    assert '      - "3310"' in compose
+    assert '127.0.0.1:${CLAMAV_PORT' not in compose
+    assert "      clamav:\n        condition: service_healthy" in compose
+    assert "  clamav-db:\n" in compose
 
 
 def test_makefile_exposes_required_quality_and_runtime_targets() -> None:

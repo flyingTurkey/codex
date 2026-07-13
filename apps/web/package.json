@@ -17,7 +17,9 @@
     "@nuxt/ui": "4.9.0",
     "@srbg/contracts": "workspace:*",
     "@srbg/ui": "workspace:*",
+    "iconoir-vue": "7.11.0",
     "nuxt": "4.4.8",
+    "tailwindcss": "4.3.2",
     "vue": "3.5.39"
   },
   "devDependencies": {

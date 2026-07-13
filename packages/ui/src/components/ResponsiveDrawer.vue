@@ -114,6 +114,7 @@ onBeforeUnmount(unlockBody)
   position: relative;
   width: min(var(--srbg-layout-detail-evidence), 100vw);
   height: 100%;
+  overflow: hidden;
   justify-self: end;
 }
 
@@ -122,9 +123,11 @@ onBeforeUnmount(unlockBody)
 }
 
 .srbg-drawer__panel {
+  position: absolute;
+  inset: 0;
   display: grid;
   width: 100%;
-  height: 100%;
+  min-height: 0;
   grid-template-rows: auto minmax(0, 1fr) auto;
   color: var(--color-ink-700);
   background: var(--color-surface);

@@ -1,0 +1,129 @@
+{
+  "$defs": {
+    "AuthorityLevel": {
+      "enum": [
+        "A0",
+        "A1",
+        "B1",
+        "B2",
+        "C1",
+        "C2"
+      ],
+      "title": "AuthorityLevel",
+      "type": "string"
+    },
+    "SourceChannel": {
+      "enum": [
+        "DIGITAL",
+        "SAFETY",
+        "BOTH"
+      ],
+      "title": "SourceChannel",
+      "type": "string"
+    },
+    "SourceState": {
+      "enum": [
+        "CANDIDATE",
+        "COMPLIANCE_REVIEW",
+        "FIXTURE_TEST",
+        "APPROVED",
+        "ACTIVE"
+      ],
+      "title": "SourceState",
+      "type": "string"
+    },
+    "SourceType": {
+      "enum": [
+        "government",
+        "standards",
+        "journal",
+        "research_institute",
+        "association",
+        "enterprise",
+        "media",
+        "academic_api",
+        "academic_database"
+      ],
+      "title": "SourceType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "authority_level": {
+      "$ref": "#/$defs/AuthorityLevel"
+    },
+    "base_url": {
+      "title": "Base Url",
+      "type": "string"
+    },
+    "channel": {
+      "$ref": "#/$defs/SourceChannel"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "effective_active": {
+      "title": "Effective Active",
+      "type": "boolean"
+    },
+    "enabled": {
+      "title": "Enabled",
+      "type": "boolean"
+    },
+    "fixture_count": {
+      "minimum": 0,
+      "title": "Fixture Count",
+      "type": "integer"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "priority": {
+      "title": "Priority",
+      "type": "string"
+    },
+    "registry_code": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Registry Code"
+    },
+    "source_type": {
+      "$ref": "#/$defs/SourceType"
+    },
+    "state": {
+      "$ref": "#/$defs/SourceState"
+    }
+  },
+  "required": [
+    "id",
+    "registry_code",
+    "name",
+    "base_url",
+    "channel",
+    "source_type",
+    "authority_level",
+    "priority",
+    "state",
+    "enabled",
+    "effective_active",
+    "fixture_count",
+    "created_at"
+  ],
+  "title": "SourceSummary",
+  "type": "object"
+}

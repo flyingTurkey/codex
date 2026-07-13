@@ -1,0 +1,33 @@
+{
+  "$defs": {
+    "SourceState": {
+      "enum": [
+        "CANDIDATE",
+        "COMPLIANCE_REVIEW",
+        "FIXTURE_TEST",
+        "APPROVED",
+        "ACTIVE"
+      ],
+      "title": "SourceState",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "reason": {
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Reason",
+      "type": "string"
+    },
+    "target_state": {
+      "$ref": "#/$defs/SourceState"
+    }
+  },
+  "required": [
+    "target_state",
+    "reason"
+  ],
+  "title": "SourceTransitionRequest",
+  "type": "object"
+}
