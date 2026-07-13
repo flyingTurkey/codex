@@ -41,15 +41,19 @@ down:
 
 lint:
 	$(UV) run ruff check .
+	$(PNPM) tokens:check
+	$(PNPM) --filter @srbg/ui lint
 	$(PNPM) --filter @srbg/web lint
 
 typecheck:
 	$(UV) run mypy
+	$(PNPM) --filter @srbg/ui typecheck
 	$(PNPM) --filter @srbg/web typecheck
 	$(PNPM) --filter @srbg/web exec tsc --noEmit --skipLibCheck false ../../packages/contracts/generated/types/index.d.ts
 
 test:
 	$(UV) run python -m pytest
+	$(PNPM) --filter @srbg/ui test
 	$(PNPM) --filter @srbg/web test
 
 contract-test:

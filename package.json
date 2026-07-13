@@ -6,6 +6,8 @@
     "node": ">=24.0.0 <25"
   },
   "scripts": {
-    "contracts:generate": "pnpm --filter @srbg/contracts generate"
+    "contracts:generate": "pnpm --filter @srbg/contracts generate",
+    "tokens:generate": "pnpm --filter @srbg/ui tokens:generate",
+    "tokens:check": "pnpm --filter @srbg/ui tokens:check"
   }
 }

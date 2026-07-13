@@ -66,6 +66,61 @@ importers:
         specifier: 15.0.4
         version: 15.0.4
 
+  packages/ui:
+    dependencies:
+      iconoir-vue:
+        specifier: 7.11.0
+        version: 7.11.0(vue@3.5.39(typescript@5.9.3))
+    devDependencies:
+      '@srbg/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@types/node':
+        specifier: 26.1.1
+        version: 26.1.1
+      '@typescript-eslint/eslint-plugin':
+        specifier: 8.63.0
+        version: 8.63.0(@typescript-eslint/parser@8.63.0(eslint@10.7.0(jiti@2.7.0))(typescript@5.9.3))(eslint@10.7.0(jiti@2.7.0))(typescript@5.9.3)
+      '@typescript-eslint/parser':
+        specifier: 8.63.0
+        version: 8.63.0(eslint@10.7.0(jiti@2.7.0))(typescript@5.9.3)
+      '@vitejs/plugin-vue':
+        specifier: 6.0.7
+        version: 6.0.7(vite@7.3.6(@types/node@26.1.1)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.49.0)(yaml@2.9.0))(vue@3.5.39(typescript@5.9.3))
+      '@vue/test-utils':
+        specifier: 2.4.11
+        version: 2.4.11(@vue/compiler-dom@3.5.39)(@vue/server-renderer@3.5.39(vue@3.5.39(typescript@5.9.3)))(vue@3.5.39(typescript@5.9.3))
+      eslint:
+        specifier: 10.7.0
+        version: 10.7.0(jiti@2.7.0)
+      eslint-plugin-vue:
+        specifier: 10.9.2
+        version: 10.9.2(@stylistic/eslint-plugin@5.10.0(eslint@10.7.0(jiti@2.7.0)))(@typescript-eslint/parser@8.63.0(eslint@10.7.0(jiti@2.7.0))(typescript@5.9.3))(eslint@10.7.0(jiti@2.7.0))(vue-eslint-parser@10.4.1(eslint@10.7.0(jiti@2.7.0)))
+      globals:
+        specifier: 17.7.0
+        version: 17.7.0
+      happy-dom:
+        specifier: 20.10.6
+        version: 20.10.6
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vite:
+        specifier: 7.3.6
+        version: 7.3.6(@types/node@26.1.1)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.49.0)(yaml@2.9.0)
+      vitest:
+        specifier: 4.1.10
+        version: 4.1.10(@types/node@26.1.1)(happy-dom@20.10.6)(vite@7.3.6(@types/node@26.1.1)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.49.0)(yaml@2.9.0))
+      vue:
+        specifier: 3.5.39
+        version: 3.5.39(typescript@5.9.3)
+      vue-eslint-parser:
+        specifier: 10.4.1
+        version: 10.4.1(eslint@10.7.0(jiti@2.7.0))
+      vue-tsc:
+        specifier: 3.3.7
+        version: 3.3.7(typescript@5.9.3)
+
 packages:
 
   '@alloc/quick-lru@5.2.0':
@@ -3725,6 +3780,11 @@ packages:
   human-signals@5.0.0:
     resolution: {integrity: sha512-AXcZb6vzzrFAUE61HnN4mpLqd/cSIwNQjtNWR0euPm6y0iqx3G4gOXaIDdtdDwZmhwe82LA6+zinmW4UBWVePQ==}
     engines: {node: '>=16.17.0'}
+
+  iconoir-vue@7.11.0:
+    resolution: {integrity: sha512-l58X1PAsS0QxLXle/IqJUNMlvB88NQ3+hnBdcJteW1lyFsNMIWt2okEpGE+YvC85CJjXIJoxWrYCrQ9X0h68kg==}
+    peerDependencies:
+      vue: '>= 3'
 
   ieee754@1.2.1:
     resolution: {integrity: sha512-dcyqhDvX1C46lXZcVqCpK+FtMRQVdIMN6/Df5js2zouUsqG7I6sFxitIC+7KYK29KdXOLHdu9zL4sFnoVQnqaA==}
@@ -9369,6 +9429,10 @@ snapshots:
   httpxy@0.5.5: {}
 
   human-signals@5.0.0: {}
+
+  iconoir-vue@7.11.0(vue@3.5.39(typescript@5.9.3)):
+    dependencies:
+      vue: 3.5.39(typescript@5.9.3)
 
   ieee754@1.2.1: {}
 

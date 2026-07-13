@@ -1,0 +1,303 @@
+// Generated from docs/codex-kit/assets/ui/design_tokens.json. Do not edit.
+function deepFreeze<const T extends object>(value: T): Readonly<T> {
+  for (const child of Object.values(value)) {
+    if (child !== null && typeof child === 'object') deepFreeze(child as object)
+  }
+  return Object.freeze(value)
+}
+
+export const designTokens = deepFreeze({
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "1.1.0-avocado",
+  "direction": "AIHOT式高密度时间线 + 四川路桥证据化情报卡",
+  "note": "低饱和牛油果主题。四川路桥正式Logo与企业品牌色仍须品牌管理部门确认；事故、撤回和阻断状态不得使用品牌绿代替语义色。",
+  "color": {
+    "canvas": "#F7F8F3",
+    "surface": "#FFFFFF",
+    "surfaceMuted": "#F1F4EC",
+    "border": "#DFE4DB",
+    "borderStrong": "#CFD8C8",
+    "brand": {
+      "50": "#F5F7F2",
+      "100": "#E8EDE4",
+      "200": "#D4DECE",
+      "300": "#B9C9B0",
+      "400": "#98AD8C",
+      "500": "#748B68",
+      "600": "#587248",
+      "700": "#405B32",
+      "800": "#304827",
+      "900": "#23351F"
+    },
+    "corporateAccent": {
+      "50": "#FFF1F0",
+      "500": "#C93A32",
+      "700": "#8C2723"
+    },
+    "ink": {
+      "50": "#F6F7F4",
+      "100": "#EEF1EC",
+      "300": "#C7CEC7",
+      "500": "#66716A",
+      "600": "#536058",
+      "700": "#3F4A43",
+      "900": "#202922"
+    },
+    "digital": {
+      "50": "#EDF7F6",
+      "500": "#4F8882",
+      "700": "#386D68"
+    },
+    "safetyRegulation": {
+      "50": "#FFF8EC",
+      "500": "#B7792C",
+      "700": "#8B5A1F"
+    },
+    "safetyCase": {
+      "50": "#FCF0EF",
+      "500": "#A94B45",
+      "700": "#843A35"
+    },
+    "verified": {
+      "50": "#EEF5EB",
+      "500": "#5A7E4B",
+      "700": "#405F35"
+    },
+    "reviewPending": {
+      "50": "#FFF6E8",
+      "500": "#C68436",
+      "700": "#955F22"
+    },
+    "vendorClaim": {
+      "50": "#F2F3F5",
+      "500": "#68727C",
+      "700": "#4C5560"
+    },
+    "conflict": {
+      "50": "#FFF0EF",
+      "500": "#B64E47",
+      "700": "#8C3732"
+    },
+    "focus": "#587248"
+  },
+  "font": {
+    "sans": "Noto Sans SC, Source Han Sans SC, Inter, PingFang SC, Microsoft YaHei, system-ui, sans-serif",
+    "mono": "JetBrains Mono, SFMono-Regular, Consolas, ui-monospace, monospace",
+    "numeric": "Inter, Noto Sans SC, system-ui, sans-serif",
+    "size": {
+      "xs": "12px",
+      "sm": "13px",
+      "base": "14px",
+      "md": "16px",
+      "lg": "18px",
+      "xl": "20px",
+      "2xl": "24px",
+      "3xl": "30px"
+    },
+    "lineHeight": {
+      "metadata": "18px",
+      "body": "22px",
+      "title": "24px",
+      "heading": "32px",
+      "relaxed": 1.75
+    },
+    "weight": {
+      "regular": 400,
+      "medium": 500,
+      "semibold": 600,
+      "bold": 700
+    }
+  },
+  "space": {
+    "1": "4px",
+    "2": "8px",
+    "3": "12px",
+    "4": "16px",
+    "5": "20px",
+    "6": "24px",
+    "7": "28px",
+    "8": "32px",
+    "9": "36px",
+    "10": "40px",
+    "12": "48px"
+  },
+  "radius": {
+    "xs": "4px",
+    "sm": "6px",
+    "md": "9px",
+    "lg": "12px",
+    "xl": "14px",
+    "pill": "999px"
+  },
+  "shadow": {
+    "card": "0 1px 2px rgba(32,41,34,.04)",
+    "hover": "0 5px 18px rgba(32,41,34,.055)",
+    "overlay": "0 18px 46px rgba(32,41,34,.14)"
+  },
+  "layout": {
+    "contentMax": "1720px",
+    "readerMax": "1440px",
+    "sidebar": "216px",
+    "sidebarCompact": "72px",
+    "feedTimeline": "80px",
+    "cardEvidence": "248px",
+    "feedHeader": "148px",
+    "detailMain": "860px",
+    "detailEvidence": "420px",
+    "header": "64px",
+    "cardMinHeight": "188px"
+  },
+  "breakpoint": {
+    "sm": "640px",
+    "md": "768px",
+    "lg": "1024px",
+    "xl": "1280px",
+    "wide": "1440px",
+    "2xl": "1536px"
+  },
+  "motion": {
+    "fast": "140ms",
+    "base": "180ms",
+    "drawer": "220ms",
+    "easing": "cubic-bezier(.2,.8,.2,1)",
+    "reducedMotion": "disable-nonessential"
+  },
+  "icon": {
+    "library": "Iconoir",
+    "defaultSize": "20px",
+    "defaultStroke": "1.5px"
+  }
+} as const)
+
+export type DesignTokens = typeof designTokens
+
+export type TokenPath =
+  | "$schema"
+  | "version"
+  | "direction"
+  | "note"
+  | "color.canvas"
+  | "color.surface"
+  | "color.surfaceMuted"
+  | "color.border"
+  | "color.borderStrong"
+  | "color.brand.50"
+  | "color.brand.100"
+  | "color.brand.200"
+  | "color.brand.300"
+  | "color.brand.400"
+  | "color.brand.500"
+  | "color.brand.600"
+  | "color.brand.700"
+  | "color.brand.800"
+  | "color.brand.900"
+  | "color.corporateAccent.50"
+  | "color.corporateAccent.500"
+  | "color.corporateAccent.700"
+  | "color.ink.50"
+  | "color.ink.100"
+  | "color.ink.300"
+  | "color.ink.500"
+  | "color.ink.600"
+  | "color.ink.700"
+  | "color.ink.900"
+  | "color.digital.50"
+  | "color.digital.500"
+  | "color.digital.700"
+  | "color.safetyRegulation.50"
+  | "color.safetyRegulation.500"
+  | "color.safetyRegulation.700"
+  | "color.safetyCase.50"
+  | "color.safetyCase.500"
+  | "color.safetyCase.700"
+  | "color.verified.50"
+  | "color.verified.500"
+  | "color.verified.700"
+  | "color.reviewPending.50"
+  | "color.reviewPending.500"
+  | "color.reviewPending.700"
+  | "color.vendorClaim.50"
+  | "color.vendorClaim.500"
+  | "color.vendorClaim.700"
+  | "color.conflict.50"
+  | "color.conflict.500"
+  | "color.conflict.700"
+  | "color.focus"
+  | "font.sans"
+  | "font.mono"
+  | "font.numeric"
+  | "font.size.xs"
+  | "font.size.sm"
+  | "font.size.base"
+  | "font.size.md"
+  | "font.size.lg"
+  | "font.size.xl"
+  | "font.size.2xl"
+  | "font.size.3xl"
+  | "font.lineHeight.metadata"
+  | "font.lineHeight.body"
+  | "font.lineHeight.title"
+  | "font.lineHeight.heading"
+  | "font.lineHeight.relaxed"
+  | "font.weight.regular"
+  | "font.weight.medium"
+  | "font.weight.semibold"
+  | "font.weight.bold"
+  | "space.1"
+  | "space.2"
+  | "space.3"
+  | "space.4"
+  | "space.5"
+  | "space.6"
+  | "space.7"
+  | "space.8"
+  | "space.9"
+  | "space.10"
+  | "space.12"
+  | "radius.xs"
+  | "radius.sm"
+  | "radius.md"
+  | "radius.lg"
+  | "radius.xl"
+  | "radius.pill"
+  | "shadow.card"
+  | "shadow.hover"
+  | "shadow.overlay"
+  | "layout.contentMax"
+  | "layout.readerMax"
+  | "layout.sidebar"
+  | "layout.sidebarCompact"
+  | "layout.feedTimeline"
+  | "layout.cardEvidence"
+  | "layout.feedHeader"
+  | "layout.detailMain"
+  | "layout.detailEvidence"
+  | "layout.header"
+  | "layout.cardMinHeight"
+  | "breakpoint.sm"
+  | "breakpoint.md"
+  | "breakpoint.lg"
+  | "breakpoint.xl"
+  | "breakpoint.wide"
+  | "breakpoint.2xl"
+  | "motion.fast"
+  | "motion.base"
+  | "motion.drawer"
+  | "motion.easing"
+  | "motion.reducedMotion"
+  | "icon.library"
+  | "icon.defaultSize"
+  | "icon.defaultStroke"
+
+export const nuxtUiAppConfig = {
+  "ui": {
+    "colors": {
+      "primary": "brand",
+      "neutral": "ink",
+      "success": "verified",
+      "info": "digital",
+      "warning": "reviewPending",
+      "error": "conflict"
+    }
+  }
+} as const
