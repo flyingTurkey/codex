@@ -107,8 +107,8 @@ function generateThemeCss(tokens) {
   const shadows = Object.keys(tokens.shadow).map(
     (name) => `  --shadow-${name}: var(--srbg-shadow-${cssName(name)});`,
   )
-  const breakpoints = Object.keys(tokens.breakpoint).map(
-    (name) => `  --breakpoint-${name}: var(--srbg-breakpoint-${cssName(name)});`,
+  const breakpoints = Object.entries(tokens.breakpoint).map(
+    ([name, value]) => `  --breakpoint-${name}: ${value};`,
   )
 
   return `/* Generated from docs/codex-kit/assets/ui/design_tokens.json. Do not edit. */\n` +

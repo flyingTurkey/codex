@@ -46,4 +46,13 @@ describe('design tokens', () => {
     expect(theme).toContain('--color-ink-200: var(--srbg-color-ink-100);')
     expect(theme).toContain('--color-reviewPending-600: var(--srbg-color-reviewPending-500);')
   })
+
+  it('emits literal Tailwind breakpoint values that CSS tooling can use in media queries', async () => {
+    const theme = await readFile(`${packageDirectory}/src/generated/theme.css`, 'utf8')
+
+    for (const [name, value] of Object.entries(designTokens.breakpoint)) {
+      expect(theme).toContain(`--breakpoint-${name}: ${value};`)
+    }
+    expect(theme).not.toMatch(/--breakpoint-[\w-]+:\s*var\(--srbg-breakpoint-/)
+  })
 })
