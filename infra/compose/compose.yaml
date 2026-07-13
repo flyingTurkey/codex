@@ -1,0 +1,173 @@
+name: srbg-intelligence
+
+x-python-environment: &python-environment
+  SRBG_ENVIRONMENT: ${SRBG_ENVIRONMENT:-demo}
+  SRBG_DATABASE_URL: ${SRBG_DATABASE_URL:-postgresql+asyncpg://srbg:srbg_local_only@postgres:5432/srbg}
+  SRBG_REDIS_URL: ${SRBG_REDIS_URL:-redis://redis:6379/0}
+  SRBG_S3_ENDPOINT_URL: ${SRBG_S3_ENDPOINT_URL:-http://minio:9000}
+  SRBG_S3_ACCESS_KEY: ${SRBG_S3_ACCESS_KEY:-srbg_local}
+  SRBG_S3_SECRET_KEY: ${SRBG_S3_SECRET_KEY:-srbg_local_storage_only}
+  SRBG_S3_BUCKET: ${SRBG_S3_BUCKET:-srbg-raw}
+  SRBG_S3_REGION: ${SRBG_S3_REGION:-us-east-1}
+  SRBG_EXTERNAL_IO_TIMEOUT_SECONDS: ${SRBG_EXTERNAL_IO_TIMEOUT_SECONDS:-2}
+
+services:
+  postgres:
+    image: postgres:17.10-bookworm
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-srbg}
+      POSTGRES_USER: ${POSTGRES_USER:-srbg}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-srbg_local_only}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4.7-alpine3.21
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-srbg_local}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-srbg_local_storage_only}
+    ports:
+      - "127.0.0.1:${MINIO_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+    volumes:
+      - minio-data:/data
+    restart: unless-stopped
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-srbg_local}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-srbg_local_storage_only}
+      SRBG_S3_BUCKET: ${SRBG_S3_BUCKET:-srbg-raw}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
+        && mc mb --ignore-existing "local/$${SRBG_S3_BUCKET}"
+        && mc anonymous set none "local/$${SRBG_S3_BUCKET}"
+    restart: "no"
+
+  migrate:
+    build:
+      context: .
+      dockerfile: infra/compose/Dockerfile.python
+    environment: *python-environment
+    command: ["alembic", "-c", "apps/api/alembic.ini", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: infra/compose/Dockerfile.python
+    environment: *python-environment
+    command: ["uvicorn", "srbg_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=2)
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: infra/compose/Dockerfile.python
+    hostname: worker
+    environment: *python-environment
+    command: ["celery", "-A", "srbg_worker.app:celery_app", "worker", "--loglevel=INFO"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - celery -A srbg_worker.app:celery_app inspect ping --destination celery@worker --timeout 2
+      interval: 10s
+      timeout: 4s
+      retries: 12
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/compose/Dockerfile.web
+    environment:
+      NUXT_INTERNAL_API_BASE: http://api:8000
+      NUXT_HOST: 0.0.0.0
+      NUXT_PORT: 3000
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3000').then((response) => {
+          if (!response.ok) process.exit(1) }).catch(() => process.exit(1))
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:

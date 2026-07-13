@@ -1,0 +1,1 @@
+"""Portable operational verification helpers."""

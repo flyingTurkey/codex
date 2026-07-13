@@ -27,7 +27,7 @@ testpaths = [
   "apps/api/tests",
   "apps/worker/tests",
   "packages/contracts/tests",
-  "tests/contract",
+  "tests",
 ]
 
 [tool.ruff]

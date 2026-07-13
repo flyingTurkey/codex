@@ -10,3 +10,7 @@ allowBuilds:
 
 nodeVersion: 24.14.0
 engineStrict: true
+
+hoistPattern:
+  - '*'
+  - '!@esbuild/*'

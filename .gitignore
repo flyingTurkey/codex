@@ -48,8 +48,13 @@ out/
 
 # Node and Vue
 node_modules/
+.tools/
+.cache/
 dist/
 coverage/
+test-results/
+playwright-report/
+blob-report/
 .npm/
 .pnpm-store/
 .yarn/cache/
@@ -89,4 +94,5 @@ temp/
 *.temp
 *.swp
 *.swo
+~$*
 *~

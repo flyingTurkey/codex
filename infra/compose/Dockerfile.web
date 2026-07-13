@@ -1,0 +1,18 @@
+FROM node:24.14.0-bookworm-slim
+
+ENV COREPACK_HOME=/opt/corepack
+
+RUN mkdir -p /opt/corepack \
+    && corepack enable \
+    && corepack install --global pnpm@11.12.0 \
+    && mkdir -p /workspace \
+    && chown -R node:node /workspace /opt/corepack
+
+WORKDIR /workspace
+COPY --chown=node:node . .
+
+USER node
+RUN --mount=type=cache,id=srbg-pnpm-v11,target=/home/node/.local/share/pnpm/store,uid=1000,gid=1000 \
+    pnpm install --frozen-lockfile
+
+CMD ["pnpm", "--filter", "@srbg/web", "dev"]
