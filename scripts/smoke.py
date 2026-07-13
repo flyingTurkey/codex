@@ -1,4 +1,4 @@
-"""Exercise the externally visible Round 00 runtime contract."""
+"""Exercise the externally visible platform runtime contract."""
 
 from __future__ import annotations
 
@@ -83,8 +83,9 @@ def main() -> None:
     )
 
     homepage = wait_for_status(web_port, "/", 200)
-    require("今日情报概览" in homepage, "homepage title is missing")
-    require("演示环境" in homepage, "demo environment badge is missing")
+    require("四川路桥" in homepage, "homepage organization brand is missing")
+    require("智安情报" in homepage, "homepage product brand is missing")
+    require("业务数据尚未接入" in homepage, "honest homepage empty state is missing")
 
     print(json.dumps({"status": "ok", "checks": readiness["checks"]}, ensure_ascii=False))
 

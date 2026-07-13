@@ -13,7 +13,7 @@
 
 本轮验收覆盖根路由健康状态与真实空态、共享频道壳层、桌面/紧凑侧栏/移动抽屉、SPA 导航、键盘焦点、reduced-motion、强制色、200% 阅读基线、axe 扫描与四断点视觉回归。主页只展示从真实版本接口取得的 `API v1 · Schema 1.0.0`，没有业务卡片、演示评分或看似真实的行业新闻。
 
-正式页面复用 `AppShell` 和同一个 `IntelligenceFeedPage`。`/`、`/selected`、`/all`、`/digital`、`/safety` 以及当前空态阶段的 `/daily`、`/saved` 均沿用该壳层；管理入口仍按权限显示。本轮未创建 `TimelineFeed`、`IntelligenceCard`、`FeedPage`、`ItemSummary` 或 `PublicationService`，也未实现数据库、业务 API、采集、AI、审核、发布、真实搜索、收藏持久化或后台管理业务。
+正式页面复用 `AppShell` 和同一个 `IntelligenceFeedPage`。`/`、`/selected`、`/all`、`/digital`、`/safety` 以及当前空态阶段的 `/daily`、`/saved` 均沿用该壳层；管理入口仅受上层显式 `showAdmin` 布尔值控制，当前因权限系统尚未接入而保持隐藏。本轮未创建 `TimelineFeed`、`IntelligenceCard`、`FeedPage`、`ItemSummary` 或 `PublicationService`，也未实现数据库、业务 API、采集、AI、审核、发布、真实搜索、收藏持久化或后台管理业务。
 
 ## 设计系统与组件边界
 
@@ -51,20 +51,27 @@
 
 ![Round 00A 首页 768×1024](assets/round-00a-home-768x1024.png)
 
-## 阶段性真实测试输出
+## 最终真实测试输出
 
-以下结果来自本轮实现与测试阶段的实际运行，顶端提交为 `0dee1f2`。它们不是本验收资料提交后的全局 `make` 最终门禁刷新，因此本记录不声称全局最终门禁已经在该提交后执行。
+以下结果来自 2026-07-13 本轮验收资料落盘后的最终刷新；实现与浏览器测试顶端提交为 `0dee1f2`，最终交付哈希由本轮回执给出。首次调用 Token 脚本时，Codex 桌面 PowerShell 的 `PATH` 未包含其已安装的 Node 目录；补入桌面提供的 Node 24.14.0 运行时路径后，从 `pnpm install --frozen-lockfile` 开始完整重跑，仓库文件无需因此修改。
 
 | 检查 | 实际结果 |
 |---|---|
+| `pnpm install --frozen-lockfile` | 退出码 0，lockfile 未变化 |
+| `pnpm --filter @srbg/ui tokens:check` | 退出码 0，生成物与 `design_tokens.json` 一致 |
+| `pnpm --filter @srbg/web build` | Nuxt 生产构建退出码 0 |
+| Ruff / mypy strict | 退出码 0；mypy 检查 11 个源文件无问题 |
+| Python pytest | 38 项测试通过 |
 | `@srbg/ui` Vitest | 12 个测试文件、50 项测试通过 |
 | `@srbg/web` Vitest | 23 项测试通过 |
-| 冷启动 Playwright E2E | 20 项测试通过 |
+| 契约测试 | 8 项测试通过，生成契约无漂移 |
+| `make security-check` | 退出码 0；pip-audit 无已知漏洞，pnpm 仅 1 个低危项，Trivy 无 HIGH/CRITICAL 机密或配置发现 |
+| Playwright E2E | 20 项测试通过 |
 | axe | 根页面与打开移动抽屉 2 个场景通过，均断言 `violations=[]` |
 | 视觉回归 | 1920×1080、1440×900、1024×768、768×1024 共 4 项通过 |
-| lint / typecheck / build / Token 一致性 | 阶段性命令均为退出码 0 |
+| `make smoke resilience-test` | 退出码 0；健康栈通过，Redis 停机时 readiness 正确降级并完成恢复 |
 
-阶段运行中观察到 Nuxt module-preload sourcemap、VueUse PURE 注释位置、`@iconify` 触发的 Node DEP0155 弃用，以及 Playwright 对同时设置 `NO_COLOR`/`FORCE_COLOR` 的提示。它们均来自上游工具链，相关命令退出码为 0；本记录不补写未观察到的版本或错误原文。
+最终运行中观察到 Nuxt module-preload sourcemap、VueUse PURE 注释位置、`@iconify` 触发的 Node DEP0155 弃用，以及 Playwright 对同时设置 `NO_COLOR`/`FORCE_COLOR` 的提示。它们均来自上游工具链，相关命令退出码为 0。
 
 ## 数据迁移与回滚
 
@@ -76,4 +83,4 @@
 - 四川路桥正式 Logo 与授权品牌素材仍待提供，当前文字锁定稿仅用于开发。
 - CSP nonce/hash 收紧留待后续安全加固，当前不将其描述为生产完成状态。
 - Playwright 视觉回归为兼容跨平台字体与渲染差异设置 `maxDiffPixelRatio: 0.03`，仍保留逐图人工检查。
-- Round 01 准入仍待本轮最终验收提交后的全局门禁刷新；本记录不提前宣称已满足 Round 01 门禁。
+- Round 00A 授权范围与全部最终门禁均已完成，满足进入 Round 01 的工程门禁；上述后续业务能力和安全加固仍按各自轮次继续实施。
