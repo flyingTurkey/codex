@@ -2,7 +2,7 @@
 
 - 日期：2026-07-13
 - 分支：`codex/round-00a-ui-foundation`
-- 实现与测试顶端提交：`0dee1f2`
+- 终审契约修复提交：`b2f19d6`
 - 最终验收资料提交：见本轮最终回执；本文件不预填尚未生成的提交哈希
 
 ## 用户价值
@@ -34,7 +34,7 @@
 
 ## 截图证据
 
-以下 PNG 均由仓库 Playwright 1.61.1 / Chromium 从健康的 `http://127.0.0.1:3000/` 直接生成。每次采集均设置精确 viewport、light 色彩模式和 reduced motion，等待 `.srbg-app-shell[aria-busy="false"]` 与真实 API/Schema 文本后截取当前 viewport；脚本同时确认页面横向溢出为 0、`article` 为 0、演示指标为 0。四张图片均已实际目视检查，无裁切、重叠、错误覆盖层或伪业务数据。
+以下 PNG 均由仓库 Playwright 1.61.1 / Chromium 从健康的 `http://127.0.0.1:3000/` 直接生成。每次采集均设置精确 viewport、light 色彩模式和 reduced motion，等待 `.srbg-app-shell[aria-busy="false"]` 与真实 API/Schema 文本；真实时间语义由 E2E 单独验证，视觉快照仅将动态可见时间归一化为固定的 `2026-07-13 22:30`，以消除无意义的像素漂移。脚本同时确认页面横向溢出为 0、`article` 为 0、演示指标为 0。四张图片均已实际目视检查，无裁切、重叠、错误覆盖层或伪业务数据。
 
 ### 1920×1080
 
@@ -54,7 +54,7 @@
 
 ## 最终真实测试输出
 
-以下结果来自 2026-07-13 本轮验收资料落盘后的最终刷新；实现与浏览器测试顶端提交为 `0dee1f2`，最终交付哈希由本轮回执给出。首次调用 Token 脚本时，Codex 桌面 PowerShell 的 `PATH` 未包含其已安装的 Node 目录；补入桌面提供的 Node 24.14.0 运行时路径后，从 `pnpm install --frozen-lockfile` 开始完整重跑，仓库文件无需因此修改。
+以下结果来自 2026-07-13 终审契约修复与验收资料落盘后的最终刷新；最终交付哈希由本轮回执给出。首次调用 Token 脚本时，Codex 桌面 PowerShell 的 `PATH` 未包含其已安装的 Node 目录；补入桌面提供的 Node 24.14.0 运行时路径后，从 `pnpm install --frozen-lockfile` 开始完整重跑，仓库文件无需因此修改。
 
 | 检查 | 实际结果 |
 |---|---|
@@ -63,8 +63,8 @@
 | `pnpm --filter @srbg/web build` | Nuxt 生产构建退出码 0 |
 | Ruff / mypy strict | 退出码 0；mypy 检查 11 个源文件无问题 |
 | Python pytest | 38 项测试通过 |
-| `@srbg/ui` Vitest | 12 个测试文件、50 项测试通过 |
-| `@srbg/web` Vitest | 23 项测试通过 |
+| `@srbg/ui` Vitest | 12 个测试文件、52 项测试通过 |
+| `@srbg/web` Vitest | 24 项测试通过 |
 | 契约测试 | 8 项测试通过，生成契约无漂移 |
 | `make security-check` | 退出码 0；pip-audit 无已知漏洞，pnpm 仅 1 个低危项，Trivy 无 HIGH/CRITICAL 机密或配置发现 |
 | Playwright E2E | 20 项测试通过 |
