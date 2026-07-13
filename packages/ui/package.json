@@ -8,6 +8,10 @@
       "types": "./src/index.ts",
       "import": "./src/index.ts"
     },
+    "./app-config": {
+      "types": "./src/generated/design-tokens.ts",
+      "import": "./src/generated/design-tokens.ts"
+    },
     "./theme.css": "./src/generated/theme.css"
   },
   "scripts": {

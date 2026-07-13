@@ -7,6 +7,7 @@ import {
   type DesignTokens,
   type TokenPath,
 } from '../src/index'
+import { nuxtUiAppConfig as generatedNuxtUiAppConfig } from '../src/generated/design-tokens'
 
 const packageDirectory = process.cwd()
 const tokenSource = resolve(packageDirectory, '../../docs/codex-kit/assets/ui/design_tokens.json')
@@ -35,6 +36,20 @@ describe('design tokens', () => {
         },
       },
     })
+  })
+
+  it('exports the Nuxt UI app config through a Vue-free package subpath', async () => {
+    const packageManifest = JSON.parse(
+      await readFile(`${packageDirectory}/package.json`, 'utf8'),
+    ) as { exports?: Record<string, unknown> }
+    const appConfigExport = packageManifest.exports?.['./app-config']
+
+    expect(appConfigExport).toEqual({
+      types: './src/generated/design-tokens.ts',
+      import: './src/generated/design-tokens.ts',
+    })
+    expect(JSON.stringify(appConfigExport)).not.toContain('src/index.ts')
+    expect(generatedNuxtUiAppConfig).toEqual(nuxtUiAppConfig)
   })
 
   it('generates a Tailwind 4 theme whose missing shades alias canonical tokens', async () => {
