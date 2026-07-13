@@ -182,6 +182,82 @@ describe('FocusTrap', () => {
     wrapper.unmount()
   })
 
+  it('includes summary and contenteditable elements in the Tab loop', async () => {
+    const wrapper = mount(FocusTrap, {
+      attachTo: document.body,
+      props: { active: false },
+      slots: {
+        default: `
+          <details open><summary id="native-summary">摘要</summary><p>详情</p></details>
+          <button id="semantic-boundary" type="button">边界</button>
+          <div id="editable-stop" contenteditable>可编辑内容</div>
+        `,
+      },
+    })
+
+    await wrapper.setProps({ active: true })
+    await nextTick()
+
+    wrapper.get<HTMLElement>('#editable-stop').element.focus()
+    await wrapper.get('#editable-stop').trigger('keydown', { key: 'Tab' })
+    expect(document.activeElement?.id).toBe('native-summary')
+
+    await wrapper.get('#native-summary').trigger('keydown', { key: 'Tab', shiftKey: true })
+    expect(document.activeElement?.id).toBe('editable-stop')
+
+    wrapper.unmount()
+  })
+
+  it('keeps the first direct legend interactive while excluding the rest of a disabled fieldset', async () => {
+    const wrapper = mount(FocusTrap, {
+      attachTo: document.body,
+      props: { active: false },
+      slots: {
+        default: `
+          <fieldset disabled>
+            <legend><button id="legend-action" type="button">图例操作</button></legend>
+            <button id="fieldset-disabled-action" type="button">禁用操作</button>
+          </fieldset>
+          <button id="fieldset-boundary" type="button">边界</button>
+        `,
+      },
+    })
+
+    await wrapper.setProps({ active: true })
+    await nextTick()
+
+    wrapper.get<HTMLButtonElement>('#fieldset-boundary').element.focus()
+    await wrapper.get('#fieldset-boundary').trigger('keydown', { key: 'Tab' })
+    expect(document.activeElement?.id).toBe('legend-action')
+
+    wrapper.unmount()
+  })
+
+  it('keeps a closed details summary tabbable while excluding its collapsed descendants', async () => {
+    const wrapper = mount(FocusTrap, {
+      attachTo: document.body,
+      props: { active: false },
+      slots: {
+        default: `
+          <details>
+            <summary id="closed-summary">摘要</summary>
+            <button id="closed-details-action" type="button">折叠操作</button>
+          </details>
+          <button id="details-boundary" type="button">边界</button>
+        `,
+      },
+    })
+
+    await wrapper.setProps({ active: true })
+    await nextTick()
+
+    wrapper.get<HTMLButtonElement>('#details-boundary').element.focus()
+    await wrapper.get('#details-boundary').trigger('keydown', { key: 'Tab' })
+    expect(document.activeElement?.id).toBe('closed-summary')
+
+    wrapper.unmount()
+  })
+
   it('accepts an explicit negative tabindex as the programmatic initial focus target', async () => {
     const wrapper = mount(FocusTrap, {
       attachTo: document.body,

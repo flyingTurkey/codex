@@ -18,12 +18,24 @@ const emit = defineEmits<{
 const container = ref<HTMLElement>()
 let returnTarget: HTMLElement | null = null
 
+const semanticTabStopSelectors = [
+  'area[href]',
+  'summary',
+  '[contenteditable]:not([contenteditable="false"])',
+  'audio[controls]',
+  'video[controls]',
+  'iframe',
+  'object',
+  'embed',
+]
+const semanticTabStopSelector = semanticTabStopSelectors.join(',')
 const focusableSelector = [
   'a[href]',
   'button:not([disabled])',
   'input:not([disabled])',
   'select:not([disabled])',
   'textarea:not([disabled])',
+  ...semanticTabStopSelectors,
   '[tabindex]',
 ].join(',')
 
@@ -31,7 +43,7 @@ function focusableElements(): HTMLElement[] {
   if (!container.value) return []
   const candidates = Array.from(
     container.value.querySelectorAll<HTMLElement>(focusableSelector),
-  ).filter((element) => isAvailableFocusTarget(element) && element.tabIndex >= 0)
+  ).filter(isTabStop)
 
   return candidates.filter((element) => {
     if (!(element instanceof HTMLInputElement) || element.type !== 'radio' || !element.name) {
@@ -48,10 +60,17 @@ function focusableElements(): HTMLElement[] {
   })
 }
 
+function isTabStop(element: HTMLElement): boolean {
+  if (!isAvailableFocusTarget(element)) return false
+  if (element.tabIndex >= 0) return true
+  return !element.hasAttribute('tabindex') && element.matches(semanticTabStopSelector)
+}
+
 function isAvailableFocusTarget(element: HTMLElement): boolean {
   if (element.matches(':disabled')) return false
-  if (element.closest('[hidden], [inert], [aria-hidden="true"], fieldset[disabled]')) return false
+  if (element.closest('[hidden], [inert], [aria-hidden="true"]')) return false
   if (element instanceof HTMLInputElement && element.type === 'hidden') return false
+  if (isDisabledByFieldset(element) || isCollapsedByClosedDetails(element)) return false
 
   let current: HTMLElement | null = element
   while (current) {
@@ -65,10 +84,40 @@ function isAvailableFocusTarget(element: HTMLElement): boolean {
   return true
 }
 
+function isDisabledByFieldset(element: HTMLElement): boolean {
+  let ancestor = element.parentElement
+  while (ancestor && ancestor !== container.value) {
+    if (ancestor instanceof HTMLFieldSetElement && ancestor.disabled) {
+      const firstLegend = Array.from(ancestor.children).find(
+        (child): child is HTMLLegendElement => child instanceof HTMLLegendElement,
+      )
+      if (!firstLegend?.contains(element)) return true
+    }
+    ancestor = ancestor.parentElement
+  }
+  return false
+}
+
+function isCollapsedByClosedDetails(element: HTMLElement): boolean {
+  let ancestor = element.parentElement
+  while (ancestor && ancestor !== container.value) {
+    if (ancestor instanceof HTMLDetailsElement && !ancestor.open) {
+      const firstSummary = Array.from(ancestor.children).find(
+        (child): child is HTMLElement => child instanceof HTMLElement && child.tagName === 'SUMMARY',
+      )
+      if (!firstSummary?.contains(element)) return true
+    }
+    ancestor = ancestor.parentElement
+  }
+  return false
+}
+
 function isProgrammaticallyFocusable(element: HTMLElement): boolean {
   return (
     isAvailableFocusTarget(element) &&
-    (element.tabIndex >= 0 || element.hasAttribute('tabindex'))
+    (element.tabIndex >= 0 ||
+      element.hasAttribute('tabindex') ||
+      element.matches(semanticTabStopSelector))
   )
 }
 
