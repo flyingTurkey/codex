@@ -23,13 +23,20 @@ describe('IntelligenceFeedPage', () => {
         statusLabel: '后续轮次接入',
         statusTone: 'info',
         title: '全部动态',
+        updatedAt: '2026-07-13T01:00:00.000Z',
+        updatedLabel: '更新时间',
       },
+      slots: { 'status-detail': '<span>API v1 · Schema 1.0.0</span>' },
     })
 
     expect(wrapper.findAll('h1')).toHaveLength(1)
     expect(wrapper.get('h1').text()).toBe('全部动态')
     expect(wrapper.text()).toContain('后续轮次接入')
+    expect(wrapper.get('time').attributes('datetime')).toBe('2026-07-13T01:00:00.000Z')
+    expect(wrapper.get('time').text()).toBe('2026-07-13 09:00')
+    expect(wrapper.get('header').text()).toContain('API v1 · Schema 1.0.0')
     expect(wrapper.text()).toContain('业务数据尚未接入')
+    expect(wrapper.find('.intelligence-feed-page__status').exists()).toBe(false)
     expect(wrapper.find('main').exists()).toBe(false)
   })
 

@@ -9,6 +9,8 @@ withDefaults(
     description?: string
     statusLabel?: string
     statusTone?: StatusBadgeTone
+    updatedAt?: string
+    updatedLabel?: string
     emptyTitle: string
     emptyDescription?: string
     emptyIcon?: AppIconName
@@ -18,6 +20,8 @@ withDefaults(
     description: undefined,
     statusLabel: undefined,
     statusTone: 'info',
+    updatedAt: undefined,
+    updatedLabel: '更新时间',
     emptyDescription: undefined,
     emptyIcon: 'EmptyPage',
   },
@@ -26,20 +30,21 @@ withDefaults(
 
 <template>
   <section class="intelligence-feed-page">
-    <PageHeader :title="title" :eyebrow="eyebrow" :description="description">
+    <PageHeader
+      :title="title"
+      :eyebrow="eyebrow"
+      :description="description"
+      :updated-at="updatedAt"
+      :updated-label="updatedLabel"
+    >
+      <template v-if="statusLabel || $slots['status-detail']" #status>
+        <StatusBadge v-if="statusLabel" :tone="statusTone" :label="statusLabel" />
+        <slot name="status-detail" />
+      </template>
       <template v-if="$slots.actions" #actions>
         <slot name="actions" />
       </template>
     </PageHeader>
-
-    <div
-      v-if="statusLabel || $slots['status-detail']"
-      class="intelligence-feed-page__status"
-      aria-label="页面状态"
-    >
-      <StatusBadge v-if="statusLabel" :tone="statusTone" :label="statusLabel" />
-      <slot name="status-detail" />
-    </div>
 
     <div v-if="$slots.notice" class="intelligence-feed-page__notice">
       <slot name="notice" />
@@ -61,20 +66,6 @@ withDefaults(
   width: min(100%, var(--srbg-layout-content-max));
   margin-inline: auto;
   gap: var(--spacing-5);
-}
-
-.intelligence-feed-page__status {
-  display: flex;
-  min-height: var(--spacing-10);
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--spacing-3);
-  padding-block: var(--spacing-2);
-  color: var(--color-ink-600);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  line-height: var(--srbg-font-line-height-metadata);
-  border-block: 1px solid var(--color-border);
 }
 
 .intelligence-feed-page__notice,

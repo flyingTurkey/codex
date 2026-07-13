@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
@@ -17,6 +17,17 @@ const navigationModules = import.meta.glob<{
 function readAppFile(relativePath: string): string {
   return readFileSync(resolve(appRoot, relativePath), 'utf8')
 }
+
+function listProductionSources(directory = appRoot): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = resolve(directory, entry.name)
+    if (entry.isDirectory()) return listProductionSources(path)
+    return /\.(?:ts|vue)$/.test(entry.name) ? [path] : []
+  })
+}
+
+const futureImplementationPattern =
+  /\b(?:TimelineFeed|IntelligenceCard|PublicationService)\b|\b(?:interface|type|class)\s+(?:FeedPage|ItemSummary)\b/
 
 describe('application shell contract', () => {
   it('keeps one UApp while delegating page chrome to the default Nuxt layout', () => {
@@ -119,6 +130,8 @@ describe('application shell contract', () => {
     expect(source).toContain('ProblemDetails')
     expect(source).toContain('useState')
     expect(source).toContain('createUuidV7')
+    expect(source).toContain("useState<string | null>('api-version-checked-at'")
+    expect(source).toContain('new Date().toISOString()')
     expect(source).not.toContain('web-version-check')
     expect(source).not.toContain('error.value?.stack')
     expect(source).not.toContain('config.internalApiBase,')
@@ -144,17 +157,20 @@ describe('application shell contract', () => {
   })
 
   it('does not introduce future feed, card, scoring, or publication contracts', () => {
-    const productionSources = [
-      'components/HomeDashboard.vue',
-      'pages/index.vue',
-      'app.vue',
-    ]
-      .filter((path) => existsSync(resolve(appRoot, path)))
-      .map(readAppFile)
-      .join('\n')
+    const violations = listProductionSources().flatMap((path) => {
+      const source = readFileSync(path, 'utf8')
+      return futureImplementationPattern.test(source) ? [path.slice(appRoot.length + 1)] : []
+    })
 
-    expect(productionSources).not.toMatch(
-      /TimelineFeed|IntelligenceCard|interface\s+FeedPage|interface\s+ItemSummary|PublicationService/,
+    expect(violations).toEqual([])
+  })
+
+  it('forbids only future implementations while allowing the shared page name', () => {
+    expect(futureImplementationPattern.test('import IntelligenceFeedPage from "./IntelligenceFeedPage.vue"')).toBe(
+      false,
     )
+    expect(futureImplementationPattern.test('interface FeedPage {}')).toBe(true)
+    expect(futureImplementationPattern.test('type ItemSummary = { id: string }')).toBe(true)
+    expect(futureImplementationPattern.test('const card = new IntelligenceCard()')).toBe(true)
   })
 })

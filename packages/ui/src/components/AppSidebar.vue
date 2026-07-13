@@ -28,9 +28,14 @@ const emit = defineEmits<{
 
 function isActive(item: AppNavigationItem): boolean {
   if (props.currentPath === item.to) return true
-  return item.activePaths?.some(
-    (path) => props.currentPath === path || props.currentPath.startsWith(path),
-  ) ?? false
+  return (
+    item.activePaths?.some((path) => {
+      const normalizedPath = path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path
+      return (
+        props.currentPath === normalizedPath || props.currentPath.startsWith(`${normalizedPath}/`)
+      )
+    }) ?? false
+  )
 }
 </script>
 

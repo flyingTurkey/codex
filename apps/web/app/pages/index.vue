@@ -5,12 +5,17 @@ import { createUuidV7 } from '../utils/uuid-v7'
 
 const config = useRuntimeConfig()
 const versionCheckRequestId = useState('api-version-request-id', () => createUuidV7())
+const versionCheckedAt = useState<string | null>('api-version-checked-at', () => null)
 const { data: version, error } = await useAsyncData('api-version', () =>
   $fetch<VersionResponse>(`${config.internalApiBase}/api/v1/version`, {
     retry: 0,
     timeout: 2_000,
   }),
 )
+
+if (!error.value && version.value && versionCheckedAt.value === null) {
+  versionCheckedAt.value = new Date().toISOString()
+}
 
 const problem = computed<ProblemDetails | null>(() => {
   if (!error.value) return null
@@ -26,5 +31,9 @@ const problem = computed<ProblemDetails | null>(() => {
 </script>
 
 <template>
-  <HomeDashboard :problem="problem" :version="problem ? null : (version ?? null)" />
+  <HomeDashboard
+    :problem="problem"
+    :updated-at="problem ? null : versionCheckedAt"
+    :version="problem ? null : (version ?? null)"
+  />
 </template>

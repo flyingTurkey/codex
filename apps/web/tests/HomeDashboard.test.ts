@@ -17,6 +17,7 @@ describe('HomeDashboard', () => {
     const wrapper = mount(HomeDashboard, {
       props: {
         problem: null,
+        updatedAt: '2026-07-13T01:00:00.000Z',
         version: { api_version: 'v1', content_schema_version: '1.0.0' },
       },
     })
@@ -25,6 +26,8 @@ describe('HomeDashboard', () => {
     expect(wrapper.get('h1').text()).toBe('今日精选')
     expect(wrapper.text()).toContain('工程基线可用')
     expect(wrapper.text()).toContain('API v1 · Schema 1.0.0')
+    expect(wrapper.get('time').attributes('datetime')).toBe('2026-07-13T01:00:00.000Z')
+    expect(wrapper.get('time').text()).toBe('2026-07-13 09:00')
     expect(wrapper.text()).toContain('业务数据尚未接入')
     expect(wrapper.text()).toContain('后续轮次')
     expect(wrapper.findAll('[data-testid="metric"]')).toHaveLength(0)
@@ -35,7 +38,7 @@ describe('HomeDashboard', () => {
 
   it('renders Problem Details without hiding the real empty state', () => {
     const wrapper = mount(HomeDashboard, {
-      props: { problem: unavailableProblem, version: null },
+      props: { problem: unavailableProblem, updatedAt: null, version: null },
     })
 
     expect(wrapper.get('[role="alert"]').text()).toContain(unavailableProblem.title)
@@ -43,6 +46,7 @@ describe('HomeDashboard', () => {
     expect(wrapper.get('[role="alert"]').text()).toContain(unavailableProblem.request_id)
     expect(wrapper.text()).toContain('业务数据尚未接入')
     expect(wrapper.text()).not.toContain('API v1 · Schema 1.0.0')
+    expect(wrapper.find('time').exists()).toBe(false)
     expect(wrapper.findAll('h1')).toHaveLength(1)
     expect(wrapper.find('main').exists()).toBe(false)
   })

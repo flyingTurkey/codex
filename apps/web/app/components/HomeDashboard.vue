@@ -7,6 +7,7 @@ import IntelligenceFeedPage from './IntelligenceFeedPage.vue'
 
 const props = defineProps<{
   problem: ProblemDetails | null
+  updatedAt: string | null
   version: VersionResponse | null
 }>()
 
@@ -20,6 +21,7 @@ const baselineAvailable = computed(() => props.problem === null && props.version
     description="当前仅展示可验证的工程基线；业务内容将在后续纵向切片接入。"
     :status-label="baselineAvailable ? '工程基线可用' : undefined"
     status-tone="healthy"
+    :updated-at="baselineAvailable ? (updatedAt ?? undefined) : undefined"
     empty-title="业务数据尚未接入"
     empty-description="后续轮次将接入经过来源、证据和发布门禁处理的真实业务数据。"
   >

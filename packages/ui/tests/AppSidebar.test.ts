@@ -3,7 +3,13 @@ import { mount } from '@vue/test-utils'
 import { AppSidebar, type AppNavigationItem } from '../src/index'
 
 const primaryNavigation: readonly AppNavigationItem[] = [
-  { id: 'selected', label: '今日精选', to: '/selected', icon: 'Star' },
+  {
+    id: 'selected',
+    label: '今日精选',
+    to: '/',
+    icon: 'Star',
+    activePaths: ['/selected'],
+  },
   { id: 'digital', label: '数字化', to: '/digital', icon: 'GraphUp', activePaths: ['/digital/'] },
 ]
 
@@ -29,7 +35,7 @@ describe('AppSidebar', () => {
     expect(wrapper.get('a[href="/digital"]').attributes('aria-current')).toBe('page')
     expect(wrapper.attributes('data-responsive-compact')).toBe('true')
     expect(wrapper.get('a[href="/digital"]').attributes('title')).toBe('数字化')
-    expect(wrapper.find('a[href="/selected"]').attributes('aria-current')).toBeUndefined()
+    expect(wrapper.find('a[href="/"]').attributes('aria-current')).toBeUndefined()
     expect(wrapper.find('a[href="/admin"]').exists()).toBe(false)
     expect(wrapper.get('[data-test="footer"]').text()).toBe('测试用户')
 
@@ -42,17 +48,36 @@ describe('AppSidebar', () => {
       props: {
         brand: 'SRBG Intelligence',
         primaryNavigation,
-        currentPath: '/selected',
+        currentPath: '/',
       },
     })
-    const link = wrapper.get('a[href="/selected"]')
+    const link = wrapper.get('a[href="/"]')
 
     await link.trigger('click')
 
     const navigateEvent = wrapper.emitted('navigate')?.[0]
-    expect(link.attributes('href')).toBe('/selected')
+    expect(link.attributes('href')).toBe('/')
     expect(navigateEvent?.[0]).toEqual(primaryNavigation[0])
     expect(navigateEvent?.[1]).toBeInstanceOf(MouseEvent)
     expect((navigateEvent?.[1] as MouseEvent).defaultPrevented).toBe(false)
+  })
+
+  it('matches active paths only at an exact path or slash-delimited child path', async () => {
+    const wrapper = mount(AppSidebar, {
+      props: {
+        brand: 'SRBG Intelligence',
+        primaryNavigation,
+        currentPath: '/selected/subpath',
+      },
+    })
+    const selectedLink = wrapper.get('a[href="/"]')
+
+    expect(selectedLink.attributes('aria-current')).toBe('page')
+
+    await wrapper.setProps({ currentPath: '/selected' })
+    expect(selectedLink.attributes('aria-current')).toBe('page')
+
+    await wrapper.setProps({ currentPath: '/selectedness' })
+    expect(selectedLink.attributes('aria-current')).toBeUndefined()
   })
 })
