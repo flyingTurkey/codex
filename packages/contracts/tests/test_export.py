@@ -40,6 +40,10 @@ def test_generated_types_expose_health_and_version_contracts() -> None:
 
     assert types_path.is_file()
     generated_types = types_path.read_text(encoding="utf-8")
-    assert "export interface LivenessResponse" in generated_types
-    assert "export interface ReadinessResponse" in generated_types
-    assert "export interface VersionResponse" in generated_types
+    assert "export type { LivenessResponse }" in generated_types
+    assert "export type { ProblemDetails }" in generated_types
+    assert "export type { ReadinessResponse }" in generated_types
+    assert "export type { VersionResponse }" in generated_types
+    assert "export type Status" not in generated_types
+    assert (types_path.parent / "liveness-response.schema.d.ts").is_file()
+    assert (types_path.parent / "readiness-response.schema.d.ts").is_file()
