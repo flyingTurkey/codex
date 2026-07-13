@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srbg.example.internal/schemas/sample-items-1.0.0.json",
+  "title": "SRBG Intelligence Item Sample Collection",
+  "type": "array",
+  "minItems": 4,
+  "items": {"$ref": "https://srbg.example.internal/schemas/intelligence-item-1.0.0.json"}
+}

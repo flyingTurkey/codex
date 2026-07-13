@@ -1,0 +1,63 @@
+{
+  "version": "2.0.0",
+  "contract": "publication_evaluation.schema.json",
+  "trust_boundary": "Only server-authoritative fields may be evaluated. Candidate payload fields never satisfy authority, scoring, review, source policy, document lifecycle, security resolution or evidence integrity rules.",
+  "rule_precedence": ["DENY", "QUARANTINE", "HUMAN_REVIEW", "AUTO_INGEST", "SELECTED"],
+  "default_decision": "DENY",
+  "deny_overrides": [
+    {"code": "DEMO_OR_NONPUBLISHABLE", "any": [{"field": "item.is_demo", "eq": true}, {"field": "item.publishable", "eq": false}]},
+    {"code": "SOURCE_NOT_ACTIVE", "field": "server.source.status", "not_eq": "ACTIVE"},
+    {"code": "SOURCE_POLICY_INVALID", "field": "server.source.policy_status", "not_eq": "VALID"},
+    {"code": "COPYRIGHT_OR_ATTRIBUTION_INVALID", "any_false": ["server.source.excerpt_policy_pass", "server.source.attribution_policy_pass"]},
+    {"code": "DOCUMENT_NOT_CURRENT", "field": "server.document.is_current", "eq": false},
+    {"code": "DOCUMENT_WITHDRAWN_OR_SUPERSEDED", "field": "server.document.lifecycle_status", "in": ["WITHDRAWN", "SUPERSEDED"]},
+    {"code": "DOCUMENT_HASH_OR_URL_INVALID", "any_false": ["server.document.hash_verified", "server.document.url_policy_pass"]},
+    {"code": "EMPTY_CLAIM_OR_EVIDENCE_SET", "any": [{"field": "server.evidence_integrity.claim_count", "lt": 1}, {"field": "server.evidence_integrity.evidence_count", "lt": 1}]},
+    {"code": "EVIDENCE_REFERENTIAL_INTEGRITY_FAILED", "any_false": ["server.evidence_integrity.bidirectional_refs_valid", "server.evidence_integrity.locators_verified", "server.evidence_integrity.excerpts_match_source"]},
+    {"code": "CRITICAL_CLAIM_COVERAGE_INCOMPLETE", "field": "server.evidence_integrity.accepted_critical_claim_coverage_percent", "lt": 100},
+    {"code": "UNRESOLVED_CLAIM_CONFLICT", "field": "server.evidence_integrity.unresolved_conflict_count", "gt": 0},
+    {"code": "PROMPT_INJECTION_UNRESOLVED", "field": "server.security.resolution_status", "not_in": ["NONE", "RESOLVED_BY_SECURITY_REVIEW"]},
+    {"code": "PII_OR_REPUTATIONAL_REVIEW_FAILED", "field": "server.privacy.status", "not_in": ["CLEAR", "REDACTED_AND_APPROVED"]},
+    {"code": "R4_QUARANTINE_ONLY", "field": "server.review.risk_level", "eq": "R4"},
+    {"code": "CANDIDATE_SCHEMA_INVALID", "field": "server.pipeline.candidate_schema_valid", "eq": false},
+    {"code": "SEMANTIC_SAFETY_SCAN_FAILED", "field": "server.pipeline.semantic_safety_scan_pass", "eq": false}
+  ],
+  "mandatory_human_review": [
+    {"item_types": ["SAFETY_REGULATION", "SAFETY_CASE"], "reason": "高风险安全内容"},
+    {"risk_levels": ["R3"], "reason": "高风险等级"},
+    {"authority_levels": ["C1", "C2"], "reason": "媒体或线索来源"},
+    {"critical_claim_categories": ["LEGAL_EFFECT", "INCIDENT_CAUSE", "RESPONSIBILITY", "CASUALTY", "LOSS", "CERTIFICATION", "AIRWORTHINESS", "PERMIT"], "reason": "关键法规、安全或许可事实"}
+  ],
+  "human_review_requirements": {
+    "decision_status": "APPROVED",
+    "decision_must_exist_in_review_table": true,
+    "duties_separated": true,
+    "publication_revision_required": true,
+    "approval_must_bind_document_version_and_policy_hash": true
+  },
+  "auto_ingest_rules": [
+    {
+      "code": "R1_HIGH_CONFIDENCE",
+      "item_types": ["DIGITAL_CASE", "JOURNAL_PAPER"],
+      "minimum_server_scores": {"authority": 75, "evidence": 90, "confidence": 90, "relevance": 60},
+      "allowed_risk_levels": ["R1"],
+      "decision": "AUTO_INGEST"
+    },
+    {
+      "code": "R2_ATTRIBUTED_VENDOR",
+      "item_types": ["SOFTWARE_PRODUCT", "IOT_PRODUCT", "LOW_ALTITUDE_EQUIPMENT", "AI_EQUIPMENT"],
+      "minimum_server_scores": {"evidence": 80, "confidence": 85},
+      "required_server_evidence_roles": ["VENDOR_CLAIM"],
+      "decision": "AUTO_INGEST_NOT_SELECTED"
+    }
+  ],
+  "selected_feed_rules": {
+    "minimum_server_scores": {"relevance": 70, "impact": 65, "authority": 75, "evidence": 90, "confidence": 90},
+    "require_valid_publication_revision": true,
+    "require_policy_decision": "SELECTED",
+    "require_current_document_version": true,
+    "require_zero_unresolved_conflicts": true,
+    "query_guard": "is_demo = false AND publishable = true AND publication_revision.valid = true"
+  }
+}
+

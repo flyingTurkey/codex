@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srbg.example.internal/schemas/source-onboarding-record-1.0.0.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["source_id", "source_policy_version", "checks", "fixture_set_sha256", "sample_count", "reviewer", "reviewed_at", "decision"],
+  "properties": {
+    "source_id": {"type": "string"},
+    "source_policy_version": {"type": "string"},
+    "checks": {
+      "type": "array",
+      "minItems": 11,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "passed", "evidence_ref", "evidence_sha256"],
+        "properties": {
+          "code": {"type": "string"},
+          "passed": {"const": true},
+          "evidence_ref": {"type": "string"},
+          "evidence_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+        }
+      }
+    },
+    "fixture_set_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "sample_count": {"type": "integer", "minimum": 30},
+    "reviewer": {"type": "string"},
+    "reviewed_at": {"type": "string", "format": "date-time"},
+    "valid_until": {"type": "string", "format": "date-time"},
+    "decision": {"const": "APPROVED"}
+  }
+}
+

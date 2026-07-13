@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srbg.example.internal/schemas/source-policy-1.0.0.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["source_id", "policy_version", "status", "robots_review", "terms_review", "copyright", "access", "review"],
+  "properties": {
+    "source_id": {"type": "string"},
+    "policy_version": {"type": "string"},
+    "status": {"enum": ["DRAFT", "VALID", "EXPIRED", "REVOKED"]},
+    "robots_review": {"$ref": "#/$defs/review_evidence"},
+    "terms_review": {"$ref": "#/$defs/review_evidence"},
+    "copyright": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["storage_policy", "display_policy", "fulltext_allowed", "image_allowed", "excerpt_max_chars", "attribution_template"],
+      "properties": {
+        "storage_policy": {"enum": ["RAW_EVIDENCE_ALLOWED", "METADATA_ONLY", "LINK_ONLY"]},
+        "display_policy": {"enum": ["METADATA_EXCERPT_LINK", "OFFICIAL_READER_LINK", "LINK_ONLY"]},
+        "fulltext_allowed": {"type": "boolean"},
+        "image_allowed": {"type": "boolean"},
+        "excerpt_max_chars": {"type": "integer", "minimum": 0, "maximum": 1000},
+        "attribution_template": {"type": "string", "minLength": 1}
+      }
+    },
+    "access": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowed_domains", "requires_auth", "rate_limit_per_minute", "user_agent"],
+      "properties": {
+        "allowed_domains": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+        "requires_auth": {"type": "boolean"},
+        "rate_limit_per_minute": {"type": "integer", "minimum": 1},
+        "user_agent": {"type": "string", "minLength": 1}
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewed_by", "reviewed_at", "valid_until", "approval_id"],
+      "properties": {
+        "reviewed_by": {"type": "string"},
+        "reviewed_at": {"type": "string", "format": "date-time"},
+        "valid_until": {"type": "string", "format": "date-time"},
+        "approval_id": {"type": "string"}
+      }
+    }
+  },
+  "$defs": {
+    "review_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result", "evidence_url", "evidence_sha256", "checked_at"],
+      "properties": {
+        "result": {"enum": ["ALLOWED", "RESTRICTED", "NOT_PRESENT", "BLOCKED"]},
+        "evidence_url": {"type": "string", "pattern": "^https?://[^\\s]+$"},
+        "evidence_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "checked_at": {"type": "string", "format": "date-time"}
+      }
+    }
+  }
+}
+

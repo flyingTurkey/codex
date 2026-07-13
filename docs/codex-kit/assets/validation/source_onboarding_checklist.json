@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "required_checks": [
+    {"code": "OWNER_VERIFIED", "description": "真实域名、主管单位和栏目所有者已确认"},
+    {"code": "ROBOTS_REVIEWED", "description": "robots规则已检查并留证"},
+    {"code": "TERMS_REVIEWED", "description": "服务条款、API条款和访问限制已检查"},
+    {"code": "COPYRIGHT_POLICY_SET", "description": "存储、摘要、全文、图片和链接策略已明确"},
+    {"code": "RATE_LIMIT_SET", "description": "采集频率、并发、退避和User-Agent已配置"},
+    {"code": "DOMAIN_ALLOWLIST_SET", "description": "来源和附件域名白名单已配置"},
+    {"code": "THIRTY_FIXTURES_VALIDATED", "description": "至少30条样本覆盖列表、详情、附件和异常"},
+    {"code": "CONTRACT_TEST_PASS", "description": "离线连接器契约测试通过"},
+    {"code": "STRUCTURE_BASELINE_SET", "description": "结构指纹、数量和最新日期基线已记录"},
+    {"code": "SECURITY_TEST_PASS", "description": "SSRF、重定向、MIME、大小和恶意文件测试通过"},
+    {"code": "OWNER_ASSIGNED", "description": "来源负责人和复审日期已设置"}
+  ],
+  "activation_rule": "所有required_checks均通过且source_admin批准后，状态才可从FIXTURE_TEST变为APPROVED；ACTIVE需单独启用操作和审计。"
+}
+

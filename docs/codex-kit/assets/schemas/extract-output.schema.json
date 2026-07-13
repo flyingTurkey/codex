@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srbg.example.internal/schemas/extract-output-1.0.0.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["claims", "evidence", "security"],
+  "properties": {
+    "claims": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/claim"}},
+    "evidence": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/evidence"}},
+    "security": {"$ref": "https://srbg.example.internal/schemas/classify-output-1.0.0.json#/$defs/candidate_security"}
+  },
+  "$defs": {
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claim_id", "field", "value", "claim_status", "confidence", "evidence_ids"],
+      "properties": {
+        "claim_id": {"type": "string"},
+        "field": {"enum": ["title", "publisher", "published_at", "document_no", "effective_at", "regulation_status", "occurred_at", "death_count", "injury_count", "direct_loss", "incident_cause", "responsibility", "corrective_action", "product_name", "model_no", "capability", "deployment_scope", "claimed_outcome", "verified_outcome", "doi", "author", "institution", "research_method"]},
+        "value": {},
+        "normalized_value": {},
+        "unit": {"type": ["string", "null"]},
+        "claim_status": {"enum": ["VERIFIED_CANDIDATE", "REPORTED_CLAIM", "UNVERIFIED", "CONFLICTING"]},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "evidence_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_id", "document_block_id", "locator", "excerpt", "supports"],
+      "properties": {
+        "evidence_id": {"type": "string"},
+        "document_block_id": {"type": "string"},
+        "locator": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "value"],
+          "properties": {
+            "type": {"enum": ["HTML_PARAGRAPH", "PDF_PAGE", "OCR_BOX", "TABLE_CELL", "TEXT_RANGE"]},
+            "value": {"type": "string"}
+          }
+        },
+        "excerpt": {"type": "string", "minLength": 1, "maxLength": 500},
+        "supports": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}}
+      }
+    }
+  }
+}
+

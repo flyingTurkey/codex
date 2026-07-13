@@ -1,0 +1,44 @@
+source_id,name,base_url,channel,source_type,authority_level,priority,collection_method,poll_interval_minutes,robots_checked,terms_checked,copyright_policy,fulltext_allowed,image_allowed,requires_auth,status,enabled,owner,last_manual_review_at,verification_note
+GOV-001,国家法律法规数据库,https://flk.npc.gov.cn/,SAFETY,government,A0,P0,public_search,1440,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,接入前核验公开检索和版本关系
+GOV-002,中国政府网政策,https://www.gov.cn/zhengce/,BOTH,government,A1,P0,html,60,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,核验列表分页和附件域名
+GOV-003,交通运输部,https://www.mot.gov.cn/,BOTH,government,A1,P0,html,30,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,重点接入数字交通科技安全栏目
+GOV-004,交通运输部政府信息公开,https://xxgk.mot.gov.cn/,BOTH,government,A1,P0,html_pdf,30,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,正式文件主来源
+GOV-005,住房和城乡建设部,https://www.mohurd.gov.cn/,BOTH,government,A1,P0,html_pdf,30,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,智能建造和房屋市政安全
+GOV-006,应急管理部,https://www.mem.gov.cn/,SAFETY,government,A1,P0,html_pdf,15,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,事故初报和调查报告分开建模
+GOV-007,应急管理部事故调查报告,https://www.mem.gov.cn/gk/sgcc/tbzdsgdcbg/,SAFETY,government,A0,P0,html_pdf,15,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,伤亡原因责任仅按原文抽取
+GOV-008,全国标准信息公共服务平台,https://std.samr.gov.cn/,SAFETY,standards,A0,P0,public_search,1440,false,false,metadata_link,false,false,false,CANDIDATE,false,source_ops,,核验检索条款和标准状态字段
+GOV-009,国家标准全文公开系统,https://openstd.samr.gov.cn/,SAFETY,standards,A0,P1,public_search,1440,false,false,official_reader_link,false,false,false,CANDIDATE,false,source_ops,,不批量镜像标准全文
+GOV-010,工业和信息化部,https://www.miit.gov.cn/,DIGITAL,government,A1,P1,html_pdf,120,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,工业互联网AI机器人物联网案例
+GOV-011,国务院国资委,https://www.sasac.gov.cn/,DIGITAL,government,A1,P1,html,120,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,区分案例名单与宣传报道
+GOV-012,国家发展改革委,https://www.ndrc.gov.cn/,DIGITAL,government,A1,P1,html_pdf,120,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,数字经济低空新基建
+GOV-013,科学技术部,https://www.most.gov.cn/,DIGITAL,government,A1,P2,html,1440,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,采集项目和成果题录
+GOV-014,中国民用航空局,https://www.caac.gov.cn/,DIGITAL,government,A1,P1,html_pdf,120,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,产品能力不得推导适航许可
+GOV-015,四川省交通运输厅,https://jtt.sc.gov.cn/,BOTH,government,A1,P0,html_pdf,30,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,四川相关性加权
+GOV-016,四川省应急管理厅,https://yjt.sc.gov.cn/,SAFETY,government,A1,P0,html_pdf,15,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,核验事故报告历史栏目
+GOV-017,四川省住房和城乡建设厅,https://jst.sc.gov.cn/,BOTH,government,A1,P0,html_pdf,30,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,核验栏目分页和附件
+GOV-018,四川省市场监督管理局,https://scjgj.sc.gov.cn/,SAFETY,government,A1,P1,html_pdf,1440,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,与国家标准平台交叉核验
+RES-001,中国公路学会,https://www.chts.cn/,DIGITAL,association,B1,P0,html,120,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,科技成果和数字交通案例
+RES-002,中国施工企业管理协会,https://www.cacem.com.cn/,DIGITAL,association,B1,P0,html_pdf,1440,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,案例全文和图片需单独授权
+RES-003,中国建筑科学研究院,https://www.cabr.com.cn/,DIGITAL,research_institute,B1,P1,html,1440,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,发布方成果标注自述
+RES-004,中国公路学报,https://zgglxb.chd.edu.cn/,DIGITAL,journal,B1,P0,rss_or_html,1440,false,false,bibliographic_abstract_link,false,false,false,CANDIDATE,false,source_ops,,优先题录摘要DOI和RSS
+RES-005,隧道建设（中英文）,http://www.suidaojs.com/,DIGITAL,journal,B1,P0,rss_or_html,1440,false,false,bibliographic_abstract_link,false,false,false,CANDIDATE,false,source_ops,,核验HTTPS和稳定目录接口
+RES-006,中国安全科学学报,http://www.cssjj.com.cn/CN/1003-3033/home.shtml,SAFETY,journal,B1,P0,rss_or_html,1440,false,false,bibliographic_abstract_link,false,false,false,CANDIDATE,false,source_ops,,核验HTTPS和目录结构
+RES-007,OpenAlex API,https://developers.openalex.org/,DIGITAL,academic_api,B1,P0,api,1440,false,false,api_license_metadata,false,false,false,CANDIDATE,false,source_ops,,按API额度和许可使用
+RES-008,Crossref REST API,https://www.crossref.org/documentation/retrieve-metadata/rest-api/,DIGITAL,academic_api,B1,P0,api,1440,false,false,api_license_metadata,false,false,false,CANDIDATE,false,source_ops,,使用礼貌池并识别更新撤稿
+RES-009,中国知网,https://www.cnki.net/,DIGITAL,academic_database,B1,P1,licensed_api_or_manual,1440,false,false,licensed_only,false,false,true,CANDIDATE,false,source_ops,,禁止绕过登录和抓取全文
+RES-010,万方数据,https://www.wanfangdata.com.cn/,DIGITAL,academic_database,B1,P1,licensed_api_or_manual,1440,false,false,licensed_only,false,false,true,CANDIDATE,false,source_ops,,无授权只保留人工链接
+RES-011,中国土木工程学会,https://www.cces.net.cn/,DIGITAL,association,B1,P1,html,1440,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,启用前确认官网与栏目
+RES-012,中国建筑业协会,https://www.zgjzy.org.cn/,DIGITAL,association,B1,P1,html,1440,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,启用前确认官网与栏目
+ENT-001,中国交建,https://www.ccccltd.cn/,DIGITAL,enterprise,B2,P0,html,240,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,企业官方发布不等于独立评价
+ENT-002,中国建筑,https://www.cscec.com/,DIGITAL,enterprise,B2,P1,html,240,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,智能建造和机器人案例
+ENT-003,中国中铁,https://www.crecg.com/,DIGITAL,enterprise,B2,P0,html,240,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,产品性能需交叉验证
+ENT-004,中国铁建,https://www.crcc.cn/,DIGITAL,enterprise,B2,P0,html,240,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,装备和隧道案例
+ENT-005,蜀道集团,https://www.shudaojt.com/,DIGITAL,enterprise,B2,P0,html,120,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,四川案例相关性加权
+ENT-006,华为行业数字化,https://e.huawei.com/cn/industries/transportation,DIGITAL,enterprise,B2,P1,html,1440,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,交通行业案例固定入口
+ENT-007,广联达,https://www.glodon.com/,DIGITAL,enterprise,B2,P0,html,1440,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,软件能力为厂商自述
+ENT-008,大疆行业应用,https://enterprise.dji.com/cn,DIGITAL,enterprise,B2,P0,html,1440,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,不得推导空域适航和项目许可
+ENT-009,三一集团,https://www.sanygroup.com/,DIGITAL,enterprise,B2,P1,html,1440,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,营销表述不得进入确认事实
+MED-001,中国公路网,https://www.chinahighway.com/,DIGITAL,media,C1,P1,rss_or_html,60,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,只作线索和辅助证据
+MED-002,科技日报,https://www.stdaily.com/,DIGITAL,media,C1,P1,rss_or_html,60,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,成果效果需二次核验
+MED-003,Engineering News-Record,https://www.enr.com/,BOTH,media,C1,P2,rss_or_html,1440,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,注意付费墙和国际版权
+

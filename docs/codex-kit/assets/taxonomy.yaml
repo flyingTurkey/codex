@@ -1,0 +1,204 @@
+version: "1.0.0"
+locale: zh-CN
+rules:
+  one_primary_item_type: true
+  controlled_vocabulary_only: true
+  unknown_when_unsupported: true
+
+channels:
+  - code: DIGITAL
+    name: 数字化与科技创新
+  - code: SAFETY
+    name: 安全规定与案例
+
+item_types:
+  - code: DIGITAL_CASE
+    channel: DIGITAL
+    name: 数字化案例
+    risk_level: R1
+  - code: JOURNAL_PAPER
+    channel: DIGITAL
+    name: 期刊论文
+    risk_level: R1
+  - code: SOFTWARE_PRODUCT
+    channel: DIGITAL
+    name: 软件与平台
+    risk_level: R2
+  - code: IOT_PRODUCT
+    channel: DIGITAL
+    name: 物联网产品
+    risk_level: R2
+  - code: LOW_ALTITUDE_EQUIPMENT
+    channel: DIGITAL
+    name: 低空装备
+    risk_level: R2
+  - code: AI_EQUIPMENT
+    channel: DIGITAL
+    name: AI设备与机器人
+    risk_level: R2
+  - code: SAFETY_REGULATION
+    channel: SAFETY
+    name: 安全规定
+    risk_level: R3
+  - code: SAFETY_CASE
+    channel: SAFETY
+    name: 安全案例
+    risk_level: R3
+
+engineering_domains:
+  - {code: HIGHWAY, name: 公路, relevance_weight: 1.00}
+  - {code: BRIDGE, name: 桥梁, relevance_weight: 1.00}
+  - {code: TUNNEL, name: 隧道, relevance_weight: 1.00}
+  - {code: ROAD, name: 道路, relevance_weight: 0.95}
+  - {code: GENERAL_CONSTRUCTION, name: 工程施工, relevance_weight: 0.90}
+  - {code: MUNICIPAL, name: 市政, relevance_weight: 0.75}
+  - {code: BUILDING, name: 房建, relevance_weight: 0.65}
+  - {code: RAILWAY, name: 铁路, relevance_weight: 0.65}
+  - {code: WATER_CONSERVANCY, name: 水利, relevance_weight: 0.55}
+  - {code: PORT_WATERWAY, name: 港口航道, relevance_weight: 0.55}
+  - {code: GEOLOGICAL_ENGINEERING, name: 地质工程, relevance_weight: 0.75}
+
+lifecycle_stages:
+  - {code: PLANNING, name: 规划}
+  - {code: SURVEY, name: 勘察}
+  - {code: DESIGN, name: 设计}
+  - {code: PROCUREMENT, name: 采购}
+  - {code: CONSTRUCTION_PREPARATION, name: 施工准备}
+  - {code: CONSTRUCTION, name: 施工}
+  - {code: QUALITY_INSPECTION, name: 质量检测}
+  - {code: SAFETY_MANAGEMENT, name: 安全管理}
+  - {code: COMPLETION_ACCEPTANCE, name: 竣工验收}
+  - {code: OPERATION, name: 运营}
+  - {code: MAINTENANCE, name: 养护}
+  - {code: EMERGENCY_RESPONSE, name: 应急响应}
+
+technology_tags:
+  - BIM
+  - CIM
+  - GIS
+  - DIGITAL_TWIN
+  - INTERNET_OF_THINGS
+  - SENSOR_NETWORK
+  - FIVE_G
+  - BEIDOU_GNSS
+  - RTK
+  - UAV
+  - LOW_ALTITUDE_PLATFORM
+  - CONSTRUCTION_ROBOT
+  - UNMANNED_EQUIPMENT
+  - COMPUTER_VISION
+  - MACHINE_LEARNING
+  - GENERATIVE_AI
+  - INDUSTRY_LARGE_MODEL
+  - KNOWLEDGE_GRAPH
+  - CLOUD_COMPUTING
+  - EDGE_COMPUTING
+  - DATA_LAKE
+  - DIGITAL_PROJECT_MANAGEMENT
+  - SMART_SITE
+  - PREDICTIVE_MAINTENANCE
+  - THREE_D_SCANNING
+  - PHOTOGRAMMETRY
+  - AR_VR
+  - CYBERSECURITY
+
+application_scenarios:
+  - PROGRESS_CONTROL
+  - COST_CONTROL
+  - QUALITY_CONTROL
+  - SAFETY_MONITORING
+  - PERSONNEL_MANAGEMENT
+  - EQUIPMENT_MANAGEMENT
+  - MATERIAL_MANAGEMENT
+  - SUPPLY_CHAIN
+  - DESIGN_COLLABORATION
+  - CONSTRUCTION_SIMULATION
+  - INSPECTION
+  - STRUCTURAL_HEALTH_MONITORING
+  - GEOLOGICAL_FORECAST
+  - ENVIRONMENTAL_MONITORING
+  - TRAFFIC_ORGANIZATION
+  - EMERGENCY_COMMAND
+  - KNOWLEDGE_MANAGEMENT
+  - DOCUMENT_INTELLIGENCE
+  - DECISION_SUPPORT
+
+maturity_levels:
+  - CONCEPT
+  - LAB_PROTOTYPE
+  - ENGINEERING_PROTOTYPE
+  - PILOT
+  - SINGLE_PROJECT_PRODUCTION
+  - MULTI_PROJECT_REPLICATION
+  - ENTERPRISE_SCALE
+  - UNKNOWN
+
+hazard_types:
+  - FALL_FROM_HEIGHT
+  - COLLAPSE
+  - OBJECT_STRIKE
+  - LIFTING_INJURY
+  - MACHINERY_INJURY
+  - VEHICLE_INJURY
+  - ELECTRIC_SHOCK
+  - FIRE
+  - EXPLOSION
+  - POISONING_SUFFOCATION
+  - CONFINED_SPACE
+  - TEMPORARY_STRUCTURE_FAILURE
+  - SCAFFOLD_FORMWORK
+  - BRIDGE_ERECTION
+  - TUNNEL_COLLAPSE
+  - WATER_INRUSH_MUDFLOW
+  - BLASTING
+  - GEOLOGICAL_DISASTER
+  - FLOOD_AND_EXTREME_WEATHER
+  - TRAFFIC_SAFETY
+  - SPECIAL_EQUIPMENT
+  - OTHER
+  - UNKNOWN
+
+regulation_statuses:
+  - DRAFT
+  - NOT_EFFECTIVE
+  - EFFECTIVE
+  - AMENDED
+  - REPEALED
+  - SUPERSEDED
+  - EXPIRED
+  - UNKNOWN
+
+incident_statuses:
+  - UNVERIFIED_LEAD
+  - INITIAL_OFFICIAL_REPORT
+  - UNDER_INVESTIGATION
+  - FINAL_INVESTIGATION_REPORT
+  - ENFORCEMENT_DECISION
+  - RECTIFICATION_FOLLOW_UP
+  - CLOSED
+  - CORRECTED
+  - WITHDRAWN
+
+evidence_roles:
+  - PRIMARY_OFFICIAL
+  - PRIMARY_AUTHOR
+  - PEER_REVIEWED
+  - VENDOR_CLAIM
+  - INDEPENDENT_CONFIRMATION
+  - SECONDARY_REPORT
+  - CONTRADICTING
+
+relation_types:
+  - AMENDS
+  - CLARIFIES
+  - SUPERSEDES
+  - CANCELS
+  - CORRECTS
+  - FOLLOW_UP
+  - INVESTIGATES
+  - PENALIZES
+  - RECTIFIES
+  - RELATED_TO
+  - SAME_PRODUCT
+  - APPLIED_IN
+

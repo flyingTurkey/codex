@@ -1,0 +1,373 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srbg.example.internal/schemas/intelligence-item-1.0.0.json",
+  "title": "SRBG Intelligence Item",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "is_demo",
+    "publishable",
+    "channel",
+    "item_type",
+    "title",
+    "canonical_url",
+    "source",
+    "dates",
+    "classification",
+    "summary",
+    "claims",
+    "evidence",
+    "scores",
+    "review",
+    "security"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "id": {"type": "string", "minLength": 3, "maxLength": 100},
+    "is_demo": {"type": "boolean"},
+    "publishable": {"type": "boolean"},
+    "channel": {"enum": ["DIGITAL", "SAFETY"]},
+    "item_type": {
+      "enum": [
+        "DIGITAL_CASE",
+        "JOURNAL_PAPER",
+        "SOFTWARE_PRODUCT",
+        "IOT_PRODUCT",
+        "LOW_ALTITUDE_EQUIPMENT",
+        "AI_EQUIPMENT",
+        "SAFETY_REGULATION",
+        "SAFETY_CASE"
+      ]
+    },
+    "title": {"type": "string", "minLength": 1, "maxLength": 300},
+    "canonical_url": {"type": "string", "format": "uri", "pattern": "^https?://[^\\s]+$"},
+    "source": {"$ref": "#/$defs/source"},
+    "dates": {"$ref": "#/$defs/dates"},
+    "classification": {"$ref": "#/$defs/classification"},
+    "summary": {"$ref": "#/$defs/summary"},
+    "claims": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/claim"}
+    },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/evidence"}
+    },
+    "entities": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/entity"},
+      "default": []
+    },
+    "relations": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/relation"},
+      "default": []
+    },
+    "profile": {"$ref": "#/$defs/type_profile"},
+    "scores": {"$ref": "#/$defs/scores"},
+    "review": {"$ref": "#/$defs/review"},
+    "security": {"$ref": "#/$defs/security"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"is_demo": {"const": true}}, "required": ["is_demo"]},
+      "then": {"properties": {"publishable": {"const": false}}}
+    },
+    {
+      "if": {"properties": {"item_type": {"enum": ["SAFETY_REGULATION", "SAFETY_CASE"]}}},
+      "then": {
+        "properties": {
+          "channel": {"const": "SAFETY"},
+          "review": {"type": "object", "properties": {"mandatory_human_review": {"const": true}}}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"security": {"type": "object", "properties": {"prompt_injection_detected": {"const": true}}}},
+        "required": ["security"]
+      },
+      "then": {
+        "properties": {"security": {"type": "object", "properties": {"prompt_injection_status": {"enum": ["UNRESOLVED", "RESOLVED"]}}}}
+      }
+    },
+    {
+      "if": {
+        "properties": {"security": {"type": "object", "properties": {"prompt_injection_detected": {"const": false}}}},
+        "required": ["security"]
+      },
+      "then": {
+        "properties": {"security": {"type": "object", "properties": {"prompt_injection_status": {"const": "NONE"}}}}
+      }
+    },
+    {
+      "if": {"properties": {"item_type": {"const": "DIGITAL_CASE"}}, "required": ["item_type"]},
+      "then": {"properties": {"profile": {"$ref": "#/$defs/digital_case_profile"}}}
+    },
+    {
+      "if": {"properties": {"item_type": {"const": "JOURNAL_PAPER"}}, "required": ["item_type"]},
+      "then": {"properties": {"profile": {"$ref": "#/$defs/paper_profile"}}}
+    },
+    {
+      "if": {"properties": {"item_type": {"const": "SOFTWARE_PRODUCT"}}, "required": ["item_type"]},
+      "then": {"properties": {"profile": {"$ref": "#/$defs/software_product_profile"}}}
+    },
+    {
+      "if": {"properties": {"item_type": {"const": "IOT_PRODUCT"}}, "required": ["item_type"]},
+      "then": {"properties": {"profile": {"$ref": "#/$defs/iot_product_profile"}}}
+    },
+    {
+      "if": {"properties": {"item_type": {"const": "LOW_ALTITUDE_EQUIPMENT"}}, "required": ["item_type"]},
+      "then": {"properties": {"profile": {"$ref": "#/$defs/low_altitude_product_profile"}}}
+    },
+    {
+      "if": {"properties": {"item_type": {"const": "AI_EQUIPMENT"}}, "required": ["item_type"]},
+      "then": {"properties": {"profile": {"$ref": "#/$defs/ai_equipment_profile"}}}
+    },
+    {
+      "if": {"properties": {"item_type": {"const": "SAFETY_REGULATION"}}, "required": ["item_type"]},
+      "then": {"properties": {"profile": {"$ref": "#/$defs/safety_regulation_profile"}}}
+    },
+    {
+      "if": {"properties": {"item_type": {"const": "SAFETY_CASE"}}, "required": ["item_type"]},
+      "then": {"properties": {"profile": {"$ref": "#/$defs/safety_case_profile"}}}
+    }
+  ],
+  "$defs": {
+    "source": {
+      "$comment": "Published read-model field populated from the server source registry; never accepted as candidate authority input.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "name", "authority_level", "publisher_type", "is_primary_source"],
+      "properties": {
+        "source_id": {"type": "string"},
+        "name": {"type": "string"},
+        "authority_level": {"enum": ["A0", "A1", "B1", "B2", "C1", "C2"]},
+        "publisher_type": {"enum": ["GOVERNMENT", "STANDARDS", "JOURNAL", "RESEARCH", "ASSOCIATION", "ENTERPRISE", "MEDIA", "ACADEMIC_API"]},
+        "is_primary_source": {"type": "boolean"}
+      }
+    },
+    "dates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["published_at", "first_seen_at", "last_verified_at"],
+      "properties": {
+        "published_at": {"type": ["string", "null"], "format": "date-time"},
+        "first_seen_at": {"type": "string", "format": "date-time"},
+        "last_verified_at": {"type": "string", "format": "date-time"},
+        "effective_at": {"type": ["string", "null"], "format": "date-time"},
+        "occurred_at": {"type": ["string", "null"], "format": "date-time"}
+      }
+    },
+    "classification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["engineering_domains", "lifecycle_stages", "technology_tags", "application_scenarios"],
+      "properties": {
+        "engineering_domains": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "lifecycle_stages": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "technology_tags": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "application_scenarios": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "hazard_types": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "maturity_level": {"type": ["string", "null"]},
+        "regulation_status": {"type": ["string", "null"]},
+        "incident_status": {"type": ["string", "null"]}
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["one_sentence", "why_it_matters", "key_points", "limitations", "recommended_actions"],
+      "properties": {
+        "one_sentence": {"type": "string", "maxLength": 160},
+        "why_it_matters": {"type": "string", "maxLength": 240},
+        "key_points": {"type": "array", "maxItems": 5, "items": {"type": "string"}},
+        "limitations": {"type": "array", "items": {"type": "string"}},
+        "recommended_actions": {"type": "array", "items": {"enum": ["READ_ORIGINAL", "PROFESSIONAL_REVIEW", "SAVE", "FOLLOW", "TECHNICAL_RESEARCH"]}}
+      }
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claim_id", "field", "value", "claim_status", "confidence", "evidence_ids"],
+      "properties": {
+        "claim_id": {"type": "string"},
+        "field": {"enum": ["title", "publisher", "published_at", "document_no", "effective_at", "regulation_status", "occurred_at", "death_count", "injury_count", "direct_loss", "incident_cause", "responsibility", "corrective_action", "product_name", "model_no", "capability", "deployment_scope", "claimed_outcome", "verified_outcome", "doi", "author", "institution", "research_method", "data_nature"]},
+        "value": {},
+        "normalized_value": {},
+        "unit": {"type": ["string", "null"]},
+        "claim_status": {"enum": ["VERIFIED", "REPORTED_CLAIM", "UNVERIFIED", "CONFLICTING"]},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "evidence_ids": {"type": "array", "items": {"type": "string"}, "minItems": 1}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_id", "document_version_id", "role", "locator", "excerpt", "excerpt_sha256", "supports"],
+      "properties": {
+        "evidence_id": {"type": "string"},
+        "document_version_id": {"type": "string"},
+        "role": {"enum": ["PRIMARY_OFFICIAL", "PRIMARY_AUTHOR", "PEER_REVIEWED", "VENDOR_CLAIM", "INDEPENDENT_CONFIRMATION", "SECONDARY_REPORT", "CONTRADICTING"]},
+        "locator": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "value"],
+          "properties": {
+            "type": {"enum": ["HTML_PARAGRAPH", "PDF_PAGE", "OCR_BOX", "TABLE_CELL", "TEXT_RANGE"]},
+            "value": {"type": "string"}
+          }
+        },
+        "excerpt": {"type": "string", "maxLength": 500},
+        "excerpt_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "supports": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+      }
+    },
+    "entity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entity_type", "name"],
+      "properties": {
+        "entity_type": {"type": "string"},
+        "name": {"type": "string"},
+        "canonical_id": {"type": ["string", "null"]},
+        "role": {"type": ["string", "null"]}
+      }
+    },
+    "relation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relation_type", "target_id"],
+      "properties": {
+        "relation_type": {"type": "string"},
+        "target_id": {"type": "string"},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "scores": {
+      "$comment": "Published read-model scores are server-derived and never trusted from model or client payloads.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relevance", "authority", "impact", "novelty", "timeliness", "evidence", "confidence", "heat", "rule_version"],
+      "properties": {
+        "relevance": {"type": "number", "minimum": 0, "maximum": 100},
+        "authority": {"type": "number", "minimum": 0, "maximum": 100},
+        "impact": {"type": "number", "minimum": 0, "maximum": 100},
+        "novelty": {"type": "number", "minimum": 0, "maximum": 100},
+        "timeliness": {"type": "number", "minimum": 0, "maximum": 100},
+        "evidence": {"type": "number", "minimum": 0, "maximum": 100},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 100},
+        "heat": {"type": "number", "minimum": 0, "maximum": 100},
+        "rule_version": {"type": "string"}
+      }
+    },
+    "review": {
+      "$comment": "Published read-model review state is joined from authoritative review tables.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "risk_level", "mandatory_human_review", "review_reasons"],
+      "properties": {
+        "state": {"enum": ["AUTO_INGESTED", "AI_PROCESSED", "NEEDS_REVIEW", "HUMAN_VERIFIED", "PUBLISHED", "CORRECTED", "WITHDRAWN"]},
+        "risk_level": {"enum": ["R1", "R2", "R3", "R4"]},
+        "mandatory_human_review": {"type": "boolean"},
+        "review_reasons": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "security": {
+      "$comment": "Published read-model status is joined from security scanning and resolution tables. Model candidate schemas cannot emit RESOLVED.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["prompt_injection_detected", "prompt_injection_status", "suspicious_patterns"],
+      "properties": {
+        "prompt_injection_detected": {"type": "boolean"},
+        "prompt_injection_status": {"enum": ["NONE", "UNRESOLVED", "RESOLVED"]},
+        "suspicious_patterns": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "type_profile": {
+      "oneOf": [
+        {"$ref": "#/$defs/digital_case_profile"},
+        {"$ref": "#/$defs/paper_profile"},
+        {"$ref": "#/$defs/product_profile"},
+        {"$ref": "#/$defs/safety_regulation_profile"},
+        {"$ref": "#/$defs/safety_case_profile"}
+      ]
+    },
+    "digital_case_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile_type", "maturity_level", "claimed_outcomes", "verified_outcomes"],
+      "properties": {
+        "profile_type": {"const": "DIGITAL_CASE"},
+        "maturity_level": {"enum": ["CONCEPT", "LAB_PROTOTYPE", "ENGINEERING_PROTOTYPE", "PILOT", "SINGLE_PROJECT_PRODUCTION", "MULTI_PROJECT_REPLICATION", "ENTERPRISE_SCALE", "UNKNOWN"]},
+        "claimed_outcomes": {"type": "array", "items": {"type": "string"}},
+        "verified_outcomes": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "paper_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile_type", "doi", "journal", "access_level"],
+      "properties": {
+        "profile_type": {"const": "JOURNAL_PAPER"},
+        "doi": {"type": ["string", "null"]},
+        "journal": {"type": "string"},
+        "access_level": {"enum": ["OPEN_FULLTEXT", "ABSTRACT_ALLOWED", "METADATA_ONLY"]}
+      }
+    },
+    "product_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile_type", "product_kind", "promotional_claims", "verified_capabilities", "permit_status"],
+      "properties": {
+        "profile_type": {"enum": ["SOFTWARE_PRODUCT", "IOT_PRODUCT", "LOW_ALTITUDE_EQUIPMENT", "AI_EQUIPMENT"]},
+        "product_kind": {"type": "string"},
+        "product_name": {"type": ["string", "null"]},
+        "model_no": {"type": ["string", "null"]},
+        "promotional_claims": {"type": "array", "items": {"type": "string"}},
+        "verified_capabilities": {"type": "array", "items": {"type": "string"}},
+        "permit_status": {"enum": ["VERIFIED", "NOT_REQUIRED", "UNKNOWN"]}
+      }
+    },
+    "software_product_profile": {
+      "allOf": [{"$ref": "#/$defs/product_profile"}, {"type": "object", "properties": {"profile_type": {"const": "SOFTWARE_PRODUCT"}}}]
+    },
+    "iot_product_profile": {
+      "allOf": [{"$ref": "#/$defs/product_profile"}, {"type": "object", "properties": {"profile_type": {"const": "IOT_PRODUCT"}}}]
+    },
+    "low_altitude_product_profile": {
+      "allOf": [{"$ref": "#/$defs/product_profile"}, {"type": "object", "properties": {"profile_type": {"const": "LOW_ALTITUDE_EQUIPMENT"}}}]
+    },
+    "ai_equipment_profile": {
+      "allOf": [{"$ref": "#/$defs/product_profile"}, {"type": "object", "properties": {"profile_type": {"const": "AI_EQUIPMENT"}}}]
+    },
+    "safety_regulation_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile_type", "document_no", "legal_level", "regulation_status"],
+      "properties": {
+        "profile_type": {"const": "SAFETY_REGULATION"},
+        "document_no": {"type": ["string", "null"]},
+        "legal_level": {"type": "string"},
+        "regulation_status": {"enum": ["DRAFT", "NOT_EFFECTIVE", "EFFECTIVE", "AMENDED", "REPEALED", "SUPERSEDED", "EXPIRED", "UNKNOWN"]}
+      }
+    },
+    "safety_case_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile_type", "deaths", "injuries", "official_direct_causes", "responsibility_findings", "corrective_actions"],
+      "properties": {
+        "profile_type": {"const": "SAFETY_CASE"},
+        "deaths": {"type": ["integer", "null"], "minimum": 0},
+        "injuries": {"type": ["integer", "null"], "minimum": 0},
+        "official_direct_causes": {"type": "array", "items": {"type": "string"}},
+        "responsibility_findings": {"type": "array", "items": {"type": "string"}},
+        "corrective_actions": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}

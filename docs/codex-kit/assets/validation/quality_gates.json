@@ -1,0 +1,49 @@
+{
+  "version": "1.0.0",
+  "system": {
+    "internal_availability_percent": 99.5,
+    "production_availability_percent": 99.9,
+    "api_read_p95_ms": 500,
+    "search_p95_ms": 800,
+    "rpo_minutes": 15,
+    "rto_minutes": 240
+  },
+  "source": {
+    "tier_one_success_percent": 99.0,
+    "tier_one_safety_discovery_p95_minutes": 30,
+    "digital_discovery_p95_minutes": 240,
+    "post_fetch_processing_p95_minutes": 15,
+    "structure_anomaly_detection_minutes": 15
+  },
+  "content": {
+    "published_critical_claim_evidence_percent": 100.0,
+    "safety_regulation_key_field_accuracy_percent": 98.0,
+    "safety_case_core_field_accuracy_percent": 98.0,
+    "other_field_accuracy_percent": 95.0,
+    "html_parse_success_percent": 98.0,
+    "text_pdf_parse_success_percent": 97.0,
+    "scanned_pdf_ocr_usable_percent": 92.0,
+    "exact_dedup_precision_percent": 99.5,
+    "near_dedup_precision_percent": 98.0,
+    "near_dedup_recall_percent": 93.0,
+    "event_cluster_purity_percent": 95.0,
+    "unsupported_high_risk_publications": 0
+  },
+  "gold_set_minimums": {
+    "documents": 500,
+    "duplicate_pairs": 300,
+    "event_clusters": 100,
+    "claim_evidence_annotations": 200,
+    "search_questions": 100
+  },
+  "pilot": {
+    "approved_sources": 20,
+    "stable_days": 14,
+    "seed_users": 20,
+    "user_test_days": 14,
+    "top20_useful_percent": 70.0,
+    "users_with_effective_action_percent": 70.0,
+    "known_important_item_recall_percent": 90.0
+  }
+}
+

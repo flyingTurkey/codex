@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="180" viewBox="0 0 720 180" role="img" aria-labelledby="title desc">
+  <title id="title">四川路桥·智安情报开发占位标识</title>
+  <desc id="desc">桥梁与雷达波形组合的非正式占位图形</desc>
+  <rect width="720" height="180" rx="24" fill="#172033"/>
+  <g transform="translate(42 35)" fill="none" stroke="#C93A32" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5 82h130"/>
+    <path d="M22 82c15-55 81-55 96 0"/>
+    <path d="M34 82V62m72 20V62"/>
+    <path d="M66 44c8-9 22-9 30 0" opacity=".85"/>
+    <path d="M58 29c14-17 34-17 48 0" opacity=".55"/>
+  </g>
+  <text x="210" y="84" fill="#FFFFFF" font-family="Inter, Noto Sans SC, sans-serif" font-size="36" font-weight="700">四川路桥·智安情报</text>
+  <text x="212" y="124" fill="#CBD5E1" font-family="Inter, Noto Sans SC, sans-serif" font-size="18">SRBG INSIGHT · 开发占位标识</text>
+</svg>
+

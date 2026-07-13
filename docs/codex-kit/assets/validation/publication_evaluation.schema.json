@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srbg.example.internal/schemas/publication-evaluation-2.0.0.json",
+  "title": "Authoritative Publication Evaluation Context",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["evaluation_id", "policy_version", "policy_sha256", "evaluated_at", "item", "server"],
+  "properties": {
+    "evaluation_id": {"type": "string"},
+    "policy_version": {"const": "2.0.0"},
+    "policy_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "evaluated_at": {"type": "string", "format": "date-time"},
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item_id", "item_type", "is_demo", "publishable"],
+      "properties": {
+        "item_id": {"type": "string"},
+        "item_type": {"enum": ["DIGITAL_CASE", "JOURNAL_PAPER", "SOFTWARE_PRODUCT", "IOT_PRODUCT", "LOW_ALTITUDE_EQUIPMENT", "AI_EQUIPMENT", "SAFETY_REGULATION", "SAFETY_CASE"]},
+        "is_demo": {"type": "boolean"},
+        "publishable": {"type": "boolean"}
+      }
+    },
+    "server": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "document", "evidence_integrity", "scores", "security", "privacy", "review", "pipeline"],
+      "properties": {
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source_id", "status", "authority_level", "policy_version", "policy_status", "excerpt_policy_pass", "attribution_policy_pass"],
+          "properties": {
+            "source_id": {"type": "string"},
+            "status": {"const": "ACTIVE"},
+            "authority_level": {"enum": ["A0", "A1", "B1", "B2", "C1", "C2"]},
+            "policy_version": {"type": "string"},
+            "policy_status": {"const": "VALID"},
+            "excerpt_policy_pass": {"const": true},
+            "attribution_policy_pass": {"const": true}
+          }
+        },
+        "document": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["document_id", "document_version_id", "content_sha256", "is_current", "lifecycle_status", "hash_verified", "url_policy_pass"],
+          "properties": {
+            "document_id": {"type": "string"},
+            "document_version_id": {"type": "string"},
+            "content_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+            "is_current": {"const": true},
+            "lifecycle_status": {"enum": ["ACTIVE", "CORRECTED"]},
+            "hash_verified": {"const": true},
+            "url_policy_pass": {"const": true}
+          }
+        },
+        "evidence_integrity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["claim_count", "evidence_count", "bidirectional_refs_valid", "locators_verified", "excerpts_match_source", "accepted_critical_claim_coverage_percent", "unresolved_conflict_count", "validator_version"],
+          "properties": {
+            "claim_count": {"type": "integer", "minimum": 1},
+            "evidence_count": {"type": "integer", "minimum": 1},
+            "bidirectional_refs_valid": {"const": true},
+            "locators_verified": {"const": true},
+            "excerpts_match_source": {"const": true},
+            "accepted_critical_claim_coverage_percent": {"const": 100},
+            "unresolved_conflict_count": {"const": 0},
+            "validator_version": {"type": "string"}
+          }
+        },
+        "scores": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["relevance", "authority", "impact", "novelty", "timeliness", "evidence", "confidence", "heat", "rule_version"],
+          "properties": {
+            "relevance": {"type": "number", "minimum": 0, "maximum": 100},
+            "authority": {"type": "number", "minimum": 0, "maximum": 100},
+            "impact": {"type": "number", "minimum": 0, "maximum": 100},
+            "novelty": {"type": "number", "minimum": 0, "maximum": 100},
+            "timeliness": {"type": "number", "minimum": 0, "maximum": 100},
+            "evidence": {"type": "number", "minimum": 0, "maximum": 100},
+            "confidence": {"type": "number", "minimum": 0, "maximum": 100},
+            "heat": {"type": "number", "minimum": 0, "maximum": 100},
+            "rule_version": {"type": "string"}
+          }
+        },
+        "security": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["prompt_injection_detected", "resolution_status", "scanner_version", "input_sha256"],
+          "properties": {
+            "prompt_injection_detected": {"type": "boolean"},
+            "resolution_status": {"enum": ["NONE", "RESOLVED_BY_SECURITY_REVIEW"]},
+            "resolution_id": {"type": ["string", "null"]},
+            "scanner_version": {"type": "string"},
+            "input_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+          },
+          "allOf": [
+            {"if": {"properties": {"prompt_injection_detected": {"const": true}}}, "then": {"properties": {"resolution_status": {"const": "RESOLVED_BY_SECURITY_REVIEW"}, "resolution_id": {"type": "string", "minLength": 1}}, "required": ["resolution_id"]}},
+            {"if": {"properties": {"prompt_injection_detected": {"const": false}}}, "then": {"properties": {"resolution_status": {"const": "NONE"}, "resolution_id": {"type": "null"}}}}
+          ]
+        },
+        "privacy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "scanner_version", "reputational_risk_reviewed"],
+          "properties": {
+            "status": {"enum": ["CLEAR", "REDACTED_AND_APPROVED"]},
+            "scanner_version": {"type": "string"},
+            "reputational_risk_reviewed": {"const": true}
+          }
+        },
+        "review": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["risk_level", "required", "decision_status", "duties_separated"],
+          "properties": {
+            "risk_level": {"enum": ["R1", "R2", "R3"]},
+            "required": {"type": "boolean"},
+            "decision_status": {"enum": ["NOT_REQUIRED", "APPROVED"]},
+            "decision_id": {"type": ["string", "null"]},
+            "submitted_by": {"type": ["string", "null"]},
+            "decided_by": {"type": ["string", "null"]},
+            "duties_separated": {"type": "boolean"}
+          }
+        },
+        "pipeline": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["candidate_schema_valid", "semantic_safety_scan_pass", "candidate_schema_version"],
+          "properties": {
+            "candidate_schema_valid": {"const": true},
+            "semantic_safety_scan_pass": {"const": true},
+            "candidate_schema_version": {"type": "string"}
+          }
+        }
+      }
+    }
+  }
+}
+

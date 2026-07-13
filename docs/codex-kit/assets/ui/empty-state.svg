@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="320" viewBox="0 0 480 320" role="img" aria-labelledby="title desc">
+  <title id="title">暂无匹配情报</title>
+  <desc id="desc">文档、放大镜和桥梁线条组成的中性空状态插画</desc>
+  <rect width="480" height="320" rx="24" fill="#F7F9FC"/>
+  <path d="M95 250h290" stroke="#CBD5E1" stroke-width="4" stroke-linecap="round"/>
+  <path d="M135 250c35-88 175-88 210 0" fill="none" stroke="#94A3B8" stroke-width="5"/>
+  <rect x="170" y="58" width="140" height="154" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="4"/>
+  <path d="M195 95h90M195 126h66M195 157h75" stroke="#94A3B8" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="316" cy="190" r="34" fill="#ECFEFF" stroke="#0891B2" stroke-width="6"/>
+  <path d="M340 214l31 31" stroke="#0891B2" stroke-width="8" stroke-linecap="round"/>
+</svg>
+

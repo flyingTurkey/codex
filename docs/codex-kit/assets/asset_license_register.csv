@@ -1,0 +1,6 @@
+asset_id,file_path,owner,license_type,allowed_scope,expiry_at,status,notes
+ASSET-001,assets/ui/brand-placeholder.svg,本开发包,original-placeholder,development_only,,approved,非四川路桥正式标识
+ASSET-002,assets/ui/empty-state.svg,本开发包,original-placeholder,internal_product,,approved,可用于首期空状态
+ASSET-003,official-srbg-logo.svg,四川路桥,company-approved,subject_to_brand_approval,,not_provided,由品牌管理部门提供
+ASSET-004,project-photography-set,四川路桥或授权方,documented-license,internal_or_public_per_release,,not_provided,每张照片需登记项目和使用范围
+
