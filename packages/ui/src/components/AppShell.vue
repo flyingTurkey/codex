@@ -22,7 +22,20 @@ withDefaults(
   },
 )
 
+const emit = defineEmits<{
+  navigate: [item: AppNavigationItem, event: MouseEvent]
+}>()
+
 const mobileNavigationOpen = ref(false)
+
+function handleNavigation(item: AppNavigationItem, event: MouseEvent): void {
+  emit('navigate', item, event)
+}
+
+function handleMobileNavigation(item: AppNavigationItem, event: MouseEvent): void {
+  mobileNavigationOpen.value = false
+  emit('navigate', item, event)
+}
 </script>
 
 <template>
@@ -38,6 +51,7 @@ const mobileNavigationOpen = ref(false)
         :current-path="currentPath"
         :show-admin="showAdmin"
         responsive-compact
+        @navigate="handleNavigation"
       >
         <template v-if="$slots['sidebar-footer']" #footer>
           <slot name="sidebar-footer" />
@@ -72,7 +86,7 @@ const mobileNavigationOpen = ref(false)
         :admin-navigation="adminNavigation"
         :current-path="currentPath"
         :show-admin="showAdmin"
-        @navigate="mobileNavigationOpen = false"
+        @navigate="handleMobileNavigation"
       >
         <template v-if="$slots['sidebar-footer']" #footer>
           <slot name="sidebar-footer" />

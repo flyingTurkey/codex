@@ -23,7 +23,7 @@ const props = withDefaults(
 )
 
 const emit = defineEmits<{
-  navigate: [item: AppNavigationItem]
+  navigate: [item: AppNavigationItem, event: MouseEvent]
 }>()
 
 function isActive(item: AppNavigationItem): boolean {
@@ -54,7 +54,7 @@ function isActive(item: AppNavigationItem): boolean {
         :href="item.to"
         :aria-current="isActive(item) ? 'page' : undefined"
         :title="compact || responsiveCompact ? item.label : undefined"
-        @click="emit('navigate', item)"
+        @click="emit('navigate', item, $event)"
       >
         <AppIcon :name="item.icon" />
         <span class="srbg-sidebar__label">{{ item.label }}</span>
@@ -74,7 +74,7 @@ function isActive(item: AppNavigationItem): boolean {
         :href="item.to"
         :aria-current="isActive(item) ? 'page' : undefined"
         :title="compact || responsiveCompact ? item.label : undefined"
-        @click="emit('navigate', item)"
+        @click="emit('navigate', item, $event)"
       >
         <AppIcon :name="item.icon" />
         <span class="srbg-sidebar__label">{{ item.label }}</span>

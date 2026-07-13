@@ -57,6 +57,48 @@ describe('AppShell', () => {
     expect(sidebars[1]?.props('responsiveCompact')).toBe(false)
   })
 
+  it('forwards desktop navigation with the original item and mouse event', async () => {
+    const wrapper = mount(AppShell, {
+      props: {
+        brand: 'SRBG Intelligence',
+        primaryNavigation,
+        currentPath: '/selected',
+      },
+    })
+
+    const desktopSidebar = wrapper.getComponent(AppSidebar)
+    await desktopSidebar.get('a[href="/selected"]').trigger('click')
+
+    const navigateEvent = wrapper.emitted('navigate')?.[0]
+    const sidebarNavigateEvent = desktopSidebar.emitted('navigate')?.[0]
+    expect(navigateEvent?.[0]).toBe(sidebarNavigateEvent?.[0])
+    expect(navigateEvent?.[1]).toBe(sidebarNavigateEvent?.[1])
+    expect(navigateEvent?.[1]).toBeInstanceOf(MouseEvent)
+    expect((navigateEvent?.[1] as MouseEvent).defaultPrevented).toBe(false)
+  })
+
+  it('forwards drawer navigation with the mouse event and closes the drawer', async () => {
+    const wrapper = mount(AppShell, {
+      props: {
+        brand: 'SRBG Intelligence',
+        primaryNavigation,
+        currentPath: '/selected',
+      },
+    })
+
+    await wrapper.get('.srbg-app-shell__menu').trigger('click')
+    const drawerSidebar = wrapper.findAllComponents(AppSidebar)[1]
+    await drawerSidebar?.get('a[href="/selected"]').trigger('click')
+
+    const navigateEvent = wrapper.emitted('navigate')?.[0]
+    const sidebarNavigateEvent = drawerSidebar?.emitted('navigate')?.[0]
+    expect(navigateEvent?.[0]).toBe(sidebarNavigateEvent?.[0])
+    expect(navigateEvent?.[1]).toBe(sidebarNavigateEvent?.[1])
+    expect(navigateEvent?.[1]).toBeInstanceOf(MouseEvent)
+    expect((navigateEvent?.[1] as MouseEvent).defaultPrevented).toBe(false)
+    expect(wrapper.find('.srbg-drawer').exists()).toBe(false)
+  })
+
   it('uses the 200px derived sidebar contract only from 1280 through 1439 pixels', async () => {
     const source = await readFile(resolve(process.cwd(), 'src/components/AppShell.vue'), 'utf8')
 

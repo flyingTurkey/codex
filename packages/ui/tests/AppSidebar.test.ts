@@ -36,4 +36,23 @@ describe('AppSidebar', () => {
     await wrapper.setProps({ showAdmin: true })
     expect(wrapper.get('a[href="/admin"]').text()).toContain('管理入口')
   })
+
+  it('emits the item and unprevented mouse event without replacing the native href', async () => {
+    const wrapper = mount(AppSidebar, {
+      props: {
+        brand: 'SRBG Intelligence',
+        primaryNavigation,
+        currentPath: '/selected',
+      },
+    })
+    const link = wrapper.get('a[href="/selected"]')
+
+    await link.trigger('click')
+
+    const navigateEvent = wrapper.emitted('navigate')?.[0]
+    expect(link.attributes('href')).toBe('/selected')
+    expect(navigateEvent?.[0]).toEqual(primaryNavigation[0])
+    expect(navigateEvent?.[1]).toBeInstanceOf(MouseEvent)
+    expect((navigateEvent?.[1] as MouseEvent).defaultPrevented).toBe(false)
+  })
 })
