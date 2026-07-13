@@ -52,10 +52,17 @@ describe('design tokens', () => {
     expect(generatedNuxtUiAppConfig).toEqual(nuxtUiAppConfig)
   })
 
-  it('generates a Tailwind 4 theme whose missing shades alias canonical tokens', async () => {
+  it('generates a static Tailwind 4 theme with complete Nuxt UI palette scales', async () => {
     const theme = await readFile(`${packageDirectory}/src/generated/theme.css`, 'utf8')
+    const paletteSteps = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950]
+    const nuxtUiPalettes = Object.values(nuxtUiAppConfig.ui.colors)
 
-    expect(theme).toContain('@theme {')
+    expect(theme).toContain('@theme static {')
+    for (const palette of nuxtUiPalettes) {
+      for (const step of paletteSteps) {
+        expect(theme).toContain(`--color-${palette}-${step}:`)
+      }
+    }
     expect(theme).toContain('--color-brand-600: var(--srbg-color-brand-600);')
     expect(theme).toContain('--color-brand-950: var(--srbg-color-brand-900);')
     expect(theme).toContain('--color-ink-200: var(--srbg-color-ink-100);')

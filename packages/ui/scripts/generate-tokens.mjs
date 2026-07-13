@@ -113,7 +113,7 @@ function generateThemeCss(tokens) {
 
   return `/* Generated from docs/codex-kit/assets/ui/design_tokens.json. Do not edit. */\n` +
     `:root {\n${canonicalVariables}\n}\n\n` +
-    `@theme {\n${[...colorThemeVariables, ...typography, ...spacing, ...radii, ...shadows, ...breakpoints].join('\n')}\n}\n`
+    `@theme static {\n${[...colorThemeVariables, ...typography, ...spacing, ...radii, ...shadows, ...breakpoints].join('\n')}\n}\n`
 }
 
 async function expectedOutputs() {

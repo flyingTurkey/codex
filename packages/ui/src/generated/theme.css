@@ -114,7 +114,7 @@
   --srbg-icon-default-stroke: 1.5px;
 }
 
-@theme {
+@theme static {
   --color-canvas: var(--srbg-color-canvas);
   --color-surface: var(--srbg-color-surface);
   --color-surfaceMuted: var(--srbg-color-surfaceMuted);
