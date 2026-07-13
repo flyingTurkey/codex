@@ -1,0 +1,18 @@
+{
+  "name": "@srbg/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "types": "./generated/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./generated/types/index.d.ts"
+    }
+  },
+  "scripts": {
+    "generate": "node scripts/generate-types.mjs"
+  },
+  "devDependencies": {
+    "json-schema-to-typescript": "15.0.4"
+  }
+}

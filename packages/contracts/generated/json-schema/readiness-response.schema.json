@@ -1,0 +1,93 @@
+{
+  "$defs": {
+    "DependencyCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "error_code": {
+          "anyOf": [
+            {
+              "enum": [
+                "timeout",
+                "unavailable",
+                "misconfigured"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "latency_ms": {
+          "minimum": 0,
+          "title": "Latency Ms",
+          "type": "integer"
+        },
+        "status": {
+          "enum": [
+            "up",
+            "down"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "latency_ms"
+      ],
+      "title": "DependencyCheck",
+      "type": "object"
+    },
+    "DependencyName": {
+      "enum": [
+        "postgresql",
+        "redis",
+        "object_storage"
+      ],
+      "title": "DependencyName",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "checks": {
+      "additionalProperties": {
+        "$ref": "#/$defs/DependencyCheck"
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/DependencyName"
+      },
+      "title": "Checks",
+      "type": "object"
+    },
+    "service": {
+      "const": "api",
+      "default": "api",
+      "title": "Service",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "ready",
+        "not_ready"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "timestamp": {
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "timestamp",
+    "checks"
+  ],
+  "title": "ReadinessResponse",
+  "type": "object"
+}

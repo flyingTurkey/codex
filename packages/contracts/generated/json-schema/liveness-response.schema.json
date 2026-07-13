@@ -1,0 +1,27 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "service": {
+      "const": "api",
+      "default": "api",
+      "title": "Service",
+      "type": "string"
+    },
+    "status": {
+      "const": "ok",
+      "default": "ok",
+      "title": "Status",
+      "type": "string"
+    },
+    "timestamp": {
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    }
+  },
+  "required": [
+    "timestamp"
+  ],
+  "title": "LivenessResponse",
+  "type": "object"
+}

@@ -1,0 +1,9 @@
+[project]
+name = "srbg-contracts"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = ["pydantic==2.13.4"]
+
+[build-system]
+requires = ["uv-build==0.11.28"]
+build-backend = "uv_build"

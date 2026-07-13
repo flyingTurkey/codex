@@ -1,0 +1,51 @@
+[project]
+name = "srbg-intelligence-platform"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[dependency-groups]
+dev = [
+  "mypy==2.2.0",
+  "pip-audit==2.10.1",
+  "pytest==9.1.1",
+  "pytest-asyncio==1.4.0",
+  "ruff==0.15.21",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["apps/api", "apps/worker", "packages/contracts"]
+
+[tool.pytest.ini_options]
+addopts = "--strict-config --strict-markers"
+asyncio_mode = "auto"
+filterwarnings = ["error"]
+testpaths = [
+  "apps/api/tests",
+  "apps/worker/tests",
+  "packages/contracts/tests",
+  "tests/contract",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = ["docs/codex-kit"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC", "S", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["S101"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["srbg_api", "srbg_contracts", "srbg_worker"]
+
+[[tool.mypy.overrides]]
+module = ["aioboto3", "aiobotocore.*", "celery"]
+ignore_missing_imports = true
