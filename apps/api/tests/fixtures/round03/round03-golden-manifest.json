@@ -1,0 +1,82 @@
+{
+  "fixture_notice": "TEST ONLY - none of these artifacts is a real regulation",
+  "files": [
+    {
+      "file": "lifecycle-v1.pdf.b64",
+      "decoded_sha256": "6a092683876d03753248238c6abb127f342f7529b44d4c635517977a2fc3a316",
+      "decoded_bytes": 3030,
+      "declared_mime": "application/pdf",
+      "expected": "READY_INITIAL"
+    },
+    {
+      "file": "lifecycle-v2-metadata.pdf.b64",
+      "decoded_sha256": "99feadcc90baf40663852e78b21123c2491ca3b5ec45c27240ceb6af2966dcf0",
+      "decoded_bytes": 3035,
+      "declared_mime": "application/pdf",
+      "expected": "METADATA_ONLY"
+    },
+    {
+      "file": "lifecycle-v3-material.pdf.b64",
+      "decoded_sha256": "61d8f485769964154a5e9bfb8e9cc0a22f74f3852cb6dbb5babf6adbfd3adb30",
+      "decoded_bytes": 3045,
+      "declared_mime": "application/pdf",
+      "expected": "CONTENT_UPDATE"
+    },
+    {
+      "file": "native-table.pdf.b64",
+      "decoded_sha256": "cef5892c2ef16b50dd50ee982e2876ae27764667106d5f4d12d79414cd93ffaf",
+      "decoded_bytes": 4528,
+      "declared_mime": "application/pdf",
+      "expected": "READY_TABLE"
+    },
+    {
+      "file": "scanned.pdf.b64",
+      "decoded_sha256": "bba8422d12509df892275ed8606701b6ee4e9f5302cf5cfff9e697eca2ce430a",
+      "decoded_bytes": 86690,
+      "declared_mime": "application/pdf",
+      "expected": "OCR_REQUIRED"
+    },
+    {
+      "file": "wrong-mime.pdf.b64",
+      "decoded_sha256": "6a092683876d03753248238c6abb127f342f7529b44d4c635517977a2fc3a316",
+      "decoded_bytes": 3030,
+      "declared_mime": "text/html",
+      "expected": "QUARANTINED_MIME_MISMATCH"
+    },
+    {
+      "file": "active-actions.pdf.b64",
+      "decoded_sha256": "012a66efb98caf6f6e283122b08a144ca83682479d77a9d16e7ac8791d881b9f",
+      "decoded_bytes": 79,
+      "declared_mime": "application/pdf",
+      "expected": "QUARANTINED_PDF_ACTIVE_ACTION"
+    },
+    {
+      "file": "oversized-page.pdf.b64",
+      "decoded_sha256": "d733402f33c3a3aaabbc5d25139d7294955814c74dd67978cd14565ebd0c66d2",
+      "decoded_bytes": 3007,
+      "declared_mime": "application/pdf",
+      "expected": "QUARANTINED_PDF_PAGE_PIXEL_LIMIT"
+    },
+    {
+      "file": "safe-flat.zip.b64",
+      "decoded_sha256": "16cb15c35350ca30cb6b8975f49f36d67a675f8c202a6fefaa6c2cde926c109b",
+      "decoded_bytes": 1931,
+      "declared_mime": "application/zip",
+      "expected": "CLEAN_ATTACHMENT_TREE"
+    },
+    {
+      "file": "compression-bomb.zip.b64",
+      "decoded_sha256": "eccad26d720cf0119f55a41e5a1786a92147c87cab258d9cb15512bfe3a6847b",
+      "decoded_bytes": 1102,
+      "declared_mime": "application/zip",
+      "expected": "QUARANTINED_ZIP_COMPRESSION_RATIO"
+    },
+    {
+      "file": "withdrawal-evidence.html.b64",
+      "decoded_sha256": "7f0e66df4454bb09727c2a5f602bc2c69a4ac47060d45a8616e8a77d8fc2bd46",
+      "decoded_bytes": 84,
+      "declared_mime": "text/html",
+      "expected": "WITHDRAWAL_OFFICIAL_EVIDENCE"
+    }
+  ]
+}

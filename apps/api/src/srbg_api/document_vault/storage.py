@@ -44,3 +44,9 @@ class S3ObjectStore:
                     head = await client.head_object(Bucket=self._bucket, Key=key)
                     return str(head.get("ETag", "")).strip('"')
                 raise
+
+    async def get_bytes(self, key: str) -> bytes:
+        async with self._client() as client:
+            result = await client.get_object(Bucket=self._bucket, Key=key)
+            body = result["Body"]
+            return bytes(await body.read())

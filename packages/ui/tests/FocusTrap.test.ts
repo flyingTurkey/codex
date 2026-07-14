@@ -40,6 +40,22 @@ describe('FocusTrap', () => {
     returnTarget.remove()
   })
 
+  it('handles Escape when an async panel refresh detaches the focused control', async () => {
+    const wrapper = mount(FocusTrap, {
+      attachTo: document.body,
+      props: { active: true },
+      slots: { default: '<button id="refresh-control" type="button">刷新</button>' },
+    })
+    await nextTick()
+
+    wrapper.get('#refresh-control').element.remove()
+    document.body.focus()
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+
+    expect(wrapper.emitted('escape')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
   it('ignores hidden, inert, aria-hidden, and disabled-fieldset descendants when trapping focus', async () => {
     const returnTarget = document.createElement('button')
     document.body.append(returnTarget)

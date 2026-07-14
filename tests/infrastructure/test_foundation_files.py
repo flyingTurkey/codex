@@ -55,6 +55,7 @@ def test_makefile_exposes_required_quality_and_runtime_targets() -> None:
         "web-a11y",
     ):
         assert f"{target}:" in makefile
+    assert "$(UV) run python scripts/check_contract_generation.py" in makefile
 
 
 def test_environment_example_is_demo_only_and_documents_timeouts() -> None:
@@ -81,6 +82,8 @@ def test_runtime_build_context_excludes_repository_only_material() -> None:
         "docs",
         "tests",
         "**/tests",
+        "**/test-results",
+        "**/playwright-report",
         "README*.md",
         "CHANGELOG.md",
         "AGENTS.md",
@@ -88,6 +91,19 @@ def test_runtime_build_context_excludes_repository_only_material() -> None:
         "Makefile",
     ):
         assert pattern in dockerignore.splitlines()
+
+
+def test_runtime_build_context_includes_authoritative_publication_gate_assets() -> None:
+    dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8")
+
+    included_assets = {
+        "!docs/codex-kit/assets/validation/publication_gate.json",
+        "!docs/codex-kit/assets/validation/publication_evaluation.schema.json",
+        "!docs/codex-kit/assets/validation/publication_gate_v3.json",
+        "!docs/codex-kit/assets/validation/publication_evaluation_v3.schema.json",
+    }
+
+    assert included_assets <= set(dockerignore.splitlines())
 
 
 def test_ci_pins_actions_and_runs_all_round_zero_gates() -> None:
@@ -137,7 +153,9 @@ def test_compose_commands_use_repository_as_project_directory() -> None:
     assert "-include .env" in makefile
     assert "export WEB_PORT API_PORT" in makefile
     assert COMPOSE[:5] == ["docker", "compose", "--project-directory", ".", "-f"]
-    assert compose.count("context: .\n") == 4
+    assert compose.count("context: .\n") == 7
+    assert "  parser:" in compose
+    assert "  publisher:" in compose
     assert "context: ../.." not in compose
 
 

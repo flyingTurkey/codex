@@ -13,13 +13,16 @@ test('source admin registers a default-denied candidate and opens admission tool
   const drawer = page.getByRole('dialog', { name: '登记候选来源' })
   await expect(drawer).toBeVisible()
   const unique = Date.now().toString()
-  await drawer.getByLabel('来源名称').fill(`浏览器验收来源-${unique}`)
+  const sourceName = `浏览器验收来源-${unique}`
+  await drawer.getByLabel('来源名称').fill(sourceName)
   await drawer.getByLabel('来源 URL').fill(`https://example.test/e2e/${unique}`)
   await drawer.getByRole('button', { name: '登记候选来源' }).click()
 
   await expect(page).toHaveURL(/\/admin\/sources\/[0-9a-f-]+$/)
-  await expect(page.getByText('候选', { exact: true })).toBeVisible()
-  await expect(page.getByText(/disabled · 0\/30 样本/)).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: sourceName })).toBeVisible()
+  const detailPage = page.locator('.source-detail-page')
+  await expect(detailPage.getByText('候选', { exact: true })).toBeVisible()
+  await expect(detailPage.getByText(/disabled · 0\/30 样本/)).toBeVisible()
 
   await page.getByRole('button', { name: '准入策略' }).click()
   const policyDrawer = page.getByRole('dialog', { name: '来源准入策略' })

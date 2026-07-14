@@ -5,6 +5,7 @@ import logging
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from pathlib import Path
 from time import perf_counter
 from typing import Any
 
@@ -24,10 +25,22 @@ from srbg_contracts import (
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from srbg_api.config import get_settings
+from srbg_api.database import create_database_engine, create_publication_engine
 from srbg_api.document_vault.security import UploadRejected
+from srbg_api.document_vault.storage import S3ObjectStore
 from srbg_api.health import HealthChecker, build_default_checkers, run_check
 from srbg_api.identifiers import uuid7
 from srbg_api.logging import configure_logging
+from srbg_api.publication.api import IntelligenceQueryService, ReviewPublicationService
+from srbg_api.publication.api import router as intelligence_router
+from srbg_api.publication.gate import PublicationGate
+from srbg_api.publication.repository import PostgresPublicationRepository
+from srbg_api.publication.service import PublicationDenied, PublicationService
+from srbg_api.safety_regulations.query import (
+    IntelligenceNotFound,
+    InvalidFeedCursor,
+    PostgresIntelligenceQueryService,
+)
 from srbg_api.source_registry.api import AdminSourceService
 from srbg_api.source_registry.api import router as source_vault_router
 from srbg_api.source_registry.repository import RepositoryConflict, SourceNotFound
@@ -41,6 +54,8 @@ def _utc_now() -> datetime:
 def create_app(
     checkers: Mapping[str, HealthChecker] | None = None,
     source_service: AdminSourceService | None = None,
+    intelligence_service: IntelligenceQueryService | None = None,
+    publication_service: ReviewPublicationService | None = None,
 ) -> FastAPI:
     configure_logging()
     settings = get_settings()
@@ -51,12 +66,15 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
-        close = getattr(source_service, "close", None)
-        if close is not None:
-            await close()
+        for service in (source_service, intelligence_service, publication_service):
+            close = getattr(service, "close", None)
+            if close is not None:
+                await close()
 
     app = FastAPI(title="SRBG Insight API", version="0.1.0", lifespan=lifespan)
     app.state.source_service = source_service
+    app.state.intelligence_service = intelligence_service
+    app.state.publication_service = publication_service
     logger = logging.getLogger("srbg.api")
 
     @app.middleware("http")
@@ -165,6 +183,60 @@ def create_app(
             media_type="application/problem+json",
         )
 
+    @app.exception_handler(PublicationDenied)
+    async def publication_denied_handler(
+        request: Request,
+        exc: PublicationDenied,
+    ) -> JSONResponse:
+        problem = ProblemDetails(
+            title="Publication gate denied the operation",
+            status=409,
+            detail=", ".join(exc.reasons),
+            instance=str(request.url.path),
+            request_id=request.state.request_id,
+        )
+        return JSONResponse(
+            status_code=409,
+            content=problem.model_dump(mode="json"),
+            media_type="application/problem+json",
+        )
+
+    @app.exception_handler(IntelligenceNotFound)
+    async def intelligence_not_found_handler(
+        request: Request,
+        exc: IntelligenceNotFound,
+    ) -> JSONResponse:
+        problem = ProblemDetails(
+            title="Resource not found",
+            status=404,
+            detail=str(exc),
+            instance=str(request.url.path),
+            request_id=request.state.request_id,
+        )
+        return JSONResponse(
+            status_code=404,
+            content=problem.model_dump(mode="json"),
+            media_type="application/problem+json",
+        )
+
+    @app.exception_handler(InvalidFeedCursor)
+    async def invalid_feed_cursor_handler(
+        request: Request,
+        exc: InvalidFeedCursor,
+    ) -> JSONResponse:
+        problem = ProblemDetails(
+            title="Invalid feed cursor",
+            status=400,
+            detail=str(exc),
+            instance=str(request.url.path),
+            request_id=request.state.request_id,
+        )
+        return JSONResponse(
+            status_code=400,
+            content=problem.model_dump(mode="json"),
+            media_type="application/problem+json",
+        )
+
     @app.exception_handler(RepositoryConflict)
     async def repository_conflict_handler(
         request: Request,
@@ -242,13 +314,23 @@ def create_app(
         )
 
     app.include_router(source_vault_router)
+    app.include_router(intelligence_router)
 
     @app.get("/metrics", response_class=PlainTextResponse, include_in_schema=False)
     async def metrics() -> str:
         service = app.state.source_service
-        if service is None or not hasattr(service, "metrics"):
-            return ""
-        return str(service.metrics.render_prometheus())
+        source_metrics = (
+            str(service.metrics.render_prometheus())
+            if service is not None and hasattr(service, "metrics")
+            else ""
+        )
+        intelligence = app.state.intelligence_service
+        processing_metrics = (
+            await intelligence.render_processing_metrics()
+            if intelligence is not None and hasattr(intelligence, "render_processing_metrics")
+            else ""
+        )
+        return source_metrics + str(processing_metrics)
 
     return app
 
@@ -257,4 +339,24 @@ async def _missing_checker() -> None:
     raise RuntimeError("dependency checker is not configured")
 
 
-app = create_app(source_service=build_default_source_service(get_settings()))
+def build_default_app() -> FastAPI:
+    settings = get_settings()
+    policy_root = Path("docs/codex-kit/assets/validation")
+    publication_gate = PublicationGate.from_files(
+        policy_root / "publication_gate_v3.json",
+        policy_root / "publication_evaluation_v3.schema.json",
+    )
+    return create_app(
+        source_service=build_default_source_service(settings),
+        intelligence_service=PostgresIntelligenceQueryService(
+            create_database_engine(settings),
+            preview_object_reader=S3ObjectStore(settings),
+        ),
+        publication_service=PublicationService(
+            repository=PostgresPublicationRepository(create_publication_engine(settings)),
+            gate=publication_gate,
+        ),
+    )
+
+
+app = build_default_app()

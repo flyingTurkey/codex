@@ -1,0 +1,68 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "document_version_id": {
+      "format": "uuid",
+      "title": "Document Version Id",
+      "type": "string"
+    },
+    "height_mpt": {
+      "exclusiveMinimum": 0,
+      "title": "Height Mpt",
+      "type": "integer"
+    },
+    "page_count": {
+      "maximum": 10000,
+      "minimum": 1,
+      "title": "Page Count",
+      "type": "integer"
+    },
+    "page_number": {
+      "maximum": 10000,
+      "minimum": 1,
+      "title": "Page Number",
+      "type": "integer"
+    },
+    "preview_url": {
+      "pattern": "^/api/v1/document-versions/[0-9a-f-]+/pages/\\d+/preview$",
+      "title": "Preview Url",
+      "type": "string"
+    },
+    "rotation": {
+      "enum": [
+        0,
+        90,
+        180,
+        270
+      ],
+      "title": "Rotation",
+      "type": "integer"
+    },
+    "text_source": {
+      "enum": [
+        "NATIVE",
+        "OCR",
+        "MIXED"
+      ],
+      "title": "Text Source",
+      "type": "string"
+    },
+    "width_mpt": {
+      "exclusiveMinimum": 0,
+      "title": "Width Mpt",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "document_version_id",
+    "page_number",
+    "page_count",
+    "width_mpt",
+    "height_mpt",
+    "rotation",
+    "text_source",
+    "preview_url"
+  ],
+  "title": "DocumentPageView",
+  "type": "object"
+}

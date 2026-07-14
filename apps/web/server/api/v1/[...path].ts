@@ -1,4 +1,4 @@
-import { getProxyRequestHeaders, getRouterParam, proxyRequest } from 'h3'
+import { getProxyRequestHeaders, getRequestURL, getRouterParam, proxyRequest } from 'h3'
 
 export default defineEventHandler(async (event) => {
   const path = getRouterParam(event, 'path')
@@ -10,10 +10,11 @@ export default defineEventHandler(async (event) => {
   headers.delete('x-srbg-local-roles')
   headers.delete('x-srbg-local-user')
   headers.delete('x-srbg-local-user-id')
-  headers.set('x-srbg-local-roles', config.localSourceRoles)
-  headers.set('x-srbg-local-user', 'Local Source Admin')
+  headers.set('x-srbg-local-roles', config.localAppRoles)
+  headers.set('x-srbg-local-user', 'Local Demo Reviewer')
 
-  return proxyRequest(event, `${config.internalApiBase}/api/v1/${path}`, {
+  const search = getRequestURL(event).search
+  return proxyRequest(event, `${config.internalApiBase}/api/v1/${path}${search}`, {
     headers,
     streamRequest: true,
   })

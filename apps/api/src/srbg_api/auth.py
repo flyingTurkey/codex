@@ -47,8 +47,22 @@ async def get_current_principal(request: Request) -> Principal:
     if not roles:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="A role is required")
 
+    raw_user_id = request.headers.get("X-SRBG-Local-User-ID")
+    try:
+        user_id = LOCAL_USER_ID if raw_user_id is None else UUID(raw_user_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Local identity contains an invalid user identifier",
+        ) from exc
+    if user_id.version != 7:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Local identity must use a UUIDv7 identifier",
+        )
+
     return Principal(
-        user_id=LOCAL_USER_ID,
+        user_id=user_id,
         display_name=request.headers.get("X-SRBG-Local-User", "本地来源管理员"),
         roles=roles,
         local_identity=True,

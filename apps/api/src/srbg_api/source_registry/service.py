@@ -64,6 +64,10 @@ class SourceRegistryService:
         self._document_vault = document_vault
         self.metrics = document_vault.metrics
 
+    @property
+    def document_vault(self) -> DocumentVaultService:
+        return self._document_vault
+
     async def close(self) -> None:
         await self._repository.close()
 

@@ -12,7 +12,11 @@ const { data: identity } = await useFetch<MeResponse>('/api/v1/me', {
 })
 const showAdmin = computed(() =>
   route.path.startsWith('/admin')
-  || Boolean(identity.value?.roles.some((role) => ['source_admin', 'platform_admin'].includes(role))),
+  || Boolean(
+    identity.value?.roles.some((role) =>
+      ['source_admin', 'reviewer', 'platform_admin'].includes(role),
+    ),
+  ),
 )
 
 function handleNavigation(item: AppNavigationItem, event: MouseEvent): void {

@@ -16,3 +16,11 @@ def test_worker_uses_utc_and_json_serialization() -> None:
     assert worker.celery_app.conf.timezone == "UTC"
     assert worker.celery_app.conf.enable_utc is True
     assert worker.celery_app.conf.task_serializer == "json"
+
+
+def test_worker_schedules_the_single_mem_connector_discovery_task() -> None:
+    assert "srbg.safety_regulations.discover" in worker.celery_app.tasks
+    schedule = worker.celery_app.conf.beat_schedule["discover-mem-safety-regulations"]
+
+    assert schedule["task"] == "srbg.safety_regulations.discover"
+    assert schedule["schedule"] == 900.0

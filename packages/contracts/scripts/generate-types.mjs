@@ -12,21 +12,37 @@ const schemaFiles = (await readdir(schemaDir))
   .sort()
 
 const publicExports = {
+  'claim-view.schema.json': ['ClaimView'],
   'create-source-request.schema.json': ['CreateSourceRequest'],
   'cursor-page.schema.json': ['CursorPageDictStrUnionStrIntBoolNoneType'],
   'document-detail.schema.json': ['DocumentDetail'],
+  'document-page-view.schema.json': ['DocumentPageView'],
+  'evidence-view.schema.json': ['EvidenceView'],
+  'feed-notice.schema.json': ['FeedNotice'],
+  'feed-page.schema.json': ['FeedPage'],
   'fixture-upload-response.schema.json': ['FixtureUploadResponse'],
   'liveness-response.schema.json': ['LivenessResponse'],
+  'item-summary.schema.json': ['ItemSummary'],
+  'item-detail.schema.json': ['ItemDetail'],
   'me-response.schema.json': ['MeResponse'],
   'problem-details.schema.json': ['ProblemDetails'],
   'readiness-response.schema.json': ['DependencyCheck', 'ReadinessResponse'],
+  'review-decision-request.schema.json': ['ReviewDecisionRequest'],
+  'review-decision-response.schema.json': ['ReviewDecisionResponse'],
+  'review-candidate-decision-request.schema.json': ['ReviewCandidateDecisionRequest'],
+  'review-task-detail.schema.json': ['ReviewTaskDetail'],
+  'review-task-summary.schema.json': ['ReviewTaskSummary'],
   'source-action-request.schema.json': ['SourceActionRequest'],
   'source-detail.schema.json': ['SourceDetail'],
   'source-onboarding-submission.schema.json': ['SourceOnboardingSubmission'],
   'source-policy-submission.schema.json': ['SourcePolicySubmission'],
   'source-summary.schema.json': ['SourceSummary'],
   'source-transition-request.schema.json': ['SourceTransitionRequest'],
+  'type-summary.schema.json': ['TypeSummary'],
+  'version-diff-response.schema.json': ['VersionDiffResponse'],
+  'version-change-escalation-request.schema.json': ['VersionChangeEscalationRequest'],
   'version-response.schema.json': ['VersionResponse'],
+  'version-timeline-response.schema.json': ['VersionTimelineResponse'],
 }
 
 await mkdir(dirname(outputPath), { recursive: true })

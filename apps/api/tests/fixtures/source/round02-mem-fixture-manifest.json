@@ -1,0 +1,35 @@
+{
+  "schema_version": "1.0.0",
+  "source_registry_code": "GOV-006",
+  "captured_at": "2026-07-14T01:09:04Z",
+  "capture_method": "web-access Chrome CDP same-origin fetch",
+  "fixture_review": {
+    "status": "APPROVED_FOR_DETERMINISTIC_TESTS",
+    "scope": "Round 02 fixture replay only; not production source admission",
+    "reviewed_at": "2026-07-14T01:09:04Z"
+  },
+  "responses": [
+    {
+      "kind": "LIST",
+      "file": "round02-mem-list.html.b64",
+      "url": "https://www.mem.gov.cn/gk/zfxxgkpt/fdzdgknr/gz11/index_1.shtml",
+      "status": 200,
+      "content_type": "text/html",
+      "etag": "W/\"6a54c16b-48a0\"",
+      "last_modified": "Mon, 13 Jul 2026 10:43:55 GMT",
+      "byte_length": 18592,
+      "sha256": "d1d93a61bba1284e582524119dd9df42d0d94eb71d5f3bc14931d84a153fca7b"
+    },
+    {
+      "kind": "DETAIL",
+      "file": "round02-mem-detail.html.b64",
+      "url": "https://www.mem.gov.cn/gk/zfxxgkpt/fdzdgknr/gz11/201606/t20160603_405633.shtml",
+      "status": 200,
+      "content_type": "text/html",
+      "etag": "W/\"63e21586-13f29\"",
+      "last_modified": "Tue, 07 Feb 2023 09:10:30 GMT",
+      "byte_length": 81705,
+      "sha256": "5d1e779f385ca900ce96a3750dddb6c8c2342f850284d09e7a59df8913b386e2"
+    }
+  ]
+}

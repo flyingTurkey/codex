@@ -1,0 +1,39 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "ACCEPT",
+        "REJECT",
+        "CONFIRM_UNRESOLVED"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "reason": {
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Reason",
+      "type": "string"
+    },
+    "target_document_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Target Document Id"
+    }
+  },
+  "required": [
+    "action",
+    "reason"
+  ],
+  "title": "ReviewCandidateDecisionRequest",
+  "type": "object"
+}

@@ -1,0 +1,15 @@
+{
+  "version": "3.0.0",
+  "contract": "publication_evaluation_v3.schema.json",
+  "trust_boundary": "Only server-authoritative current READY version, immutable security, evidence, review and lifecycle facts may satisfy publication rules.",
+  "default_decision": "DENY",
+  "selected_feed_rules": {
+    "minimum_server_scores": {
+      "relevance": 70,
+      "impact": 65,
+      "authority": 75,
+      "evidence": 90,
+      "confidence": 90
+    }
+  }
+}

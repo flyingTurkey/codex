@@ -36,7 +36,7 @@ function durationInMilliseconds(duration: string): number {
   )
 }
 
-test('root renders only the real API/schema engineering baseline and honest empty state', async ({
+test('root renders the selected-feed gate and honest no-score empty state', async ({
   page,
 }) => {
   const browserErrors = collectBrowserErrors(page)
@@ -45,7 +45,7 @@ test('root renders only the real API/schema engineering baseline and honest empt
   await expectHydratedApp(page)
 
   await expect(page.getByRole('heading', { level: 1, name: '今日精选' })).toBeVisible()
-  await expect(page.getByText('工程基线可用', { exact: true })).toBeVisible()
+  await expect(page.getByText('真实评分待接入', { exact: true })).toBeVisible()
   await expect(page.getByText('API v1 · Schema 1.0.0', { exact: true })).toBeVisible()
   const updatedAt = page.getByTestId('page-updated-at')
   await expect(updatedAt).toBeVisible()
@@ -53,10 +53,10 @@ test('root renders only the real API/schema engineering baseline and honest empt
   const updatedAtIso = await updatedAt.getAttribute('datetime')
   expect(updatedAtIso).not.toBeNull()
   expect(Number.isNaN(Date.parse(updatedAtIso ?? ''))).toBe(false)
-  await expect(page.getByRole('heading', { level: 2, name: '业务数据尚未接入' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 2, name: '暂无精选内容' })).toBeVisible()
   await expect(page.getByTestId('metric')).toHaveCount(0)
   await expect(page.locator('article')).toHaveCount(0)
-  await expect(page.getByText(/评分|今日新增|数字化精选|安全重点/)).toHaveCount(0)
+  await expect(page.getByText(/相关性评分|影响评分|权威评分/)).toHaveCount(0)
   await expectNoHorizontalOverflow(page)
   expect(browserErrors).toEqual([])
 })
@@ -127,6 +127,8 @@ test('skip link is first, moves focus to main, and desktop navigation remains ta
   await expect(page.getByRole('main')).toBeFocused()
 
   await page.keyboard.press('Shift+Tab')
+  await expect(page.getByRole('link', { name: '审核工作台', exact: true })).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
   await expect(page.getByRole('link', { name: '管理入口', exact: true })).toBeFocused()
   await page.keyboard.press('Shift+Tab')
   await expect(page.getByRole('link', { name: '收藏', exact: true })).toBeFocused()
@@ -155,7 +157,7 @@ test('mobile drawer has keyboard focus containment, Escape close, and scroll res
   expect(await page.evaluate(() => document.body.style.overflow)).toBe('hidden')
 
   await page.keyboard.press('Shift+Tab')
-  await expect(dialog.getByRole('link', { name: '管理入口', exact: true })).toBeFocused()
+  await expect(dialog.getByRole('link', { name: '审核工作台', exact: true })).toBeFocused()
   await page.keyboard.press('Tab')
   await expect(closeButton).toBeFocused()
 
@@ -258,7 +260,7 @@ test('forced colors preserves a visible focus indicator and text-plus-icon statu
   expect(outline.style).not.toBe('none')
   expect(outline.width).toBeGreaterThanOrEqual(2)
 
-  const status = page.getByText('工程基线可用', { exact: true }).locator('..')
+  const status = page.getByText('真实评分待接入', { exact: true }).locator('..')
   await expect(status).toBeVisible()
   const statusIcon = status.locator('svg')
   await expect(statusIcon).toBeVisible()

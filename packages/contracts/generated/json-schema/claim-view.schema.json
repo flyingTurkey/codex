@@ -1,0 +1,46 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "claim_type": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Claim Type",
+      "type": "string"
+    },
+    "evidence_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Evidence Ids",
+      "type": "array"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "label": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Label",
+      "type": "string"
+    },
+    "value": {
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Value",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "claim_type",
+    "label",
+    "value",
+    "evidence_ids"
+  ],
+  "title": "ClaimView",
+  "type": "object"
+}

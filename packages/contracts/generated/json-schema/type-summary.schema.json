@@ -1,0 +1,64 @@
+{
+  "$defs": {
+    "RegulationClassification": {
+      "enum": [
+        "LAW",
+        "ADMINISTRATIVE_REGULATION",
+        "DEPARTMENT_RULE",
+        "NORMATIVE_DOCUMENT",
+        "STANDARD_OR_GUIDE"
+      ],
+      "title": "RegulationClassification",
+      "type": "string"
+    },
+    "RegulationStatus": {
+      "enum": [
+        "DRAFT",
+        "NOT_EFFECTIVE",
+        "EFFECTIVE",
+        "AMENDED",
+        "REPEALED",
+        "SUPERSEDED",
+        "EXPIRED",
+        "UNKNOWN"
+      ],
+      "title": "RegulationStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "classification": {
+      "$ref": "#/$defs/RegulationClassification"
+    },
+    "document_number": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Document Number",
+      "type": "string"
+    },
+    "issuing_authority": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Issuing Authority",
+      "type": "string"
+    },
+    "kind": {
+      "const": "SAFETY_REGULATION",
+      "title": "Kind",
+      "type": "string"
+    },
+    "regulation_status": {
+      "$ref": "#/$defs/RegulationStatus"
+    }
+  },
+  "required": [
+    "kind",
+    "document_number",
+    "issuing_authority",
+    "regulation_status",
+    "classification"
+  ],
+  "title": "TypeSummary",
+  "type": "object"
+}

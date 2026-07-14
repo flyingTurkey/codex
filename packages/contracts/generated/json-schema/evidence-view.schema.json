@@ -1,0 +1,329 @@
+{
+  "$defs": {
+    "HtmlParagraphLocator": {
+      "additionalProperties": false,
+      "properties": {
+        "char_end": {
+          "exclusiveMinimum": 0,
+          "title": "Char End",
+          "type": "integer"
+        },
+        "char_start": {
+          "minimum": 0,
+          "title": "Char Start",
+          "type": "integer"
+        },
+        "paragraph_id": {
+          "pattern": "^html-p-\\d{4}$",
+          "title": "Paragraph Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "HTML_PARAGRAPH",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "paragraph_id",
+        "char_start",
+        "char_end"
+      ],
+      "title": "HtmlParagraphLocator",
+      "type": "object"
+    },
+    "PageBoundingBox": {
+      "additionalProperties": false,
+      "description": "Rotation-normalized PDF coordinates in integer thousandths of a point.",
+      "properties": {
+        "x0": {
+          "minimum": 0,
+          "title": "X0",
+          "type": "integer"
+        },
+        "x1": {
+          "exclusiveMinimum": 0,
+          "title": "X1",
+          "type": "integer"
+        },
+        "y0": {
+          "minimum": 0,
+          "title": "Y0",
+          "type": "integer"
+        },
+        "y1": {
+          "exclusiveMinimum": 0,
+          "title": "Y1",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "x0",
+        "y0",
+        "x1",
+        "y1"
+      ],
+      "title": "PageBoundingBox",
+      "type": "object"
+    },
+    "PdfOcrLocator": {
+      "additionalProperties": false,
+      "properties": {
+        "bbox": {
+          "$ref": "#/$defs/PageBoundingBox"
+        },
+        "block_id": {
+          "format": "uuid",
+          "title": "Block Id",
+          "type": "string"
+        },
+        "confidence_bps": {
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Confidence Bps",
+          "type": "integer"
+        },
+        "page_number": {
+          "maximum": 10000,
+          "minimum": 1,
+          "title": "Page Number",
+          "type": "integer"
+        },
+        "type": {
+          "const": "PDF_OCR",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "page_number",
+        "block_id",
+        "bbox",
+        "type",
+        "confidence_bps"
+      ],
+      "title": "PdfOcrLocator",
+      "type": "object"
+    },
+    "PdfTableCellLocator": {
+      "additionalProperties": false,
+      "properties": {
+        "bbox": {
+          "$ref": "#/$defs/PageBoundingBox"
+        },
+        "column_index": {
+          "minimum": 0,
+          "title": "Column Index",
+          "type": "integer"
+        },
+        "confidence_bps": {
+          "anyOf": [
+            {
+              "maximum": 10000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence Bps"
+        },
+        "page_number": {
+          "maximum": 10000,
+          "minimum": 1,
+          "title": "Page Number",
+          "type": "integer"
+        },
+        "row_index": {
+          "minimum": 0,
+          "title": "Row Index",
+          "type": "integer"
+        },
+        "table_cell_id": {
+          "format": "uuid",
+          "title": "Table Cell Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "PDF_TABLE_CELL",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "page_number",
+        "table_cell_id",
+        "row_index",
+        "column_index",
+        "bbox"
+      ],
+      "title": "PdfTableCellLocator",
+      "type": "object"
+    },
+    "PdfTextLocator": {
+      "additionalProperties": false,
+      "properties": {
+        "bbox": {
+          "$ref": "#/$defs/PageBoundingBox"
+        },
+        "block_id": {
+          "format": "uuid",
+          "title": "Block Id",
+          "type": "string"
+        },
+        "page_number": {
+          "maximum": 10000,
+          "minimum": 1,
+          "title": "Page Number",
+          "type": "integer"
+        },
+        "type": {
+          "const": "PDF_TEXT",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "page_number",
+        "block_id",
+        "bbox",
+        "type"
+      ],
+      "title": "PdfTextLocator",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "char_end": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Char End"
+    },
+    "char_start": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Char Start"
+    },
+    "claim_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Claim Ids",
+      "type": "array"
+    },
+    "document_version_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Document Version Id"
+    },
+    "excerpt": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Excerpt",
+      "type": "string"
+    },
+    "excerpt_sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Excerpt Sha256",
+      "type": "string"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "locator": {
+      "anyOf": [
+        {
+          "discriminator": {
+            "mapping": {
+              "HTML_PARAGRAPH": "#/$defs/HtmlParagraphLocator",
+              "PDF_OCR": "#/$defs/PdfOcrLocator",
+              "PDF_TABLE_CELL": "#/$defs/PdfTableCellLocator",
+              "PDF_TEXT": "#/$defs/PdfTextLocator"
+            },
+            "propertyName": "type"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/HtmlParagraphLocator"
+            },
+            {
+              "$ref": "#/$defs/PdfTextLocator"
+            },
+            {
+              "$ref": "#/$defs/PdfOcrLocator"
+            },
+            {
+              "$ref": "#/$defs/PdfTableCellLocator"
+            }
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Locator"
+    },
+    "original_url": {
+      "maxLength": 2048,
+      "pattern": "^https?://[^\\s]+$",
+      "title": "Original Url",
+      "type": "string"
+    },
+    "paragraph_id": {
+      "anyOf": [
+        {
+          "pattern": "^html-p-\\d{4}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Paragraph Id"
+    }
+  },
+  "required": [
+    "id",
+    "claim_ids",
+    "excerpt",
+    "excerpt_sha256",
+    "original_url"
+  ],
+  "title": "EvidenceView",
+  "type": "object"
+}

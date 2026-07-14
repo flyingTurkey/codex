@@ -1,10 +1,16 @@
 from datetime import UTC, datetime
+from io import BytesIO
 from uuid import UUID
+from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
+from srbg_api.acquisition.contracts import FetchedAttachment
 from srbg_api.document_vault.service import (
+    AttachmentQuarantined,
+    AttachmentRecord,
     DocumentVaultService,
     FixtureRecord,
+    RejectedRawRecord,
     SourceVaultMetrics,
 )
 from srbg_contracts import (
@@ -30,7 +36,7 @@ class MemoryObjectStore:
         self.put_count = 0
 
     async def put_if_absent(self, key: str, content: bytes, content_type: str) -> str:
-        assert content_type in {"text/html", "application/pdf"}
+        assert content_type in {"application/octet-stream", "text/html", "application/pdf"}
         if key not in self.objects:
             self.objects[key] = content
             self.put_count += 1
@@ -46,6 +52,8 @@ class MemoryVaultRepository:
     def __init__(self) -> None:
         self.raw: dict[str, UUID] = {}
         self.documents: dict[str, tuple[UUID, list[FixtureRecord]]] = {}
+        self.attachments: list[AttachmentRecord] = []
+        self.rejected_raw: list[RejectedRawRecord] = []
 
     async def source_accepts_fixture(self, source_id: UUID, canonical_url: str) -> bool:
         return source_id == SOURCE_ID and canonical_url.startswith("https://example.test/")
@@ -100,6 +108,16 @@ class MemoryVaultRepository:
             raw_object_deduplicated=raw_deduplicated,
             version_created=version_created,
         )
+
+    async def record_attachment(self, record: AttachmentRecord) -> UUID:
+        self.attachments.append(record)
+        self.raw.setdefault(record.content_hash, record.raw_object_id)
+        return record.attachment_id
+
+    async def record_rejected_raw(self, record: RejectedRawRecord) -> UUID:
+        self.rejected_raw.append(record)
+        self.raw.setdefault(record.content_hash, record.raw_object_id)
+        return self.raw[record.content_hash]
 
 
 def _service() -> tuple[DocumentVaultService, MemoryVaultRepository, MemoryObjectStore]:
@@ -168,8 +186,14 @@ async def test_storage_failures_and_rejections_are_counted() -> None:
 
     with pytest.raises(OSError, match="object storage unavailable"):
         await _upload(service, b"<!doctype html><html><body>valid</body></html>")
+    rejection_service = DocumentVaultService(
+        repository=repository,
+        object_store=MemoryObjectStore(),
+        malware_scanner=CleanScanner(),
+        metrics=metrics,
+    )
     with pytest.raises(ValueError, match="MIME"):
-        await service.upload(
+        await rejection_service.upload(
             SOURCE_ID,
             content=b"not html",
             filename="fixture.html",
@@ -183,7 +207,113 @@ async def test_storage_failures_and_rejections_are_counted() -> None:
     assert metrics.uploads == 2
     assert metrics.object_storage_errors == 1
     assert metrics.rejections == 1
+    assert len(repository.rejected_raw) == 1
+    assert repository.rejected_raw[0].reason_code == "UPLOAD_SECURITY_REJECTED"
     rendered = metrics.render_prometheus()
     assert "srbg_source_fixture_uploads_total 2" in rendered
     assert "srbg_source_fixture_rejections_total 1" in rendered
     assert "srbg_raw_object_storage_errors_total 1" in rendered
+
+
+async def test_untrusted_bytes_are_privately_stored_before_malware_scan() -> None:
+    events: list[str] = []
+
+    class RecordingStore(MemoryObjectStore):
+        async def put_if_absent(self, key: str, content: bytes, content_type: str) -> str:
+            events.append("raw_stored")
+            return await super().put_if_absent(key, content, content_type)
+
+    class RecordingScanner:
+        async def scan(self, content: bytes) -> None:
+            events.append("malware_scanned")
+
+    service = DocumentVaultService(
+        repository=MemoryVaultRepository(),
+        object_store=RecordingStore(),
+        malware_scanner=RecordingScanner(),
+        metrics=SourceVaultMetrics(),
+    )
+
+    await _upload(service, b"<!doctype html><html><body>valid</body></html>")
+
+    assert events == ["raw_stored", "malware_scanned"]
+
+
+def _zip_bytes(entries: dict[str, bytes]) -> bytes:
+    buffer = BytesIO()
+    with ZipFile(buffer, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in entries.items():
+            archive.writestr(name, content)
+    return buffer.getvalue()
+
+
+async def test_fetched_zip_attachment_is_persisted_as_a_clean_one_level_tree() -> None:
+    service, repository, store = _service()
+    uploaded = await _upload(
+        service,
+        b"<!doctype html><html><body>main regulation</body></html>",
+    )
+    archive = _zip_bytes(
+        {
+            "annex/one.html": b"<!doctype html><html><body>annex one</body></html>",
+            "two.html": b"<!doctype html><html><body>annex two</body></html>",
+        }
+    )
+
+    roots = await service.store_attachments(
+        uploaded.document.current_version.id,
+        attachments=(
+            FetchedAttachment(
+                url="https://example.test/document/1/annexes.zip",
+                filename="annexes.zip",
+                content=archive,
+                content_type="application/zip",
+            ),
+        ),
+        acquired_at=datetime.now(UTC),
+    )
+
+    assert len(roots) == 1
+    assert len(repository.attachments) == 3
+    root = repository.attachments[0]
+    children = repository.attachments[1:]
+    assert root.attachment_id == roots[0]
+    assert root.parent_attachment_id is None
+    assert root.depth == 0
+    assert root.security_status == "CLEAN"
+    assert {child.parent_attachment_id for child in children} == {root.attachment_id}
+    assert {child.depth for child in children} == {1}
+    assert {child.normalized_path for child in children} == {"annex/one.html", "two.html"}
+    assert all(child.security_status == "CLEAN" for child in children)
+    assert len(store.objects) == 4  # main document, ZIP root, and two extracted children
+
+
+async def test_compression_bomb_attachment_is_quarantined_without_partial_children() -> None:
+    service, repository, store = _service()
+    uploaded = await _upload(
+        service,
+        b"<!doctype html><html><body>main regulation</body></html>",
+    )
+    archive = _zip_bytes({"bomb.html": b"<!doctype html>" + b"A" * 200_000})
+
+    with pytest.raises(AttachmentQuarantined) as captured:
+        await service.store_attachments(
+            uploaded.document.current_version.id,
+            attachments=(
+                FetchedAttachment(
+                    url="https://example.test/document/1/bomb.zip",
+                    filename="bomb.zip",
+                    content=archive,
+                    content_type="application/zip",
+                ),
+            ),
+            acquired_at=datetime.now(UTC),
+        )
+
+    assert captured.value.code == "ZIP_COMPRESSION_RATIO"
+    assert len(repository.attachments) == 1
+    root = repository.attachments[0]
+    assert root.parent_attachment_id is None
+    assert root.security_status == "QUARANTINED"
+    assert root.reason_code == "ZIP_COMPRESSION_RATIO"
+    assert any(value == archive for value in store.objects.values())

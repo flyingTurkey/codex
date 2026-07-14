@@ -18,13 +18,14 @@
         "item_id": {"type": "string"},
         "item_type": {"enum": ["DIGITAL_CASE", "JOURNAL_PAPER", "SOFTWARE_PRODUCT", "IOT_PRODUCT", "LOW_ALTITUDE_EQUIPMENT", "AI_EQUIPMENT", "SAFETY_REGULATION", "SAFETY_CASE"]},
         "is_demo": {"type": "boolean"},
-        "publishable": {"type": "boolean"}
+        "publishable": {"type": "boolean"},
+        "regulation_status": {"enum": ["DRAFT", "NOT_EFFECTIVE", "EFFECTIVE", "AMENDED", "REPEALED", "SUPERSEDED", "EXPIRED", "UNKNOWN"]}
       }
     },
     "server": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["source", "document", "evidence_integrity", "scores", "security", "privacy", "review", "pipeline"],
+      "required": ["source", "document", "evidence_integrity", "security", "privacy", "review", "pipeline"],
       "properties": {
         "source": {
           "type": "object",
@@ -139,4 +140,3 @@
     }
   }
 }
-

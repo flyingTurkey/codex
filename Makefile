@@ -8,10 +8,24 @@ PNPM ?= pnpm
 endif
 
 -include .env
-export WEB_PORT API_PORT
+export WEB_PORT API_PORT POSTGRES_PORT MINIO_PORT
+export POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB
+export MINIO_ROOT_USER MINIO_ROOT_PASSWORD
+export SRBG_API_DB_PASSWORD SRBG_PUBLISHER_DB_PASSWORD
+export SRBG_S3_BUCKET SRBG_S3_REGION SRBG_EXTERNAL_IO_TIMEOUT_SECONDS
 
 POSTGRES_PORT ?= 5432
 MINIO_PORT ?= 9000
+POSTGRES_DB ?= srbg
+POSTGRES_USER ?= srbg
+POSTGRES_PASSWORD ?= srbg_local_only
+MINIO_ROOT_USER ?= srbg_local
+MINIO_ROOT_PASSWORD ?= srbg_local_storage_only
+SRBG_API_DB_PASSWORD ?= srbg_api_local_only
+SRBG_PUBLISHER_DB_PASSWORD ?= srbg_publisher_local_only
+SRBG_S3_BUCKET ?= srbg-raw
+SRBG_S3_REGION ?= us-east-1
+SRBG_EXTERNAL_IO_TIMEOUT_SECONDS ?= 5
 
 COMPOSE = docker compose --project-directory . -f infra/compose/compose.yaml
 TRIVY_IMAGE = aquasec/trivy:0.69.3
@@ -31,11 +45,13 @@ export UV_PYTHON_INSTALL_DIR
 export PLAYWRIGHT_BROWSERS_PATH
 
 .PHONY: setup dev runtime-ready down lint typecheck test contract-test security-check smoke \
-	resilience-test fixture-replay quality-gate web-e2e web-a11y source-fixture-test
+	resilience-test fixture-replay quality-gate web-e2e web-a11y source-fixture-test \
+	safety-regulation-test pdf-ocr-test
 
 setup:
 	$(UV) sync --frozen --all-packages
 	$(PNPM) install --frozen-lockfile
+	$(UV) run python -m srbg_contracts.export
 	$(PNPM) contracts:generate
 	$(PNPM) --filter @srbg/web exec playwright install chromium
 	$(COMPOSE) build
@@ -67,8 +83,7 @@ test:
 	$(PNPM) --filter @srbg/web test
 
 contract-test:
-	$(PNPM) contracts:generate
-	git diff --exit-code -- packages/contracts/generated
+	$(UV) run python scripts/check_contract_generation.py
 	$(UV) run python -m pytest packages/contracts/tests tests/contract -q
 
 security-check:
@@ -89,7 +104,12 @@ fixture-replay:
 	$(UV) run python -m pytest \
 		apps/api/tests/test_upload_security.py \
 		apps/api/tests/test_document_vault_service.py \
-		apps/api/tests/test_clamav_scanner.py -q
+		apps/api/tests/test_clamav_scanner.py \
+		apps/api/tests/test_acquisition_security.py \
+		apps/api/tests/test_safety_regulation_parser.py \
+		apps/api/tests/test_safety_regulation_pipeline.py \
+		apps/api/tests/test_publication_gate.py \
+		apps/api/tests/test_publication_service.py -q
 
 quality-gate: lint typecheck test contract-test security-check
 
@@ -98,6 +118,22 @@ source-fixture-test:
 	$(COMPOSE) run --rm minio-init
 	$(SOURCE_DB_ENV) $(UV) run alembic -c apps/api/alembic.ini upgrade head
 	$(SOURCE_TEST_ENV) $(UV) run python -m pytest apps/api/tests/test_source_fixture_integration.py -q
+
+safety-regulation-test:
+	$(COMPOSE) up --detach --wait postgres minio
+	$(UV) run python scripts/run_isolated_integration.py -- \
+		apps/api/tests/test_safety_regulation_integration.py \
+		apps/api/tests/test_publication_rbac_integration.py -q
+
+pdf-ocr-test:
+	$(COMPOSE) up --detach --wait postgres redis clamav minio
+	$(COMPOSE) run --rm --no-deps parser python scripts/verify_round03_ocr.py
+	$(UV) run python scripts/run_isolated_integration.py -- \
+		apps/api/tests/test_round03_golden_fixtures.py \
+		apps/api/tests/test_pdf_security.py \
+		apps/api/tests/test_pdf_parser.py \
+		apps/api/tests/test_pdf_versioning.py \
+		apps/api/tests/test_safety_regulation_integration.py -q
 
 web-e2e: runtime-ready
 	$(PNPM) --filter @srbg/web e2e

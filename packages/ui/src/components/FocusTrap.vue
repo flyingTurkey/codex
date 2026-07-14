@@ -191,12 +191,14 @@ watch(
   async (active, wasActive) => {
     if (typeof document === 'undefined') return
     if (active) {
+      if (!wasActive) document.addEventListener('keydown', handleKeydown)
       if (!wasActive && document.activeElement instanceof HTMLElement) {
         returnTarget = document.activeElement
       }
       await nextTick()
       focusInitial()
     } else if (wasActive) {
+      document.removeEventListener('keydown', handleKeydown)
       await nextTick()
       restoreFocus()
     }
@@ -205,12 +207,13 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  if (typeof document !== 'undefined') document.removeEventListener('keydown', handleKeydown)
   if (props.active) restoreFocus()
 })
 </script>
 
 <template>
-  <div ref="container" class="srbg-focus-trap" tabindex="-1" @keydown="handleKeydown">
+  <div ref="container" class="srbg-focus-trap" tabindex="-1">
     <slot />
   </div>
 </template>

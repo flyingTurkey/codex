@@ -1,0 +1,112 @@
+{
+  "$defs": {
+    "VersionChangeType": {
+      "enum": [
+        "INITIAL",
+        "METADATA_ONLY",
+        "CONTENT_UPDATE",
+        "CORRECTION",
+        "AMENDMENT",
+        "REPLACEMENT",
+        "WITHDRAWAL"
+      ],
+      "title": "VersionChangeType",
+      "type": "string"
+    },
+    "VersionProcessingState": {
+      "enum": [
+        "RECEIVED",
+        "SECURITY_PASSED",
+        "PARSING",
+        "OCR_PENDING",
+        "OCR_COMPLETE",
+        "READY",
+        "QUARANTINED",
+        "FAILED"
+      ],
+      "title": "VersionProcessingState",
+      "type": "string"
+    },
+    "VersionReviewState": {
+      "enum": [
+        "DETECTED",
+        "NO_REVIEW_REQUIRED",
+        "RE_REVIEW_PENDING",
+        "APPROVED",
+        "REJECTED"
+      ],
+      "title": "VersionReviewState",
+      "type": "string"
+    },
+    "VersionTimelineEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "acquired_at": {
+          "format": "date-time",
+          "title": "Acquired At",
+          "type": "string"
+        },
+        "change_type": {
+          "$ref": "#/$defs/VersionChangeType"
+        },
+        "is_current": {
+          "title": "Is Current",
+          "type": "boolean"
+        },
+        "material": {
+          "title": "Material",
+          "type": "boolean"
+        },
+        "processing_state": {
+          "$ref": "#/$defs/VersionProcessingState"
+        },
+        "review_state": {
+          "$ref": "#/$defs/VersionReviewState"
+        },
+        "version_id": {
+          "format": "uuid",
+          "title": "Version Id",
+          "type": "string"
+        },
+        "version_number": {
+          "minimum": 1,
+          "title": "Version Number",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version_id",
+        "version_number",
+        "processing_state",
+        "change_type",
+        "material",
+        "review_state",
+        "acquired_at",
+        "is_current"
+      ],
+      "title": "VersionTimelineEntry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "item_id": {
+      "format": "uuid",
+      "title": "Item Id",
+      "type": "string"
+    },
+    "versions": {
+      "items": {
+        "$ref": "#/$defs/VersionTimelineEntry"
+      },
+      "title": "Versions",
+      "type": "array"
+    }
+  },
+  "required": [
+    "item_id",
+    "versions"
+  ],
+  "title": "VersionTimelineResponse",
+  "type": "object"
+}

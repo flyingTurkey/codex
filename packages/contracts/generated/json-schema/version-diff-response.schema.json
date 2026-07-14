@@ -1,0 +1,210 @@
+{
+  "$defs": {
+    "CriticalFieldDiff": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "After"
+        },
+        "before": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Before"
+        },
+        "field": {
+          "enum": [
+            "document_number",
+            "published_at",
+            "effective_at",
+            "legal_effect"
+          ],
+          "title": "Field",
+          "type": "string"
+        }
+      },
+      "required": [
+        "field"
+      ],
+      "title": "CriticalFieldDiff",
+      "type": "object"
+    },
+    "DiffHunk": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "anyOf": [
+            {
+              "maxLength": 4000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "After"
+        },
+        "before": {
+          "anyOf": [
+            {
+              "maxLength": 4000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Before"
+        },
+        "operation": {
+          "enum": [
+            "INSERT",
+            "DELETE",
+            "REPLACE",
+            "EQUAL"
+          ],
+          "title": "Operation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation"
+      ],
+      "title": "DiffHunk",
+      "type": "object"
+    },
+    "PageDiff": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "enum": [
+            "METADATA",
+            "HEADER_FOOTER",
+            "BODY",
+            "CRITICAL_FIELD"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "hunks": {
+          "items": {
+            "$ref": "#/$defs/DiffHunk"
+          },
+          "maxItems": 500,
+          "title": "Hunks",
+          "type": "array"
+        },
+        "page_number": {
+          "maximum": 10000,
+          "minimum": 1,
+          "title": "Page Number",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "page_number",
+        "category",
+        "hunks"
+      ],
+      "title": "PageDiff",
+      "type": "object"
+    },
+    "VersionChangeType": {
+      "enum": [
+        "INITIAL",
+        "METADATA_ONLY",
+        "CONTENT_UPDATE",
+        "CORRECTION",
+        "AMENDMENT",
+        "REPLACEMENT",
+        "WITHDRAWAL"
+      ],
+      "title": "VersionChangeType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "change_type": {
+      "$ref": "#/$defs/VersionChangeType"
+    },
+    "changed_token_count": {
+      "minimum": 0,
+      "title": "Changed Token Count",
+      "type": "integer"
+    },
+    "changed_token_ratio_bps": {
+      "maximum": 10000,
+      "minimum": 0,
+      "title": "Changed Token Ratio Bps",
+      "type": "integer"
+    },
+    "critical_fields": {
+      "items": {
+        "$ref": "#/$defs/CriticalFieldDiff"
+      },
+      "maxItems": 20,
+      "title": "Critical Fields",
+      "type": "array"
+    },
+    "from_version_id": {
+      "format": "uuid",
+      "title": "From Version Id",
+      "type": "string"
+    },
+    "item_id": {
+      "format": "uuid",
+      "title": "Item Id",
+      "type": "string"
+    },
+    "material": {
+      "title": "Material",
+      "type": "boolean"
+    },
+    "pages": {
+      "items": {
+        "$ref": "#/$defs/PageDiff"
+      },
+      "maxItems": 1000,
+      "title": "Pages",
+      "type": "array"
+    },
+    "to_version_id": {
+      "format": "uuid",
+      "title": "To Version Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "item_id",
+    "from_version_id",
+    "to_version_id",
+    "change_type",
+    "material",
+    "changed_token_count",
+    "changed_token_ratio_bps",
+    "pages",
+    "critical_fields"
+  ],
+  "title": "VersionDiffResponse",
+  "type": "object"
+}

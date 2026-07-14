@@ -1,6 +1,18 @@
 .git
 .github
 docs
+!docs
+docs/*
+!docs/codex-kit
+docs/codex-kit/*
+!docs/codex-kit/assets
+docs/codex-kit/assets/*
+!docs/codex-kit/assets/validation
+docs/codex-kit/assets/validation/*
+!docs/codex-kit/assets/validation/publication_gate.json
+!docs/codex-kit/assets/validation/publication_evaluation.schema.json
+!docs/codex-kit/assets/validation/publication_gate_v3.json
+!docs/codex-kit/assets/validation/publication_evaluation_v3.schema.json
 tests
 **/tests
 .venv
@@ -9,6 +21,8 @@ tests
 node_modules
 **/.nuxt
 **/.output
+**/test-results
+**/playwright-report
 **/__pycache__
 .mypy_cache
 .pytest_cache

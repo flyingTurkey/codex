@@ -60,12 +60,12 @@ describe('application shell contract', () => {
       ['收藏', '/saved'],
     ])
     expect(primaryNavigation[0]?.activePaths).toEqual(['/selected'])
-    expect(adminNavigation.map((item) => item.label)).toEqual(['管理入口'])
+    expect(adminNavigation.map((item) => item.label)).toEqual(['管理入口', '审核工作台'])
 
     const layoutSource = readAppFile('layouts/default.vue')
     expect(layoutSource.match(/<AppShell(?:\s|>)/g)).toHaveLength(1)
     expect(layoutSource).toContain("route.path.startsWith('/admin')")
-    expect(layoutSource).toContain("['source_admin', 'platform_admin'].includes(role)")
+    expect(layoutSource).toContain("['source_admin', 'reviewer', 'platform_admin'].includes(role)")
     expect(layoutSource).toContain(':show-admin="showAdmin"')
     expect(layoutSource).toContain('@navigate="handleNavigation"')
   })
@@ -157,13 +157,23 @@ describe('application shell contract', () => {
     }
   })
 
-  it('does not introduce future feed, card, scoring, or publication contracts', () => {
+  it('introduces the frozen round 02 feed components without local contract redefinitions', () => {
     const violations = listProductionSources().flatMap((path) => {
       const source = readFileSync(path, 'utf8')
-      return futureImplementationPattern.test(source) ? [path.slice(appRoot.length + 1)] : []
+      return /\b(?:interface|type|class)\s+(?:FeedPage|ItemSummary|PublicationService)\b/.test(source)
+        ? [path.slice(appRoot.length + 1)]
+        : []
     })
 
     expect(violations).toEqual([])
+    for (const component of [
+      'TimelineFeed.vue',
+      'IntelligenceCard.vue',
+      'EvidenceDrawer.vue',
+      'FilterPanel.vue',
+    ]) {
+      expect(existsSync(resolve(appRoot, 'components', component))).toBe(true)
+    }
   })
 
   it('forbids only future implementations while allowing the shared page name', () => {

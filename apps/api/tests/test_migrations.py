@@ -11,10 +11,9 @@ def test_source_vault_migration_follows_foundation() -> None:
     assert config_path.is_file()
 
     script = ScriptDirectory.from_config(Config(config_path))
-    head = script.get_current_head()
+    source_vault = script.get_revision("0002_source_vault")
 
-    assert head == "0002_source_vault"
-    assert script.get_revision(head).down_revision == "0001_foundation"
+    assert source_vault.down_revision == "0001_foundation"
 
 
 def test_migration_seed_rows_match_the_canonical_disabled_candidate_registry() -> None:

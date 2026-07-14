@@ -2,7 +2,7 @@
 
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from typing import Any
 from urllib.parse import urlsplit
@@ -21,7 +21,7 @@ from srbg_contracts import (
     SourceState,
 )
 
-from srbg_api.document_vault.service import FixtureRecord
+from srbg_api.document_vault.service import AttachmentRecord, FixtureRecord, RejectedRawRecord
 from srbg_api.identifiers import uuid7
 
 
@@ -220,6 +220,7 @@ class SourceVaultRepository:
                     FROM document_version
                     JOIN document ON document.id = document_version.document_id
                     WHERE document.source_id = :source_id
+                      AND document.admission_fixture = true
                     ORDER BY document_version.content_hash
                     """
                 ),
@@ -402,11 +403,7 @@ class SourceVaultRepository:
         }:
             return False
         policy = await self.latest_policy(source_id)
-        if (
-            policy is None
-            or policy.status != "VALID"
-            or policy.valid_until <= datetime.now(UTC)
-        ):
+        if policy is None or policy.status != "VALID" or policy.valid_until <= datetime.now(UTC):
             return False
         hostname = urlsplit(canonical_url).hostname
         domains = policy.document.get("access", {}).get("allowed_domains", [])
@@ -466,6 +463,26 @@ class SourceVaultRepository:
                 )
                 if not isinstance(raw_id, UUID):
                     raise RepositoryConflict("raw object deduplication failed")
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO raw_object_security_fact (
+                        id, raw_object_id, status, detected_mime,
+                        rule_version, reason_code, created_at
+                    ) VALUES (
+                        :id, :raw_id, 'CLEAN', :detected_mime,
+                        'source-vault-2.0.0', NULL, :created_at
+                    )
+                    ON CONFLICT (raw_object_id, rule_version) DO NOTHING
+                    """
+                ),
+                {
+                    "id": uuid7(),
+                    "raw_id": raw_id,
+                    "detected_mime": record.detected_mime,
+                    "created_at": record.acquired_at,
+                },
+            )
 
             document_id = uuid7()
             inserted_document = (
@@ -474,8 +491,11 @@ class SourceVaultRepository:
                         """
                         INSERT INTO document (
                             id, source_id, canonical_url, document_kind,
-                            first_discovered_at, current_version_id
-                        ) VALUES (:id, :source_id, :url, :kind, :acquired_at, NULL)
+                            first_discovered_at, current_version_id, admission_fixture
+                        ) VALUES (
+                            :id, :source_id, :url, :kind, :acquired_at, NULL,
+                            :admission_fixture
+                        )
                         ON CONFLICT (source_id, canonical_url) DO NOTHING RETURNING id
                         """
                     ),
@@ -485,6 +505,7 @@ class SourceVaultRepository:
                         "url": record.canonical_url,
                         "kind": record.document_kind,
                         "acquired_at": record.acquired_at,
+                        "admission_fixture": record.admission_fixture,
                     },
                 )
             ).scalar_one_or_none()
@@ -547,11 +568,35 @@ class SourceVaultRepository:
                         "acquired_at": record.acquired_at,
                     },
                 )
-                await connection.execute(
-                    text("UPDATE document SET current_version_id = :version_id WHERE id = :id"),
-                    {"version_id": version_id, "id": document_id},
-                )
+                for state_index, state in enumerate(("RECEIVED", "SECURITY_PASSED")):
+                    await connection.execute(
+                        text(
+                            """
+                            INSERT INTO document_version_state_event (
+                                id, document_version_id, state, reason_code,
+                                actor_type, created_at
+                            ) VALUES (
+                                :id, :version_id, :state, NULL, 'SYSTEM', :created_at
+                            )
+                            """
+                        ),
+                        {
+                            "id": uuid7(),
+                            "version_id": version_id,
+                            "state": state,
+                            "created_at": record.acquired_at + timedelta(microseconds=state_index),
+                        },
+                    )
+                if record.admission_fixture:
+                    await connection.execute(
+                        text("UPDATE document SET current_version_id = :version_id WHERE id = :id"),
+                        {"version_id": version_id, "id": document_id},
+                    )
                 version_created = True
+            else:
+                if not isinstance(existing_version, UUID):
+                    raise RepositoryConflict("document version lookup failed")
+                version_id = existing_version
             await self._append_audit(
                 connection,
                 event_type="SOURCE_FIXTURE_UPLOADED",
@@ -568,14 +613,191 @@ class SourceVaultRepository:
                 request_id=record.request_id,
                 now=record.acquired_at,
             )
-        document = await self.get_document(document_id)
+        document = await self._get_document_version(document_id, version_id)
         return FixtureUploadResponse(
             document=document,
             raw_object_deduplicated=raw_deduplicated,
             version_created=version_created,
         )
 
+    async def record_attachment(self, record: AttachmentRecord) -> UUID:
+        async with self._engine.begin() as connection:
+            raw_object_id = (
+                await connection.execute(
+                    text(
+                        """
+                        INSERT INTO raw_object (
+                            id, sha256, object_key, byte_size, declared_mime,
+                            detected_mime, scan_status, storage_etag, created_at
+                        ) VALUES (
+                            :id, :sha256, :object_key, :byte_size, :declared_mime,
+                            :detected_mime, :scan_status, :storage_etag, :created_at
+                        )
+                        ON CONFLICT (sha256) DO NOTHING RETURNING id
+                        """
+                    ),
+                    {
+                        "id": record.raw_object_id,
+                        "sha256": record.content_hash,
+                        "object_key": record.object_key,
+                        "byte_size": record.byte_size,
+                        "declared_mime": record.declared_mime,
+                        "detected_mime": record.detected_mime,
+                        "scan_status": (
+                            "CLEAN" if record.security_status == "CLEAN" else "REJECTED"
+                        ),
+                        "storage_etag": record.storage_etag,
+                        "created_at": record.acquired_at,
+                    },
+                )
+            ).scalar_one_or_none()
+            if not isinstance(raw_object_id, UUID):
+                raw_object_id = await connection.scalar(
+                    text("SELECT id FROM raw_object WHERE sha256 = :sha256"),
+                    {"sha256": record.content_hash},
+                )
+            if not isinstance(raw_object_id, UUID):
+                raise RepositoryConflict("attachment raw object upsert failed")
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO raw_object_security_fact (
+                        id, raw_object_id, status, detected_mime,
+                        rule_version, reason_code, created_at
+                    ) VALUES (
+                        :id, :raw_object_id, :status, :detected_mime,
+                        'attachment-security-3.0.0', :reason_code, :created_at
+                    )
+                    ON CONFLICT (raw_object_id, rule_version) DO NOTHING
+                    """
+                ),
+                {
+                    "id": uuid7(),
+                    "raw_object_id": raw_object_id,
+                    "status": record.security_status,
+                    "detected_mime": record.detected_mime,
+                    "reason_code": record.reason_code,
+                    "created_at": record.acquired_at,
+                },
+            )
+            existing_id = await connection.scalar(
+                text(
+                    """
+                    SELECT id
+                    FROM document_attachment
+                    WHERE document_version_id = :document_version_id
+                      AND parent_attachment_id IS NOT DISTINCT FROM :parent_attachment_id
+                      AND normalized_path = :normalized_path
+                      AND raw_object_id = :raw_object_id
+                    LIMIT 1
+                    """
+                ),
+                {
+                    "document_version_id": record.document_version_id,
+                    "parent_attachment_id": record.parent_attachment_id,
+                    "normalized_path": record.normalized_path,
+                    "raw_object_id": raw_object_id,
+                },
+            )
+            if isinstance(existing_id, UUID):
+                return existing_id
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO document_attachment (
+                        id, document_version_id, raw_object_id, filename, role,
+                        parent_attachment_id, normalized_path, depth, detected_mime,
+                        byte_size, security_status, created_at
+                    ) VALUES (
+                        :id, :document_version_id, :raw_object_id, :filename, :role,
+                        :parent_attachment_id, :normalized_path, :depth, :detected_mime,
+                        :byte_size, :security_status, :created_at
+                    )
+                    """
+                ),
+                {
+                    "id": record.attachment_id,
+                    "document_version_id": record.document_version_id,
+                    "raw_object_id": raw_object_id,
+                    "filename": record.filename,
+                    "role": record.role,
+                    "parent_attachment_id": record.parent_attachment_id,
+                    "normalized_path": record.normalized_path,
+                    "depth": record.depth,
+                    "detected_mime": record.detected_mime,
+                    "byte_size": record.byte_size,
+                    "security_status": record.security_status,
+                    "created_at": record.acquired_at,
+                },
+            )
+        return record.attachment_id
+
+    async def record_rejected_raw(self, record: RejectedRawRecord) -> UUID:
+        async with self._engine.begin() as connection:
+            raw_object_id = (
+                await connection.execute(
+                    text(
+                        """
+                        INSERT INTO raw_object (
+                            id, sha256, object_key, byte_size, declared_mime,
+                            detected_mime, scan_status, storage_etag, created_at
+                        ) VALUES (
+                            :id, :sha256, :object_key, :byte_size, :declared_mime,
+                            :detected_mime, 'REJECTED', :storage_etag, :created_at
+                        )
+                        ON CONFLICT (sha256) DO NOTHING RETURNING id
+                        """
+                    ),
+                    {
+                        "id": record.raw_object_id,
+                        "sha256": record.content_hash,
+                        "object_key": record.object_key,
+                        "byte_size": record.byte_size,
+                        "declared_mime": record.declared_mime,
+                        "detected_mime": record.detected_mime,
+                        "storage_etag": record.storage_etag,
+                        "created_at": record.acquired_at,
+                    },
+                )
+            ).scalar_one_or_none()
+            if not isinstance(raw_object_id, UUID):
+                raw_object_id = await connection.scalar(
+                    text("SELECT id FROM raw_object WHERE sha256 = :sha256"),
+                    {"sha256": record.content_hash},
+                )
+            if not isinstance(raw_object_id, UUID):
+                raise RepositoryConflict("rejected raw object upsert failed")
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO raw_object_security_fact (
+                        id, raw_object_id, status, detected_mime,
+                        rule_version, reason_code, created_at
+                    ) VALUES (
+                        :id, :raw_object_id, 'QUARANTINED', :detected_mime,
+                        'source-vault-3.0.0', :reason_code, :created_at
+                    )
+                    ON CONFLICT (raw_object_id, rule_version) DO NOTHING
+                    """
+                ),
+                {
+                    "id": uuid7(),
+                    "raw_object_id": raw_object_id,
+                    "detected_mime": record.detected_mime,
+                    "reason_code": record.reason_code,
+                    "created_at": record.acquired_at,
+                },
+            )
+        return raw_object_id
+
     async def get_document(self, document_id: UUID) -> DocumentDetail:
+        return await self._get_document_version(document_id, None)
+
+    async def _get_document_version(
+        self,
+        document_id: UUID,
+        version_id: UUID | None,
+    ) -> DocumentDetail:
         async with self._engine.connect() as connection:
             row = (
                 (
@@ -590,12 +812,13 @@ class SourceVaultRepository:
                                r.byte_size, r.scan_status
                         FROM document d
                         JOIN source s ON s.id = d.source_id
-                        JOIN document_version v ON v.id = d.current_version_id
+                        JOIN document_version v
+                          ON v.id = COALESCE(CAST(:version_id AS uuid), d.current_version_id)
                         JOIN raw_object r ON r.id = v.raw_object_id
                         WHERE d.id = :document_id
                         """
                         ),
-                        {"document_id": document_id},
+                        {"document_id": document_id, "version_id": version_id},
                     )
                 )
                 .mappings()

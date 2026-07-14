@@ -5,6 +5,8 @@ export default defineConfig({
   snapshotPathTemplate: '{testDir}/visual-baselines/{arg}{ext}',
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
+  // Keep local and CI load below the Compose Nuxt dev server's stable concurrency.
+  workers: 2,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? 'github' : 'list',
   timeout: 30_000,

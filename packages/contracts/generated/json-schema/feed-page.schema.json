@@ -1,0 +1,465 @@
+{
+  "$defs": {
+    "Channel": {
+      "enum": [
+        "DIGITAL",
+        "SAFETY"
+      ],
+      "title": "Channel",
+      "type": "string"
+    },
+    "DocumentState": {
+      "enum": [
+        "UPDATED",
+        "RE_REVIEW_PENDING",
+        "WITHDRAWN",
+        "SOURCE_UNAVAILABLE"
+      ],
+      "title": "DocumentState",
+      "type": "string"
+    },
+    "EvidenceStatus": {
+      "enum": [
+        "WITHHELD",
+        "VERIFIED"
+      ],
+      "title": "EvidenceStatus",
+      "type": "string"
+    },
+    "FeedNotice": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Code",
+          "type": "string"
+        },
+        "level": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "level",
+        "message"
+      ],
+      "title": "FeedNotice",
+      "type": "object"
+    },
+    "ItemSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "activity_at": {
+          "format": "date-time",
+          "title": "Activity At",
+          "type": "string"
+        },
+        "content_type": {
+          "$ref": "#/$defs/ItemType"
+        },
+        "detail_available": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detail Available"
+        },
+        "document_states": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DocumentState"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Document States"
+        },
+        "domain": {
+          "$ref": "#/$defs/Channel"
+        },
+        "evidence_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Count"
+        },
+        "evidence_status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EvidenceStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "first_discovered_at": {
+          "format": "date-time",
+          "title": "First Discovered At",
+          "type": "string"
+        },
+        "has_version_history": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Has Version History"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "is_saved": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Is Saved"
+        },
+        "last_updated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Updated At"
+        },
+        "one_sentence_fact": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "One Sentence Fact"
+        },
+        "original_url": {
+          "maxLength": 2048,
+          "pattern": "^https?://[^\\s]+$",
+          "title": "Original Url",
+          "type": "string"
+        },
+        "publication_revision_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Publication Revision Id"
+        },
+        "publication_status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PublicationStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "relevance_reason": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Relevance Reason"
+        },
+        "review_status": {
+          "$ref": "#/$defs/ReviewStatus"
+        },
+        "source_name": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Source Name",
+          "type": "string"
+        },
+        "source_published_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Published At"
+        },
+        "source_role": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Role"
+        },
+        "tags": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tags"
+        },
+        "title": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type_summary": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TypeSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "publication_revision_id",
+        "domain",
+        "content_type",
+        "title",
+        "source_name",
+        "source_published_at",
+        "first_discovered_at",
+        "activity_at",
+        "original_url",
+        "review_status"
+      ],
+      "title": "ItemSummary",
+      "type": "object"
+    },
+    "ItemType": {
+      "enum": [
+        "DIGITAL_CASE",
+        "JOURNAL_PAPER",
+        "SOFTWARE_PRODUCT",
+        "IOT_PRODUCT",
+        "LOW_ALTITUDE_EQUIPMENT",
+        "AI_EQUIPMENT",
+        "SAFETY_REGULATION",
+        "SAFETY_CASE"
+      ],
+      "title": "ItemType",
+      "type": "string"
+    },
+    "PublicationStatus": {
+      "enum": [
+        "PENDING_REVIEW",
+        "PUBLISHED",
+        "WITHDRAWN"
+      ],
+      "title": "PublicationStatus",
+      "type": "string"
+    },
+    "RegulationClassification": {
+      "enum": [
+        "LAW",
+        "ADMINISTRATIVE_REGULATION",
+        "DEPARTMENT_RULE",
+        "NORMATIVE_DOCUMENT",
+        "STANDARD_OR_GUIDE"
+      ],
+      "title": "RegulationClassification",
+      "type": "string"
+    },
+    "RegulationStatus": {
+      "enum": [
+        "DRAFT",
+        "NOT_EFFECTIVE",
+        "EFFECTIVE",
+        "AMENDED",
+        "REPEALED",
+        "SUPERSEDED",
+        "EXPIRED",
+        "UNKNOWN"
+      ],
+      "title": "RegulationStatus",
+      "type": "string"
+    },
+    "ReviewStatus": {
+      "enum": [
+        "PENDING",
+        "APPROVED",
+        "REJECTED"
+      ],
+      "title": "ReviewStatus",
+      "type": "string"
+    },
+    "TypeSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "classification": {
+          "$ref": "#/$defs/RegulationClassification"
+        },
+        "document_number": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Document Number",
+          "type": "string"
+        },
+        "issuing_authority": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Issuing Authority",
+          "type": "string"
+        },
+        "kind": {
+          "const": "SAFETY_REGULATION",
+          "title": "Kind",
+          "type": "string"
+        },
+        "regulation_status": {
+          "$ref": "#/$defs/RegulationStatus"
+        }
+      },
+      "required": [
+        "kind",
+        "document_number",
+        "issuing_authority",
+        "regulation_status",
+        "classification"
+      ],
+      "title": "TypeSummary",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "fingerprint": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Fingerprint",
+      "type": "string"
+    },
+    "freshness": {
+      "enum": [
+        "fresh",
+        "delayed",
+        "partial"
+      ],
+      "title": "Freshness",
+      "type": "string"
+    },
+    "generated_at": {
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/ItemSummary"
+      },
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Cursor"
+    },
+    "notices": {
+      "items": {
+        "$ref": "#/$defs/FeedNotice"
+      },
+      "title": "Notices",
+      "type": "array"
+    }
+  },
+  "required": [
+    "items",
+    "next_cursor",
+    "fingerprint",
+    "generated_at",
+    "freshness",
+    "notices"
+  ],
+  "title": "FeedPage",
+  "type": "object"
+}
