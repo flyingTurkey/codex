@@ -46,7 +46,7 @@ export PLAYWRIGHT_BROWSERS_PATH
 
 .PHONY: setup dev runtime-ready down lint typecheck test contract-test security-check smoke \
 	resilience-test fixture-replay quality-gate web-e2e web-a11y source-fixture-test \
-	safety-regulation-test pdf-ocr-test
+	safety-regulation-test pdf-ocr-test safety-case-test
 
 setup:
 	$(UV) sync --frozen --all-packages
@@ -109,6 +109,10 @@ fixture-replay:
 		apps/api/tests/test_safety_regulation_parser.py \
 		apps/api/tests/test_safety_regulation_pipeline.py \
 		apps/api/tests/test_publication_gate.py \
+		apps/api/tests/test_publication_gate_v4.py \
+		apps/api/tests/test_safety_case_domain.py \
+		apps/api/tests/test_safety_case_candidate_service.py \
+		apps/api/tests/test_round04_official_fixtures.py \
 		apps/api/tests/test_publication_service.py -q
 
 quality-gate: lint typecheck test contract-test security-check
@@ -134,6 +138,12 @@ pdf-ocr-test:
 		apps/api/tests/test_pdf_parser.py \
 		apps/api/tests/test_pdf_versioning.py \
 		apps/api/tests/test_safety_regulation_integration.py -q
+
+safety-case-test:
+	$(COMPOSE) up --detach --wait postgres minio
+	$(UV) run python scripts/run_isolated_integration.py -- \
+		apps/api/tests/test_safety_case_integration.py \
+		apps/api/tests/test_round04_official_fixtures.py -q
 
 web-e2e: runtime-ready
 	$(PNPM) --filter @srbg/web e2e

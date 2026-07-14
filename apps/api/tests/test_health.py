@@ -70,3 +70,24 @@ def test_missing_route_uses_problem_details() -> None:
     assert response.json()["status"] == 404
     assert response.json()["title"] == "Not Found"
     assert UUID(response.json()["request_id"]).version == 7
+
+
+def test_metrics_rejects_anonymous_default_viewer_and_explicit_viewer() -> None:
+    client = TestClient(_app({"postgresql": _up, "redis": _up, "object_storage": _up}))
+
+    assert client.get("/metrics").status_code == 403
+    assert client.get(
+        "/metrics", headers={"X-SRBG-Local-Roles": "viewer"}
+    ).status_code == 403
+
+
+def test_metrics_allows_ops_roles_while_health_probes_remain_anonymous() -> None:
+    client = TestClient(_app({"postgresql": _up, "redis": _up, "object_storage": _up}))
+
+    for role in ("platform_admin", "auditor"):
+        response = client.get("/metrics", headers={"X-SRBG-Local-Roles": role})
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/plain")
+
+    assert client.get("/health/live").status_code == 200
+    assert client.get("/health/ready").status_code == 200

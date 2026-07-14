@@ -1,5 +1,4 @@
 import { expect, test, type Page } from '@playwright/test'
-import { resolve } from 'node:path'
 
 const itemId = '019b0000-0000-7000-8000-000000003001'
 const versionV1 = '019b0000-0000-7000-8000-000000003002'
@@ -105,10 +104,10 @@ async function openSafety(page: Page): Promise<void> {
 }
 
 const scenarios = [
-  { acceptance: 'round-03-pdf-highlight-1920x1080.png', kind: 'highlight', width: 1920, height: 1080 },
-  { acceptance: 'round-03-version-diff-1440x900.png', kind: 'diff', width: 1440, height: 900 },
-  { acceptance: 'round-03-withdrawn-1024x768.png', kind: 'withdrawn', width: 1024, height: 768 },
-  { acceptance: 'round-03-mobile-drawer-768x1024.png', kind: 'highlight', width: 768, height: 1024 },
+  { kind: 'highlight', width: 1920, height: 1080 },
+  { kind: 'diff', width: 1440, height: 900 },
+  { kind: 'withdrawn', width: 1024, height: 768 },
+  { kind: 'highlight', width: 768, height: 1024 },
 ] as const
 
 for (const scenario of scenarios) {
@@ -129,9 +128,5 @@ for (const scenario of scenarios) {
     }
     const baseline = `round03-${scenario.kind}-${scenario.width}x${scenario.height}.png`
     await expect(page).toHaveScreenshot(baseline, { animations: 'disabled' })
-    await page.screenshot({
-      animations: 'disabled',
-      path: resolve(process.cwd(), '../../docs/acceptance/assets', scenario.acceptance),
-    })
   })
 }

@@ -14,6 +14,7 @@ ALLOWED_EXTRA_FIELDS = (
     "duration_ms",
     "dependency",
     "error_code",
+    "reason_codes",
 )
 
 

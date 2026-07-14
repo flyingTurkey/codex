@@ -46,7 +46,7 @@ test('root renders the selected-feed gate and honest no-score empty state', asyn
 
   await expect(page.getByRole('heading', { level: 1, name: '今日精选' })).toBeVisible()
   await expect(page.getByText('真实评分待接入', { exact: true })).toBeVisible()
-  await expect(page.getByText('API v1 · Schema 1.0.0', { exact: true })).toBeVisible()
+  await expect(page.getByText('API v1 · Schema 1.1.0', { exact: true })).toBeVisible()
   const updatedAt = page.getByTestId('page-updated-at')
   await expect(updatedAt).toBeVisible()
   await expect(page.getByRole('group', { name: '页面状态与更新时间' })).toContainText('更新时间：')

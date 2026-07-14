@@ -28,7 +28,7 @@ def test_item_summary_adds_composable_document_states_without_changing_api_versi
 
     payload = item.model_dump(mode="json", exclude_unset=True)
 
-    assert models.CONTENT_SCHEMA_VERSION == "1.0.0"
+    assert models.CONTENT_SCHEMA_VERSION == "1.1.0"
     assert payload["document_states"] == [
         "UPDATED",
         "RE_REVIEW_PENDING",

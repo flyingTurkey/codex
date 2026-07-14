@@ -417,12 +417,7 @@ def run_isolated_integration(
 def _migration_command(config: IntegrationConfig) -> tuple[str, ...]:
     return (
         config.python_executable,
-        "-m",
-        "alembic",
-        "-c",
-        "apps/api/alembic.ini",
-        "upgrade",
-        "head",
+        "scripts/verify_round04_migration.py",
     )
 
 

@@ -8,7 +8,7 @@ from hashlib import sha256
 from typing import Any, Literal, Protocol
 from uuid import UUID
 
-from srbg_contracts import ReviewDecisionResponse
+from srbg_contracts import ClaimConflict, ClaimConflictDecisionResponse, ReviewDecisionResponse
 
 from srbg_api.identifiers import uuid7
 from srbg_api.publication.gate import PublicationGate
@@ -46,6 +46,8 @@ class PublicationTransaction(Protocol):
 class PublicationRepository(Protocol):
     async def close(self) -> None: ...
 
+    async def list_claim_conflicts(self) -> list[ClaimConflict]: ...
+
     def approval_transaction(
         self,
         *,
@@ -79,7 +81,9 @@ class PublicationRepository(Protocol):
     async def decide_candidate(
         self,
         *,
-        candidate_kind: Literal["RELATION", "REGULATION_STATUS"],
+        candidate_kind: Literal[
+            "RELATION", "REGULATION_STATUS", "EVENT_LINK", "EVENT_RELATION", "CLAIM"
+        ],
         candidate_id: UUID,
         action: Literal["ACCEPT", "REJECT", "CONFIRM_UNRESOLVED"],
         target_document_id: UUID | None,
@@ -96,6 +100,16 @@ class PublicationRepository(Protocol):
         reason: str,
         decided_at: datetime,
     ) -> None: ...
+
+    async def resolve_claim_conflict(
+        self,
+        *,
+        conflict_id: UUID,
+        action: Literal["ACCEPT_CANDIDATE", "KEEP_CURRENT", "MARK_UNRESOLVED"],
+        reviewer_id: UUID,
+        reason: str,
+        decided_at: datetime,
+    ) -> ClaimConflictDecisionResponse: ...
 
 
 class PublicationService:
@@ -114,6 +128,9 @@ class PublicationService:
 
     async def close(self) -> None:
         await self._repository.close()
+
+    async def list_claim_conflicts(self) -> list[ClaimConflict]:
+        return await self._repository.list_claim_conflicts()
 
     async def decide_review(
         self,
@@ -187,7 +204,9 @@ class PublicationService:
 
     async def decide_candidate(
         self,
-        candidate_kind: Literal["RELATION", "REGULATION_STATUS"],
+        candidate_kind: Literal[
+            "RELATION", "REGULATION_STATUS", "EVENT_LINK", "EVENT_RELATION", "CLAIM"
+        ],
         candidate_id: UUID,
         *,
         action: Literal["ACCEPT", "REJECT", "CONFIRM_UNRESOLVED"],
@@ -200,6 +219,22 @@ class PublicationService:
             candidate_id=candidate_id,
             action=action,
             target_document_id=target_document_id,
+            reviewer_id=reviewer_id,
+            reason=reason,
+            decided_at=self._now(),
+        )
+
+    async def resolve_claim_conflict(
+        self,
+        conflict_id: UUID,
+        *,
+        action: Literal["ACCEPT_CANDIDATE", "KEEP_CURRENT", "MARK_UNRESOLVED"],
+        reason: str,
+        reviewer_id: UUID,
+    ) -> ClaimConflictDecisionResponse:
+        return await self._repository.resolve_claim_conflict(
+            conflict_id=conflict_id,
+            action=action,
             reviewer_id=reviewer_id,
             reason=reason,
             decided_at=self._now(),

@@ -5,10 +5,10 @@ from enum import StrEnum
 from typing import Annotated, Final, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
 API_VERSION: Final[Literal["v1"]] = "v1"
-CONTENT_SCHEMA_VERSION: Final[Literal["1.0.0"]] = "1.0.0"
+CONTENT_SCHEMA_VERSION: Final[Literal["1.1.0"]] = "1.1.0"
 
 
 class ContractModel(BaseModel):
@@ -187,6 +187,91 @@ class RegulationClassification(StrEnum):
     STANDARD_OR_GUIDE = "STANDARD_OR_GUIDE"
 
 
+class SafetyCaseReportStage(StrEnum):
+    INITIAL_REPORT = "INITIAL_REPORT"
+    FOLLOW_UP_REPORT = "FOLLOW_UP_REPORT"
+    FINAL_INVESTIGATION = "FINAL_INVESTIGATION"
+    ENFORCEMENT = "ENFORCEMENT"
+    RECTIFICATION = "RECTIFICATION"
+
+
+class SafetyCaseProfileMetadataField(StrEnum):
+    """Profile fields that require accepted claim-and-evidence authorization."""
+
+    REPORT_STAGE = "report_stage"
+    INCIDENT_STATUS = "incident_status"
+    ACCIDENT_TYPE = "accident_type"
+    ENGINEERING_TYPE = "engineering_type"
+    OCCURRED_AT = "occurred_at"
+    REGION_NAME = "region_name"
+    PROJECT_NAME = "project_name"
+    RECTIFICATION_HAS_OPEN_ISSUES = "rectification_has_open_issues"
+    SIMILAR_SCENARIO_TAGS = "similar_scenario_tags"
+    PREVENTION_MEASURE_TAGS = "prevention_measure_tags"
+
+
+class IncidentStatus(StrEnum):
+    UNVERIFIED_LEAD = "UNVERIFIED_LEAD"
+    INITIAL_OFFICIAL_REPORT = "INITIAL_OFFICIAL_REPORT"
+    UNDER_INVESTIGATION = "UNDER_INVESTIGATION"
+    FINAL_INVESTIGATION_REPORT = "FINAL_INVESTIGATION_REPORT"
+    ENFORCEMENT_DECISION = "ENFORCEMENT_DECISION"
+    RECTIFICATION_FOLLOW_UP = "RECTIFICATION_FOLLOW_UP"
+    CLOSED = "CLOSED"
+    CORRECTED = "CORRECTED"
+    WITHDRAWN = "WITHDRAWN"
+
+
+class EventRelation(StrEnum):
+    FOLLOW_UP = "FOLLOW_UP"
+    INVESTIGATES = "INVESTIGATES"
+    PENALIZES = "PENALIZES"
+    RECTIFIES = "RECTIFIES"
+    CORRECTS = "CORRECTS"
+
+
+class CriticalSafetyField(StrEnum):
+    DEATH_COUNT = "DEATH_COUNT"
+    INJURY_COUNT = "INJURY_COUNT"
+    LOSS_AMOUNT_MINOR = "LOSS_AMOUNT_MINOR"
+    OFFICIAL_DIRECT_CAUSES = "OFFICIAL_DIRECT_CAUSES"
+    RESPONSIBILITY_FINDINGS = "RESPONSIBILITY_FINDINGS"
+
+
+class SafetyCaseFactField(StrEnum):
+    OCCURRED_AT = "OCCURRED_AT"
+    REGION = "REGION"
+    PROJECT_NAME = "PROJECT_NAME"
+    HAZARD_TYPE = "HAZARD_TYPE"
+    ENGINEERING_TYPE = "ENGINEERING_TYPE"
+    DEATH_COUNT = "DEATH_COUNT"
+    INJURY_COUNT = "INJURY_COUNT"
+    LOSS_AMOUNT_MINOR = "LOSS_AMOUNT_MINOR"
+    OFFICIAL_DIRECT_CAUSES = "OFFICIAL_DIRECT_CAUSES"
+    RESPONSIBILITY_FINDINGS = "RESPONSIBILITY_FINDINGS"
+    CORRECTIVE_ACTIONS = "CORRECTIVE_ACTIONS"
+
+
+class SimilarScenarioTag(StrEnum):
+    HIGHWAY_OPERATION_GEOLOGICAL_RISK = "HIGHWAY_OPERATION_GEOLOGICAL_RISK"
+    ROADBED_SLOPE_INSTABILITY = "ROADBED_SLOPE_INSTABILITY"
+    BRIDGE_APPROACH_TRANSITION = "BRIDGE_APPROACH_TRANSITION"
+    EXTREME_WEATHER_EXPOSURE = "EXTREME_WEATHER_EXPOSURE"
+    TEMPORARY_STRUCTURE_FAILURE = "TEMPORARY_STRUCTURE_FAILURE"
+    TUNNEL_GEOLOGICAL_RISK = "TUNNEL_GEOLOGICAL_RISK"
+
+
+class PreventionMeasureTag(StrEnum):
+    HAZARD_IDENTIFICATION = "HAZARD_IDENTIFICATION"
+    MONITORING_AND_EARLY_WARNING = "MONITORING_AND_EARLY_WARNING"
+    INSPECTION_AND_MAINTENANCE = "INSPECTION_AND_MAINTENANCE"
+    DESIGN_REVIEW = "DESIGN_REVIEW"
+    CONSTRUCTION_QUALITY_CONTROL = "CONSTRUCTION_QUALITY_CONTROL"
+    EMERGENCY_PREPAREDNESS = "EMERGENCY_PREPAREDNESS"
+    TRAFFIC_OPERATION_RISK_CONTROL = "TRAFFIC_OPERATION_RISK_CONTROL"
+    RESPONSIBILITY_AND_OVERSIGHT = "RESPONSIBILITY_AND_OVERSIGHT"
+
+
 class DependencyName(StrEnum):
     POSTGRESQL = "postgresql"
     REDIS = "redis"
@@ -214,7 +299,7 @@ class ReadinessResponse(ContractModel):
 
 class VersionResponse(ContractModel):
     api_version: Literal["v1"] = API_VERSION
-    content_schema_version: Literal["1.0.0"] = CONTENT_SCHEMA_VERSION
+    content_schema_version: Literal["1.1.0"] = CONTENT_SCHEMA_VERSION
 
 
 class ProblemDetails(ContractModel):
@@ -381,7 +466,7 @@ class FeedNotice(ContractModel):
     message: str = Field(min_length=1, max_length=500)
 
 
-class TypeSummary(ContractModel):
+class SafetyRegulationTypeSummary(ContractModel):
     kind: Literal["SAFETY_REGULATION"]
     document_number: str = Field(min_length=1, max_length=200)
     issuing_authority: str = Field(min_length=1, max_length=200)
@@ -389,7 +474,68 @@ class TypeSummary(ContractModel):
     classification: RegulationClassification
 
 
-SafetyRegulationTypeSummary = TypeSummary
+class SafetyCaseTypeSummary(ContractModel):
+    """Reviewed safety-case projection; only ``kind`` is safe for an R3 stub."""
+
+    kind: Literal["SAFETY_CASE"]
+    event_id: UUID | None = None
+    report_stage: SafetyCaseReportStage | None = None
+    incident_status: IncidentStatus | None = None
+    hazard_type: str | None = Field(default=None, min_length=1, max_length=100)
+    engineering_type: str | None = Field(default=None, min_length=1, max_length=100)
+    occurred_at: datetime | None = None
+    region: str | None = Field(default=None, min_length=1, max_length=200)
+    deaths: int | None = Field(default=None, ge=0)
+    injuries: int | None = Field(default=None, ge=0)
+    loss_amount_minor: int | None = Field(default=None, ge=0)
+    loss_currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
+    conflicted_fields: list[CriticalSafetyField] | None = None
+    official_direct_causes: list[str] | None = Field(
+        default=None,
+        description=(
+            "null means no formal investigation basis; an empty list means formal evidence "
+            "was reviewed and stated no direct-cause finding"
+        ),
+    )
+    responsibility_findings: list[str] | None = Field(
+        default=None,
+        description=(
+            "null means no formal investigation or enforcement basis; an empty list means "
+            "formal evidence was reviewed and stated no responsibility finding"
+        ),
+    )
+    rectification_has_open_issues: bool | None = Field(
+        default=None,
+        description="Reviewed rectification evaluation result; null means not established",
+    )
+    similar_scenario_tags: list[SimilarScenarioTag] | None = None
+    prevention_measure_tags: list[PreventionMeasureTag] | None = None
+
+    @model_validator(mode="after")
+    def hide_conflicted_values(self) -> "SafetyCaseTypeSummary":
+        field_map = {
+            CriticalSafetyField.DEATH_COUNT: "deaths",
+            CriticalSafetyField.INJURY_COUNT: "injuries",
+            CriticalSafetyField.LOSS_AMOUNT_MINOR: "loss_amount_minor",
+            CriticalSafetyField.OFFICIAL_DIRECT_CAUSES: "official_direct_causes",
+            CriticalSafetyField.RESPONSIBILITY_FINDINGS: "responsibility_findings",
+        }
+        for field in self.conflicted_fields or []:
+            if getattr(self, field_map[field]) is not None:
+                raise ValueError(f"conflicted field {field.value} must be hidden")
+        if (self.loss_amount_minor is None) != (self.loss_currency is None):
+            raise ValueError("loss amount and currency must be provided together")
+        return self
+
+
+TypeSummaryValue = Annotated[
+    SafetyRegulationTypeSummary | SafetyCaseTypeSummary,
+    Field(discriminator="kind"),
+]
+
+
+class TypeSummary(RootModel[TypeSummaryValue]):
+    """Tagged union exported for TypeScript consumers."""
 
 
 class ItemSummary(ContractModel):
@@ -412,7 +558,7 @@ class ItemSummary(ContractModel):
     evidence_count: int | None = Field(default=None, ge=0)
     tags: list[str] | None = None
     relevance_reason: str | None = Field(default=None, max_length=500)
-    type_summary: TypeSummary | None = None
+    type_summary: TypeSummaryValue | None = None
     is_saved: bool | None = None
     detail_available: bool | None = None
     document_states: list[DocumentState] | None = None
@@ -434,6 +580,151 @@ class ClaimView(ContractModel):
     label: str = Field(min_length=1, max_length=100)
     value: str = Field(min_length=1, max_length=1000)
     evidence_ids: list[UUID] = Field(min_length=1)
+    decision_status: Literal["PENDING", "ACCEPTED", "REJECTED"] | None = None
+
+
+FactValue = str | int | list[str]
+
+
+class ConfirmedFact(ContractModel):
+    source_item_id: UUID
+    claim_id: UUID
+    field: SafetyCaseFactField
+    label: str = Field(min_length=1, max_length=100)
+    value: FactValue
+    unit: str | None = Field(default=None, min_length=1, max_length=30)
+    evidence_ids: list[UUID] = Field(min_length=1)
+    status: Literal["CONFIRMED"] = "CONFIRMED"
+    reviewed_at: datetime
+
+
+class UnverifiedFact(ContractModel):
+    """Public-safe unresolved fact: candidate values are intentionally absent."""
+
+    source_item_id: UUID
+    claim_id: UUID | None = None
+    conflict_id: UUID | None = None
+    field: SafetyCaseFactField
+    label: str = Field(min_length=1, max_length=100)
+    value: None = None
+    display_value: Literal["待核实"] = "待核实"
+    status: Literal["PENDING_REVIEW", "CONFLICTING"]
+    reason: str = Field(min_length=1, max_length=500)
+    evidence_ids: list[UUID] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def require_conflict_reference(self) -> "UnverifiedFact":
+        if self.status == "CONFLICTING" and self.conflict_id is None:
+            raise ValueError("conflicting facts require a conflict id")
+        return self
+
+
+class EventItem(ContractModel):
+    item_id: UUID
+    title: str = Field(min_length=1, max_length=500)
+    report_stage: SafetyCaseReportStage
+    incident_status: IncidentStatus
+    source_name: str = Field(min_length=1, max_length=200)
+    source_published_at: datetime | None
+    original_url: HttpUrlString = Field(pattern=r"^https?://[^\s]+$", max_length=2048)
+    review_status: ReviewStatus
+    publication_revision_id: UUID | None
+    relation_type: EventRelation | None = None
+    evidence_count: int | None = Field(default=None, ge=0)
+    document_states: list[DocumentState] | None = None
+
+
+class EventTimeline(ContractModel):
+    event_id: UUID
+    items: list[EventItem]
+
+
+class EventCandidateGenerationResponse(ContractModel):
+    candidate_id: UUID
+    status: Literal["PENDING_REVIEW"]
+    requires_human_review: Literal[True]
+
+
+class EventRelationView(ContractModel):
+    id: UUID
+    event_id: UUID
+    from_item_id: UUID
+    to_item_id: UUID
+    relation_type: EventRelation
+    reviewed_by: UUID
+    reviewed_at: datetime
+
+
+class EventDetail(ContractModel):
+    id: UUID
+    title: str = Field(min_length=1, max_length=500)
+    project_name: str | None = Field(default=None, min_length=1, max_length=300)
+    occurred_at: datetime | None = None
+    region: str | None = Field(default=None, min_length=1, max_length=200)
+    hazard_type: str | None = Field(default=None, min_length=1, max_length=100)
+    engineering_type: str | None = Field(default=None, min_length=1, max_length=100)
+    incident_status: IncidentStatus
+    rectification_has_open_issues: bool | None = None
+    confirmed_facts: list[ConfirmedFact]
+    unverified_facts: list[UnverifiedFact]
+    timeline: EventTimeline
+    relations: list[EventRelationView]
+    similar_scenario_tags: list[SimilarScenarioTag]
+    prevention_measure_tags: list[PreventionMeasureTag]
+
+
+class ClaimConflictStatus(StrEnum):
+    PENDING_REVIEW = "PENDING_REVIEW"
+    RESOLVED = "RESOLVED"
+
+
+class ClaimConflictDecisionAction(StrEnum):
+    ACCEPT_CANDIDATE = "ACCEPT_CANDIDATE"
+    KEEP_CURRENT = "KEEP_CURRENT"
+    MARK_UNRESOLVED = "MARK_UNRESOLVED"
+
+
+class ClaimConflict(ContractModel):
+    id: UUID
+    event_id: UUID
+    field: CriticalSafetyField
+    current_claim_id: UUID | None
+    current_value: FactValue | None
+    candidate_claim_id: UUID
+    candidate_value: FactValue
+    status: ClaimConflictStatus
+    detected_at: datetime
+    resolved_claim_id: UUID | None = None
+    resolved_by: UUID | None = None
+    resolved_at: datetime | None = None
+    resolution_reason: str | None = Field(default=None, min_length=1, max_length=1000)
+
+
+class ClaimConflictDecisionRequest(ContractModel):
+    action: ClaimConflictDecisionAction
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class ClaimConflictDecisionResponse(ContractModel):
+    conflict_id: UUID
+    status: ClaimConflictStatus
+    action: ClaimConflictDecisionAction
+    resolved_claim_id: UUID | None
+    resolved_at: datetime | None
+
+    @model_validator(mode="after")
+    def validate_resolution_audit(self) -> "ClaimConflictDecisionResponse":
+        if self.status is ClaimConflictStatus.RESOLVED:
+            if self.action is ClaimConflictDecisionAction.MARK_UNRESOLVED:
+                raise ValueError("an unresolved decision cannot resolve a conflict")
+            if self.resolved_claim_id is None or self.resolved_at is None:
+                raise ValueError("resolved conflicts require the chosen claim and timestamp")
+        else:
+            if self.action is not ClaimConflictDecisionAction.MARK_UNRESOLVED:
+                raise ValueError("pending conflicts require MARK_UNRESOLVED")
+            if self.resolved_claim_id is not None or self.resolved_at is not None:
+                raise ValueError("pending conflicts cannot contain resolution audit fields")
+        return self
 
 
 class PageBoundingBox(ContractModel):

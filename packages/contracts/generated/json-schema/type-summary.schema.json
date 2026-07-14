@@ -1,5 +1,45 @@
 {
   "$defs": {
+    "CriticalSafetyField": {
+      "enum": [
+        "DEATH_COUNT",
+        "INJURY_COUNT",
+        "LOSS_AMOUNT_MINOR",
+        "OFFICIAL_DIRECT_CAUSES",
+        "RESPONSIBILITY_FINDINGS"
+      ],
+      "title": "CriticalSafetyField",
+      "type": "string"
+    },
+    "IncidentStatus": {
+      "enum": [
+        "UNVERIFIED_LEAD",
+        "INITIAL_OFFICIAL_REPORT",
+        "UNDER_INVESTIGATION",
+        "FINAL_INVESTIGATION_REPORT",
+        "ENFORCEMENT_DECISION",
+        "RECTIFICATION_FOLLOW_UP",
+        "CLOSED",
+        "CORRECTED",
+        "WITHDRAWN"
+      ],
+      "title": "IncidentStatus",
+      "type": "string"
+    },
+    "PreventionMeasureTag": {
+      "enum": [
+        "HAZARD_IDENTIFICATION",
+        "MONITORING_AND_EARLY_WARNING",
+        "INSPECTION_AND_MAINTENANCE",
+        "DESIGN_REVIEW",
+        "CONSTRUCTION_QUALITY_CONTROL",
+        "EMERGENCY_PREPAREDNESS",
+        "TRAFFIC_OPERATION_RISK_CONTROL",
+        "RESPONSIBILITY_AND_OVERSIGHT"
+      ],
+      "title": "PreventionMeasureTag",
+      "type": "string"
+    },
     "RegulationClassification": {
       "enum": [
         "LAW",
@@ -24,41 +64,331 @@
       ],
       "title": "RegulationStatus",
       "type": "string"
+    },
+    "SafetyCaseReportStage": {
+      "enum": [
+        "INITIAL_REPORT",
+        "FOLLOW_UP_REPORT",
+        "FINAL_INVESTIGATION",
+        "ENFORCEMENT",
+        "RECTIFICATION"
+      ],
+      "title": "SafetyCaseReportStage",
+      "type": "string"
+    },
+    "SafetyCaseTypeSummary": {
+      "additionalProperties": false,
+      "description": "Reviewed safety-case projection; only ``kind`` is safe for an R3 stub.",
+      "properties": {
+        "conflicted_fields": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/CriticalSafetyField"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Conflicted Fields"
+        },
+        "deaths": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deaths"
+        },
+        "engineering_type": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Engineering Type"
+        },
+        "event_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Event Id"
+        },
+        "hazard_type": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hazard Type"
+        },
+        "incident_status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IncidentStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "injuries": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Injuries"
+        },
+        "kind": {
+          "const": "SAFETY_CASE",
+          "title": "Kind",
+          "type": "string"
+        },
+        "loss_amount_minor": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Loss Amount Minor"
+        },
+        "loss_currency": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Z]{3}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Loss Currency"
+        },
+        "occurred_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Occurred At"
+        },
+        "official_direct_causes": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "null means no formal investigation basis; an empty list means formal evidence was reviewed and stated no direct-cause finding",
+          "title": "Official Direct Causes"
+        },
+        "prevention_measure_tags": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/PreventionMeasureTag"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prevention Measure Tags"
+        },
+        "rectification_has_open_issues": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Reviewed rectification evaluation result; null means not established",
+          "title": "Rectification Has Open Issues"
+        },
+        "region": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Region"
+        },
+        "report_stage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SafetyCaseReportStage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "responsibility_findings": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "null means no formal investigation or enforcement basis; an empty list means formal evidence was reviewed and stated no responsibility finding",
+          "title": "Responsibility Findings"
+        },
+        "similar_scenario_tags": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/SimilarScenarioTag"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Similar Scenario Tags"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "SafetyCaseTypeSummary",
+      "type": "object"
+    },
+    "SafetyRegulationTypeSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "classification": {
+          "$ref": "#/$defs/RegulationClassification"
+        },
+        "document_number": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Document Number",
+          "type": "string"
+        },
+        "issuing_authority": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Issuing Authority",
+          "type": "string"
+        },
+        "kind": {
+          "const": "SAFETY_REGULATION",
+          "title": "Kind",
+          "type": "string"
+        },
+        "regulation_status": {
+          "$ref": "#/$defs/RegulationStatus"
+        }
+      },
+      "required": [
+        "kind",
+        "document_number",
+        "issuing_authority",
+        "regulation_status",
+        "classification"
+      ],
+      "title": "SafetyRegulationTypeSummary",
+      "type": "object"
+    },
+    "SimilarScenarioTag": {
+      "enum": [
+        "HIGHWAY_OPERATION_GEOLOGICAL_RISK",
+        "ROADBED_SLOPE_INSTABILITY",
+        "BRIDGE_APPROACH_TRANSITION",
+        "EXTREME_WEATHER_EXPOSURE",
+        "TEMPORARY_STRUCTURE_FAILURE",
+        "TUNNEL_GEOLOGICAL_RISK"
+      ],
+      "title": "SimilarScenarioTag",
+      "type": "string"
     }
   },
-  "additionalProperties": false,
-  "properties": {
-    "classification": {
-      "$ref": "#/$defs/RegulationClassification"
+  "description": "Tagged union exported for TypeScript consumers.",
+  "discriminator": {
+    "mapping": {
+      "SAFETY_CASE": "#/$defs/SafetyCaseTypeSummary",
+      "SAFETY_REGULATION": "#/$defs/SafetyRegulationTypeSummary"
     },
-    "document_number": {
-      "maxLength": 200,
-      "minLength": 1,
-      "title": "Document Number",
-      "type": "string"
-    },
-    "issuing_authority": {
-      "maxLength": 200,
-      "minLength": 1,
-      "title": "Issuing Authority",
-      "type": "string"
-    },
-    "kind": {
-      "const": "SAFETY_REGULATION",
-      "title": "Kind",
-      "type": "string"
-    },
-    "regulation_status": {
-      "$ref": "#/$defs/RegulationStatus"
-    }
+    "propertyName": "kind"
   },
-  "required": [
-    "kind",
-    "document_number",
-    "issuing_authority",
-    "regulation_status",
-    "classification"
+  "oneOf": [
+    {
+      "$ref": "#/$defs/SafetyRegulationTypeSummary"
+    },
+    {
+      "$ref": "#/$defs/SafetyCaseTypeSummary"
+    }
   ],
-  "title": "TypeSummary",
-  "type": "object"
+  "title": "TypeSummary"
 }

@@ -5,7 +5,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from srbg_contracts import (
+    ClaimConflict,
+    ClaimConflictDecisionRequest,
+    ClaimConflictDecisionResponse,
     DocumentPageView,
+    EventCandidateGenerationResponse,
+    EventDetail,
     FeedPage,
     ItemDetail,
     ReviewCandidateDecisionRequest,
@@ -20,6 +25,7 @@ from srbg_contracts import (
 )
 
 from srbg_api.auth import Principal, get_current_principal, require_roles
+from srbg_api.safety_cases.candidates import EventCandidateAlreadyDecided
 
 
 class IntelligenceQueryService(Protocol):
@@ -35,6 +41,8 @@ class IntelligenceQueryService(Protocol):
     ) -> FeedPage: ...
 
     async def get_item(self, item_id: UUID) -> ItemDetail: ...
+
+    async def get_event(self, event_id: UUID) -> EventDetail: ...
 
     async def list_review_tasks(self) -> list[ReviewTaskSummary]: ...
 
@@ -71,6 +79,8 @@ class IntelligenceQueryService(Protocol):
 
 
 class ReviewPublicationService(Protocol):
+    async def list_claim_conflicts(self) -> list[ClaimConflict]: ...
+
     async def decide_review(
         self,
         review_task_id: UUID,
@@ -82,7 +92,9 @@ class ReviewPublicationService(Protocol):
 
     async def decide_candidate(
         self,
-        candidate_kind: Literal["RELATION", "REGULATION_STATUS"],
+        candidate_kind: Literal[
+            "RELATION", "REGULATION_STATUS", "EVENT_LINK", "EVENT_RELATION", "CLAIM"
+        ],
         candidate_id: UUID,
         *,
         action: Literal["ACCEPT", "REJECT", "CONFIRM_UNRESOLVED"],
@@ -99,6 +111,24 @@ class ReviewPublicationService(Protocol):
         reviewer_id: UUID,
     ) -> None: ...
 
+    async def resolve_claim_conflict(
+        self,
+        conflict_id: UUID,
+        *,
+        action: Literal["ACCEPT_CANDIDATE", "KEEP_CURRENT", "MARK_UNRESOLVED"],
+        reason: str,
+        reviewer_id: UUID,
+    ) -> ClaimConflictDecisionResponse: ...
+
+
+class EventCandidateGenerationService(Protocol):
+    async def generate_candidate(
+        self,
+        *,
+        event_id: UUID,
+        item_id: UUID,
+    ) -> UUID | None: ...
+
 
 CurrentPrincipal = Annotated[Principal, Depends(get_current_principal)]
 FromVersionQuery = Annotated[UUID, Query(alias="from")]
@@ -110,6 +140,12 @@ ReviewReadPrincipal = Annotated[
 ReviewWritePrincipal = Annotated[
     Principal,
     Depends(require_roles(UserRole.REVIEWER, UserRole.PLATFORM_ADMIN)),
+]
+EventCandidateWritePrincipal = Annotated[
+    Principal,
+    Depends(
+        require_roles(UserRole.EDITOR, UserRole.REVIEWER, UserRole.PLATFORM_ADMIN)
+    ),
 ]
 
 router = APIRouter(prefix="/api/v1", tags=["intelligence"])
@@ -135,6 +171,16 @@ def _publication_service(request: Request) -> ReviewPublicationService:
             detail="Publication service is unavailable",
         )
     return cast(ReviewPublicationService, service)
+
+
+def _event_candidate_service(request: Request) -> EventCandidateGenerationService:
+    service = getattr(request.app.state, "safety_event_candidate_service", None)
+    if service is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Safety event candidate service is unavailable",
+        )
+    return cast(EventCandidateGenerationService, service)
 
 
 @router.get(
@@ -173,6 +219,56 @@ async def get_item(
     _: CurrentPrincipal,
 ) -> ItemDetail:
     return await _query_service(request).get_item(item_id)
+
+
+@router.get(
+    "/events/{event_id}",
+    response_model=EventDetail,
+)
+async def get_event(
+    event_id: UUID,
+    request: Request,
+    _: CurrentPrincipal,
+) -> EventDetail:
+    return await _query_service(request).get_event(event_id)
+
+
+@router.post(
+    "/admin/events/{event_id}/candidate-items/{item_id}",
+    response_model=EventCandidateGenerationResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def generate_event_candidate(
+    event_id: UUID,
+    item_id: UUID,
+    request: Request,
+    _: EventCandidateWritePrincipal,
+) -> EventCandidateGenerationResponse:
+    try:
+        candidate_id = await _event_candidate_service(request).generate_candidate(
+            event_id=event_id,
+            item_id=item_id,
+        )
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="The safety event or case item was not found",
+        ) from exc
+    except EventCandidateAlreadyDecided as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The event candidate already has a terminal review decision",
+        ) from exc
+    if candidate_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The item does not meet the event-candidate threshold",
+        )
+    return EventCandidateGenerationResponse(
+        candidate_id=candidate_id,
+        status="PENDING_REVIEW",
+        requires_human_review=True,
+    )
 
 
 @router.get("/items/{item_id}/versions", response_model=VersionTimelineResponse)
@@ -256,6 +352,14 @@ async def get_review_task(
     return await _query_service(request).get_review_task(task_id)
 
 
+@router.get("/admin/claim-conflicts", response_model=list[ClaimConflict])
+async def list_claim_conflicts(
+    request: Request,
+    _: ReviewReadPrincipal,
+) -> list[ClaimConflict]:
+    return await _publication_service(request).list_claim_conflicts()
+
+
 @router.post(
     "/admin/review-tasks/{task_id}/decisions",
     response_model=ReviewDecisionResponse,
@@ -279,7 +383,9 @@ async def decide_review(
     status_code=status.HTTP_204_NO_CONTENT,
 )
 async def decide_candidate(
-    candidate_kind: Literal["RELATION", "REGULATION_STATUS"],
+    candidate_kind: Literal[
+        "RELATION", "REGULATION_STATUS", "EVENT_LINK", "EVENT_RELATION", "CLAIM"
+    ],
     candidate_id: UUID,
     payload: ReviewCandidateDecisionRequest,
     request: Request,
@@ -294,6 +400,24 @@ async def decide_candidate(
         reviewer_id=principal.user_id,
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/admin/claim-conflicts/{conflict_id}/decisions",
+    response_model=ClaimConflictDecisionResponse,
+)
+async def resolve_claim_conflict(
+    conflict_id: UUID,
+    payload: ClaimConflictDecisionRequest,
+    request: Request,
+    principal: ReviewWritePrincipal,
+) -> ClaimConflictDecisionResponse:
+    return await _publication_service(request).resolve_claim_conflict(
+        conflict_id,
+        action=payload.action.value,
+        reason=payload.reason,
+        reviewer_id=principal.user_id,
+    )
 
 
 @router.post(

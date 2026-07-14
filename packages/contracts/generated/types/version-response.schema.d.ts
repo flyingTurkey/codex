@@ -1,5 +1,5 @@
 export type ApiVersion = 'v1'
-export type ContentSchemaVersion = '1.0.0'
+export type ContentSchemaVersion = '1.1.0'
 
 export interface VersionResponse {
   api_version?: ApiVersion

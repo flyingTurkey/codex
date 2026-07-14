@@ -22,11 +22,11 @@ def test_liveness_response_serializes_utc_timestamp() -> None:
 def test_version_response_contains_only_public_versions() -> None:
     assert hasattr(models, "VersionResponse")
 
-    response = models.VersionResponse(api_version="v1", content_schema_version="1.0.0")
+    response = models.VersionResponse(api_version="v1", content_schema_version="1.1.0")
 
     assert response.model_dump(mode="json") == {
         "api_version": "v1",
-        "content_schema_version": "1.0.0",
+        "content_schema_version": "1.1.0",
     }
 
 

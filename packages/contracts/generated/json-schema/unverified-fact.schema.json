@@ -1,0 +1,107 @@
+{
+  "$defs": {
+    "SafetyCaseFactField": {
+      "enum": [
+        "OCCURRED_AT",
+        "REGION",
+        "PROJECT_NAME",
+        "HAZARD_TYPE",
+        "ENGINEERING_TYPE",
+        "DEATH_COUNT",
+        "INJURY_COUNT",
+        "LOSS_AMOUNT_MINOR",
+        "OFFICIAL_DIRECT_CAUSES",
+        "RESPONSIBILITY_FINDINGS",
+        "CORRECTIVE_ACTIONS"
+      ],
+      "title": "SafetyCaseFactField",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Public-safe unresolved fact: candidate values are intentionally absent.",
+  "properties": {
+    "claim_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Claim Id"
+    },
+    "conflict_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Conflict Id"
+    },
+    "display_value": {
+      "const": "待核实",
+      "default": "待核实",
+      "title": "Display Value",
+      "type": "string"
+    },
+    "evidence_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Evidence Ids",
+      "type": "array"
+    },
+    "field": {
+      "$ref": "#/$defs/SafetyCaseFactField"
+    },
+    "label": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Label",
+      "type": "string"
+    },
+    "reason": {
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Reason",
+      "type": "string"
+    },
+    "source_item_id": {
+      "format": "uuid",
+      "title": "Source Item Id",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "PENDING_REVIEW",
+        "CONFLICTING"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "value": {
+      "default": null,
+      "title": "Value",
+      "type": "null"
+    }
+  },
+  "required": [
+    "source_item_id",
+    "field",
+    "label",
+    "status",
+    "reason"
+  ],
+  "title": "UnverifiedFact",
+  "type": "object"
+}

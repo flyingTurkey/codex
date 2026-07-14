@@ -20,24 +20,32 @@ def test_migration_seed_rows_match_the_canonical_disabled_candidate_registry() -
     registry_path = Path("docs/codex-kit/assets/source_registry.csv")
     with registry_path.open(encoding="utf-8-sig", newline="") as stream:
         registry = list(csv.DictReader(stream))
-    migration = runpy.run_path("apps/api/migrations/versions/0002_source_vault.py")
-    seeds = migration["SEED_SOURCES"]
-    expected = tuple(
-        (
-            row["source_id"],
-            row["name"],
-            row["base_url"],
-            row["channel"],
-            row["source_type"],
-            row["authority_level"],
-            row["priority"],
-            row["collection_method"],
-            int(row["poll_interval_minutes"]),
-        )
-        for row in registry
-    )
+    round02_migration = runpy.run_path("apps/api/migrations/versions/0002_source_vault.py")
+    round04_migration = runpy.run_path("apps/api/migrations/versions/0005_safety_case_lifecycle.py")
+    round04_codes = {row[0] for row in round04_migration["ROUND04_SOURCE_SEEDS"]}
 
-    assert len(registry) == 42
-    assert seeds == expected
+    def canonical_rows(rows: list[dict[str, str]]) -> tuple[tuple[object, ...], ...]:
+        return tuple(
+            (
+                row["source_id"],
+                row["name"],
+                row["base_url"],
+                row["channel"],
+                row["source_type"],
+                row["authority_level"],
+                row["priority"],
+                row["collection_method"],
+                int(row["poll_interval_minutes"]),
+            )
+            for row in rows
+        )
+
+    round02_registry = [row for row in registry if row["source_id"] not in round04_codes]
+    round04_registry = [row for row in registry if row["source_id"] in round04_codes]
+
+    assert len(round02_registry) == 42
+    assert len(round04_registry) == 4
+    assert round02_migration["SEED_SOURCES"] == canonical_rows(round02_registry)
+    assert round04_migration["ROUND04_SOURCE_SEEDS"] == canonical_rows(round04_registry)
     assert {row["status"] for row in registry} == {"CANDIDATE"}
     assert {row["enabled"] for row in registry} == {"false"}

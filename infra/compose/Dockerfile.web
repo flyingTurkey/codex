@@ -1,4 +1,4 @@
-FROM node:24.14.0-bookworm-slim
+FROM node:24.14.0-bookworm-slim AS build
 
 ENV COREPACK_HOME=/opt/corepack
 
@@ -14,5 +14,16 @@ COPY --chown=node:node . .
 USER node
 RUN --mount=type=cache,id=srbg-pnpm-v11,target=/home/node/.local/share/pnpm/store,uid=1000,gid=1000 \
     pnpm install --frozen-lockfile
+RUN pnpm --filter @srbg/web build
 
-CMD ["pnpm", "--filter", "@srbg/web", "dev"]
+FROM node:24.14.0-bookworm-slim AS runtime
+
+ENV NODE_ENV=production \
+    NITRO_HOST=0.0.0.0 \
+    NITRO_PORT=3000
+
+WORKDIR /workspace
+COPY --from=build --chown=node:node /workspace/apps/web/.output ./apps/web/.output
+
+USER node
+CMD ["node", "apps/web/.output/server/index.mjs"]

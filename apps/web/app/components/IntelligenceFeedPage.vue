@@ -1,9 +1,13 @@
 <script setup lang="ts">
-import type { FeedPage } from '@srbg/contracts'
+import type { FeedPage, ProblemDetails } from '@srbg/contracts'
 import type { AppIconName, StatusBadgeTone } from '@srbg/ui'
-import { EmptyState, PageHeader, StatusBadge } from '@srbg/ui'
-import { computed, ref } from 'vue'
+import { EmptyState, PageHeader, ProblemNotice, Skeleton, StatusBadge } from '@srbg/ui'
+import { computed, ref, watch } from 'vue'
 
+import type {
+  FeedContentTypeFilter,
+  FeedContentTypeOption,
+} from '../composables/useIntelligenceFeed'
 import FilterPanel from './FilterPanel.vue'
 import TimelineFeed from './TimelineFeed.vue'
 
@@ -21,8 +25,12 @@ const props = withDefaults(
     emptyIcon?: AppIconName
     feed?: FeedPage | null
     loading?: boolean
+    problem?: ProblemDetails | null
     showFilters?: boolean
+    showDomainFilter?: boolean
     initialDomain?: 'all' | 'safety' | 'digital'
+    contentType?: FeedContentTypeFilter
+    contentTypeOptions?: readonly FeedContentTypeOption[]
   }>(),
   {
     eyebrow: undefined,
@@ -35,13 +43,40 @@ const props = withDefaults(
     emptyIcon: 'EmptyPage',
     feed: null,
     loading: false,
+    problem: null,
     showFilters: false,
+    showDomainFilter: true,
     initialDomain: 'all',
+    contentType: 'all',
+    contentTypeOptions: () => [
+      { label: '全部类型', value: 'all' },
+      { label: '安全规定', value: 'SAFETY_REGULATION' },
+    ],
   },
 )
 
+const emit = defineEmits<{
+  'content-type-change': [value: FeedContentTypeFilter]
+  retry: []
+  'update:contentType': [value: FeedContentTypeFilter]
+}>()
+
 const selectedDomain = ref(props.initialDomain)
-const selectedType = ref<'all' | 'SAFETY_REGULATION'>('all')
+const internalContentType = ref<FeedContentTypeFilter>(props.contentType)
+watch(
+  () => props.contentType,
+  (value) => {
+    internalContentType.value = value
+  },
+)
+const selectedType = computed({
+  get: () => internalContentType.value,
+  set: (value: FeedContentTypeFilter) => {
+    internalContentType.value = value
+    emit('update:contentType', value)
+    emit('content-type-change', value)
+  },
+})
 const visibleItems = computed(() =>
   (props.feed?.items ?? []).filter((item) => {
     const domainMatches =
@@ -88,13 +123,24 @@ const visibleItems = computed(() =>
       v-if="showFilters"
       v-model:domain="selectedDomain"
       v-model:content-type="selectedType"
+      :content-type-options="contentTypeOptions"
+      :show-domain="showDomainFilter"
     />
 
     <div class="intelligence-feed-page__content">
       <slot v-if="$slots.default" />
-      <div v-else-if="loading" class="intelligence-feed-page__loading" role="status">
-        正在加载情报…
-      </div>
+      <Skeleton
+        v-else-if="loading"
+        class="intelligence-feed-page__loading"
+        :lines="5"
+        label="正在加载安全情报"
+      />
+      <ProblemNotice
+        v-else-if="problem"
+        :problem="problem"
+        retry-label="重新加载"
+        @retry="emit('retry')"
+      />
       <TimelineFeed v-else-if="visibleItems.length" :items="visibleItems" />
       <slot v-else name="empty">
         <EmptyState :title="emptyTitle" :description="emptyDescription" :icon="emptyIcon" />
@@ -116,13 +162,19 @@ const visibleItems = computed(() =>
   min-width: 0;
 }
 
-.intelligence-feed-page__feed-notice,
-.intelligence-feed-page__loading {
+.intelligence-feed-page__feed-notice {
   padding: var(--spacing-3) var(--spacing-4);
   color: var(--color-ink-700);
   background: var(--color-brand-50);
   border: 1px solid var(--color-brand-200);
   border-radius: var(--radius-sm);
+}
+
+.intelligence-feed-page__loading {
+  padding: var(--spacing-5);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
 }
 
 @media (max-width: 47.999rem) {

@@ -1,0 +1,62 @@
+{
+  "$defs": {
+    "EventRelation": {
+      "enum": [
+        "FOLLOW_UP",
+        "INVESTIGATES",
+        "PENALIZES",
+        "RECTIFIES",
+        "CORRECTS"
+      ],
+      "title": "EventRelation",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "event_id": {
+      "format": "uuid",
+      "title": "Event Id",
+      "type": "string"
+    },
+    "from_item_id": {
+      "format": "uuid",
+      "title": "From Item Id",
+      "type": "string"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "relation_type": {
+      "$ref": "#/$defs/EventRelation"
+    },
+    "reviewed_at": {
+      "format": "date-time",
+      "title": "Reviewed At",
+      "type": "string"
+    },
+    "reviewed_by": {
+      "format": "uuid",
+      "title": "Reviewed By",
+      "type": "string"
+    },
+    "to_item_id": {
+      "format": "uuid",
+      "title": "To Item Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "event_id",
+    "from_item_id",
+    "to_item_id",
+    "relation_type",
+    "reviewed_by",
+    "reviewed_at"
+  ],
+  "title": "EventRelationView",
+  "type": "object"
+}

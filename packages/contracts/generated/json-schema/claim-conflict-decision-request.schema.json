@@ -1,0 +1,31 @@
+{
+  "$defs": {
+    "ClaimConflictDecisionAction": {
+      "enum": [
+        "ACCEPT_CANDIDATE",
+        "KEEP_CURRENT",
+        "MARK_UNRESOLVED"
+      ],
+      "title": "ClaimConflictDecisionAction",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "$ref": "#/$defs/ClaimConflictDecisionAction"
+    },
+    "reason": {
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Reason",
+      "type": "string"
+    }
+  },
+  "required": [
+    "action",
+    "reason"
+  ],
+  "title": "ClaimConflictDecisionRequest",
+  "type": "object"
+}

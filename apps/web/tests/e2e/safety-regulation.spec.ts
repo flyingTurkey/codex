@@ -244,6 +244,17 @@ test('review workspace submits only decision and reason to the service endpoint'
     },
   }
   let decisionBody: unknown
+  await page.route('**/api/v1/me', (route) =>
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        display_name: 'E2E 审核员',
+        local_identity: true,
+        roles: ['reviewer'],
+        user_id: '019b0000-0000-7000-8000-000000001098',
+      }),
+    }),
+  )
   await page.route('**/api/v1/admin/review-tasks**', async (route) => {
     const request = route.request()
     if (request.method() === 'POST') {
@@ -265,9 +276,10 @@ test('review workspace submits only decision and reason to the service endpoint'
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify([reviewDetail.task]) })
   })
 
-  await page.goto('/daily')
-  await page.getByRole('link', { name: '审核工作台', exact: true }).click()
-  await page.getByRole('link', { name: baseItem.title }).first().click()
+  await page.goto(`/admin/review/${taskId}`)
+  await expect(page.locator('.srbg-app-shell')).toHaveAttribute('aria-busy', 'false', {
+    timeout: 15_000,
+  })
   await page.getByRole('button', { name: '批准并发布' }).click()
 
   expect(decisionBody).toEqual({ action: 'APPROVE', reason: '字段与官方原文证据一致' })
@@ -301,6 +313,9 @@ test('@a11y published safety feed and evidence drawer have no axe violations', a
   )
   await openSafetyFromClientNavigation(page)
   await page.getByTestId('evidence-trigger').click()
+  const drawer = page.getByRole('dialog', { name: '原文段落与页码定位' })
+  await expect(drawer).toBeVisible()
+  await expect(page.locator('.srbg-drawer__trap')).toHaveCSS('opacity', '1')
 
   const results = await new AxeBuilder({ page }).analyze()
   expect(results.violations).toEqual([])

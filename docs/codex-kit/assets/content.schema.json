@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://srbg.example.internal/schemas/intelligence-item-1.0.0.json",
+  "$id": "https://srbg.example.internal/schemas/intelligence-item-1.1.0.json",
   "title": "SRBG Intelligence Item",
   "type": "object",
   "additionalProperties": false,
@@ -24,7 +24,7 @@
     "security"
   ],
   "properties": {
-    "schema_version": {"const": "1.0.0"},
+    "schema_version": {"const": "1.1.0"},
     "id": {"type": "string", "minLength": 3, "maxLength": 100},
     "is_demo": {"type": "boolean"},
     "publishable": {"type": "boolean"},
@@ -175,7 +175,14 @@
         "hazard_types": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
         "maturity_level": {"type": ["string", "null"]},
         "regulation_status": {"type": ["string", "null"]},
-        "incident_status": {"type": ["string", "null"]}
+        "incident_status": {
+          "type": ["string", "null"],
+          "enum": ["UNVERIFIED_LEAD", "INITIAL_OFFICIAL_REPORT", "UNDER_INVESTIGATION", "FINAL_INVESTIGATION_REPORT", "ENFORCEMENT_DECISION", "RECTIFICATION_FOLLOW_UP", "CLOSED", "CORRECTED", "WITHDRAWN", null]
+        },
+        "report_stage": {
+          "type": ["string", "null"],
+          "enum": ["INITIAL_REPORT", "FOLLOW_UP_REPORT", "FINAL_INVESTIGATION", "ENFORCEMENT", "RECTIFICATION", null]
+        }
       }
     },
     "summary": {
@@ -359,15 +366,62 @@
     "safety_case_profile": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["profile_type", "deaths", "injuries", "official_direct_causes", "responsibility_findings", "corrective_actions"],
+      "required": ["profile_type", "event_id", "report_stage", "incident_status", "hazard_type", "engineering_type", "occurred_at", "region", "deaths", "injuries", "loss_amount_minor", "loss_currency", "conflicted_fields", "official_direct_causes", "responsibility_findings", "corrective_actions", "rectification_has_open_issues", "similar_scenario_tags", "prevention_measure_tags"],
       "properties": {
         "profile_type": {"const": "SAFETY_CASE"},
+        "event_id": {"type": ["string", "null"]},
+        "report_stage": {"enum": ["INITIAL_REPORT", "FOLLOW_UP_REPORT", "FINAL_INVESTIGATION", "ENFORCEMENT", "RECTIFICATION"]},
+        "incident_status": {"enum": ["UNVERIFIED_LEAD", "INITIAL_OFFICIAL_REPORT", "UNDER_INVESTIGATION", "FINAL_INVESTIGATION_REPORT", "ENFORCEMENT_DECISION", "RECTIFICATION_FOLLOW_UP", "CLOSED", "CORRECTED", "WITHDRAWN"]},
+        "hazard_type": {"type": ["string", "null"]},
+        "engineering_type": {"type": ["string", "null"]},
+        "occurred_at": {"type": ["string", "null"], "format": "date-time"},
+        "region": {"type": ["string", "null"]},
         "deaths": {"type": ["integer", "null"], "minimum": 0},
         "injuries": {"type": ["integer", "null"], "minimum": 0},
-        "official_direct_causes": {"type": "array", "items": {"type": "string"}},
-        "responsibility_findings": {"type": "array", "items": {"type": "string"}},
-        "corrective_actions": {"type": "array", "items": {"type": "string"}}
-      }
+        "loss_amount_minor": {"type": ["integer", "null"], "minimum": 0},
+        "loss_currency": {"type": ["string", "null"], "pattern": "^[A-Z]{3}$"},
+        "conflicted_fields": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"enum": ["DEATH_COUNT", "INJURY_COUNT", "LOSS_AMOUNT_MINOR", "OFFICIAL_DIRECT_CAUSES", "RESPONSIBILITY_FINDINGS"]}
+        },
+        "official_direct_causes": {"$comment": "null means no formal investigation basis; [] means formal evidence was reviewed and stated no direct-cause finding.", "type": ["array", "null"], "items": {"type": "string"}},
+        "responsibility_findings": {"$comment": "null means no formal investigation or enforcement basis; [] means formal evidence was reviewed and stated no responsibility finding.", "type": ["array", "null"], "items": {"type": "string"}},
+        "corrective_actions": {"type": "array", "items": {"type": "string"}},
+        "rectification_has_open_issues": {"$comment": "Only projected after formal rectification-evaluation evidence and human review; null means not established.", "type": ["boolean", "null"]},
+        "similar_scenario_tags": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"enum": ["HIGHWAY_OPERATION_GEOLOGICAL_RISK", "ROADBED_SLOPE_INSTABILITY", "BRIDGE_APPROACH_TRANSITION", "EXTREME_WEATHER_EXPOSURE", "TEMPORARY_STRUCTURE_FAILURE", "TUNNEL_GEOLOGICAL_RISK"]}
+        },
+        "prevention_measure_tags": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"enum": ["HAZARD_IDENTIFICATION", "MONITORING_AND_EARLY_WARNING", "INSPECTION_AND_MAINTENANCE", "DESIGN_REVIEW", "CONSTRUCTION_QUALITY_CONTROL", "EMERGENCY_PREPAREDNESS", "TRAFFIC_OPERATION_RISK_CONTROL", "RESPONSIBILITY_AND_OVERSIGHT"]}
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"conflicted_fields": {"contains": {"const": "DEATH_COUNT"}}}},
+          "then": {"properties": {"deaths": {"const": null}}}
+        },
+        {
+          "if": {"properties": {"conflicted_fields": {"contains": {"const": "INJURY_COUNT"}}}},
+          "then": {"properties": {"injuries": {"const": null}}}
+        },
+        {
+          "if": {"properties": {"conflicted_fields": {"contains": {"const": "LOSS_AMOUNT_MINOR"}}}},
+          "then": {"properties": {"loss_amount_minor": {"const": null}, "loss_currency": {"const": null}}}
+        },
+        {
+          "if": {"properties": {"conflicted_fields": {"contains": {"const": "OFFICIAL_DIRECT_CAUSES"}}}},
+          "then": {"properties": {"official_direct_causes": {"const": null}}}
+        },
+        {
+          "if": {"properties": {"conflicted_fields": {"contains": {"const": "RESPONSIBILITY_FINDINGS"}}}},
+          "then": {"properties": {"responsibility_findings": {"const": null}}}
+        }
+      ]
     }
   }
 }

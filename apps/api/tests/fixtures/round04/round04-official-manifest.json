@@ -1,0 +1,83 @@
+{
+  "fixture_set": "round04-meida-expressway-5-1",
+  "usage": "OFFLINE_TEST_ONLY",
+  "captured_at": "2026-07-14T11:25:00Z",
+  "case_title": "梅大高速茶阳路段“5·1”塌方灾害",
+  "event_key": "meida-expressway-2024-05-01-k11-900",
+  "notice": "These are immutable copies of public first-party government responses. Tests must never refresh them from the network.",
+  "artifacts": [
+    {
+      "file": "initial-report.html.b64",
+      "source_url": "https://www.dabu.gov.cn/zwgk/wxgk/jggk/lsqkgk/content/mpost_2630342.html",
+      "source_code": "GOV-019",
+      "authority_level": "A1",
+      "report_stage": "INITIAL_REPORT",
+      "declared_mime": "text/html; charset=utf-8",
+      "byte_length": 10295,
+      "sha256": "68fa585e01209627a64b0d1babdca8c76920cbb93ed17bc7c98768f1e2339443",
+      "expected": {"vehicles": 20, "people_involved": 54, "deaths": 24, "injuries": 30}
+    },
+    {
+      "file": "follow-up-report.html.b64",
+      "source_url": "https://www.dabu.gov.cn/hygq/xwfbh/content/mpost_2628990.html",
+      "source_code": "GOV-019",
+      "authority_level": "A1",
+      "report_stage": "FOLLOW_UP_REPORT",
+      "declared_mime": "text/html; charset=utf-8",
+      "byte_length": 14846,
+      "sha256": "67aabf09f236eef576a1c668e800c08e579795a22311b9e67b07584e0c62a6a0",
+      "expected": {"vehicles": 23, "deaths": 48, "pending_dna": 3, "injuries": 30}
+    },
+    {
+      "file": "investigation-landing.html.b64",
+      "source_url": "https://yjgl.gd.gov.cn/gk/zdlyxxgk/sgdcbg/content/post_4658975.html",
+      "source_code": "GOV-020",
+      "authority_level": "A0",
+      "report_stage": "FINAL_INVESTIGATION",
+      "declared_mime": "text/html; charset=utf-8",
+      "byte_length": 50662,
+      "sha256": "6e19fead188786f009183cc1e620b525096e8e17787326544a65afddcd1e41b8",
+      "expected": {"deaths": 52, "injuries": 30}
+    },
+    {
+      "file": "investigation-report.pdf.b64",
+      "source_url": "https://yjgl.gd.gov.cn/attachment/0/571/571164/4658975.pdf",
+      "source_code": "GOV-020",
+      "authority_level": "A0",
+      "report_stage": "FINAL_INVESTIGATION",
+      "declared_mime": "application/pdf",
+      "byte_length": 1126612,
+      "sha256": "b5387e2541394f07a3e3f3bcdc25ad2193c25f8393335d6ab35de0b3e0182228",
+      "expected": {"pages": 31, "deaths": 52, "injuries": 30, "formal_cause_present": true}
+    },
+    {
+      "file": "accountability.html.b64",
+      "source_url": "https://www.gdjct.gd.gov.cn/zhyw/content/post_204625.html",
+      "source_code": "GOV-022",
+      "authority_level": "A1",
+      "report_stage": "ENFORCEMENT",
+      "declared_mime": "text/html; charset=utf-8",
+      "byte_length": 23560,
+      "sha256": "19462a9ba6d3cf3cf4029f96bad27cd02325bdd2267c617167c3efcd8517f4a2",
+      "expected": {"accountable_units": 4, "accountable_public_officials": 32}
+    },
+    {
+      "file": "rectification-evaluation.html.b64",
+      "source_url": "https://yjgl.gd.gov.cn/gk/zdlyxxgk/sgdcbg/content/post_4873850.html",
+      "source_code": "GOV-021",
+      "authority_level": "A1",
+      "report_stage": "RECTIFICATION",
+      "declared_mime": "text/html; charset=utf-8",
+      "byte_length": 62164,
+      "sha256": "b331f9ebe9563f96c3203bc64ab382b3fca05171961ec33fe7bb1782dfac2ee6",
+      "expected": {"evaluation_completed": true, "open_issues_remain": true}
+    }
+  ],
+  "expected_relations": [
+    "FOLLOW_UP",
+    "INVESTIGATES",
+    "PENALIZES",
+    "RECTIFIES",
+    "CORRECTS"
+  ]
+}

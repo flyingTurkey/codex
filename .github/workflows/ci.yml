@@ -64,6 +64,7 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm --filter @srbg/web exec playwright install --with-deps chromium
       - run: make dev
+      - run: make safety-case-test
       - run: make smoke
       - run: make resilience-test
       - run: make web-e2e

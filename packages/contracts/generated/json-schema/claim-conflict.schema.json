@@ -1,0 +1,167 @@
+{
+  "$defs": {
+    "ClaimConflictStatus": {
+      "enum": [
+        "PENDING_REVIEW",
+        "RESOLVED"
+      ],
+      "title": "ClaimConflictStatus",
+      "type": "string"
+    },
+    "CriticalSafetyField": {
+      "enum": [
+        "DEATH_COUNT",
+        "INJURY_COUNT",
+        "LOSS_AMOUNT_MINOR",
+        "OFFICIAL_DIRECT_CAUSES",
+        "RESPONSIBILITY_FINDINGS"
+      ],
+      "title": "CriticalSafetyField",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "candidate_claim_id": {
+      "format": "uuid",
+      "title": "Candidate Claim Id",
+      "type": "string"
+    },
+    "candidate_value": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      ],
+      "title": "Candidate Value"
+    },
+    "current_claim_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Current Claim Id"
+    },
+    "current_value": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Current Value"
+    },
+    "detected_at": {
+      "format": "date-time",
+      "title": "Detected At",
+      "type": "string"
+    },
+    "event_id": {
+      "format": "uuid",
+      "title": "Event Id",
+      "type": "string"
+    },
+    "field": {
+      "$ref": "#/$defs/CriticalSafetyField"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "resolution_reason": {
+      "anyOf": [
+        {
+          "maxLength": 1000,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Resolution Reason"
+    },
+    "resolved_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Resolved At"
+    },
+    "resolved_by": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Resolved By"
+    },
+    "resolved_claim_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Resolved Claim Id"
+    },
+    "status": {
+      "$ref": "#/$defs/ClaimConflictStatus"
+    }
+  },
+  "required": [
+    "id",
+    "event_id",
+    "field",
+    "current_claim_id",
+    "current_value",
+    "candidate_claim_id",
+    "candidate_value",
+    "status",
+    "detected_at"
+  ],
+  "title": "ClaimConflict",
+  "type": "object"
+}

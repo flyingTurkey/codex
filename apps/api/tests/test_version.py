@@ -16,5 +16,5 @@ def test_version_endpoint_returns_contract_and_schema_versions() -> None:
     assert response.status_code == 200
     assert response.json() == {
         "api_version": "v1",
-        "content_schema_version": "1.0.0",
+        "content_schema_version": "1.1.0",
     }

@@ -101,6 +101,8 @@ def test_runtime_build_context_includes_authoritative_publication_gate_assets() 
         "!docs/codex-kit/assets/validation/publication_evaluation.schema.json",
         "!docs/codex-kit/assets/validation/publication_gate_v3.json",
         "!docs/codex-kit/assets/validation/publication_evaluation_v3.schema.json",
+        "!docs/codex-kit/assets/validation/publication_gate_v4.json",
+        "!docs/codex-kit/assets/validation/publication_evaluation_v4.schema.json",
     }
 
     assert included_assets <= set(dockerignore.splitlines())
@@ -124,6 +126,17 @@ def test_ci_pins_actions_and_runs_all_round_zero_gates() -> None:
         "make web-a11y",
     ):
         assert command in workflow
+
+
+def test_round04_fixed_fixture_and_isolated_integration_gates_are_wired() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+
+    assert "safety-case-test:" in makefile
+    assert "scripts/run_isolated_integration.py" in makefile
+    assert "apps/api/tests/test_safety_case_integration.py" in makefile
+    assert "apps/api/tests/test_round04_official_fixtures.py" in makefile
+    assert "make safety-case-test" in workflow
 
 
 def test_project_tool_caches_are_kept_inside_the_workspace() -> None:
@@ -165,6 +178,25 @@ def test_browser_gates_reuse_the_ready_runtime_without_forced_rebuilds() -> None
     assert "runtime-ready:\n\t$(COMPOSE) up --detach --wait" in makefile
     assert "web-e2e: runtime-ready" in makefile
     assert "web-a11y: runtime-ready" in makefile
+
+
+def test_web_runtime_serves_prebuilt_nitro_output() -> None:
+    dockerfile = (ROOT / "infra/compose/Dockerfile.web").read_text(encoding="utf-8")
+    compose = (ROOT / "infra/compose/compose.yaml").read_text(encoding="utf-8")
+
+    assert "pnpm --filter @srbg/web build" in dockerfile
+    assert 'CMD ["node", "apps/web/.output/server/index.mjs"]' in dockerfile
+    assert 'CMD ["pnpm", "--filter", "@srbg/web", "dev"]' not in dockerfile
+    assert "NITRO_HOST: 0.0.0.0" in compose
+    assert "NITRO_PORT: 3000" in compose
+
+
+def test_web_e2e_gate_does_not_mutate_versioned_acceptance_assets() -> None:
+    for spec in (ROOT / "apps/web/tests/e2e").glob("*.spec.ts"):
+        content = spec.read_text(encoding="utf-8")
+        assert "docs/acceptance/assets" not in content, (
+            f"{spec.name} must keep the browser gate read-only"
+        )
 
 
 def test_web_image_keeps_versioned_esbuild_binaries_isolated_and_cached() -> None:

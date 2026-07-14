@@ -264,8 +264,8 @@ services:
       dockerfile: infra/compose/Dockerfile.web
     environment:
       NUXT_INTERNAL_API_BASE: http://api:8000
-      NUXT_HOST: 0.0.0.0
-      NUXT_PORT: 3000
+      NITRO_HOST: 0.0.0.0
+      NITRO_PORT: 3000
       TZ: Asia/Shanghai
     ports:
       - "127.0.0.1:${WEB_PORT:-3000}:3000"

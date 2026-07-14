@@ -78,7 +78,7 @@ def main() -> None:
 
     version = parse_object(wait_for_status(api_port, "/api/v1/version", 200))
     require(
-        version == {"api_version": "v1", "content_schema_version": "1.0.0"},
+        version == {"api_version": "v1", "content_schema_version": "1.1.0"},
         "version contract does not match the generated contracts",
     )
 

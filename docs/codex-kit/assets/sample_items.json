@@ -1,6 +1,6 @@
 [
   {
-    "schema_version": "1.0.0",
+    "schema_version": "1.1.0",
     "id": "demo-digital-case-001",
     "is_demo": true,
     "publishable": false,
@@ -22,7 +22,7 @@
     "security": {"prompt_injection_detected": false, "prompt_injection_status": "NONE", "suspicious_patterns": []}
   },
   {
-    "schema_version": "1.0.0",
+    "schema_version": "1.1.0",
     "id": "demo-paper-001",
     "is_demo": true,
     "publishable": false,
@@ -44,7 +44,7 @@
     "security": {"prompt_injection_detected": false, "prompt_injection_status": "NONE", "suspicious_patterns": []}
   },
   {
-    "schema_version": "1.0.0",
+    "schema_version": "1.1.0",
     "id": "demo-regulation-001",
     "is_demo": true,
     "publishable": false,
@@ -66,7 +66,7 @@
     "security": {"prompt_injection_detected": false, "prompt_injection_status": "NONE", "suspicious_patterns": []}
   },
   {
-    "schema_version": "1.0.0",
+    "schema_version": "1.1.0",
     "id": "demo-safety-case-001",
     "is_demo": true,
     "publishable": false,
@@ -76,13 +76,13 @@
     "canonical_url": "https://example.invalid/safety-case-001",
     "source": {"source_id": "GOV-DEMO", "name": "演示调查机关", "authority_level": "A0", "publisher_type": "GOVERNMENT", "is_primary_source": true},
     "dates": {"published_at": "2026-05-20T02:00:00Z", "first_seen_at": "2026-05-20T02:10:00Z", "last_verified_at": "2026-05-20T03:00:00Z", "occurred_at": "2026-01-10T07:20:00Z"},
-    "classification": {"engineering_domains": ["BRIDGE", "HIGHWAY"], "lifecycle_stages": ["CONSTRUCTION", "SAFETY_MANAGEMENT"], "technology_tags": [], "application_scenarios": ["SAFETY_MONITORING"], "hazard_types": ["COLLAPSE", "TEMPORARY_STRUCTURE_FAILURE"], "incident_status": "FINAL_INVESTIGATION_REPORT"},
+    "classification": {"engineering_domains": ["BRIDGE", "HIGHWAY"], "lifecycle_stages": ["CONSTRUCTION", "SAFETY_MANAGEMENT"], "technology_tags": [], "application_scenarios": ["SAFETY_MONITORING"], "hazard_types": ["COLLAPSE", "TEMPORARY_STRUCTURE_FAILURE"], "incident_status": "FINAL_INVESTIGATION_REPORT", "report_stage": "FINAL_INVESTIGATION"},
     "summary": {"one_sentence": "该演示条目仅用于展示事故调查报告的数据结构。", "why_it_matters": "事故原因、责任和整改措施必须以正式报告证据为准并经过安全审核。", "key_points": ["演示条目不含真实事故事实"], "limitations": ["没有可用于生产发布的正式证据"], "recommended_actions": ["PROFESSIONAL_REVIEW"]},
     "claims": [{"claim_id": "clm-s-001", "field": "data_nature", "value": "演示数据", "normalized_value": "DEMO", "unit": null, "claim_status": "VERIFIED", "confidence": 1.0, "evidence_ids": ["ev-s-001"]}],
     "evidence": [{"evidence_id": "ev-s-001", "document_version_id": "docver-s-001", "role": "PRIMARY_OFFICIAL", "locator": {"type": "TEXT_RANGE", "value": "0:20"}, "excerpt": "本条目为演示数据，不代表真实事故", "excerpt_sha256": "62d6c5d6cd4c96625de7312195dcceefd0ffb818fecf179ddadd7af6204a5625", "supports": ["clm-s-001"]}],
     "entities": [],
     "relations": [{"relation_type": "FOLLOW_UP", "target_id": "demo-initial-report-001", "confidence": 0.90}],
-    "profile": {"profile_type": "SAFETY_CASE", "deaths": null, "injuries": null, "official_direct_causes": [], "responsibility_findings": [], "corrective_actions": []},
+    "profile": {"profile_type": "SAFETY_CASE", "event_id": "demo-safety-event-001", "report_stage": "FINAL_INVESTIGATION", "incident_status": "FINAL_INVESTIGATION_REPORT", "hazard_type": "TEMPORARY_STRUCTURE_FAILURE", "engineering_type": "BRIDGE", "occurred_at": "2026-01-10T07:20:00Z", "region": "演示地区", "deaths": null, "injuries": null, "loss_amount_minor": null, "loss_currency": null, "conflicted_fields": [], "official_direct_causes": null, "responsibility_findings": null, "corrective_actions": [], "rectification_has_open_issues": null, "similar_scenario_tags": ["TEMPORARY_STRUCTURE_FAILURE"], "prevention_measure_tags": ["DESIGN_REVIEW"]},
     "scores": {"relevance": 90, "authority": 100, "impact": 80, "novelty": 30, "timeliness": 60, "evidence": 30, "confidence": 35, "heat": 20, "rule_version": "score-v1"},
     "review": {"state": "NEEDS_REVIEW", "risk_level": "R3", "mandatory_human_review": true, "review_reasons": ["事故调查报告属于高影响内容", "演示数据"]},
     "security": {"prompt_injection_detected": false, "prompt_injection_status": "NONE", "suspicious_patterns": []}

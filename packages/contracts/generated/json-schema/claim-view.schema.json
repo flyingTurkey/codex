@@ -7,6 +7,23 @@
       "title": "Claim Type",
       "type": "string"
     },
+    "decision_status": {
+      "anyOf": [
+        {
+          "enum": [
+            "PENDING",
+            "ACCEPTED",
+            "REJECTED"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Decision Status"
+    },
     "evidence_ids": {
       "items": {
         "format": "uuid",

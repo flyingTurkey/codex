@@ -17,6 +17,10 @@ GOV-015,四川省交通运输厅,https://jtt.sc.gov.cn/,BOTH,government,A1,P0,ht
 GOV-016,四川省应急管理厅,https://yjt.sc.gov.cn/,SAFETY,government,A1,P0,html_pdf,15,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,核验事故报告历史栏目
 GOV-017,四川省住房和城乡建设厅,https://jst.sc.gov.cn/,BOTH,government,A1,P0,html_pdf,30,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,核验栏目分页和附件
 GOV-018,四川省市场监督管理局,https://scjgj.sc.gov.cn/,SAFETY,government,A1,P1,html_pdf,1440,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,与国家标准平台交叉核验
+GOV-019,大埔县人民政府,https://www.dabu.gov.cn/,SAFETY,government,A1,P0,html,15,true,true,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,仅作Round04官方初报续报固定样本；生产启用仍需独立准入
+GOV-020,广东省应急管理厅事故调查报告,https://yjgl.gd.gov.cn/gk/zdlyxxgk/sgdcbg/,SAFETY,government,A0,P0,html_pdf,30,true,true,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,仅作Round04正式调查固定样本；原因责任必须逐字段人工审核
+GOV-021,广东省应急管理厅,https://yjgl.gd.gov.cn/,SAFETY,government,A1,P0,html_pdf,30,true,true,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,仅作Round04整改评估固定样本；不得把评估完成表述为全部整改完成
+GOV-022,广东省纪委监委南粤清风网,https://www.gdjct.gd.gov.cn/,SAFETY,government,A1,P0,html,60,true,true,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,仅作Round04追责问责固定样本；生产启用仍需独立准入
 RES-001,中国公路学会,https://www.chts.cn/,DIGITAL,association,B1,P0,html,120,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,科技成果和数字交通案例
 RES-002,中国施工企业管理协会,https://www.cacem.com.cn/,DIGITAL,association,B1,P0,html_pdf,1440,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,案例全文和图片需单独授权
 RES-003,中国建筑科学研究院,https://www.cabr.com.cn/,DIGITAL,research_institute,B1,P1,html,1440,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,发布方成果标注自述
@@ -41,4 +45,3 @@ ENT-009,三一集团,https://www.sanygroup.com/,DIGITAL,enterprise,B2,P1,html,14
 MED-001,中国公路网,https://www.chinahighway.com/,DIGITAL,media,C1,P1,rss_or_html,60,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,只作线索和辅助证据
 MED-002,科技日报,https://www.stdaily.com/,DIGITAL,media,C1,P1,rss_or_html,60,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,成果效果需二次核验
 MED-003,Engineering News-Record,https://www.enr.com/,BOTH,media,C1,P2,rss_or_html,1440,false,false,metadata_excerpt_link,false,false,false,CANDIDATE,false,source_ops,,注意付费墙和国际版权
-

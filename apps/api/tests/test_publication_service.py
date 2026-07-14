@@ -20,6 +20,8 @@ REVIEWER_ID = UUID("019b0000-0000-7000-8000-000000005003")
 CANDIDATE_ID = UUID("019b0000-0000-7000-8000-000000005004")
 TARGET_DOCUMENT_ID = UUID("019b0000-0000-7000-8000-000000005005")
 VERSION_CHANGE_ID = UUID("019b0000-0000-7000-8000-000000005006")
+SAFETY_CASE_CANDIDATE_ID = UUID("019b0000-0000-7000-8000-000000005007")
+CLAIM_CONFLICT_ID = UUID("019b0000-0000-7000-8000-000000005008")
 
 
 def _context(*, source_status: str = "ACTIVE", duties_separated: bool = True) -> dict[str, Any]:
@@ -148,6 +150,7 @@ class FakeRepository:
         self.rejected = False
         self.candidate_decisions: list[dict[str, Any]] = []
         self.escalations: list[dict[str, Any]] = []
+        self.conflict_decisions: list[dict[str, Any]] = []
 
     @asynccontextmanager
     async def approval_transaction(
@@ -184,6 +187,9 @@ class FakeRepository:
 
     async def escalate_version_change(self, **values: Any) -> None:
         self.escalations.append(values)
+
+    async def resolve_claim_conflict(self, **values: Any) -> None:
+        self.conflict_decisions.append(values)
 
 
 def _service(repository: FakeRepository) -> PublicationService:
@@ -305,6 +311,41 @@ def test_metadata_change_can_only_be_escalated_through_publication_service() -> 
         {
             "version_change_id": VERSION_CHANGE_ID,
             "reason": "重锚证据存在歧义、升级为实质复核",
+            "reviewer_id": REVIEWER_ID,
+            "decided_at": datetime(2026, 7, 14, 2, 0, tzinfo=UTC),
+        }
+    ]
+
+
+def test_event_claim_and_conflict_decisions_use_the_single_publication_service() -> None:
+    repository = FakeRepository(_context())
+    service = _service(repository)
+
+    asyncio.run(
+        service.decide_candidate(
+            "EVENT_LINK",
+            SAFETY_CASE_CANDIDATE_ID,
+            action="ACCEPT",
+            target_document_id=None,
+            reason="日期、地区和项目均指向同一事故",
+            reviewer_id=REVIEWER_ID,
+        )
+    )
+    asyncio.run(
+        service.resolve_claim_conflict(
+            CLAIM_CONFLICT_ID,
+            action="ACCEPT_CANDIDATE",
+            reason="正式调查报告为更新的有权机关证据",
+            reviewer_id=REVIEWER_ID,
+        )
+    )
+
+    assert repository.candidate_decisions[-1]["candidate_kind"] == "EVENT_LINK"
+    assert repository.conflict_decisions == [
+        {
+            "conflict_id": CLAIM_CONFLICT_ID,
+            "action": "ACCEPT_CANDIDATE",
+            "reason": "正式调查报告为更新的有权机关证据",
             "reviewer_id": REVIEWER_ID,
             "decided_at": datetime(2026, 7, 14, 2, 0, tzinfo=UTC),
         }

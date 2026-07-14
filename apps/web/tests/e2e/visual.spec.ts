@@ -25,7 +25,7 @@ for (const viewport of visualViewports) {
       timeout: 20_000,
     })
     await expect(page.getByRole('heading', { level: 1, name: '今日精选' })).toBeVisible()
-    await expect(page.getByText('API v1 · Schema 1.0.0', { exact: true })).toBeVisible()
+    await expect(page.getByText('API v1 · Schema 1.1.0', { exact: true })).toBeVisible()
     await expect(page.getByRole('heading', { level: 2, name: '暂无精选内容' })).toBeVisible()
     await normalizeDynamicPageData(page)
 

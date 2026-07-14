@@ -1,9 +1,12 @@
 """Publisher-role repository and authoritative publication evaluation transaction."""
 
 import json
-from collections.abc import AsyncIterator
+import logging
+import re
+import unicodedata
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Any, cast
 from urllib.parse import urlsplit
@@ -13,11 +16,143 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import text
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
-from srbg_contracts import ReviewDecisionResponse, ReviewStatus
+from srbg_contracts import (
+    ClaimConflict,
+    ClaimConflictDecisionAction,
+    ClaimConflictDecisionResponse,
+    ClaimConflictStatus,
+    CriticalSafetyField,
+    PreventionMeasureTag,
+    ReviewDecisionResponse,
+    ReviewStatus,
+    SafetyCaseProfileMetadataField,
+    SimilarScenarioTag,
+)
 
 from srbg_api.identifiers import uuid7
 from srbg_api.publication.service import PublicationDenied, PublicationTransaction
 from srbg_api.source_registry.repository import canonical_json_hash, fixture_set_hash
+
+logger = logging.getLogger(__name__)
+
+_SAFETY_PROTECTED_CLAIM_TYPES = frozenset(
+    {
+        "deaths",
+        "injuries",
+        "loss_amount_minor",
+        "official_direct_causes",
+        "responsibility_findings",
+    }
+)
+_SAFETY_METADATA_CLAIM_TYPES = frozenset(
+    {
+        "title",
+        "published_at",
+        "source_published_at",
+        "report_stage",
+        "incident_status",
+        "occurred_at",
+        "region",
+        "region_code",
+        "region_name",
+        "project_name",
+        "accident_type",
+        "hazard_type",
+        "engineering_type",
+        "missing_count",
+        "enforcement_actions",
+        "rectification_has_open_issues",
+        "similar_scenario_tags",
+        "prevention_measure_tags",
+    }
+)
+_SAFETY_OPERATIONAL_CLAIM_TYPES = frozenset(
+    {
+        "corrective_actions",
+        "operational_instructions",
+        "site_operation_instruction",
+    }
+)
+_SAFETY_PROFILE_METADATA_FACT_KEYS = {
+    SafetyCaseProfileMetadataField.REPORT_STAGE.value: "safety_report_stage",
+    SafetyCaseProfileMetadataField.INCIDENT_STATUS.value: "safety_incident_status",
+    SafetyCaseProfileMetadataField.ACCIDENT_TYPE.value: "safety_accident_type",
+    SafetyCaseProfileMetadataField.ENGINEERING_TYPE.value: "safety_engineering_type",
+    SafetyCaseProfileMetadataField.OCCURRED_AT.value: "safety_occurred_at",
+    SafetyCaseProfileMetadataField.REGION_NAME.value: "safety_region_name",
+    SafetyCaseProfileMetadataField.PROJECT_NAME.value: "safety_project_name",
+    SafetyCaseProfileMetadataField.RECTIFICATION_HAS_OPEN_ISSUES.value: (
+        "safety_rectification_has_open_issues"
+    ),
+    SafetyCaseProfileMetadataField.SIMILAR_SCENARIO_TAGS.value: ("safety_similar_scenario_tags"),
+    SafetyCaseProfileMetadataField.PREVENTION_MEASURE_TAGS.value: (
+        "safety_prevention_measure_tags"
+    ),
+}
+_ALWAYS_REQUIRED_SAFETY_PROFILE_METADATA_FIELDS = frozenset(
+    {
+        SafetyCaseProfileMetadataField.REPORT_STAGE.value,
+        SafetyCaseProfileMetadataField.INCIDENT_STATUS.value,
+    }
+)
+_REPORT_STAGE_EVIDENCE_TERMS = {
+    "INITIAL_REPORT": ("初报", "首次通报", "初次处置", "处置中"),
+    "FOLLOW_UP_REPORT": ("续报", "新闻发布会", "继续救援"),
+    "FINAL_INVESTIGATION": ("调查评估", "调查评估组", "调查评估报告", "事故调查报告"),
+    "ENFORCEMENT": ("追责问责", "处罚决定"),
+    "RECTIFICATION": ("整改措施落实情况", "整改落实评估报告"),
+}
+_INCIDENT_STATUS_EVIDENCE_TERMS = {
+    "UNVERIFIED_LEAD": ("待核实", "事故线索"),
+    "INITIAL_OFFICIAL_REPORT": (
+        "初次处置",
+        "首次通报",
+        "官方通报",
+        "处置中",
+        "处置工作正在进行",
+    ),
+    "UNDER_INVESTIGATION": ("新闻发布会", "继续救援", "正在调查"),
+    "FINAL_INVESTIGATION_REPORT": (
+        "调查评估",
+        "调查评估组",
+        "调查评估报告",
+        "事故调查报告",
+    ),
+    "ENFORCEMENT_DECISION": ("追责问责", "处罚决定"),
+    "RECTIFICATION_FOLLOW_UP": ("整改措施落实情况", "整改落实评估报告"),
+    "CLOSED": ("结案", "完成闭环"),
+    "CORRECTED": ("更正", "订正"),
+    "WITHDRAWN": ("撤回", "撤销"),
+}
+_ACCIDENT_TYPE_EVIDENCE_TERMS = {
+    "ROADBED_COLLAPSE": ("塌方", "塌陷", "路基坍塌", "路堤坍塌"),
+}
+_ENGINEERING_TYPE_EVIDENCE_TERMS = {
+    "EXPRESSWAY": ("高速", "高速公路"),
+    "HIGHWAY": ("公路",),
+}
+_SIMILAR_TAG_EVIDENCE_TERM_GROUPS = {
+    "HIGHWAY_OPERATION_GEOLOGICAL_RISK": (("高速", "高速公路"), ("地质", "灾害", "塌方")),
+    "ROADBED_SLOPE_INSTABILITY": (("路堤", "边坡", "塌方", "塌陷"),),
+    "BRIDGE_APPROACH_TRANSITION": (("桥头", "桥台"), ("过渡", "沉降", "跳车")),
+    "EXTREME_WEATHER_EXPOSURE": (("极端天气", "强降雨", "暴雨", "洪水"),),
+    "TEMPORARY_STRUCTURE_FAILURE": (("临时结构", "支架", "脚手架"), ("失稳", "坍塌")),
+    "TUNNEL_GEOLOGICAL_RISK": (("隧道",), ("地质", "突水", "涌泥", "塌方")),
+}
+_PREVENTION_TAG_EVIDENCE_TERM_GROUPS = {
+    "HAZARD_IDENTIFICATION": (("隐患识别", "风险辨识", "危险源辨识", "隐患排查"),),
+    "MONITORING_AND_EARLY_WARNING": (("监测", "预警"),),
+    "INSPECTION_AND_MAINTENANCE": (("排查", "巡查", "养护", "维护"),),
+    "DESIGN_REVIEW": (("设计复核", "设计审查"),),
+    "CONSTRUCTION_QUALITY_CONTROL": (("施工质量", "质量控制"),),
+    "EMERGENCY_PREPAREDNESS": (("应急预案", "应急准备", "应急演练"),),
+    "TRAFFIC_OPERATION_RISK_CONTROL": (("交通管控", "运营安全", "交通安全"),),
+    "RESPONSIBILITY_AND_OVERSIGHT": (("责任", "监管", "监督"),),
+}
+_RECTIFICATION_BOOLEAN_EVIDENCE_TERMS = {
+    True: ("仍然存在", "尚未完成", "未完成", "薄弱环节", "仍有问题", "整改中"),
+    False: ("已完成", "全部落实", "完成闭环", "无未解决问题"),
+}
 
 
 class PostgresPublicationRepository:
@@ -28,6 +163,61 @@ class PostgresPublicationRepository:
 
     async def close(self) -> None:
         await self._engine.dispose()
+
+    async def list_claim_conflicts(self) -> list[ClaimConflict]:
+        async with self._engine.connect() as connection:
+            rows = list(
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT conflict.id, conflict.event_id, conflict.field_name,
+                                   conflict.current_claim_id,
+                                   conflict.current_value_snapshot,
+                                   conflict.candidate_claim_id,
+                                   conflict.candidate_value_snapshot,
+                                   conflict.status, conflict.detected_at,
+                                   decision.chosen_claim_id AS resolved_claim_id,
+                                   decision.reviewer_id AS resolved_by,
+                                   decision.created_at AS resolved_at,
+                                   decision.reason AS resolution_reason
+                            FROM claim_conflict conflict
+                            LEFT JOIN LATERAL (
+                                SELECT candidate.chosen_claim_id, candidate.reviewer_id,
+                                       candidate.created_at, candidate.reason
+                                FROM claim_conflict_decision candidate
+                                WHERE candidate.conflict_id = conflict.id
+                                  AND candidate.action IN (
+                                    'ACCEPT_CANDIDATE','KEEP_CURRENT'
+                                  )
+                                ORDER BY candidate.created_at DESC, candidate.id DESC
+                                LIMIT 1
+                            ) decision ON true
+                            ORDER BY (conflict.status = 'PENDING_REVIEW') DESC,
+                                     conflict.detected_at, conflict.id
+                            """
+                        )
+                    )
+                ).mappings()
+            )
+        return [
+            ClaimConflict(
+                id=row["id"],
+                event_id=row["event_id"],
+                field=_critical_conflict_field(str(row["field_name"])),
+                current_claim_id=row["current_claim_id"],
+                current_value=row["current_value_snapshot"],
+                candidate_claim_id=row["candidate_claim_id"],
+                candidate_value=row["candidate_value_snapshot"],
+                status=row["status"],
+                detected_at=row["detected_at"],
+                resolved_claim_id=row["resolved_claim_id"],
+                resolved_by=row["resolved_by"],
+                resolved_at=row["resolved_at"],
+                resolution_reason=row["resolution_reason"],
+            )
+            for row in rows
+        ]
 
     async def process_outbox_once(self, *, processed_at: datetime) -> bool:
         event_id: UUID | None = None
@@ -210,11 +400,14 @@ class PostgresPublicationRepository:
                         text(
                             """
                             SELECT p.id, p.item_id, p.status, p.current_revision_id,
+                                   item.item_type, membership.event_id,
                                    r.revision_number, r.document_version_id,
                                    r.source_policy_id, r.source_policy_sha256,
                                    r.review_task_id, r.snapshot, r.evaluation
                             FROM publication p
                             JOIN publication_revision r ON r.id = p.current_revision_id
+                            JOIN intelligence_item item ON item.id = p.item_id
+                            LEFT JOIN event_item membership ON membership.item_id = p.item_id
                             WHERE p.id = :publication_id
                             FOR UPDATE OF p
                             """
@@ -239,7 +432,7 @@ class PostgresPublicationRepository:
                         WHERE evidence.id = :evidence_id
                           AND evidence.document_version_id = :version_id
                           AND claim.item_id = :item_id
-                          AND source.authority_level = 'A1'
+                          AND source.authority_level IN ('A0','A1')
                     )
                     """
                 ),
@@ -342,6 +535,23 @@ class PostgresPublicationRepository:
                         "now": withdrawn_at,
                     },
                 )
+            if row["item_type"] == "SAFETY_CASE":
+                await _append_safety_case_audit(
+                    connection,
+                    item_id=row["item_id"],
+                    event_id=cast(UUID | None, row["event_id"]),
+                    target_type="SAFETY_CASE",
+                    target_id=row["item_id"],
+                    action="WITHDRAWN",
+                    actor_id=actor_id,
+                    reason=reason,
+                    metadata={
+                        "publication_id": str(publication_id),
+                        "publication_revision_id": str(revision_id),
+                        "evidence_id": str(evidence_id),
+                    },
+                    now=withdrawn_at,
+                )
             return revision_id
 
     async def decide_candidate(
@@ -378,8 +588,157 @@ class PostgresPublicationRepository:
                     reason=reason,
                     decided_at=decided_at,
                 )
+            elif candidate_kind == "EVENT_LINK":
+                await _decide_event_item_candidate(
+                    connection,
+                    candidate_id=candidate_id,
+                    action=action,
+                    reviewer_id=reviewer_id,
+                    reason=reason,
+                    decided_at=decided_at,
+                )
+            elif candidate_kind == "EVENT_RELATION":
+                await _decide_event_relation_candidate(
+                    connection,
+                    candidate_id=candidate_id,
+                    action=action,
+                    reviewer_id=reviewer_id,
+                    reason=reason,
+                    decided_at=decided_at,
+                )
+            elif candidate_kind == "CLAIM":
+                await _decide_safety_case_claim(
+                    connection,
+                    claim_id=candidate_id,
+                    action=action,
+                    reviewer_id=reviewer_id,
+                    reason=reason,
+                    decided_at=decided_at,
+                )
             else:
                 raise PublicationDenied(("UNKNOWN_CANDIDATE_KIND",))
+
+    async def resolve_claim_conflict(
+        self,
+        *,
+        conflict_id: UUID,
+        action: str,
+        reviewer_id: UUID,
+        reason: str,
+        decided_at: datetime,
+    ) -> ClaimConflictDecisionResponse:
+        if not reason.strip():
+            raise PublicationDenied(("CLAIM_CONFLICT_DECISION_REASON_REQUIRED",))
+        if action not in {"ACCEPT_CANDIDATE", "KEEP_CURRENT", "MARK_UNRESOLVED"}:
+            raise PublicationDenied(("CLAIM_CONFLICT_DECISION_INVALID",))
+        async with self._engine.begin() as connection:
+            conflict = (
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT conflict.id, conflict.event_id, conflict.field_name,
+                                   conflict.current_claim_id,
+                                   conflict.candidate_claim_id, conflict.status,
+                                   candidate_item.submitted_by
+                            FROM claim_conflict conflict
+                            JOIN claim candidate
+                              ON candidate.id = conflict.candidate_claim_id
+                            JOIN intelligence_item candidate_item
+                              ON candidate_item.id = candidate.item_id
+                            WHERE conflict.id = :conflict_id
+                            FOR UPDATE OF conflict
+                            """
+                        ),
+                        {"conflict_id": conflict_id},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            if conflict is None:
+                raise PublicationDenied(("CLAIM_CONFLICT_NOT_FOUND",))
+            if conflict["status"] != "PENDING_REVIEW":
+                raise PublicationDenied(("CLAIM_CONFLICT_NOT_PENDING",))
+            chosen_claim_id = (
+                conflict["candidate_claim_id"]
+                if action == "ACCEPT_CANDIDATE"
+                else conflict["current_claim_id"]
+                if action == "KEEP_CURRENT"
+                else None
+            )
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO claim_conflict_decision (
+                        id, conflict_id, action, chosen_claim_id, reviewer_id,
+                        submitted_by, reason, created_at
+                    ) VALUES (
+                        :id, :conflict_id, :action, :chosen_claim_id, :reviewer_id,
+                        :submitted_by, :reason, :now
+                    )
+                    """
+                ),
+                {
+                    "id": uuid7(),
+                    "conflict_id": conflict_id,
+                    "action": action,
+                    "chosen_claim_id": chosen_claim_id,
+                    "reviewer_id": reviewer_id,
+                    "submitted_by": conflict["submitted_by"],
+                    "reason": reason,
+                    "now": decided_at,
+                },
+            )
+            conflict_status = ClaimConflictStatus.PENDING_REVIEW
+            if chosen_claim_id is not None:
+                await connection.execute(
+                    text(
+                        """
+                        UPDATE claim_conflict
+                        SET status = 'RESOLVED', public_value_available = true,
+                            updated_at = :now
+                        WHERE id = :conflict_id
+                        """
+                    ),
+                    {"conflict_id": conflict_id, "now": decided_at},
+                )
+                await _restore_safety_case_profile_value(
+                    connection,
+                    claim_id=cast(UUID, chosen_claim_id),
+                    decided_at=decided_at,
+                )
+                conflict_status = ClaimConflictStatus.RESOLVED
+            else:
+                await connection.execute(
+                    text("UPDATE claim_conflict SET updated_at = :now WHERE id = :conflict_id"),
+                    {"conflict_id": conflict_id, "now": decided_at},
+                )
+            await _append_safety_case_audit(
+                connection,
+                event_id=conflict["event_id"],
+                item_id=None,
+                target_type="CLAIM_CONFLICT",
+                target_id=conflict_id,
+                action=(
+                    "CONFLICT_RESOLVED"
+                    if conflict_status is ClaimConflictStatus.RESOLVED
+                    else "UPDATED"
+                ),
+                actor_id=reviewer_id,
+                reason=reason,
+                metadata={"decision": action, "chosen_claim_id": str(chosen_claim_id or "")},
+                now=decided_at,
+            )
+            return ClaimConflictDecisionResponse(
+                conflict_id=conflict_id,
+                status=conflict_status,
+                action=ClaimConflictDecisionAction(action),
+                resolved_claim_id=chosen_claim_id,
+                resolved_at=(
+                    decided_at if conflict_status is ClaimConflictStatus.RESOLVED else None
+                ),
+            )
 
     async def escalate_version_change(
         self,
@@ -628,20 +987,56 @@ class _PostgresPublicationTransaction:
                 await self._connection.execute(
                     text(
                         """
-                        SELECT c.id, c.claim_type, c.verification_status, c.critical,
-                               c.confidence_bps,
+                        SELECT c.id, c.item_id, c.claim_type,
+                               c.verification_status, c.critical,
+                               c.confidence_bps, c.literal_value,
                                e.id AS evidence_id, e.paragraph_id, e.char_start,
                                e.char_end, e.excerpt, e.excerpt_sha256,
                                e.locator_type, e.page_number, e.document_text_block_id,
                                e.x0_mpt, e.y0_mpt, e.x1_mpt, e.y1_mpt,
                                e.confidence_bps AS evidence_confidence_bps,
-                               block.normalized_text AS block_text
+                               block.normalized_text AS block_text,
+                               decision.action AS field_decision_action,
+                               decision.evidence_id AS field_decision_evidence_id,
+                               decision.evidence_authority_level
+                                   AS field_decision_authority,
+                               decision.evidence_report_stage AS field_decision_stage,
+                               decision.evidence_role AS field_decision_evidence_role
                         FROM claim c
                         LEFT JOIN claim_evidence e ON e.claim_id = c.id
                         LEFT JOIN document_text_block block
                           ON block.id = e.document_text_block_id
+                        LEFT JOIN LATERAL (
+                            SELECT candidate.action, candidate.evidence_id,
+                                   candidate.evidence_authority_level,
+                                   candidate.evidence_report_stage, candidate.evidence_role
+                            FROM claim_field_decision candidate
+                            WHERE candidate.claim_id = c.id
+                            ORDER BY candidate.created_at DESC, candidate.id DESC
+                            LIMIT 1
+                        ) decision ON true
                         WHERE c.item_id = :item_id
                           AND c.document_version_id = :version_id
+                          AND NOT EXISTS (
+                            SELECT 1
+                            FROM claim_conflict resolved
+                            JOIN LATERAL (
+                                SELECT resolution.chosen_claim_id
+                                FROM claim_conflict_decision resolution
+                                WHERE resolution.conflict_id = resolved.id
+                                  AND resolution.action IN (
+                                    'ACCEPT_CANDIDATE','KEEP_CURRENT'
+                                  )
+                                ORDER BY resolution.created_at DESC, resolution.id DESC
+                                LIMIT 1
+                            ) resolution ON true
+                            WHERE resolved.status = 'RESOLVED'
+                              AND c.id IN (
+                                resolved.current_claim_id,
+                                resolved.candidate_claim_id
+                              )
+                              AND resolution.chosen_claim_id <> c.id
+                          )
                         ORDER BY c.id, e.id
                         """
                     ),
@@ -652,8 +1047,13 @@ class _PostgresPublicationTransaction:
                 )
             ).mappings()
         )
-        evidence_integrity = _evaluate_evidence(claims, facts["paragraphs"] or [])
-        if policy_version != "3.0.0":
+        item_type = str(facts["item_type"])
+        evidence_integrity = _evaluate_evidence(
+            claims,
+            facts["paragraphs"] or [],
+            item_type=item_type,
+        )
+        if policy_version not in {"3.0.0", "4.0.0"}:
             evidence_integrity.pop("minimum_critical_ocr_confidence_bps", None)
         round03 = await _round03_gate_facts(
             self._connection,
@@ -662,7 +1062,16 @@ class _PostgresPublicationTransaction:
             accepted_claim_count=cast(int, evidence_integrity["claim_count"]),
             regulation_status=str(facts["regulation_status"]),
             authority_level=str(facts["authority_level"]),
+            minimum_summary_claim_count=1 if item_type == "SAFETY_CASE" else 4,
         )
+        round04: dict[str, object] | None = None
+        if item_type == "SAFETY_CASE":
+            round04 = await _round04_gate_facts(
+                self._connection,
+                facts=facts,
+                claims=claims,
+            )
+            evidence_integrity["unresolved_conflict_count"] = round04["unresolved_conflict_count"]
         content_hash = str(facts["content_hash"])
         context: dict[str, Any] = {
             "evaluation_id": str(evaluation_id),
@@ -703,11 +1112,14 @@ class _PostgresPublicationTransaction:
                     "scanner_version": facts["security_scanner_version"],
                     "input_sha256": content_hash,
                 },
-                "privacy": {
-                    "status": "CLEAR",
-                    "scanner_version": "rules-1.0.0",
-                    "reputational_risk_reviewed": True,
-                },
+                "privacy": _privacy_projection(
+                    item_type=item_type,
+                    privacy_status=cast(str | None, facts["safety_privacy_status"]),
+                    reputational_risk_reviewed=cast(
+                        bool | None,
+                        facts["safety_reputational_risk_reviewed"],
+                    ),
+                ),
                 "review": {
                     "risk_level": facts["risk_level"],
                     "required": True,
@@ -718,13 +1130,20 @@ class _PostgresPublicationTransaction:
                     "duties_separated": facts["submitted_by"] != facts["decided_by"],
                 },
                 "pipeline": {
-                    "candidate_schema_valid": _candidate_schema_valid(claims),
+                    "candidate_schema_valid": _candidate_schema_valid(
+                        claims,
+                        item_type=item_type,
+                    ),
                     "semantic_safety_scan_pass": facts["semantic_safety_scan_pass"],
-                    "candidate_schema_version": "safety-regulation-parser-1.0.0",
+                    "candidate_schema_version": (
+                        "safety-case-candidate-1.0.0"
+                        if item_type == "SAFETY_CASE"
+                        else "safety-regulation-parser-1.0.0"
+                    ),
                 },
             },
         }
-        if policy_version == "3.0.0":
+        if policy_version in {"3.0.0", "4.0.0"}:
             cast(dict[str, Any], context["server"])["round03"] = round03
             cast(dict[str, Any], cast(dict[str, Any], context["server"])["document"]).update(
                 {
@@ -732,6 +1151,8 @@ class _PostgresPublicationTransaction:
                     "raw_security_status": facts["raw_security_status"],
                 }
             )
+        if policy_version == "4.0.0" and round04 is not None:
+            cast(dict[str, Any], context["server"])["round04"] = round04
         self._context = context
         return context
 
@@ -793,16 +1214,7 @@ class _PostgresPublicationTransaction:
                     {"publication_id": publication_id},
                 )
             )
-        snapshot = {
-            "item_id": str(facts["item_id"]),
-            "title": facts["title"],
-            "source_name": facts["source_name"],
-            "original_url": facts["original_url"],
-            "document_number": facts["document_number"],
-            "issuing_authority": facts["issuing_authority"],
-            "published_at": facts["source_published_at"].isoformat(),
-            "regulation_status": facts["regulation_status"],
-        }
+        snapshot = _publication_snapshot(facts)
         await self._connection.execute(
             text(
                 """
@@ -919,6 +1331,22 @@ class _PostgresPublicationTransaction:
             request_id=str(facts["review_task_id"]),
             now=decided_at,
         )
+        if facts["item_type"] == "SAFETY_CASE":
+            await _append_safety_case_audit(
+                self._connection,
+                item_id=facts["item_id"],
+                event_id=cast(UUID | None, facts["event_id"]),
+                target_type="SAFETY_CASE",
+                target_id=facts["item_id"],
+                action="CONFIRMED",
+                actor_id=reviewer_id,
+                reason=reason,
+                metadata={
+                    "publication_revision_id": str(revision_id),
+                    "evaluation_sha256": evaluation_sha256,
+                },
+                now=decided_at,
+            )
         return ReviewDecisionResponse(
             review_task_id=facts["review_task_id"],
             status=ReviewStatus.APPROVED,
@@ -993,6 +1421,8 @@ async def _create_derived_summary(
     facts: RowMapping,
     created_at: datetime,
 ) -> UUID | None:
+    if facts["item_type"] != "SAFETY_REGULATION":
+        return None
     existing = await connection.scalar(
         text(
             """
@@ -1140,6 +1570,777 @@ async def _supersede_prior_content(
         )
 
 
+_INCIDENT_STATUS_RANK = {
+    "UNVERIFIED_LEAD": 0,
+    "INITIAL_OFFICIAL_REPORT": 1,
+    "UNDER_INVESTIGATION": 2,
+    "FINAL_INVESTIGATION_REPORT": 3,
+    "ENFORCEMENT_DECISION": 4,
+    "RECTIFICATION_FOLLOW_UP": 5,
+    "CLOSED": 6,
+}
+
+
+def _advanced_incident_status(current: str, candidate: str) -> str:
+    current_rank = _INCIDENT_STATUS_RANK.get(current)
+    candidate_rank = _INCIDENT_STATUS_RANK.get(candidate)
+    if current_rank is None or candidate_rank is None or candidate_rank <= current_rank:
+        return current
+    return candidate
+
+
+def _event_relation_stages_valid(
+    relation_type: str,
+    *,
+    source_stage: str,
+    target_stage: str,
+    source_order_at: datetime | None = None,
+    target_order_at: datetime | None = None,
+) -> bool:
+    if relation_type == "CORRECTS":
+        return bool(
+            source_order_at is not None
+            and target_order_at is not None
+            and source_order_at > target_order_at
+        )
+    allowed: dict[str, tuple[str, set[str] | None]] = {
+        "FOLLOW_UP": (
+            "FOLLOW_UP_REPORT",
+            {"INITIAL_REPORT", "FOLLOW_UP_REPORT"},
+        ),
+        "INVESTIGATES": (
+            "FINAL_INVESTIGATION",
+            {"INITIAL_REPORT", "FOLLOW_UP_REPORT"},
+        ),
+        "PENALIZES": ("ENFORCEMENT", {"FINAL_INVESTIGATION"}),
+        "RECTIFIES": (
+            "RECTIFICATION",
+            {"FINAL_INVESTIGATION", "ENFORCEMENT"},
+        ),
+    }
+    expected = allowed.get(relation_type)
+    if expected is None:
+        return False
+    expected_source, allowed_targets = expected
+    return source_stage == expected_source and (
+        allowed_targets is None or target_stage in allowed_targets
+    )
+
+
+async def _decide_event_item_candidate(
+    connection: AsyncConnection,
+    *,
+    candidate_id: UUID,
+    action: str,
+    reviewer_id: UUID,
+    reason: str,
+    decided_at: datetime,
+) -> None:
+    if action not in {"ACCEPT", "REJECT"}:
+        raise PublicationDenied(("EVENT_LINK_DECISION_INVALID",))
+    await _lock_decision_key(connection, "event-item", candidate_id)
+    candidate = (
+        (
+            await connection.execute(
+                text(
+                    """
+                    SELECT candidate.id, candidate.event_id, candidate.item_id,
+                           candidate.submitted_by, profile.incident_status,
+                           profile.occurred_at, profile.region_code, profile.region_name,
+                           profile.project_name, profile.subject_names, profile.accident_type,
+                           profile.engineering_type
+                    FROM event_item_candidate candidate
+                    JOIN intelligence_item item ON item.id = candidate.item_id
+                      AND item.item_type = 'SAFETY_CASE'
+                    JOIN safety_case_profile profile ON profile.item_id = item.id
+                    WHERE candidate.id = :candidate_id
+                      AND NOT EXISTS (
+                        SELECT 1 FROM event_item_decision decision
+                        WHERE decision.candidate_id = candidate.id
+                      )
+                    """
+                ),
+                {"candidate_id": candidate_id},
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if candidate is None:
+        raise PublicationDenied(("EVENT_LINK_CANDIDATE_NOT_PENDING",))
+    if candidate["submitted_by"] == reviewer_id:
+        raise PublicationDenied(("DUTIES_NOT_SEPARATED",))
+    await _lock_decision_key(connection, "event", cast(UUID, candidate["event_id"]))
+    await connection.execute(
+        text(
+            """
+            INSERT INTO event_item_decision (
+                id, candidate_id, action, reviewer_id, submitted_by, reason, created_at
+            ) VALUES (
+                :id, :candidate_id, :action, :reviewer_id, :submitted_by, :reason, :now
+            )
+            """
+        ),
+        {
+            "id": uuid7(),
+            "candidate_id": candidate_id,
+            "action": action,
+            "reviewer_id": reviewer_id,
+            "submitted_by": candidate["submitted_by"],
+            "reason": reason,
+            "now": decided_at,
+        },
+    )
+    if action == "ACCEPT":
+        current_incident_status = await connection.scalar(
+            text("SELECT incident_status FROM event WHERE id = :event_id"),
+            {"event_id": candidate["event_id"]},
+        )
+        if not isinstance(current_incident_status, str):
+            raise PublicationDenied(("SAFETY_EVENT_NOT_FOUND",))
+        advanced_incident_status = _advanced_incident_status(
+            current_incident_status,
+            str(candidate["incident_status"]),
+        )
+        await connection.execute(
+            text(
+                """
+                INSERT INTO event_item (
+                    id, candidate_id, event_id, item_id, confirmed_by, confirmed_at
+                ) VALUES (
+                    :id, :candidate_id, :event_id, :item_id, :reviewer_id, :now
+                )
+                """
+            ),
+            {
+                "id": uuid7(),
+                "candidate_id": candidate_id,
+                "event_id": candidate["event_id"],
+                "item_id": candidate["item_id"],
+                "reviewer_id": reviewer_id,
+                "now": decided_at,
+            },
+        )
+        await connection.execute(
+            text(
+                """
+                UPDATE event AS safety_event
+                SET confirmation_status = 'CONFIRMED',
+                    confirmed_by = COALESCE(confirmed_by, :reviewer_id),
+                    confirmed_at = COALESCE(confirmed_at, :now),
+                    incident_status = :incident_status,
+                    occurred_at = COALESCE(:occurred_at, occurred_at),
+                    region_code = COALESCE(:region_code, region_code),
+                    region_name = COALESCE(:region_name, region_name),
+                    project_name = COALESCE(:project_name, project_name),
+                    subject_names = (
+                        SELECT COALESCE(jsonb_agg(name ORDER BY name), '[]'::jsonb)
+                        FROM (
+                            SELECT DISTINCT subject_name AS name
+                            FROM jsonb_array_elements_text(
+                                safety_event.subject_names || CAST(:subject_names AS jsonb)
+                            ) AS subject(subject_name)
+                        ) AS merged_subjects
+                    ),
+                    accident_type = COALESCE(:accident_type, accident_type),
+                    engineering_type = COALESCE(:engineering_type, engineering_type),
+                    updated_at = :now
+                WHERE id = :event_id
+                  AND confirmation_status IN ('PENDING_REVIEW','CONFIRMED')
+                """
+            ),
+            {
+                "event_id": candidate["event_id"],
+                "reviewer_id": reviewer_id,
+                "incident_status": advanced_incident_status,
+                "occurred_at": candidate["occurred_at"],
+                "region_code": candidate["region_code"],
+                "region_name": candidate["region_name"],
+                "project_name": candidate["project_name"],
+                "subject_names": _json(candidate["subject_names"] or []),
+                "accident_type": candidate["accident_type"],
+                "engineering_type": candidate["engineering_type"],
+                "now": decided_at,
+            },
+        )
+    await _append_safety_case_audit(
+        connection,
+        item_id=candidate["item_id"],
+        event_id=candidate["event_id"],
+        target_type="EVENT_ITEM",
+        target_id=candidate_id,
+        action="CONFIRMED" if action == "ACCEPT" else "REJECTED",
+        actor_id=reviewer_id,
+        reason=reason,
+        metadata={"candidate_id": str(candidate_id)},
+        now=decided_at,
+    )
+
+
+async def _decide_event_relation_candidate(
+    connection: AsyncConnection,
+    *,
+    candidate_id: UUID,
+    action: str,
+    reviewer_id: UUID,
+    reason: str,
+    decided_at: datetime,
+) -> None:
+    if action not in {"ACCEPT", "REJECT"}:
+        raise PublicationDenied(("EVENT_RELATION_DECISION_INVALID",))
+    await _lock_decision_key(connection, "event-relation", candidate_id)
+    candidate = (
+        (
+            await connection.execute(
+                text(
+                    """
+                    SELECT candidate.id, candidate.event_id,
+                           candidate.source_item_id, candidate.target_item_id,
+                           candidate.relation_type, candidate.submitted_by,
+                           source_item.item_type AS source_item_type,
+                           target_item.item_type AS target_item_type,
+                           source_item.submitted_by AS source_submitted_by,
+                           target_item.submitted_by AS target_submitted_by,
+                           source_profile.report_stage AS source_report_stage,
+                           target_profile.report_stage AS target_report_stage,
+                           COALESCE(
+                               source_item.source_published_at,
+                               source_item.first_discovered_at
+                           ) AS source_order_at,
+                           COALESCE(
+                               target_item.source_published_at,
+                               target_item.first_discovered_at
+                           ) AS target_order_at,
+                           EXISTS (
+                               SELECT 1 FROM event_item membership
+                               WHERE membership.event_id = candidate.event_id
+                                 AND membership.item_id = candidate.source_item_id
+                           ) AS source_confirmed_member,
+                           EXISTS (
+                               SELECT 1 FROM event_item membership
+                               WHERE membership.event_id = candidate.event_id
+                                 AND membership.item_id = candidate.target_item_id
+                           ) AS target_confirmed_member
+                    FROM event_relation_candidate candidate
+                    JOIN intelligence_item source_item
+                      ON source_item.id = candidate.source_item_id
+                    JOIN intelligence_item target_item
+                      ON target_item.id = candidate.target_item_id
+                    LEFT JOIN safety_case_profile source_profile
+                      ON source_profile.item_id = source_item.id
+                    LEFT JOIN safety_case_profile target_profile
+                      ON target_profile.item_id = target_item.id
+                    WHERE candidate.id = :candidate_id
+                      AND NOT EXISTS (
+                        SELECT 1 FROM event_relation_decision decision
+                        WHERE decision.candidate_id = candidate.id
+                      )
+                    """
+                ),
+                {"candidate_id": candidate_id},
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if candidate is None:
+        raise PublicationDenied(("EVENT_RELATION_CANDIDATE_NOT_PENDING",))
+    if candidate["submitted_by"] != candidate["source_submitted_by"]:
+        raise PublicationDenied(("EVENT_RELATION_CANDIDATE_SUBMITTER_INVALID",))
+    if reviewer_id in {
+        candidate["source_submitted_by"],
+        candidate["target_submitted_by"],
+    }:
+        raise PublicationDenied(("DUTIES_NOT_SEPARATED",))
+    if (
+        candidate["source_item_type"] != "SAFETY_CASE"
+        or candidate["target_item_type"] != "SAFETY_CASE"
+        or candidate["source_confirmed_member"] is not True
+        or candidate["target_confirmed_member"] is not True
+    ):
+        raise PublicationDenied(("EVENT_RELATION_ENDPOINT_NOT_CONFIRMED",))
+    if not _event_relation_stages_valid(
+        str(candidate["relation_type"]),
+        source_stage=str(candidate["source_report_stage"]),
+        target_stage=str(candidate["target_report_stage"]),
+        source_order_at=cast(datetime | None, candidate["source_order_at"]),
+        target_order_at=cast(datetime | None, candidate["target_order_at"]),
+    ):
+        raise PublicationDenied(("EVENT_RELATION_STAGE_INVALID",))
+    await connection.execute(
+        text(
+            """
+            INSERT INTO event_relation_decision (
+                id, candidate_id, action, reviewer_id, submitted_by, reason, created_at
+            ) VALUES (
+                :id, :candidate_id, :action, :reviewer_id, :submitted_by, :reason, :now
+            )
+            """
+        ),
+        {
+            "id": uuid7(),
+            "candidate_id": candidate_id,
+            "action": action,
+            "reviewer_id": reviewer_id,
+            "submitted_by": candidate["submitted_by"],
+            "reason": reason,
+            "now": decided_at,
+        },
+    )
+    if action == "ACCEPT":
+        await connection.execute(
+            text(
+                """
+                INSERT INTO event_relation (
+                    id, candidate_id, event_id, source_item_id, target_item_id,
+                    relation_type, confirmed_by, confirmed_at
+                ) VALUES (
+                    :id, :candidate_id, :event_id, :source_item_id, :target_item_id,
+                    :relation_type, :reviewer_id, :now
+                )
+                """
+            ),
+            {
+                "id": uuid7(),
+                "candidate_id": candidate_id,
+                "event_id": candidate["event_id"],
+                "source_item_id": candidate["source_item_id"],
+                "target_item_id": candidate["target_item_id"],
+                "relation_type": candidate["relation_type"],
+                "reviewer_id": reviewer_id,
+                "now": decided_at,
+            },
+        )
+    audit_action = (
+        "REJECTED"
+        if action == "REJECT"
+        else "CORRECTED"
+        if candidate["relation_type"] == "CORRECTS"
+        else "CONFIRMED"
+    )
+    await _append_safety_case_audit(
+        connection,
+        item_id=candidate["target_item_id"],
+        event_id=candidate["event_id"],
+        target_type="EVENT_RELATION",
+        target_id=candidate_id,
+        action=audit_action,
+        actor_id=reviewer_id,
+        reason=reason,
+        metadata={"relation_type": candidate["relation_type"]},
+        now=decided_at,
+    )
+
+
+async def _decide_safety_case_claim(
+    connection: AsyncConnection,
+    *,
+    claim_id: UUID,
+    action: str,
+    reviewer_id: UUID,
+    reason: str,
+    decided_at: datetime,
+) -> None:
+    if action not in {"ACCEPT", "REJECT"}:
+        raise PublicationDenied(("CLAIM_DECISION_INVALID",))
+    await _lock_decision_key(connection, "safety-case-claim", claim_id)
+    claim = (
+        (
+            await connection.execute(
+                text(
+                    """
+                    SELECT claim.id, claim.item_id, claim.claim_type,
+                           claim.literal_value, item.submitted_by,
+                           source.authority_level, profile.report_stage,
+                           evidence.id AS evidence_id, evidence.evidence_role
+                    FROM claim
+                    JOIN intelligence_item item ON item.id = claim.item_id
+                    JOIN source ON source.id = item.source_id
+                    JOIN safety_case_profile profile ON profile.item_id = item.id
+                    JOIN LATERAL (
+                        SELECT candidate.id, candidate.evidence_role
+                        FROM claim_evidence candidate
+                        WHERE candidate.claim_id = claim.id
+                        ORDER BY (candidate.evidence_role = 'PRIMARY_OFFICIAL') DESC,
+                                 candidate.created_at, candidate.id
+                        LIMIT 1
+                    ) evidence ON true
+                    WHERE claim.id = :claim_id
+                      AND claim.claim_type IN (
+                        'deaths','injuries','loss_amount_minor',
+                        'official_direct_causes','responsibility_findings'
+                      )
+                    """
+                ),
+                {"claim_id": claim_id},
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if claim is None:
+        raise PublicationDenied(("SAFETY_CASE_CLAIM_NOT_FOUND",))
+    if claim["submitted_by"] == reviewer_id:
+        raise PublicationDenied(("DUTIES_NOT_SEPARATED",))
+    if action == "ACCEPT" and (
+        claim["authority_level"] not in {"A0", "A1"} or claim["evidence_role"] != "PRIMARY_OFFICIAL"
+    ):
+        raise PublicationDenied(("OFFICIAL_EVIDENCE_REQUIRED",))
+    if (
+        action == "ACCEPT"
+        and claim["claim_type"] in {"official_direct_causes", "responsibility_findings"}
+        and claim["report_stage"] not in {"FINAL_INVESTIGATION", "ENFORCEMENT"}
+    ):
+        raise PublicationDenied(("FORMAL_OFFICIAL_EVIDENCE_REQUIRED",))
+    event_id = await connection.scalar(
+        text("SELECT event_id FROM event_item WHERE item_id = :item_id"),
+        {"item_id": claim["item_id"]},
+    )
+    if action == "ACCEPT" and event_id is None:
+        raise PublicationDenied(("SAFETY_CASE_EVENT_ASSIGNMENT_REQUIRED",))
+    await _lock_decision_key(
+        connection,
+        f"safety-event-field:{claim['claim_type']}",
+        cast(UUID, event_id or claim["item_id"]),
+    )
+    latest_action = await connection.scalar(
+        text(
+            """
+            SELECT decision.action FROM claim_field_decision decision
+            WHERE decision.claim_id = :claim_id
+            ORDER BY decision.created_at DESC, decision.id DESC LIMIT 1
+            """
+        ),
+        {"claim_id": claim_id},
+    )
+    if latest_action is not None:
+        raise PublicationDenied(("CLAIM_ALREADY_DECIDED",))
+    await connection.execute(
+        text(
+            """
+            INSERT INTO claim_field_decision (
+                id, claim_id, evidence_id, field_name, action,
+                evidence_authority_level, evidence_report_stage, evidence_role,
+                reviewer_id, submitted_by, reason, created_at
+            ) VALUES (
+                :id, :claim_id, :evidence_id, :field_name, :action,
+                :authority_level, :report_stage, :evidence_role,
+                :reviewer_id, :submitted_by, :reason, :now
+            )
+            """
+        ),
+        {
+            "id": uuid7(),
+            "claim_id": claim_id,
+            "evidence_id": claim["evidence_id"],
+            "field_name": claim["claim_type"],
+            "action": action,
+            "authority_level": claim["authority_level"],
+            "report_stage": claim["report_stage"],
+            "evidence_role": claim["evidence_role"],
+            "reviewer_id": reviewer_id,
+            "submitted_by": claim["submitted_by"],
+            "reason": reason,
+            "now": decided_at,
+        },
+    )
+    conflict_opened = False
+    if action == "ACCEPT" and event_id is not None:
+        current = (
+            (
+                await connection.execute(
+                    text(
+                        """
+                        SELECT other.id, other.literal_value
+                        FROM event_item membership
+                        JOIN claim other ON other.item_id = membership.item_id
+                        JOIN LATERAL (
+                            SELECT decision.action, decision.created_at, decision.id
+                            FROM claim_field_decision decision
+                            WHERE decision.claim_id = other.id
+                            ORDER BY decision.created_at DESC, decision.id DESC LIMIT 1
+                        ) latest ON latest.action = 'ACCEPT'
+                        WHERE membership.event_id = :event_id
+                          AND other.claim_type = :field_name
+                          AND other.id <> :claim_id
+                          AND other.literal_value IS DISTINCT FROM CAST(:value AS jsonb)
+                          AND NOT EXISTS (
+                            SELECT 1
+                            FROM claim_conflict resolved
+                            JOIN LATERAL (
+                                SELECT resolution.chosen_claim_id
+                                FROM claim_conflict_decision resolution
+                                WHERE resolution.conflict_id = resolved.id
+                                  AND resolution.action IN (
+                                    'ACCEPT_CANDIDATE','KEEP_CURRENT'
+                                  )
+                                ORDER BY resolution.created_at DESC, resolution.id DESC
+                                LIMIT 1
+                            ) resolution ON true
+                            WHERE resolved.status = 'RESOLVED'
+                              AND other.id IN (
+                                resolved.current_claim_id,
+                                resolved.candidate_claim_id
+                              )
+                              AND resolution.chosen_claim_id <> other.id
+                          )
+                        ORDER BY latest.created_at DESC, latest.id DESC
+                        LIMIT 1
+                        """
+                    ),
+                    {
+                        "event_id": event_id,
+                        "field_name": claim["claim_type"],
+                        "claim_id": claim_id,
+                        "value": _json(claim["literal_value"]),
+                    },
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if current is not None:
+            existing = await connection.scalar(
+                text(
+                    """
+                    SELECT id FROM claim_conflict
+                    WHERE current_claim_id = :current_claim_id
+                      AND candidate_claim_id = :candidate_claim_id
+                      AND field_name = :field_name
+                    """
+                ),
+                {
+                    "current_claim_id": current["id"],
+                    "candidate_claim_id": claim_id,
+                    "field_name": claim["claim_type"],
+                },
+            )
+            if existing is None:
+                conflict_id = uuid7()
+                await connection.execute(
+                    text(
+                        """
+                        INSERT INTO claim_conflict (
+                            id, event_id, field_name, current_claim_id,
+                            candidate_claim_id, current_value_snapshot,
+                            candidate_value_snapshot, status, risk_level,
+                            public_value_available, opened_by, detected_at, updated_at
+                        ) VALUES (
+                            :id, :event_id, :field_name, :current_claim_id,
+                            :candidate_claim_id, CAST(:current_value AS jsonb),
+                            CAST(:candidate_value AS jsonb), 'PENDING_REVIEW', 'R4',
+                            false, :opened_by, :now, :now
+                        )
+                        """
+                    ),
+                    {
+                        "id": conflict_id,
+                        "event_id": event_id,
+                        "field_name": claim["claim_type"],
+                        "current_claim_id": current["id"],
+                        "candidate_claim_id": claim_id,
+                        "current_value": _json(current["literal_value"]),
+                        "candidate_value": _json(claim["literal_value"]),
+                        "opened_by": reviewer_id,
+                        "now": decided_at,
+                    },
+                )
+                await _append_safety_case_audit(
+                    connection,
+                    item_id=claim["item_id"],
+                    event_id=cast(UUID, event_id),
+                    target_type="CLAIM_CONFLICT",
+                    target_id=conflict_id,
+                    action="CONFLICT_OPENED",
+                    actor_id=reviewer_id,
+                    reason="Accepted official claims disagree",
+                    metadata={"field_name": claim["claim_type"]},
+                    now=decided_at,
+                )
+            conflict_opened = True
+    if action == "ACCEPT" and not conflict_opened:
+        await _restore_safety_case_profile_value(
+            connection,
+            claim_id=claim_id,
+            decided_at=decided_at,
+        )
+    await _append_safety_case_audit(
+        connection,
+        item_id=claim["item_id"],
+        event_id=cast(UUID | None, event_id),
+        target_type="CLAIM_FIELD",
+        target_id=claim_id,
+        action="CONFIRMED" if action == "ACCEPT" else "REJECTED",
+        actor_id=reviewer_id,
+        reason=reason,
+        metadata={"field_name": claim["claim_type"]},
+        now=decided_at,
+    )
+
+
+async def _restore_safety_case_profile_value(
+    connection: AsyncConnection,
+    *,
+    claim_id: UUID,
+    decided_at: datetime,
+) -> None:
+    claim = (
+        (
+            await connection.execute(
+                text(
+                    """
+                    SELECT claim.item_id, claim.claim_type, claim.literal_value,
+                           evidence.excerpt
+                    FROM claim
+                    JOIN LATERAL (
+                        SELECT decision.action, decision.evidence_id
+                        FROM claim_field_decision decision
+                        WHERE decision.claim_id = claim.id
+                        ORDER BY decision.created_at DESC, decision.id DESC LIMIT 1
+                    ) decision ON decision.action = 'ACCEPT'
+                    JOIN claim_evidence evidence
+                      ON evidence.id = decision.evidence_id
+                     AND evidence.claim_id = claim.id
+                    WHERE claim.id = :id
+                    """
+                ),
+                {"id": claim_id},
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if claim is None:
+        raise PublicationDenied(("SAFETY_CASE_CLAIM_NOT_ACCEPTED",))
+    field_name = str(claim["claim_type"])
+    common_values = {
+        "now": decided_at,
+        "item_id": claim["item_id"],
+    }
+    if field_name == "deaths":
+        statement = text(
+            "UPDATE safety_case_profile SET deaths = :value, updated_at = :now "
+            "WHERE item_id = :item_id"
+        )
+        values = common_values | {"value": int(claim["literal_value"])}
+    elif field_name == "injuries":
+        statement = text(
+            "UPDATE safety_case_profile SET injuries = :value, updated_at = :now "
+            "WHERE item_id = :item_id"
+        )
+        values = common_values | {"value": int(claim["literal_value"])}
+    elif field_name == "loss_amount_minor":
+        currency = _explicit_currency_from_evidence(str(claim["excerpt"] or ""))
+        if currency is None:
+            raise PublicationDenied(("LOSS_CURRENCY_EVIDENCE_REQUIRED",))
+        statement = text(
+            "UPDATE safety_case_profile "
+            "SET loss_amount_minor = :value, loss_currency = :currency, updated_at = :now "
+            "WHERE item_id = :item_id"
+        )
+        values = common_values | {
+            "value": int(claim["literal_value"]),
+            "currency": currency,
+        }
+    elif field_name == "official_direct_causes":
+        statement = text(
+            "UPDATE safety_case_profile "
+            "SET official_direct_causes = CAST(:value AS jsonb), updated_at = :now "
+            "WHERE item_id = :item_id"
+        )
+        values = common_values | {"value": _json(claim["literal_value"])}
+    elif field_name == "responsibility_findings":
+        statement = text(
+            "UPDATE safety_case_profile "
+            "SET responsibility_findings = CAST(:value AS jsonb), updated_at = :now "
+            "WHERE item_id = :item_id"
+        )
+        values = common_values | {"value": _json(claim["literal_value"])}
+    else:
+        raise PublicationDenied(("SAFETY_CASE_FIELD_NOT_PROJECTABLE",))
+    await connection.execute(statement, values)
+
+
+def _explicit_currency_from_evidence(excerpt: str) -> str | None:
+    upper = excerpt.upper()
+    explicit: set[str] = set()
+    if "USD" in upper or "美元" in excerpt:
+        explicit.add("USD")
+    if "EUR" in upper or "欧元" in excerpt:
+        explicit.add("EUR")
+    if "CNY" in upper or "RMB" in upper or "人民币" in excerpt:
+        explicit.add("CNY")
+    if len(explicit) == 1:
+        return explicit.pop()
+    if explicit:
+        return None
+    if re.search(r"(?:万|亿)?元", excerpt):
+        return "CNY"
+    return None
+
+
+async def _append_safety_case_audit(
+    connection: AsyncConnection,
+    *,
+    item_id: UUID | None,
+    event_id: UUID | None,
+    target_type: str,
+    target_id: UUID,
+    action: str,
+    actor_id: UUID | None,
+    reason: str,
+    metadata: dict[str, Any],
+    now: datetime,
+) -> None:
+    await connection.execute(
+        text(
+            """
+            INSERT INTO safety_case_audit_event (
+                id, item_id, event_id, target_type, target_id, action,
+                actor_id, reason, metadata, created_at
+            ) VALUES (
+                :id, :item_id, :event_id, :target_type, :target_id, :action,
+                :actor_id, :reason, CAST(:metadata AS jsonb), :now
+            )
+            """
+        ),
+        {
+            "id": uuid7(),
+            "item_id": item_id,
+            "event_id": event_id,
+            "target_type": target_type,
+            "target_id": target_id,
+            "action": action,
+            "actor_id": actor_id,
+            "reason": reason,
+            "metadata": _json(metadata),
+            "now": now,
+        },
+    )
+
+
+def _critical_conflict_field(field_name: str) -> CriticalSafetyField:
+    return {
+        "deaths": CriticalSafetyField.DEATH_COUNT,
+        "injuries": CriticalSafetyField.INJURY_COUNT,
+        "loss_amount_minor": CriticalSafetyField.LOSS_AMOUNT_MINOR,
+        "official_direct_causes": CriticalSafetyField.OFFICIAL_DIRECT_CAUSES,
+        "responsibility_findings": CriticalSafetyField.RESPONSIBILITY_FINDINGS,
+    }[field_name]
+
+
+async def _lock_decision_key(
+    connection: AsyncConnection,
+    namespace: str,
+    target_id: UUID,
+) -> None:
+    """Serialize append-only decisions without requiring UPDATE on immutable inputs."""
+    await connection.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": f"{namespace}:{target_id}"},
+    )
+
+
 async def _decide_relation_candidate(
     connection: AsyncConnection,
     *,
@@ -1150,6 +2351,7 @@ async def _decide_relation_candidate(
     reason: str,
     decided_at: datetime,
 ) -> None:
+    await _lock_decision_key(connection, "document-relation", candidate_id)
     candidate = (
         (
             await connection.execute(
@@ -1162,7 +2364,6 @@ async def _decide_relation_candidate(
                     LEFT JOIN document_relation_decision decision
                       ON decision.candidate_id = candidate.id
                     WHERE candidate.id = :candidate_id AND decision.id IS NULL
-                    FOR UPDATE OF candidate
                     """
                 ),
                 {"candidate_id": candidate_id},
@@ -1274,6 +2475,7 @@ async def _decide_regulation_status_candidate(
 ) -> None:
     if action not in {"ACCEPT", "REJECT"} or target_document_id is not None:
         raise PublicationDenied(("REGULATION_STATUS_DECISION_INVALID",))
+    await _lock_decision_key(connection, "regulation-status", candidate_id)
     candidate = (
         (
             await connection.execute(
@@ -1290,7 +2492,6 @@ async def _decide_regulation_status_candidate(
                     WHERE candidate.id = :candidate_id
                       AND evidence.document_version_id = candidate.document_version_id
                       AND decision.id IS NULL
-                    FOR UPDATE OF candidate
                     """
                 ),
                 {"candidate_id": candidate_id},
@@ -1833,8 +3034,40 @@ async def _publication_facts(
                            o.valid_until AS onboarding_valid_until,
                            d.id AS document_id, d.current_version_id,
                            v.content_hash, raw.sha256 AS raw_sha256,
-                           profile.document_number, profile.issuing_authority,
-                           profile.effective_at, profile.regulation_status,
+                           regulation_profile.document_number,
+                           regulation_profile.issuing_authority,
+                           regulation_profile.effective_at,
+                           COALESCE(regulation_profile.regulation_status, 'UNKNOWN')
+                               AS regulation_status,
+                           safety_profile.report_stage AS safety_report_stage,
+                           safety_profile.incident_status AS safety_incident_status,
+                           safety_profile.accident_type AS safety_accident_type,
+                           safety_profile.engineering_type AS safety_engineering_type,
+                           safety_profile.occurred_at AS safety_occurred_at,
+                           safety_profile.region_code AS safety_region_code,
+                           safety_profile.region_name AS safety_region_name,
+                           safety_profile.project_name AS safety_project_name,
+                           safety_profile.subject_names AS safety_subject_names,
+                           safety_profile.deaths AS safety_deaths,
+                           safety_profile.injuries AS safety_injuries,
+                           safety_profile.missing_count AS safety_missing_count,
+                           safety_profile.loss_amount_minor AS safety_loss_amount_minor,
+                           safety_profile.loss_currency AS safety_loss_currency,
+                           safety_profile.official_direct_causes
+                               AS safety_official_direct_causes,
+                           safety_profile.responsibility_findings
+                               AS safety_responsibility_findings,
+                           safety_profile.rectification_has_open_issues
+                               AS safety_rectification_has_open_issues,
+                           safety_profile.similar_scenario_tags
+                               AS safety_similar_scenario_tags,
+                           safety_profile.prevention_measure_tags
+                               AS safety_prevention_measure_tags,
+                           safety_profile.privacy_status AS safety_privacy_status,
+                           safety_profile.reputational_risk_reviewed
+                               AS safety_reputational_risk_reviewed,
+                           membership.event_id,
+                           safety_event.confirmation_status AS event_confirmation_status,
                            run.paragraphs, run.semantic_safety_scan_pass,
                            run.prompt_injection_detected,
                            run.security_resolution_status,
@@ -1853,7 +3086,14 @@ async def _publication_facts(
                     JOIN document d ON d.id = i.primary_document_id
                     JOIN document_version v ON v.id = r.document_version_id
                     JOIN raw_object raw ON raw.id = v.raw_object_id
-                    JOIN safety_regulation_profile profile ON profile.item_id = i.id
+                    LEFT JOIN safety_regulation_profile regulation_profile
+                      ON regulation_profile.item_id = i.id
+                     AND i.item_type = 'SAFETY_REGULATION'
+                    LEFT JOIN safety_case_profile safety_profile
+                      ON safety_profile.item_id = i.id
+                     AND i.item_type = 'SAFETY_CASE'
+                    LEFT JOIN event_item membership ON membership.item_id = i.id
+                    LEFT JOIN event safety_event ON safety_event.id = membership.event_id
                     JOIN processing_run run ON run.document_version_id = v.id
                     LEFT JOIN LATERAL (
                         SELECT event.state
@@ -1868,6 +3108,13 @@ async def _publication_facts(
                         ORDER BY fact.created_at DESC, fact.id DESC LIMIT 1
                     ) security ON true
                     WHERE r.id = :review_task_id
+                      AND (
+                        (i.item_type = 'SAFETY_REGULATION'
+                         AND regulation_profile.item_id IS NOT NULL)
+                        OR
+                        (i.item_type = 'SAFETY_CASE'
+                         AND safety_profile.item_id IS NOT NULL)
+                      )
                     ORDER BY run.completed_at DESC, run.id DESC LIMIT 1
                     """
                 ),
@@ -1917,16 +3164,141 @@ def _attribution_policy_pass(policy: dict[str, Any]) -> bool:
     return bool(str(policy.get("copyright", {}).get("attribution_template", "")).strip())
 
 
-def _evaluate_evidence(rows: list[RowMapping], paragraphs_value: object) -> dict[str, object]:
+def _privacy_projection(
+    *,
+    item_type: str,
+    privacy_status: str | None,
+    reputational_risk_reviewed: bool | None,
+) -> dict[str, object]:
+    if item_type != "SAFETY_CASE":
+        return {
+            "status": "CLEAR",
+            "scanner_version": "rules-1.0.0",
+            "reputational_risk_reviewed": True,
+        }
+    reviewed = reputational_risk_reviewed is True
+    status = privacy_status or "PENDING_REVIEW"
+    if status in {"CLEAR", "REDACTED_AND_APPROVED"} and not reviewed:
+        status = "PENDING_REVIEW"
+    return {
+        "status": status,
+        "scanner_version": "rules-1.0.0",
+        "reputational_risk_reviewed": reviewed,
+    }
+
+
+def _formal_basis_state(value: object) -> str:
+    if value is None:
+        return "NO_FORMAL_BASIS"
+    if not isinstance(value, list) or any(
+        not isinstance(item, str) or not item.strip() for item in value
+    ):
+        return "INVALID_FORMAL_BASIS"
+    return "FORMAL_REVIEWED_NO_FINDING" if not value else "FORMAL_REVIEWED_FINDINGS"
+
+
+def _controlled_tags_only(similar: object, prevention: object) -> bool:
+    if not isinstance(similar, list) or not isinstance(prevention, list):
+        return False
+    allowed_similar = {tag.value for tag in SimilarScenarioTag}
+    allowed_prevention = {tag.value for tag in PreventionMeasureTag}
+    return all(isinstance(tag, str) and tag in allowed_similar for tag in similar) and all(
+        isinstance(tag, str) and tag in allowed_prevention for tag in prevention
+    )
+
+
+def _publication_snapshot(
+    facts: Mapping[str, Any] | RowMapping,
+) -> dict[str, object]:
+    published_at = facts.get("source_published_at")
+    published_value = published_at.isoformat() if isinstance(published_at, datetime) else None
+    base: dict[str, object] = {
+        "item_id": str(facts["item_id"]),
+        "item_type": str(facts["item_type"]),
+        "title": facts["title"],
+        "source_name": facts["source_name"],
+        "original_url": facts["original_url"],
+        "published_at": published_value,
+    }
+    if facts["item_type"] != "SAFETY_CASE":
+        base.update(
+            {
+                "document_number": facts["document_number"],
+                "issuing_authority": facts["issuing_authority"],
+                "regulation_status": facts["regulation_status"],
+            }
+        )
+        return base
+
+    occurred_at = facts.get("safety_occurred_at")
+    event_id = facts.get("event_id")
+    base.update(
+        {
+            "profile_type": "SAFETY_CASE",
+            "event_id": str(event_id) if event_id is not None else None,
+            "report_stage": facts.get("safety_report_stage"),
+            "incident_status": facts.get("safety_incident_status"),
+            "hazard_type": facts.get("safety_accident_type"),
+            "engineering_type": facts.get("safety_engineering_type"),
+            "occurred_at": (occurred_at.isoformat() if isinstance(occurred_at, datetime) else None),
+            "region": facts.get("safety_region_name"),
+            "project_name": facts.get("safety_project_name"),
+            "deaths": facts.get("safety_deaths"),
+            "injuries": facts.get("safety_injuries"),
+            "loss_amount_minor": facts.get("safety_loss_amount_minor"),
+            "loss_currency": facts.get("safety_loss_currency"),
+            "official_direct_causes": facts.get("safety_official_direct_causes"),
+            "responsibility_findings": facts.get("safety_responsibility_findings"),
+            "rectification_has_open_issues": facts.get("safety_rectification_has_open_issues"),
+            "similar_scenario_tags": list(facts.get("safety_similar_scenario_tags") or []),
+            "prevention_measure_tags": list(facts.get("safety_prevention_measure_tags") or []),
+        }
+    )
+    return base
+
+
+def _evaluate_evidence(
+    rows: list[RowMapping] | list[dict[str, object]],
+    paragraphs_value: object,
+    *,
+    item_type: str = "SAFETY_REGULATION",
+) -> dict[str, object]:
     paragraphs = {
         str(item.get("paragraph_id")): str(item.get("text"))
         for item in cast(list[dict[str, object]], paragraphs_value)
         if isinstance(item, dict)
     }
     claim_ids = {row["id"] for row in rows}
-    accepted_claim_ids = {row["id"] for row in rows if row["verification_status"] == "ACCEPTED"}
-    critical_claim_ids = {row["id"] for row in rows if row["critical"] is True}
-    evidence_rows = [row for row in rows if row["evidence_id"] is not None]
+    if item_type == "SAFETY_CASE":
+        protected_claim_ids = {
+            row["id"]
+            for row in rows
+            if row["claim_type"] in _SAFETY_PROTECTED_CLAIM_TYPES
+            and row.get("field_decision_action") == "ACCEPT"
+        }
+        metadata_claim_ids = {
+            row["id"]
+            for row in rows
+            if row["claim_type"] in _SAFETY_METADATA_CLAIM_TYPES
+            and row["critical"] is False
+            and row["verification_status"] == "ACCEPTED"
+        }
+        accepted_claim_ids = protected_claim_ids | metadata_claim_ids
+        critical_claim_ids = set(accepted_claim_ids)
+        evidence_rows = [
+            row
+            for row in rows
+            if row["id"] in accepted_claim_ids
+            and row["evidence_id"] is not None
+            and (
+                row["id"] in metadata_claim_ids
+                or row["evidence_id"] == row.get("field_decision_evidence_id")
+            )
+        ]
+    else:
+        accepted_claim_ids = {row["id"] for row in rows if row["verification_status"] == "ACCEPTED"}
+        critical_claim_ids = {row["id"] for row in rows if row["critical"] is True}
+        evidence_rows = [row for row in rows if row["evidence_id"] is not None]
     claims_with_evidence = {row["id"] for row in evidence_rows}
     locators_valid = True
     excerpts_match = True
@@ -1934,14 +3306,18 @@ def _evaluate_evidence(rows: list[RowMapping], paragraphs_value: object) -> dict
     for row in evidence_rows:
         excerpt = str(row["excerpt"])
         if row["locator_type"] in {"PDF_TEXT", "PDF_OCR", "PDF_TABLE_CELL"}:
+            x0_mpt = row["x0_mpt"]
+            y0_mpt = row["y0_mpt"]
+            x1_mpt = row["x1_mpt"]
+            y1_mpt = row["y1_mpt"]
             valid_box = (
                 row["page_number"] is not None
-                and row["x0_mpt"] is not None
-                and row["y0_mpt"] is not None
-                and row["x1_mpt"] is not None
-                and row["y1_mpt"] is not None
-                and row["x1_mpt"] > row["x0_mpt"]
-                and row["y1_mpt"] > row["y0_mpt"]
+                and isinstance(x0_mpt, int)
+                and isinstance(y0_mpt, int)
+                and isinstance(x1_mpt, int)
+                and isinstance(y1_mpt, int)
+                and x1_mpt > x0_mpt
+                and y1_mpt > y0_mpt
             )
             if not valid_box or excerpt not in str(row["block_text"] or ""):
                 locators_valid = False
@@ -1950,11 +3326,13 @@ def _evaluate_evidence(rows: list[RowMapping], paragraphs_value: object) -> dict
                 excerpts_match = False
             if row["locator_type"] == "PDF_OCR" and row["critical"] is True:
                 confidence = row["evidence_confidence_bps"]
-                critical_ocr_confidences.append(int(confidence or 0))
+                critical_ocr_confidences.append(confidence if isinstance(confidence, int) else 0)
             continue
         paragraph = paragraphs.get(str(row["paragraph_id"]))
-        start = int(row["char_start"]) if row["char_start"] is not None else -1
-        end = int(row["char_end"]) if row["char_end"] is not None else -1
+        char_start = row["char_start"]
+        char_end = row["char_end"]
+        start = char_start if isinstance(char_start, int) else -1
+        end = char_end if isinstance(char_end, int) else -1
         if paragraph is None or start < 0 or end <= start or end > len(paragraph):
             locators_valid = False
             excerpts_match = False
@@ -1992,6 +3370,7 @@ async def _round03_gate_facts(
     accepted_claim_count: int,
     regulation_status: str,
     authority_level: str,
+    minimum_summary_claim_count: int = 4,
 ) -> dict[str, object]:
     unresolved_relations = int(
         await connection.scalar(
@@ -2073,7 +3452,7 @@ async def _round03_gate_facts(
         "unresolved_relation_candidate_count": unresolved_relations,
         "unreviewed_regulation_status_candidate_count": unreviewed_status,
         "unsafe_attachment_count": unsafe_attachment_count,
-        "summary_claim_refs_valid": accepted_claim_count >= 4,
+        "summary_claim_refs_valid": accepted_claim_count >= minimum_summary_claim_count,
         "official_status_evidence": (
             regulation_status != "UNKNOWN"
             and authority_level in {"A0", "A1"}
@@ -2083,7 +3462,555 @@ async def _round03_gate_facts(
     }
 
 
-def _candidate_schema_valid(rows: list[RowMapping]) -> bool:
+def _profile_metadata_claims_authorized(
+    facts: Mapping[str, object] | RowMapping,
+    rows: list[RowMapping] | list[dict[str, object]],
+    paragraphs_value: object,
+) -> bool:
+    """Authorize each populated public profile field from a located accepted claim."""
+
+    expected_item_id = facts.get("item_id")
+    for field_name, fact_key in _SAFETY_PROFILE_METADATA_FACT_KEYS.items():
+        profile_value = facts.get(fact_key)
+        required = field_name in _ALWAYS_REQUIRED_SAFETY_PROFILE_METADATA_FIELDS
+        if not _profile_metadata_value_is_present(profile_value):
+            if required:
+                logger.debug(
+                    "Safety profile metadata authorization failed: %s is missing",
+                    field_name,
+                )
+                return False
+            continue
+
+        authorized = False
+        for row in rows:
+            if row.get("claim_type") != field_name:
+                continue
+            if expected_item_id is not None and row.get("item_id") != expected_item_id:
+                continue
+            if row.get("verification_status") != "ACCEPTED" or row.get("critical") is not False:
+                continue
+            if field_name not in _SAFETY_METADATA_CLAIM_TYPES:
+                continue
+            if not _profile_metadata_values_equal(
+                field_name,
+                profile_value=profile_value,
+                claim_value=row.get("literal_value"),
+            ):
+                continue
+            if not _located_evidence_is_valid(row, paragraphs_value):
+                continue
+            excerpt = row.get("excerpt")
+            if not isinstance(excerpt, str) or not _profile_metadata_evidence_semantically_supports(
+                field_name,
+                row.get("literal_value"),
+                excerpt,
+            ):
+                continue
+            authorized = True
+            break
+        if not authorized:
+            logger.debug(
+                "Safety profile metadata authorization failed: %s lacks matching evidence",
+                field_name,
+            )
+            return False
+    return True
+
+
+def _profile_metadata_value_is_present(value: object) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value)
+    if isinstance(value, list):
+        return bool(value)
+    return True
+
+
+def _profile_metadata_values_equal(
+    field_name: str,
+    *,
+    profile_value: object,
+    claim_value: object,
+) -> bool:
+    if field_name == SafetyCaseProfileMetadataField.OCCURRED_AT.value:
+        if not isinstance(claim_value, str):
+            return False
+        profile_instant = _rfc3339_utc_instant(profile_value)
+        claim_instant = _rfc3339_utc_instant(claim_value)
+        return profile_instant is not None and profile_instant == claim_instant
+
+    if field_name == SafetyCaseProfileMetadataField.RECTIFICATION_HAS_OPEN_ISSUES.value:
+        return (
+            isinstance(profile_value, bool)
+            and isinstance(claim_value, bool)
+            and profile_value is claim_value
+        )
+
+    if field_name in {
+        SafetyCaseProfileMetadataField.SIMILAR_SCENARIO_TAGS.value,
+        SafetyCaseProfileMetadataField.PREVENTION_MEASURE_TAGS.value,
+    }:
+        if not isinstance(profile_value, list) or not isinstance(claim_value, list):
+            return False
+        if not all(isinstance(tag, str) for tag in profile_value + claim_value):
+            return False
+        profile_tags = cast(list[str], profile_value)
+        claim_tags = cast(list[str], claim_value)
+        if len(profile_tags) != len(set(profile_tags)) or len(claim_tags) != len(set(claim_tags)):
+            return False
+        controlled = (
+            _controlled_tags_only(profile_tags, []) and _controlled_tags_only(claim_tags, [])
+            if field_name == SafetyCaseProfileMetadataField.SIMILAR_SCENARIO_TAGS.value
+            else _controlled_tags_only([], profile_tags) and _controlled_tags_only([], claim_tags)
+        )
+        return controlled and set(profile_tags) == set(claim_tags)
+
+    return (
+        isinstance(profile_value, str)
+        and isinstance(claim_value, str)
+        and profile_value == claim_value
+    )
+
+
+def _rfc3339_utc_instant(value: object) -> datetime | None:
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str) and re.fullmatch(
+        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})",
+        value,
+    ):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed.astimezone(UTC)
+
+
+def _profile_metadata_evidence_semantically_supports(
+    field_name: str,
+    claim_value: object,
+    excerpt: str,
+) -> bool:
+    normalized_excerpt = _normalized_source_visible_text(excerpt)
+    if not normalized_excerpt:
+        return False
+
+    if field_name == SafetyCaseProfileMetadataField.REPORT_STAGE.value:
+        supported = _normalized_excerpt_contains_any(
+            normalized_excerpt,
+            _REPORT_STAGE_EVIDENCE_TERMS.get(str(claim_value), ()),
+        )
+        return supported or (
+            claim_value == "INITIAL_REPORT"
+            and _initial_report_cutoff_is_source_visible(normalized_excerpt)
+        )
+    if field_name == SafetyCaseProfileMetadataField.INCIDENT_STATUS.value:
+        supported = _normalized_excerpt_contains_any(
+            normalized_excerpt,
+            _INCIDENT_STATUS_EVIDENCE_TERMS.get(str(claim_value), ()),
+        )
+        return (
+            supported
+            or (
+                claim_value == "INITIAL_OFFICIAL_REPORT"
+                and _initial_report_cutoff_is_source_visible(normalized_excerpt)
+            )
+            or (
+                claim_value == "UNDER_INVESTIGATION"
+                and "继续" in normalized_excerpt
+                and "救援" in normalized_excerpt
+            )
+        )
+    if field_name == SafetyCaseProfileMetadataField.ACCIDENT_TYPE.value:
+        return _normalized_excerpt_contains_any(
+            normalized_excerpt,
+            _ACCIDENT_TYPE_EVIDENCE_TERMS.get(str(claim_value), ()),
+        )
+    if field_name == SafetyCaseProfileMetadataField.ENGINEERING_TYPE.value:
+        return _normalized_excerpt_contains_any(
+            normalized_excerpt,
+            _ENGINEERING_TYPE_EVIDENCE_TERMS.get(str(claim_value), ()),
+        )
+    if field_name == SafetyCaseProfileMetadataField.OCCURRED_AT.value:
+        return _occurred_at_is_source_visible(claim_value, normalized_excerpt)
+    if field_name in {
+        SafetyCaseProfileMetadataField.REGION_NAME.value,
+        SafetyCaseProfileMetadataField.PROJECT_NAME.value,
+    }:
+        normalized_value = (
+            _normalized_source_visible_text(claim_value) if isinstance(claim_value, str) else ""
+        )
+        return len(normalized_value) >= 2 and normalized_value in normalized_excerpt
+    if field_name == SafetyCaseProfileMetadataField.RECTIFICATION_HAS_OPEN_ISSUES.value:
+        if not isinstance(claim_value, bool):
+            return False
+        return _normalized_excerpt_contains_any(
+            normalized_excerpt,
+            _RECTIFICATION_BOOLEAN_EVIDENCE_TERMS[claim_value],
+        )
+    if field_name == SafetyCaseProfileMetadataField.SIMILAR_SCENARIO_TAGS.value:
+        return _all_controlled_values_source_visible(
+            claim_value,
+            normalized_excerpt,
+            _SIMILAR_TAG_EVIDENCE_TERM_GROUPS,
+        )
+    if field_name == SafetyCaseProfileMetadataField.PREVENTION_MEASURE_TAGS.value:
+        return _all_controlled_values_source_visible(
+            claim_value,
+            normalized_excerpt,
+            _PREVENTION_TAG_EVIDENCE_TERM_GROUPS,
+        )
+    return False
+
+
+def _normalized_source_visible_text(value: str) -> str:
+    normalized = unicodedata.normalize("NFKC", value).casefold()
+    return "".join(normalized.split())
+
+
+def _normalized_excerpt_contains_any(normalized_excerpt: str, terms: tuple[str, ...]) -> bool:
+    return any(_normalized_source_visible_text(term) in normalized_excerpt for term in terms)
+
+
+def _initial_report_cutoff_is_source_visible(normalized_excerpt: str) -> bool:
+    return bool(
+        re.search(
+            r"截至(?:(?:\d{4}年)?\d{1,2}月\d{1,2}日|\d{4}[-/.]\d{1,2}[-/.]\d{1,2})",
+            normalized_excerpt,
+        )
+    )
+
+
+def _all_controlled_values_source_visible(
+    claim_value: object,
+    normalized_excerpt: str,
+    mappings: Mapping[str, tuple[tuple[str, ...], ...]],
+) -> bool:
+    if (
+        not isinstance(claim_value, list)
+        or not claim_value
+        or not all(isinstance(value, str) for value in claim_value)
+    ):
+        return False
+    values = cast(list[str], claim_value)
+    if len(values) != len(set(values)):
+        return False
+    for value in values:
+        term_groups = mappings.get(value)
+        if term_groups is None or not all(
+            _normalized_excerpt_contains_any(normalized_excerpt, terms) for terms in term_groups
+        ):
+            return False
+    return True
+
+
+def _occurred_at_is_source_visible(claim_value: object, normalized_excerpt: str) -> bool:
+    canonical_instant = _rfc3339_utc_instant(claim_value)
+    if canonical_instant is None:
+        return False
+    local_value = canonical_instant.astimezone(ZoneInfo("Asia/Shanghai"))
+    year, month, day = local_value.year, local_value.month, local_value.day
+    date_terms = (
+        f"{year}-{month:02d}-{day:02d}",
+        f"{year}/{month:02d}/{day:02d}",
+        f"{year}年{month}月{day}日",
+    )
+    if not _normalized_excerpt_contains_any(normalized_excerpt, date_terms):
+        return False
+    if (local_value.hour, local_value.minute, local_value.second) == (0, 0, 0):
+        return True
+    hour, minute = local_value.hour, local_value.minute
+    time_terms = (
+        f"{hour:02d}:{minute:02d}",
+        f"{hour}:{minute:02d}",
+        f"{hour}时{minute}分",
+        f"{hour}点{minute}分",
+    )
+    return _normalized_excerpt_contains_any(normalized_excerpt, time_terms)
+
+
+def _located_evidence_is_valid(
+    row: Mapping[str, object] | RowMapping,
+    paragraphs_value: object,
+) -> bool:
+    if row.get("evidence_id") is None:
+        return False
+    excerpt = row.get("excerpt")
+    excerpt_hash = row.get("excerpt_sha256")
+    if (
+        not isinstance(excerpt, str)
+        or not excerpt
+        or not isinstance(excerpt_hash, str)
+        or sha256(excerpt.encode()).hexdigest() != excerpt_hash
+    ):
+        return False
+
+    locator_type = row.get("locator_type")
+    if locator_type in {"PDF_TEXT", "PDF_OCR", "PDF_TABLE_CELL"}:
+        coordinates = [
+            row.get("x0_mpt"),
+            row.get("y0_mpt"),
+            row.get("x1_mpt"),
+            row.get("y1_mpt"),
+        ]
+        if (
+            not isinstance(row.get("page_number"), int)
+            or isinstance(row.get("page_number"), bool)
+            or not all(
+                isinstance(value, int) and not isinstance(value, bool) for value in coordinates
+            )
+        ):
+            return False
+        x0_mpt, y0_mpt, x1_mpt, y1_mpt = cast(list[int], coordinates)
+        return x1_mpt > x0_mpt and y1_mpt > y0_mpt and excerpt in str(row.get("block_text") or "")
+
+    if locator_type != "HTML_PARAGRAPH":
+        return False
+    if not isinstance(paragraphs_value, list):
+        return False
+    paragraphs = {
+        str(item.get("paragraph_id")): item.get("text")
+        for item in paragraphs_value
+        if isinstance(item, Mapping)
+        and isinstance(item.get("paragraph_id"), str)
+        and isinstance(item.get("text"), str)
+    }
+    paragraph = paragraphs.get(str(row.get("paragraph_id")))
+    char_start = row.get("char_start")
+    char_end = row.get("char_end")
+    if (
+        not isinstance(paragraph, str)
+        or not isinstance(char_start, int)
+        or isinstance(char_start, bool)
+        or not isinstance(char_end, int)
+        or isinstance(char_end, bool)
+        or char_start < 0
+        or char_end <= char_start
+        or char_end > len(paragraph)
+    ):
+        return False
+    return paragraph[char_start:char_end] == excerpt
+
+
+async def _round04_gate_facts(
+    connection: AsyncConnection,
+    *,
+    facts: RowMapping,
+    claims: list[RowMapping],
+) -> dict[str, object]:
+    conflict_counts = (
+        (
+            await connection.execute(
+                text(
+                    """
+                    SELECT count(*)::integer AS unresolved_count,
+                           count(*) FILTER (
+                               WHERE conflict.field_name IN (
+                                   'deaths','injuries','loss_amount_minor'
+                               )
+                           )::integer AS casualty_loss_count
+                    FROM claim_conflict conflict
+                    JOIN event_item membership ON membership.event_id = conflict.event_id
+                    WHERE membership.item_id = :item_id
+                      AND conflict.status = 'PENDING_REVIEW'
+                    """
+                ),
+                {"item_id": facts["item_id"]},
+            )
+        )
+        .mappings()
+        .one()
+    )
+    unique_claims: dict[object, RowMapping] = {}
+    evidence_by_claim: dict[object, list[RowMapping]] = {}
+    for claim in claims:
+        unique_claims.setdefault(claim["id"], claim)
+        if (
+            claim["evidence_id"] is not None
+            and claim["evidence_id"] == claim["field_decision_evidence_id"]
+        ):
+            evidence_by_claim.setdefault(claim["id"], []).append(claim)
+
+    effective_claims = list(unique_claims.values())
+    unreviewed = _unreviewed_protected_claim_count(effective_claims)
+    accepted_by_field: dict[str, list[RowMapping]] = {}
+    for claim in effective_claims:
+        if claim["field_decision_action"] == "ACCEPT":
+            accepted_by_field.setdefault(str(claim["claim_type"]), []).append(claim)
+
+    def qualified(field: str, value: object, *, formal: bool = False) -> bool:
+        for claim in accepted_by_field.get(field, []):
+            if claim["literal_value"] != value:
+                continue
+            if claim["field_decision_authority"] not in {"A0", "A1"}:
+                continue
+            if claim["field_decision_evidence_role"] != "PRIMARY_OFFICIAL":
+                continue
+            if formal and claim["field_decision_stage"] not in {
+                "FINAL_INVESTIGATION",
+                "ENFORCEMENT",
+            }:
+                continue
+            return True
+        return False
+
+    consequence_fields = {
+        "deaths": facts["safety_deaths"],
+        "injuries": facts["safety_injuries"],
+        "loss_amount_minor": facts["safety_loss_amount_minor"],
+    }
+    consequence_authorized = True
+    for field, value in consequence_fields.items():
+        accepted = accepted_by_field.get(field, [])
+        if value is None:
+            consequence_authorized = consequence_authorized and not accepted
+        else:
+            consequence_authorized = consequence_authorized and qualified(field, value)
+    if facts["safety_loss_amount_minor"] is not None:
+        currency = facts["safety_loss_currency"]
+        loss_claims = accepted_by_field.get("loss_amount_minor", [])
+        consequence_authorized = (
+            consequence_authorized
+            and isinstance(currency, str)
+            and any(
+                _evidence_explicitly_supports_currency(
+                    evidence_by_claim.get(claim["id"], []), currency
+                )
+                for claim in loss_claims
+                if claim["literal_value"] == facts["safety_loss_amount_minor"]
+            )
+        )
+
+    causes = facts["safety_official_direct_causes"]
+    responsibilities = facts["safety_responsibility_findings"]
+    cause_state = _formal_basis_state(causes)
+    responsibility_state = _formal_basis_state(responsibilities)
+    cause_authorized = causes is not None and qualified(
+        "official_direct_causes", causes, formal=True
+    )
+    responsibility_authorized = responsibilities is not None and qualified(
+        "responsibility_findings", responsibilities, formal=True
+    )
+    if causes is None and accepted_by_field.get("official_direct_causes"):
+        cause_state = "FORMAL_BASIS_UNPROJECTED"
+    if responsibilities is None and accepted_by_field.get("responsibility_findings"):
+        responsibility_state = "FORMAL_BASIS_UNPROJECTED"
+
+    operational_count = sum(
+        1
+        for claim in effective_claims
+        if claim["claim_type"] in _SAFETY_OPERATIONAL_CLAIM_TYPES
+        and (
+            claim["verification_status"] == "ACCEPTED" or claim["field_decision_action"] == "ACCEPT"
+        )
+    )
+    return {
+        "event_assignment_confirmed": bool(
+            facts["event_id"] is not None and facts["event_confirmation_status"] == "CONFIRMED"
+        ),
+        "unreviewed_critical_claim_count": unreviewed,
+        "unresolved_conflict_count": int(conflict_counts["unresolved_count"] or 0),
+        "unresolved_casualty_loss_conflict_count": int(conflict_counts["casualty_loss_count"] or 0),
+        "casualty_loss_claims_authorized": consequence_authorized,
+        "cause_basis_state": cause_state,
+        "responsibility_basis_state": responsibility_state,
+        "formal_cause_evidence_authorized": cause_authorized,
+        "formal_responsibility_evidence_authorized": responsibility_authorized,
+        "profile_metadata_claims_authorized": _profile_metadata_claims_authorized(
+            facts,
+            claims,
+            facts["paragraphs"] or [],
+        ),
+        "controlled_prevention_tags_only": _controlled_tags_only(
+            facts["safety_similar_scenario_tags"],
+            facts["safety_prevention_measure_tags"],
+        ),
+        "operational_instruction_count": operational_count,
+    }
+
+
+def _unreviewed_protected_claim_count(
+    rows: list[RowMapping] | list[dict[str, object]],
+) -> int:
+    unique = {row["id"]: row for row in rows}.values()
+    return sum(
+        1
+        for row in unique
+        if row["claim_type"] in _SAFETY_PROTECTED_CLAIM_TYPES
+        and row.get("field_decision_action") not in {"ACCEPT", "REJECT"}
+    )
+
+
+def _evidence_explicitly_supports_currency(rows: list[RowMapping], currency: str) -> bool:
+    expected = currency.upper()
+    for row in rows:
+        excerpt = str(row["excerpt"] or "")
+        upper = excerpt.upper()
+        if expected in upper:
+            return True
+        if expected == "CNY" and ("人民币" in excerpt or "元" in excerpt):
+            return True
+        if expected == "USD" and "美元" in excerpt:
+            return True
+        if expected == "EUR" and "欧元" in excerpt:
+            return True
+    return False
+
+
+def _candidate_schema_valid(
+    rows: list[RowMapping] | list[dict[str, object]],
+    *,
+    item_type: str = "SAFETY_REGULATION",
+) -> bool:
+    if item_type == "SAFETY_CASE":
+        grouped: dict[object, list[RowMapping | dict[str, object]]] = {}
+        for candidate_row in rows:
+            grouped.setdefault(candidate_row["id"], []).append(candidate_row)
+        consequence_fields = {"deaths", "injuries", "loss_amount_minor"}
+        formal_fields = {"official_direct_causes", "responsibility_findings"}
+        eligible_claim_count = 0
+        for claim_rows in grouped.values():
+            row = claim_rows[0]
+            claim_type = str(row["claim_type"])
+            value = row["literal_value"]
+            if claim_type in _SAFETY_PROTECTED_CLAIM_TYPES:
+                if row["critical"] is not True:
+                    return False
+                if claim_type in consequence_fields:
+                    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                        return False
+                elif claim_type in formal_fields and (
+                    not isinstance(value, list)
+                    or any(not isinstance(item, str) or not item.strip() for item in value)
+                ):
+                    return False
+                if row.get("field_decision_action") == "ACCEPT":
+                    if not any(
+                        evidence_row["evidence_id"] is not None
+                        and evidence_row["evidence_id"] == row.get("field_decision_evidence_id")
+                        for evidence_row in claim_rows
+                    ):
+                        return False
+                    eligible_claim_count += 1
+                continue
+            if row["critical"] is True:
+                return False
+            if row["verification_status"] != "ACCEPTED":
+                continue
+            if claim_type not in _SAFETY_METADATA_CLAIM_TYPES:
+                return False
+            if not any(
+                evidence_row["evidence_id"] is not None for evidence_row in claim_rows
+            ) or not _safety_metadata_value_valid(claim_type, value):
+                return False
+            eligible_claim_count += 1
+        return eligible_claim_count > 0
     accepted_types = {row["claim_type"] for row in rows if row["verification_status"] == "ACCEPTED"}
     return {
         "title",
@@ -2091,6 +4018,24 @@ def _candidate_schema_valid(rows: list[RowMapping]) -> bool:
         "document_number",
         "published_at",
     }.issubset(accepted_types)
+
+
+def _safety_metadata_value_valid(claim_type: str, value: object) -> bool:
+    if claim_type == "rectification_has_open_issues":
+        return isinstance(value, bool)
+    if claim_type == "missing_count":
+        return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+    if claim_type == "similar_scenario_tags":
+        return isinstance(value, list) and _controlled_tags_only(value, [])
+    if claim_type == "prevention_measure_tags":
+        return isinstance(value, list) and _controlled_tags_only([], value)
+    if claim_type == "enforcement_actions":
+        return (isinstance(value, str) and bool(value.strip())) or (
+            isinstance(value, list)
+            and bool(value)
+            and all(isinstance(item, str) and item.strip() for item in value)
+        )
+    return isinstance(value, str) and bool(value.strip())
 
 
 async def _append_audit(

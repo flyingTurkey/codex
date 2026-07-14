@@ -8,8 +8,8 @@
       "type": "string"
     },
     "content_schema_version": {
-      "const": "1.0.0",
-      "default": "1.0.0",
+      "const": "1.1.0",
+      "default": "1.1.0",
       "title": "Content Schema Version",
       "type": "string"
     }

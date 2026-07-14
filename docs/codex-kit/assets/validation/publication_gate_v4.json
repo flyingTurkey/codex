@@ -1,0 +1,15 @@
+{
+  "version": "4.0.0",
+  "contract": "publication_evaluation_v4.schema.json",
+  "trust_boundary": "Safety-case publication uses only current clean evidence, confirmed event membership, append-only human decisions, and resolved conflicts from the server database.",
+  "default_decision": "DENY",
+  "selected_feed_rules": {
+    "minimum_server_scores": {
+      "relevance": 70,
+      "impact": 65,
+      "authority": 75,
+      "evidence": 90,
+      "confidence": 90
+    }
+  }
+}

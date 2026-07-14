@@ -11,11 +11,20 @@ def test_exported_json_schemas_are_deterministic(tmp_path: Path) -> None:
 
     expected_names = {
         "claim-view.schema.json",
+        "claim-conflict.schema.json",
+        "claim-conflict-decision-request.schema.json",
+        "claim-conflict-decision-response.schema.json",
+        "confirmed-fact.schema.json",
         "create-source-request.schema.json",
         "cursor-page.schema.json",
         "document-detail.schema.json",
         "document-page-view.schema.json",
         "evidence-view.schema.json",
+            "event-candidate-generation-response.schema.json",
+            "event-detail.schema.json",
+            "event-item.schema.json",
+        "event-relation-view.schema.json",
+        "event-timeline.schema.json",
         "feed-notice.schema.json",
         "feed-page.schema.json",
         "fixture-upload-response.schema.json",
@@ -37,6 +46,7 @@ def test_exported_json_schemas_are_deterministic(tmp_path: Path) -> None:
         "source-summary.schema.json",
         "source-transition-request.schema.json",
         "type-summary.schema.json",
+        "unverified-fact.schema.json",
         "version-diff-response.schema.json",
         "version-change-escalation-request.schema.json",
         "version-response.schema.json",
@@ -45,7 +55,7 @@ def test_exported_json_schemas_are_deterministic(tmp_path: Path) -> None:
     assert {path.name for path in tmp_path.glob("*.json")} == expected_names
     version_schema = json.loads((tmp_path / "version-response.schema.json").read_text())
     assert version_schema["properties"]["api_version"]["const"] == "v1"
-    assert version_schema["properties"]["content_schema_version"]["const"] == "1.0.0"
+    assert version_schema["properties"]["content_schema_version"]["const"] == "1.1.0"
 
 
 def test_committed_schemas_match_canonical_models(tmp_path: Path) -> None:
@@ -71,6 +81,10 @@ def test_generated_types_expose_health_and_version_contracts() -> None:
     assert "export type { FeedPage }" in generated_types
     assert "export type { ItemSummary }" in generated_types
     assert "export type { TypeSummary }" in generated_types
+    assert "export type { SafetyCaseTypeSummary }" in generated_types
+    assert "export type { EventDetail }" in generated_types
+    assert "export type { ClaimConflict }" in generated_types
+    assert "export type { ClaimConflictDecisionRequest }" in generated_types
     assert "export type { ReadinessResponse }" in generated_types
     assert "export type { VersionResponse }" in generated_types
     assert "export type Status" not in generated_types

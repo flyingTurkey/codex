@@ -13,6 +13,8 @@ docs/codex-kit/assets/validation/*
 !docs/codex-kit/assets/validation/publication_evaluation.schema.json
 !docs/codex-kit/assets/validation/publication_gate_v3.json
 !docs/codex-kit/assets/validation/publication_evaluation_v3.schema.json
+!docs/codex-kit/assets/validation/publication_gate_v4.json
+!docs/codex-kit/assets/validation/publication_evaluation_v4.schema.json
 tests
 **/tests
 .venv

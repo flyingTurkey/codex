@@ -1,0 +1,171 @@
+{
+  "$defs": {
+    "DocumentState": {
+      "enum": [
+        "UPDATED",
+        "RE_REVIEW_PENDING",
+        "WITHDRAWN",
+        "SOURCE_UNAVAILABLE"
+      ],
+      "title": "DocumentState",
+      "type": "string"
+    },
+    "EventRelation": {
+      "enum": [
+        "FOLLOW_UP",
+        "INVESTIGATES",
+        "PENALIZES",
+        "RECTIFIES",
+        "CORRECTS"
+      ],
+      "title": "EventRelation",
+      "type": "string"
+    },
+    "IncidentStatus": {
+      "enum": [
+        "UNVERIFIED_LEAD",
+        "INITIAL_OFFICIAL_REPORT",
+        "UNDER_INVESTIGATION",
+        "FINAL_INVESTIGATION_REPORT",
+        "ENFORCEMENT_DECISION",
+        "RECTIFICATION_FOLLOW_UP",
+        "CLOSED",
+        "CORRECTED",
+        "WITHDRAWN"
+      ],
+      "title": "IncidentStatus",
+      "type": "string"
+    },
+    "ReviewStatus": {
+      "enum": [
+        "PENDING",
+        "APPROVED",
+        "REJECTED"
+      ],
+      "title": "ReviewStatus",
+      "type": "string"
+    },
+    "SafetyCaseReportStage": {
+      "enum": [
+        "INITIAL_REPORT",
+        "FOLLOW_UP_REPORT",
+        "FINAL_INVESTIGATION",
+        "ENFORCEMENT",
+        "RECTIFICATION"
+      ],
+      "title": "SafetyCaseReportStage",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "document_states": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/DocumentState"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Document States"
+    },
+    "evidence_count": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Evidence Count"
+    },
+    "incident_status": {
+      "$ref": "#/$defs/IncidentStatus"
+    },
+    "item_id": {
+      "format": "uuid",
+      "title": "Item Id",
+      "type": "string"
+    },
+    "original_url": {
+      "maxLength": 2048,
+      "pattern": "^https?://[^\\s]+$",
+      "title": "Original Url",
+      "type": "string"
+    },
+    "publication_revision_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Publication Revision Id"
+    },
+    "relation_type": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EventRelation"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "report_stage": {
+      "$ref": "#/$defs/SafetyCaseReportStage"
+    },
+    "review_status": {
+      "$ref": "#/$defs/ReviewStatus"
+    },
+    "source_name": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Source Name",
+      "type": "string"
+    },
+    "source_published_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Source Published At"
+    },
+    "title": {
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    }
+  },
+  "required": [
+    "item_id",
+    "title",
+    "report_stage",
+    "incident_status",
+    "source_name",
+    "source_published_at",
+    "original_url",
+    "review_status",
+    "publication_revision_id"
+  ],
+  "title": "EventItem",
+  "type": "object"
+}

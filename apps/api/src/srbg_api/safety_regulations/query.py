@@ -16,10 +16,16 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 from srbg_contracts import (
     Channel,
     ClaimView,
+    ConfirmedFact,
     CriticalFieldDiff,
+    CriticalSafetyField,
     DiffHunk,
     DocumentPageView,
     DocumentState,
+    EventDetail,
+    EventItem,
+    EventRelationView,
+    EventTimeline,
     EvidenceStatus,
     EvidenceView,
     FeedNotice,
@@ -36,7 +42,10 @@ from srbg_contracts import (
     ReviewStatus,
     ReviewTaskDetail,
     ReviewTaskSummary,
-    TypeSummary,
+    SafetyCaseFactField,
+    SafetyCaseTypeSummary,
+    SafetyRegulationTypeSummary,
+    UnverifiedFact,
     VersionDiffResponse,
     VersionTimelineEntry,
     VersionTimelineResponse,
@@ -130,6 +139,75 @@ class PostgresIntelligenceQueryService:
                 .mappings()
                 .one()
             )
+            safety_profiles = list(
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT report_stage, incident_status, count(*) AS count
+                            FROM safety_case_profile
+                            GROUP BY report_stage, incident_status
+                            ORDER BY report_stage, incident_status
+                            """
+                        )
+                    )
+                ).mappings()
+            )
+            safety_conflicts = list(
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT field_name, count(*) AS count
+                            FROM claim_conflict
+                            WHERE status = 'PENDING_REVIEW'
+                            GROUP BY field_name
+                            ORDER BY field_name
+                            """
+                        )
+                    )
+                ).mappings()
+            )
+            safety_queues = (
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT
+                              (SELECT count(*)
+                               FROM event_item_candidate candidate
+                               WHERE NOT EXISTS (
+                                 SELECT 1 FROM event_item_decision decision
+                                 WHERE decision.candidate_id = candidate.id
+                               )) AS pending_event_candidates,
+                              (SELECT count(*)
+                               FROM claim protected_claim
+                               JOIN intelligence_item item
+                                 ON item.id = protected_claim.item_id
+                               LEFT JOIN LATERAL (
+                                 SELECT decision.action
+                                 FROM claim_field_decision decision
+                                 WHERE decision.claim_id = protected_claim.id
+                                 ORDER BY decision.created_at DESC, decision.id DESC
+                                 LIMIT 1
+                               ) latest_decision ON true
+                               WHERE item.item_type = 'SAFETY_CASE'
+                                 AND protected_claim.critical = true
+                                 AND protected_claim.claim_type IN (
+                                   'deaths','injuries','loss_amount_minor',
+                                   'official_direct_causes','responsibility_findings'
+                                 )
+                                 AND (
+                                   latest_decision.action IS NULL
+                                   OR latest_decision.action = 'REVOKE'
+                                 )) AS pending_critical_claims
+                            """
+                        )
+                    )
+                )
+                .mappings()
+                .one()
+            )
         pdf_total = int(row["pdf_total"])
         ocr_pages = int(row["ocr_pages"])
         values = [
@@ -162,6 +240,12 @@ class PostgresIntelligenceQueryService:
                 f'material="{str(change["material"]).lower()}"'
                 f"}} {change['count']}\n"
             )
+        rendered += _render_safety_case_metrics(
+            profiles=[dict(profile) for profile in safety_profiles],
+            conflicts=[dict(conflict) for conflict in safety_conflicts],
+            pending_event_candidates=int(safety_queues["pending_event_candidates"]),
+            pending_critical_claims=int(safety_queues["pending_critical_claims"]),
+        )
         return rendered
 
     async def get_feed(
@@ -178,7 +262,10 @@ class PostgresIntelligenceQueryService:
         if (
             mode == "selected"
             or domain == "digital"
-            or (content_type is not None and content_type != "SAFETY_REGULATION")
+            or (
+                content_type is not None
+                and content_type not in {"SAFETY_REGULATION", "SAFETY_CASE"}
+            )
         ):
             return _feed_page([], now=now, mode=mode, domain=domain, next_cursor=None)
 
@@ -189,13 +276,32 @@ class PostgresIntelligenceQueryService:
                     await connection.execute(
                         text(
                             """
-                            SELECT i.id, i.title, i.original_url, i.source_published_at,
+                            SELECT i.id, i.item_type, i.title, i.original_url,
+                                   i.source_published_at,
                                    i.first_discovered_at, i.activity_at, i.updated_at,
                                    i.review_status, s.name AS source_name,
                                    p.status AS publication_status,
                                    p.current_revision_id AS publication_revision_id,
                                    r.classification, r.document_number,
                                    r.issuing_authority, r.regulation_status,
+                                   case_profile.report_stage,
+                                   case_profile.accident_type,
+                                   case_profile.engineering_type,
+                                   case_profile.occurred_at,
+                                   case_profile.region_name,
+                                   case_profile.deaths,
+                                   case_profile.injuries,
+                                   case_profile.loss_amount_minor,
+                                   case_profile.loss_currency,
+                                   case_profile.incident_status,
+                                   case_profile.official_direct_causes,
+                                   case_profile.responsibility_findings,
+                                   case_profile.rectification_has_open_issues,
+                                   case_profile.similar_scenario_tags,
+                                   case_profile.prevention_measure_tags,
+                                   event_link.event_id,
+                                   COALESCE(conflicts.fields, ARRAY[]::text[])
+                                       AS conflicted_fields,
                                    (SELECT count(*) FROM document_version version
                                     WHERE version.document_id = i.primary_document_id)
                                        AS version_count,
@@ -224,11 +330,43 @@ class PostgresIntelligenceQueryService:
                                    (SELECT count(*) FROM claim_evidence e
                                     JOIN claim c ON c.id = e.claim_id
                                     WHERE c.item_id = i.id
-                                      AND c.verification_status = 'ACCEPTED') AS evidence_count
+                                      AND (
+                                        c.verification_status = 'ACCEPTED'
+                                        OR 'ACCEPT' = (
+                                          SELECT decision.action
+                                          FROM claim_field_decision decision
+                                          WHERE decision.claim_id = c.id
+                                          ORDER BY decision.created_at DESC, decision.id DESC
+                                          LIMIT 1
+                                        )
+                                      )
+                                      AND (
+                                        i.item_type <> 'SAFETY_CASE'
+                                        OR (
+                                          c.verification_status = 'ACCEPTED'
+                                          AND c.critical = false
+                                        )
+                                        OR e.id = (
+                                          SELECT decision.evidence_id
+                                          FROM claim_field_decision decision
+                                          WHERE decision.claim_id = c.id
+                                          ORDER BY decision.created_at DESC, decision.id DESC
+                                          LIMIT 1
+                                        )
+                                      )) AS evidence_count
                             FROM intelligence_item i
                             JOIN source s ON s.id = i.source_id
-                            JOIN safety_regulation_profile r ON r.item_id = i.id
+                            LEFT JOIN safety_regulation_profile r ON r.item_id = i.id
+                            LEFT JOIN safety_case_profile case_profile
+                              ON case_profile.item_id = i.id
+                            LEFT JOIN event_item event_link ON event_link.item_id = i.id
                             LEFT JOIN publication p ON p.item_id = i.id
+                            LEFT JOIN LATERAL (
+                                SELECT array_agg(DISTINCT conflict.field_name)
+                                    AS fields
+                                FROM public_safety_case_conflict conflict
+                                WHERE conflict.source_item_id = i.id
+                            ) conflicts ON true
                             LEFT JOIN LATERAL (
                                 SELECT change.change_type, change.review_state
                                 FROM version_change change
@@ -239,6 +377,17 @@ class PostgresIntelligenceQueryService:
                                 i.review_status = 'PENDING'
                                 OR p.status IN ('PUBLISHED', 'WITHDRAWN')
                             )
+                              AND i.risk_level = 'R3'
+                              AND (
+                                CAST(:content_type AS text) IS NULL
+                                OR i.item_type = CAST(:content_type AS text)
+                              )
+                              AND (
+                                (i.item_type = 'SAFETY_REGULATION' AND r.item_id IS NOT NULL)
+                                OR
+                                (i.item_type = 'SAFETY_CASE'
+                                  AND case_profile.item_id IS NOT NULL)
+                              )
                               AND (
                                 CAST(:cursor_time AS timestamptz) IS NULL
                                 OR (i.activity_at, i.id) <
@@ -251,6 +400,7 @@ class PostgresIntelligenceQueryService:
                         {
                             "cursor_time": cursor_time,
                             "cursor_id": cursor_id,
+                            "content_type": content_type,
                             "row_limit": limit + 1,
                         },
                     )
@@ -274,6 +424,334 @@ class PostgresIntelligenceQueryService:
                 return ItemDetail(item=item, notice=_restricted_notice())
             claims, evidence = await _claims_and_evidence(connection, item_id)
             return ItemDetail(item=item, claims=claims, evidence=evidence)
+
+    async def get_event(self, event_id: UUID) -> EventDetail:
+        async with self._engine.connect() as connection:
+            event = (
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            WITH safe_members AS (
+                              SELECT membership.event_id AS id,
+                                     header_item.id AS item_id,
+                                     header_item.title,
+                                     header_item.source_published_at,
+                                     membership.confirmed_at,
+                                     header_profile.occurred_at,
+                                     header_profile.region_name,
+                                     header_profile.project_name,
+                                     header_profile.accident_type,
+                                     header_profile.engineering_type,
+                                     header_profile.incident_status,
+                                     header_profile.rectification_has_open_issues,
+                                     header_profile.similar_scenario_tags,
+                                     header_profile.prevention_measure_tags
+                              FROM event_item membership
+                              JOIN event confirmed_event
+                                ON confirmed_event.id = membership.event_id
+                               AND confirmed_event.confirmation_status = 'CONFIRMED'
+                              JOIN intelligence_item header_item
+                                ON header_item.id = membership.item_id
+                              JOIN publication header_publication
+                                ON header_publication.item_id = header_item.id
+                               AND header_publication.status = 'PUBLISHED'
+                              JOIN safety_case_profile header_profile
+                                ON header_profile.item_id = header_item.id
+                              WHERE membership.event_id = :event_id
+                                AND header_item.risk_level = 'R3'
+                                AND header_item.review_status = 'APPROVED'
+                            ),
+                            latest_member AS (
+                              SELECT *
+                              FROM safe_members latest
+                              ORDER BY latest.source_published_at DESC NULLS LAST,
+                                       latest.confirmed_at DESC, latest.item_id DESC
+                              LIMIT 1
+                            )
+                            SELECT latest.id,
+                                   (SELECT earliest.title
+                                    FROM safe_members earliest
+                                    ORDER BY earliest.source_published_at ASC NULLS LAST,
+                                             earliest.confirmed_at, earliest.item_id
+                                    LIMIT 1) AS title,
+                                   (SELECT identity.occurred_at
+                                    FROM safe_members identity
+                                    WHERE identity.occurred_at IS NOT NULL
+                                    ORDER BY identity.source_published_at DESC NULLS LAST,
+                                             identity.confirmed_at DESC, identity.item_id DESC
+                                    LIMIT 1) AS occurred_at,
+                                   (SELECT identity.region_name
+                                    FROM safe_members identity
+                                    WHERE identity.region_name IS NOT NULL
+                                    ORDER BY identity.source_published_at DESC NULLS LAST,
+                                             identity.confirmed_at DESC, identity.item_id DESC
+                                    LIMIT 1) AS region_name,
+                                   (SELECT identity.project_name
+                                    FROM safe_members identity
+                                    WHERE identity.project_name IS NOT NULL
+                                    ORDER BY identity.source_published_at DESC NULLS LAST,
+                                             identity.confirmed_at DESC, identity.item_id DESC
+                                    LIMIT 1) AS project_name,
+                                   (SELECT identity.accident_type
+                                    FROM safe_members identity
+                                    WHERE identity.accident_type IS NOT NULL
+                                    ORDER BY identity.source_published_at DESC NULLS LAST,
+                                             identity.confirmed_at DESC, identity.item_id DESC
+                                    LIMIT 1) AS accident_type,
+                                   (SELECT identity.engineering_type
+                                    FROM safe_members identity
+                                    WHERE identity.engineering_type IS NOT NULL
+                                    ORDER BY identity.source_published_at DESC NULLS LAST,
+                                             identity.confirmed_at DESC, identity.item_id DESC
+                                    LIMIT 1) AS engineering_type,
+                                   latest.incident_status,
+                                   latest.rectification_has_open_issues,
+                                   latest.similar_scenario_tags,
+                                   latest.prevention_measure_tags
+                            FROM latest_member latest
+                            """
+                        ),
+                        {"event_id": event_id},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            if event is None:
+                raise IntelligenceNotFound("safety event does not exist")
+
+            timeline_rows = list(
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT i.id AS item_id, i.title, profile.report_stage,
+                                   profile.incident_status, source.name AS source_name,
+                                   i.source_published_at, i.original_url, i.review_status,
+                                   publication.current_revision_id AS publication_revision_id,
+                                   publication.status AS publication_status,
+                                   relation.relation_type,
+                                   (SELECT count(*) FROM claim_evidence evidence
+                                    JOIN claim ON claim.id = evidence.claim_id
+                                    WHERE claim.item_id = i.id
+                                       AND (
+                                         (claim.verification_status = 'ACCEPTED'
+                                          AND claim.critical = false)
+                                         OR (
+                                           'ACCEPT' = (
+                                             SELECT decision.action
+                                             FROM claim_field_decision decision
+                                             WHERE decision.claim_id = claim.id
+                                             ORDER BY decision.created_at DESC, decision.id DESC
+                                             LIMIT 1
+                                           )
+                                           AND evidence.id = (
+                                             SELECT decision.evidence_id
+                                             FROM claim_field_decision decision
+                                             WHERE decision.claim_id = claim.id
+                                             ORDER BY decision.created_at DESC, decision.id DESC
+                                             LIMIT 1
+                                           )
+                                         )
+                                       )
+                                       AND NOT EXISTS (
+                                        SELECT 1 FROM public_safety_case_conflict conflict
+                                        WHERE conflict.event_id = membership.event_id
+                                          AND conflict.field_name = claim.claim_type
+                                      )) AS evidence_count
+                            FROM event_item membership
+                            JOIN intelligence_item i ON i.id = membership.item_id
+                            JOIN safety_case_profile profile ON profile.item_id = i.id
+                            JOIN source ON source.id = i.source_id
+                            JOIN publication ON publication.item_id = i.id
+                              AND publication.status IN ('PUBLISHED','WITHDRAWN')
+                            LEFT JOIN LATERAL (
+                                SELECT confirmed.relation_type
+                                FROM event_relation confirmed
+                                WHERE confirmed.event_id = membership.event_id
+                                  AND confirmed.source_item_id = i.id
+                                ORDER BY
+                                  (confirmed.relation_type = 'CORRECTS') ASC,
+                                  confirmed.confirmed_at DESC, confirmed.id DESC
+                                LIMIT 1
+                            ) relation ON true
+                            WHERE membership.event_id = :event_id
+                              AND i.risk_level = 'R3'
+                              AND i.review_status = 'APPROVED'
+                            ORDER BY i.source_published_at NULLS LAST,
+                                     membership.confirmed_at, i.id
+                            """
+                        ),
+                        {"event_id": event_id},
+                    )
+                ).mappings()
+            )
+            confirmed_rows = list(
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT source_item_id, claim_id, field_name,
+                                   literal_value, evidence_id, reviewed_at,
+                                   loss_currency
+                            FROM public_safety_case_accepted_claim
+                            WHERE event_id = :event_id
+                            ORDER BY reviewed_at, claim_id
+                            """
+                        ),
+                        {"event_id": event_id},
+                    )
+                ).mappings()
+            )
+            conflict_rows = list(
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT conflict.source_item_id,
+                                   NULL::uuid AS claim_id,
+                                   conflict.conflict_id,
+                                   conflict.field_name,
+                                   ARRAY[]::uuid[] AS evidence_ids
+                            FROM public_safety_case_conflict conflict
+                            WHERE conflict.event_id = :event_id
+                              AND conflict.field_name IN (
+                                'deaths','injuries','loss_amount_minor',
+                                'official_direct_causes','responsibility_findings'
+                              )
+                            ORDER BY conflict.detected_at, conflict.conflict_id
+                            """
+                        ),
+                        {"event_id": event_id},
+                    )
+                ).mappings()
+            )
+            pending_rows = list(
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT claim.item_id AS source_item_id, claim.id AS claim_id,
+                                   claim.claim_type AS field_name,
+                                   array_remove(array_agg(evidence.id), NULL) AS evidence_ids
+                            FROM claim
+                            JOIN event_item membership ON membership.item_id = claim.item_id
+                            JOIN intelligence_item item ON item.id = claim.item_id
+                            JOIN publication ON publication.item_id = item.id
+                              AND publication.status = 'PUBLISHED'
+                            LEFT JOIN LATERAL (
+                              SELECT decision.action
+                              FROM claim_field_decision decision
+                              WHERE decision.claim_id = claim.id
+                              ORDER BY decision.created_at DESC, decision.id DESC
+                              LIMIT 1
+                            ) latest_decision ON true
+                            LEFT JOIN claim_evidence evidence ON evidence.claim_id = claim.id
+                            WHERE membership.event_id = :event_id
+                              AND item.risk_level = 'R3'
+                              AND item.review_status = 'APPROVED'
+                              AND claim.critical = true
+                              AND claim.claim_type IN (
+                                'deaths','injuries','loss_amount_minor',
+                                'official_direct_causes','responsibility_findings'
+                              )
+                              AND (
+                                latest_decision.action IS NULL
+                                OR latest_decision.action = 'REVOKE'
+                              )
+                            GROUP BY claim.item_id, claim.id, claim.claim_type, claim.created_at
+                            ORDER BY claim.created_at, claim.id
+                            """
+                        ),
+                        {"event_id": event_id},
+                    )
+                ).mappings()
+            )
+            relation_rows = list(
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT relation.id, relation.event_id,
+                                   relation.source_item_id, relation.target_item_id,
+                                   relation.relation_type, relation.confirmed_by,
+                                   relation.confirmed_at
+                            FROM event_relation relation
+                            JOIN intelligence_item source_item
+                              ON source_item.id = relation.source_item_id
+                            JOIN publication source_publication
+                              ON source_publication.item_id = source_item.id
+                             AND source_publication.status IN ('PUBLISHED','WITHDRAWN')
+                            JOIN intelligence_item target_item
+                              ON target_item.id = relation.target_item_id
+                            JOIN publication target_publication
+                              ON target_publication.item_id = target_item.id
+                             AND target_publication.status IN ('PUBLISHED','WITHDRAWN')
+                            WHERE relation.event_id = :event_id
+                              AND source_item.risk_level = 'R3'
+                              AND source_item.review_status = 'APPROVED'
+                              AND target_item.risk_level = 'R3'
+                              AND target_item.review_status = 'APPROVED'
+                            ORDER BY relation.confirmed_at, relation.id
+                            """
+                        ),
+                        {"event_id": event_id},
+                    )
+                ).mappings()
+            )
+
+        confirmed_facts = [_confirmed_fact(row) for row in confirmed_rows]
+        unverified_facts = [_conflicting_fact(row) for row in conflict_rows]
+        unverified_facts.extend(_pending_fact(row) for row in pending_rows)
+        timeline = [
+            EventItem(
+                item_id=row["item_id"],
+                title=row["title"],
+                report_stage=row["report_stage"],
+                incident_status=row["incident_status"],
+                source_name=row["source_name"],
+                source_published_at=row["source_published_at"],
+                original_url=row["original_url"],
+                review_status=row["review_status"],
+                publication_revision_id=row["publication_revision_id"],
+                relation_type=row["relation_type"],
+                evidence_count=row["evidence_count"],
+                document_states=(
+                    [DocumentState.WITHDRAWN] if row["publication_status"] == "WITHDRAWN" else None
+                ),
+            )
+            for row in timeline_rows
+        ]
+        relations = [
+            EventRelationView(
+                id=row["id"],
+                event_id=row["event_id"],
+                from_item_id=row["source_item_id"],
+                to_item_id=row["target_item_id"],
+                relation_type=row["relation_type"],
+                reviewed_by=row["confirmed_by"],
+                reviewed_at=row["confirmed_at"],
+            )
+            for row in relation_rows
+        ]
+        return EventDetail(
+            id=event["id"],
+            title=event["title"],
+            project_name=event["project_name"],
+            occurred_at=event["occurred_at"],
+            region=event["region_name"],
+            hazard_type=event["accident_type"],
+            engineering_type=event["engineering_type"],
+            incident_status=event["incident_status"],
+            rectification_has_open_issues=event["rectification_has_open_issues"],
+            confirmed_facts=confirmed_facts,
+            unverified_facts=unverified_facts,
+            timeline=EventTimeline(event_id=event_id, items=timeline),
+            relations=relations,
+            similar_scenario_tags=list(event["similar_scenario_tags"] or []),
+            prevention_measure_tags=list(event["prevention_measure_tags"] or []),
+        )
 
     async def list_review_tasks(self) -> list[ReviewTaskSummary]:
         async with self._engine.connect() as connection:
@@ -321,7 +799,11 @@ class PostgresIntelligenceQueryService:
             item_row = await _item_row(connection, task_row["item_id"], include_unpublished=True)
             if item_row is None:
                 raise IntelligenceNotFound("review item does not exist")
-            claims, evidence = await _claims_and_evidence(connection, task_row["item_id"])
+            claims, evidence = await _claims_and_evidence(
+                connection,
+                task_row["item_id"],
+                include_candidates=True,
+            )
             return ReviewTaskDetail(
                 task=_review_summary(task_row),
                 item=_item_summary(item_row, reviewer_projection=True),
@@ -691,13 +1173,30 @@ async def _item_row(
     result = await connection.execute(
         text(
             """
-            SELECT i.id, i.title, i.original_url, i.source_published_at,
+            SELECT i.id, i.item_type, i.title, i.original_url, i.source_published_at,
                    i.first_discovered_at, i.activity_at, i.updated_at,
                    i.review_status, s.name AS source_name,
                    p.status AS publication_status,
                    p.current_revision_id AS publication_revision_id,
                    r.classification, r.document_number, r.issuing_authority,
                    r.regulation_status,
+                   case_profile.report_stage,
+                   case_profile.accident_type,
+                   case_profile.engineering_type,
+                   case_profile.occurred_at,
+                   case_profile.region_name,
+                   case_profile.deaths,
+                   case_profile.injuries,
+                   case_profile.loss_amount_minor,
+                   case_profile.loss_currency,
+                   case_profile.incident_status,
+                   case_profile.official_direct_causes,
+                   case_profile.responsibility_findings,
+                   case_profile.rectification_has_open_issues,
+                   case_profile.similar_scenario_tags,
+                   case_profile.prevention_measure_tags,
+                   event_link.event_id,
+                   COALESCE(conflicts.fields, ARRAY[]::text[]) AS conflicted_fields,
                    (SELECT count(*) FROM document_version version
                     WHERE version.document_id = i.primary_document_id) AS version_count,
                    latest_change.change_type AS latest_change_type,
@@ -722,11 +1221,41 @@ async def _item_row(
                    (SELECT count(*) FROM claim_evidence e
                     JOIN claim c ON c.id = e.claim_id
                     WHERE c.item_id = i.id
-                      AND c.verification_status = 'ACCEPTED') AS evidence_count
+                      AND (
+                        c.verification_status = 'ACCEPTED'
+                        OR 'ACCEPT' = (
+                          SELECT decision.action
+                          FROM claim_field_decision decision
+                          WHERE decision.claim_id = c.id
+                          ORDER BY decision.created_at DESC, decision.id DESC
+                          LIMIT 1
+                        )
+                      )
+                       AND (
+                         i.item_type <> 'SAFETY_CASE'
+                         OR (
+                           c.verification_status = 'ACCEPTED'
+                           AND c.critical = false
+                         )
+                         OR e.id = (
+                          SELECT decision.evidence_id
+                          FROM claim_field_decision decision
+                          WHERE decision.claim_id = c.id
+                          ORDER BY decision.created_at DESC, decision.id DESC
+                          LIMIT 1
+                        )
+                      )) AS evidence_count
             FROM intelligence_item i
             JOIN source s ON s.id = i.source_id
-            JOIN safety_regulation_profile r ON r.item_id = i.id
+            LEFT JOIN safety_regulation_profile r ON r.item_id = i.id
+            LEFT JOIN safety_case_profile case_profile ON case_profile.item_id = i.id
+            LEFT JOIN event_item event_link ON event_link.item_id = i.id
             LEFT JOIN publication p ON p.item_id = i.id
+            LEFT JOIN LATERAL (
+                SELECT array_agg(DISTINCT conflict.field_name) AS fields
+                FROM public_safety_case_conflict conflict
+                WHERE conflict.source_item_id = i.id
+            ) conflicts ON true
             LEFT JOIN LATERAL (
                 SELECT COALESCE(state.change_type, change.change_type) AS change_type,
                        COALESCE(state.state, change.review_state) AS review_state
@@ -741,6 +1270,12 @@ async def _item_row(
                 ORDER BY change.created_at DESC, change.id DESC LIMIT 1
             ) latest_change ON true
             WHERE i.id = :item_id
+              AND (:include_unpublished OR i.risk_level <> 'R4')
+              AND (
+                (i.item_type = 'SAFETY_REGULATION' AND r.item_id IS NOT NULL)
+                OR
+                (i.item_type = 'SAFETY_CASE' AND case_profile.item_id IS NOT NULL)
+              )
               AND (:include_unpublished OR i.review_status = 'PENDING'
                    OR p.status IN ('PUBLISHED', 'WITHDRAWN'))
             """
@@ -752,6 +1287,7 @@ async def _item_row(
 
 def _item_summary(row: RowMapping, *, reviewer_projection: bool = False) -> ItemSummary:
     states = _document_states(row)
+    item_type = ItemType(str(row.get("item_type", ItemType.SAFETY_REGULATION.value)))
     published = row["publication_status"] == "PUBLISHED" and row["review_status"] == "APPROVED"
     withdrawn = row["publication_status"] == "WITHDRAWN"
     if (not published or withdrawn) and not reviewer_projection:
@@ -764,7 +1300,7 @@ def _item_summary(row: RowMapping, *, reviewer_projection: bool = False) -> Item
             id=row["id"],
             publication_revision_id=None,
             domain=Channel.SAFETY,
-            content_type=ItemType.SAFETY_REGULATION,
+            content_type=item_type,
             title=row["title"],
             source_name=row["source_name"],
             source_published_at=row["source_published_at"],
@@ -774,11 +1310,59 @@ def _item_summary(row: RowMapping, *, reviewer_projection: bool = False) -> Item
             review_status=ReviewStatus(row["review_status"]),
             **hints,
         )
+    if item_type is ItemType.SAFETY_CASE:
+        hidden_fields = {str(field) for field in row.get("conflicted_fields", []) or []}
+        conflicted_fields = [
+            _critical_safety_field(str(field)) for field in row.get("conflicted_fields", []) or []
+        ]
+        type_summary: SafetyCaseTypeSummary | SafetyRegulationTypeSummary = SafetyCaseTypeSummary(
+            kind="SAFETY_CASE",
+            event_id=row.get("event_id"),
+            report_stage=row.get("report_stage"),
+            incident_status=row.get("incident_status"),
+            hazard_type=row.get("accident_type"),
+            engineering_type=row.get("engineering_type"),
+            occurred_at=row.get("occurred_at"),
+            region=row.get("region_name"),
+            deaths=None if "deaths" in hidden_fields else row.get("deaths"),
+            injuries=None if "injuries" in hidden_fields else row.get("injuries"),
+            loss_amount_minor=(
+                None if "loss_amount_minor" in hidden_fields else row.get("loss_amount_minor")
+            ),
+            loss_currency=(
+                None if "loss_amount_minor" in hidden_fields else row.get("loss_currency")
+            ),
+            conflicted_fields=conflicted_fields or None,
+            official_direct_causes=(
+                None
+                if "official_direct_causes" in hidden_fields
+                else row.get("official_direct_causes")
+            ),
+            responsibility_findings=(
+                None
+                if "responsibility_findings" in hidden_fields
+                else row.get("responsibility_findings")
+            ),
+            rectification_has_open_issues=row.get("rectification_has_open_issues"),
+            similar_scenario_tags=row.get("similar_scenario_tags") or None,
+            prevention_measure_tags=row.get("prevention_measure_tags") or None,
+        )
+        tags = ["安全案例", str(row.get("report_stage") or "待核实")]
+    else:
+        type_summary = SafetyRegulationTypeSummary(
+            kind="SAFETY_REGULATION",
+            document_number=row["document_number"],
+            issuing_authority=row["issuing_authority"],
+            regulation_status=row["regulation_status"],
+            classification=row["classification"],
+        )
+        tags = ["安全规定", "部门规章"]
+
     return ItemSummary(
         id=row["id"],
         publication_revision_id=row["publication_revision_id"] if published else None,
         domain=Channel.SAFETY,
-        content_type=ItemType.SAFETY_REGULATION,
+        content_type=item_type,
         title=row["title"],
         source_name=row["source_name"],
         source_published_at=row["source_published_at"],
@@ -797,18 +1381,23 @@ def _item_summary(row: RowMapping, *, reviewer_projection: bool = False) -> Item
         ),
         evidence_status=EvidenceStatus.VERIFIED,
         evidence_count=row["evidence_count"],
-        tags=["安全规定", "部门规章"],
-        type_summary=TypeSummary(
-            kind="SAFETY_REGULATION",
-            document_number=row["document_number"],
-            issuing_authority=row["issuing_authority"],
-            regulation_status=row["regulation_status"],
-            classification=row["classification"],
-        ),
+        tags=tags,
+        type_summary=type_summary,
         detail_available=True,
         document_states=states or None,
         has_version_history=(row["version_count"] > 1) or None,
     )
+
+
+def _critical_safety_field(field_name: str) -> CriticalSafetyField:
+    mapping = {
+        "deaths": CriticalSafetyField.DEATH_COUNT,
+        "injuries": CriticalSafetyField.INJURY_COUNT,
+        "loss_amount_minor": CriticalSafetyField.LOSS_AMOUNT_MINOR,
+        "official_direct_causes": CriticalSafetyField.OFFICIAL_DIRECT_CAUSES,
+        "responsibility_findings": CriticalSafetyField.RESPONSIBILITY_FINDINGS,
+    }
+    return mapping[field_name]
 
 
 def _document_states(row: RowMapping) -> list[DocumentState]:
@@ -828,6 +1417,8 @@ def _document_states(row: RowMapping) -> list[DocumentState]:
 async def _claims_and_evidence(
     connection: AsyncConnection,
     item_id: UUID,
+    *,
+    include_candidates: bool = False,
 ) -> tuple[list[ClaimView], list[EvidenceView]]:
     rows = list(
         (
@@ -835,25 +1426,68 @@ async def _claims_and_evidence(
                 text(
                     """
                     SELECT c.id AS claim_id, c.claim_type, c.literal_value,
-                           c.document_version_id,
+                           c.document_version_id, c.verification_status, c.critical,
                            e.id AS evidence_id, e.paragraph_id, e.char_start,
                            e.char_end, e.excerpt, e.excerpt_sha256, e.original_url,
                            e.locator_type, e.page_number, e.document_text_block_id,
                            e.document_table_cell_id, e.x0_mpt, e.y0_mpt,
                            e.x1_mpt, e.y1_mpt, e.confidence_bps,
-                           cell.row_index, cell.column_index
+                           cell.row_index, cell.column_index,
+                           latest_decision.action AS field_decision_action,
+                           latest_decision.evidence_id AS field_decision_evidence_id
                     FROM claim c
                     JOIN claim_evidence e ON e.claim_id = c.id
                     JOIN intelligence_item i ON i.id = c.item_id
                     LEFT JOIN document_table_cell cell
                       ON cell.id = e.document_table_cell_id
+                    LEFT JOIN LATERAL (
+                        SELECT decision.action, decision.evidence_id
+                        FROM claim_field_decision decision
+                        WHERE decision.claim_id = c.id
+                        ORDER BY decision.created_at DESC, decision.id DESC
+                        LIMIT 1
+                    ) latest_decision ON true
                     WHERE c.item_id = :item_id
                       AND c.document_version_id = i.current_document_version_id
-                      AND c.verification_status = 'ACCEPTED'
+                      AND (
+                        (
+                          :include_candidates
+                          AND i.item_type = 'SAFETY_CASE'
+                          AND c.claim_type IN (
+                            'deaths','injuries','loss_amount_minor',
+                            'official_direct_causes','responsibility_findings'
+                          )
+                        )
+                        OR c.verification_status = 'ACCEPTED'
+                        OR latest_decision.action = 'ACCEPT'
+                      )
+                      AND (
+                        i.item_type <> 'SAFETY_CASE'
+                        OR :include_candidates
+                        OR (
+                          c.verification_status = 'ACCEPTED'
+                          AND c.critical = false
+                        )
+                        OR e.id = latest_decision.evidence_id
+                      )
+                      AND (
+                        i.item_type <> 'SAFETY_CASE'
+                        OR :include_candidates
+                        OR (
+                          c.verification_status = 'ACCEPTED'
+                          AND c.critical = false
+                        )
+                        OR EXISTS (
+                          SELECT 1
+                          FROM public_safety_case_accepted_claim effective
+                          WHERE effective.claim_id = c.id
+                            AND effective.evidence_id = e.id
+                        )
+                      )
                     ORDER BY c.created_at, c.id, e.created_at, e.id
                     """
                 ),
-                {"item_id": item_id},
+                {"item_id": item_id, "include_candidates": include_candidates},
             )
         ).mappings()
     )
@@ -862,6 +1496,11 @@ async def _claims_and_evidence(
         "issuing_authority": "发布机关",
         "document_number": "文号",
         "published_at": "发布日期",
+        "deaths": "死亡人数",
+        "injuries": "受伤人数",
+        "loss_amount_minor": "直接经济损失",
+        "official_direct_causes": "正式认定原因",
+        "responsibility_findings": "责任认定",
     }
     evidence_by_claim: dict[UUID, list[UUID]] = {}
     for row in rows:
@@ -880,6 +1519,15 @@ async def _claims_and_evidence(
                 label=labels.get(row["claim_type"], row["claim_type"]),
                 value=str(row["literal_value"]),
                 evidence_ids=evidence_by_claim[claim_id],
+                decision_status=(
+                    _claim_decision_status(
+                        row["field_decision_action"],
+                        verification_status=row["verification_status"],
+                        critical=row["critical"],
+                    )
+                    if include_candidates
+                    else None
+                ),
             )
         )
     evidence = [
@@ -898,6 +1546,140 @@ async def _claims_and_evidence(
         for row in rows
     ]
     return claims, evidence
+
+
+def _claim_decision_status(
+    action: object,
+    *,
+    verification_status: object,
+    critical: object,
+) -> Literal["PENDING", "ACCEPTED", "REJECTED"]:
+    if action == "ACCEPT":
+        return "ACCEPTED"
+    if action == "REJECT":
+        return "REJECTED"
+    if verification_status == "ACCEPTED" and critical is False:
+        return "ACCEPTED"
+    return "PENDING"
+
+
+_SAFETY_FACT_FIELDS = {
+    "deaths": SafetyCaseFactField.DEATH_COUNT,
+    "injuries": SafetyCaseFactField.INJURY_COUNT,
+    "loss_amount_minor": SafetyCaseFactField.LOSS_AMOUNT_MINOR,
+    "official_direct_causes": SafetyCaseFactField.OFFICIAL_DIRECT_CAUSES,
+    "responsibility_findings": SafetyCaseFactField.RESPONSIBILITY_FINDINGS,
+}
+
+_SAFETY_FACT_LABELS = {
+    "deaths": "死亡人数",
+    "injuries": "受伤人数",
+    "loss_amount_minor": "直接经济损失",
+    "official_direct_causes": "正式认定原因",
+    "responsibility_findings": "责任认定",
+}
+
+
+def _confirmed_fact(row: RowMapping) -> ConfirmedFact:
+    field_name = str(row["field_name"])
+    return ConfirmedFact(
+        source_item_id=row["source_item_id"],
+        claim_id=row["claim_id"],
+        field=_SAFETY_FACT_FIELDS[field_name],
+        label=_SAFETY_FACT_LABELS[field_name],
+        value=_safety_fact_value(
+            field_name,
+            row["literal_value"],
+            loss_currency=row["loss_currency"],
+        ),
+        unit="人" if field_name in {"deaths", "injuries"} else None,
+        evidence_ids=[row["evidence_id"]],
+        reviewed_at=row["reviewed_at"],
+    )
+
+
+def _conflicting_fact(row: RowMapping) -> UnverifiedFact:
+    field_name = str(row["field_name"])
+    return UnverifiedFact(
+        source_item_id=row["source_item_id"],
+        claim_id=row["claim_id"],
+        conflict_id=row["conflict_id"],
+        field=_SAFETY_FACT_FIELDS[field_name],
+        label=_SAFETY_FACT_LABELS[field_name],
+        status="CONFLICTING",
+        reason="正式来源的关键事实存在冲突。候选值已隐藏，须由其他审核人决定。",
+        evidence_ids=list(row["evidence_ids"] or []),
+    )
+
+
+def _pending_fact(row: RowMapping) -> UnverifiedFact:
+    field_name = str(row["field_name"])
+    return UnverifiedFact(
+        source_item_id=row["source_item_id"],
+        claim_id=row["claim_id"],
+        field=_SAFETY_FACT_FIELDS[field_name],
+        label=_SAFETY_FACT_LABELS[field_name],
+        status="PENDING_REVIEW",
+        reason="关键事实尚未完成人工逐字段审核。",
+        evidence_ids=list(row["evidence_ids"] or []),
+    )
+
+
+def _safety_fact_value(
+    field_name: str,
+    value: object,
+    *,
+    loss_currency: object = None,
+) -> str | int | list[str]:
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return list(value)
+    raw = str(value)
+    if field_name in {"deaths", "injuries"}:
+        return int(raw)
+    if field_name == "loss_amount_minor":
+        return _format_minor_currency(int(raw), str(loss_currency or "UNKNOWN"))
+    if isinstance(value, str) and raw.startswith("["):
+        decoded = json.loads(raw)
+        if isinstance(decoded, list) and all(isinstance(item, str) for item in decoded):
+            return decoded
+    return raw
+
+
+def _format_minor_currency(amount_minor: int, currency: str) -> str:
+    major, minor = divmod(amount_minor, 100)
+    currency_label = "人民币元" if currency == "CNY" else currency
+    return f"{major:,}.{minor:02d} {currency_label}"
+
+
+def _render_safety_case_metrics(
+    *,
+    profiles: list[Mapping[str, Any]],
+    conflicts: list[Mapping[str, Any]],
+    pending_event_candidates: int,
+    pending_critical_claims: int,
+) -> str:
+    rendered = (
+        "# TYPE srbg_safety_event_candidates_pending gauge\n"
+        f"srbg_safety_event_candidates_pending {pending_event_candidates}\n"
+        "# TYPE srbg_safety_critical_claims_pending gauge\n"
+        f"srbg_safety_critical_claims_pending {pending_critical_claims}\n"
+        "# TYPE srbg_safety_case_items gauge\n"
+    )
+    for profile in profiles:
+        rendered += (
+            "srbg_safety_case_items{"
+            f'report_stage="{profile["report_stage"]}",'
+            f'incident_status="{profile["incident_status"]}"'
+            f"}} {profile['count']}\n"
+        )
+    rendered += "# TYPE srbg_safety_claim_conflicts_pending gauge\n"
+    for conflict in conflicts:
+        rendered += (
+            "srbg_safety_claim_conflicts_pending{"
+            f'field_name="{conflict["field_name"]}"'
+            f"}} {conflict['count']}\n"
+        )
+    return rendered
 
 
 def _evidence_locator(

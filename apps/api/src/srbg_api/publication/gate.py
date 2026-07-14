@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypeGuard
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,7 +21,7 @@ class GateResult:
 class PublicationGate:
     def __init__(self, policy: dict[str, Any], schema: dict[str, Any], policy_sha256: str) -> None:
         if (
-            policy.get("version") not in {"2.0.0", "3.0.0"}
+            policy.get("version") not in {"2.0.0", "3.0.0", "4.0.0"}
             or policy.get("default_decision") != "DENY"
         ):
             raise ValueError("publication gate must be a supported default-deny policy")
@@ -68,6 +68,7 @@ class PublicationGate:
         review = _mapping(server.get("review"))
         pipeline = _mapping(server.get("pipeline"))
         round03 = _mapping(server.get("round03"))
+        round04 = _mapping(server.get("round04"))
 
         if item.get("is_demo") is True or item.get("publishable") is not True:
             reasons.append("DEMO_OR_NONPUBLISHABLE")
@@ -98,7 +99,8 @@ class PublicationGate:
             reasons.append("EVIDENCE_REFERENTIAL_INTEGRITY_FAILED")
         if _number(evidence.get("accepted_critical_claim_coverage_percent")) < 100:
             reasons.append("CRITICAL_CLAIM_COVERAGE_INCOMPLETE")
-        if _number(evidence.get("unresolved_conflict_count")) > 0:
+        unresolved_conflicts = evidence.get("unresolved_conflict_count")
+        if not _is_nonnegative_count(unresolved_conflicts) or unresolved_conflicts > 0:
             reasons.append("UNRESOLVED_CLAIM_CONFLICT")
         if security.get("resolution_status") not in {"NONE", "RESOLVED_BY_SECURITY_REVIEW"}:
             reasons.append("PROMPT_INJECTION_UNRESOLVED")
@@ -110,6 +112,8 @@ class PublicationGate:
             reasons.append("CANDIDATE_SCHEMA_INVALID")
         if pipeline.get("semantic_safety_scan_pass") is not True:
             reasons.append("SEMANTIC_SAFETY_SCAN_FAILED")
+        if review.get("risk_level") == "R4":
+            reasons.append("R4_NOT_PUBLISHABLE")
 
         if item.get("item_type") == "SAFETY_REGULATION" or review.get("risk_level") == "R3":
             if review.get("decision_status") != "APPROVED" or not review.get("decision_id"):
@@ -119,18 +123,21 @@ class PublicationGate:
             if review.get("submitted_by") == review.get("decided_by"):
                 reasons.append("DUTIES_NOT_SEPARATED")
 
-        if self.policy_version == "3.0.0":
+        if self.policy_version in {"3.0.0", "4.0.0"}:
             if document.get("processing_state") != "READY":
                 reasons.append("DOCUMENT_NOT_READY")
             if document.get("raw_security_status") != "CLEAN":
                 reasons.append("RAW_OBJECT_NOT_CLEAN")
             if _number(evidence.get("minimum_critical_ocr_confidence_bps")) < 9500:
                 reasons.append("OCR_CRITICAL_CONFIDENCE_TOO_LOW")
-            if _number(round03.get("unresolved_relation_candidate_count")) > 0:
+            unresolved_relations = round03.get("unresolved_relation_candidate_count")
+            if not _is_nonnegative_count(unresolved_relations) or unresolved_relations > 0:
                 reasons.append("RELATION_CANDIDATE_UNREVIEWED")
-            if _number(round03.get("unreviewed_regulation_status_candidate_count")) > 0:
+            unreviewed_status = round03.get("unreviewed_regulation_status_candidate_count")
+            if not _is_nonnegative_count(unreviewed_status) or unreviewed_status > 0:
                 reasons.append("REGULATION_STATUS_CANDIDATE_UNREVIEWED")
-            if _number(round03.get("unsafe_attachment_count")) > 0:
+            unsafe_attachments = round03.get("unsafe_attachment_count")
+            if not _is_nonnegative_count(unsafe_attachments) or unsafe_attachments > 0:
                 reasons.append("ATTACHMENT_NOT_CLEAN")
             if round03.get("summary_claim_refs_valid") is not True:
                 reasons.append("SUMMARY_CLAIM_REFS_INVALID")
@@ -141,6 +148,42 @@ class PublicationGate:
                 reasons.append("LEGAL_EFFECT_NOT_AUTHORIZED")
         elif item.get("regulation_status", "UNKNOWN") != "UNKNOWN":
             reasons.append("LEGAL_EFFECT_NOT_AUTHORIZED")
+
+        if self.policy_version == "4.0.0" and item.get("item_type") == "SAFETY_CASE":
+            if round04.get("event_assignment_confirmed") is not True:
+                reasons.append("SAFETY_CASE_EVENT_UNCONFIRMED")
+            if round04.get("profile_metadata_claims_authorized") is not True:
+                reasons.append("SAFETY_CASE_PROFILE_METADATA_UNAUTHORIZED")
+            unreviewed_critical = round04.get("unreviewed_critical_claim_count")
+            if not _is_nonnegative_count(unreviewed_critical) or unreviewed_critical > 0:
+                reasons.append("SAFETY_CASE_CRITICAL_CLAIM_UNREVIEWED")
+            casualty_conflicts = round04.get("unresolved_casualty_loss_conflict_count")
+            if not _is_nonnegative_count(casualty_conflicts) or casualty_conflicts > 0:
+                reasons.append("SAFETY_CASE_CASUALTY_LOSS_CONFLICT")
+            if round04.get("casualty_loss_claims_authorized") is not True:
+                reasons.append("SAFETY_CASE_CASUALTY_LOSS_NOT_AUTHORIZED")
+            _check_formal_basis(
+                round04,
+                state_field="cause_basis_state",
+                evidence_field="formal_cause_evidence_authorized",
+                reason="SAFETY_CASE_CAUSE_NOT_FORMALLY_AUTHORIZED",
+                reasons=reasons,
+            )
+            _check_formal_basis(
+                round04,
+                state_field="responsibility_basis_state",
+                evidence_field="formal_responsibility_evidence_authorized",
+                reason="SAFETY_CASE_RESPONSIBILITY_NOT_FORMALLY_AUTHORIZED",
+                reasons=reasons,
+            )
+            if round04.get("controlled_prevention_tags_only") is not True:
+                reasons.append("SAFETY_CASE_UNCONTROLLED_PREVENTION_CONTENT")
+            operational_instructions = round04.get("operational_instruction_count")
+            if (
+                not _is_nonnegative_count(operational_instructions)
+                or operational_instructions > 0
+            ):
+                reasons.append("SAFETY_CASE_OPERATIONAL_INSTRUCTION_FORBIDDEN")
 
         if action == "SELECTED":
             scores = server.get("scores")
@@ -165,8 +208,30 @@ def _mapping(value: Any) -> Mapping[str, Any]:
     return value if isinstance(value, Mapping) else {}
 
 
+def _check_formal_basis(
+    round04: Mapping[str, Any],
+    *,
+    state_field: str,
+    evidence_field: str,
+    reason: str,
+    reasons: list[str],
+) -> None:
+    state = round04.get(state_field)
+    if state == "NO_FORMAL_BASIS":
+        return
+    if state not in {"FORMAL_REVIEWED_NO_FINDING", "FORMAL_REVIEWED_FINDINGS"}:
+        reasons.append(reason)
+        return
+    if round04.get(evidence_field) is not True:
+        reasons.append(reason)
+
+
 def _number(value: Any) -> float:
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0.0
+
+
+def _is_nonnegative_count(value: object) -> TypeGuard[int]:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
 def _schema_errors(value: Any, schema: Mapping[str, Any], path: str) -> list[str]:

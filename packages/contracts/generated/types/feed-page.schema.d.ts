@@ -33,6 +33,7 @@ export type SourcePublishedAt = string | null
 export type SourceRole = string | null
 export type Tags = string[] | null
 export type Title = string
+export type TypeSummary = (SafetyRegulationTypeSummary | SafetyCaseTypeSummary) | null
 export type RegulationClassification =
   'LAW' | 'ADMINISTRATIVE_REGULATION' | 'DEPARTMENT_RULE' | 'NORMATIVE_DOCUMENT' | 'STANDARD_OR_GUIDE'
 export type DocumentNumber = string
@@ -40,6 +41,61 @@ export type IssuingAuthority = string
 export type Kind = 'SAFETY_REGULATION'
 export type RegulationStatus =
   'DRAFT' | 'NOT_EFFECTIVE' | 'EFFECTIVE' | 'AMENDED' | 'REPEALED' | 'SUPERSEDED' | 'EXPIRED' | 'UNKNOWN'
+export type ConflictedFields = CriticalSafetyField[] | null
+export type CriticalSafetyField =
+  'DEATH_COUNT' | 'INJURY_COUNT' | 'LOSS_AMOUNT_MINOR' | 'OFFICIAL_DIRECT_CAUSES' | 'RESPONSIBILITY_FINDINGS'
+export type Deaths = number | null
+export type EngineeringType = string | null
+export type EventId = string | null
+export type HazardType = string | null
+export type IncidentStatus =
+  | 'UNVERIFIED_LEAD'
+  | 'INITIAL_OFFICIAL_REPORT'
+  | 'UNDER_INVESTIGATION'
+  | 'FINAL_INVESTIGATION_REPORT'
+  | 'ENFORCEMENT_DECISION'
+  | 'RECTIFICATION_FOLLOW_UP'
+  | 'CLOSED'
+  | 'CORRECTED'
+  | 'WITHDRAWN'
+export type Injuries = number | null
+export type Kind1 = 'SAFETY_CASE'
+export type LossAmountMinor = number | null
+export type LossCurrency = string | null
+export type OccurredAt = string | null
+/**
+ * null means no formal investigation basis; an empty list means formal evidence was reviewed and stated no direct-cause finding
+ */
+export type OfficialDirectCauses = string[] | null
+export type PreventionMeasureTags = PreventionMeasureTag[] | null
+export type PreventionMeasureTag =
+  | 'HAZARD_IDENTIFICATION'
+  | 'MONITORING_AND_EARLY_WARNING'
+  | 'INSPECTION_AND_MAINTENANCE'
+  | 'DESIGN_REVIEW'
+  | 'CONSTRUCTION_QUALITY_CONTROL'
+  | 'EMERGENCY_PREPAREDNESS'
+  | 'TRAFFIC_OPERATION_RISK_CONTROL'
+  | 'RESPONSIBILITY_AND_OVERSIGHT'
+/**
+ * Reviewed rectification evaluation result; null means not established
+ */
+export type RectificationHasOpenIssues = boolean | null
+export type Region = string | null
+export type SafetyCaseReportStage =
+  'INITIAL_REPORT' | 'FOLLOW_UP_REPORT' | 'FINAL_INVESTIGATION' | 'ENFORCEMENT' | 'RECTIFICATION'
+/**
+ * null means no formal investigation or enforcement basis; an empty list means formal evidence was reviewed and stated no responsibility finding
+ */
+export type ResponsibilityFindings = string[] | null
+export type SimilarScenarioTags = SimilarScenarioTag[] | null
+export type SimilarScenarioTag =
+  | 'HIGHWAY_OPERATION_GEOLOGICAL_RISK'
+  | 'ROADBED_SLOPE_INSTABILITY'
+  | 'BRIDGE_APPROACH_TRANSITION'
+  | 'EXTREME_WEATHER_EXPOSURE'
+  | 'TEMPORARY_STRUCTURE_FAILURE'
+  | 'TUNNEL_GEOLOGICAL_RISK'
 export type Items = ItemSummary[]
 export type NextCursor = string | null
 export type Code = string
@@ -79,14 +135,37 @@ export interface ItemSummary {
   source_role?: SourceRole
   tags?: Tags
   title: Title
-  type_summary?: TypeSummary | null
+  type_summary?: TypeSummary
 }
-export interface TypeSummary {
+export interface SafetyRegulationTypeSummary {
   classification: RegulationClassification
   document_number: DocumentNumber
   issuing_authority: IssuingAuthority
   kind: Kind
   regulation_status: RegulationStatus
+}
+/**
+ * Reviewed safety-case projection; only ``kind`` is safe for an R3 stub.
+ */
+export interface SafetyCaseTypeSummary {
+  conflicted_fields?: ConflictedFields
+  deaths?: Deaths
+  engineering_type?: EngineeringType
+  event_id?: EventId
+  hazard_type?: HazardType
+  incident_status?: IncidentStatus | null
+  injuries?: Injuries
+  kind: Kind1
+  loss_amount_minor?: LossAmountMinor
+  loss_currency?: LossCurrency
+  occurred_at?: OccurredAt
+  official_direct_causes?: OfficialDirectCauses
+  prevention_measure_tags?: PreventionMeasureTags
+  rectification_has_open_issues?: RectificationHasOpenIssues
+  region?: Region
+  report_stage?: SafetyCaseReportStage | null
+  responsibility_findings?: ResponsibilityFindings
+  similar_scenario_tags?: SimilarScenarioTags
 }
 export interface FeedNotice {
   code: Code

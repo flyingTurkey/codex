@@ -1,6 +1,14 @@
 <script setup lang="ts">
-import type { ItemSummary } from '@srbg/contracts'
+import type {
+  ItemSummary,
+  SafetyCaseTypeSummary,
+  SafetyRegulationTypeSummary,
+} from '@srbg/contracts'
+import type { StatusBadgeTone } from '@srbg/ui'
+import { StatusBadge } from '@srbg/ui'
 import { computed } from 'vue'
+
+import { safetyEngineeringLabel, safetyHazardLabel } from '../utils/safety-case-labels'
 
 const props = defineProps<{ item: ItemSummary }>()
 
@@ -25,13 +33,76 @@ const documentStateLabels = {
   SOURCE_UNAVAILABLE: '原文失效',
 } as const
 
-const documentStates = computed(() => props.item.document_states ?? [])
+const documentStates = computed(() => {
+  const states = [...(props.item.document_states ?? [])]
+  if (props.item.publication_status === 'WITHDRAWN' && !states.includes('WITHDRAWN')) {
+    states.push('WITHDRAWN')
+  }
+  return states
+})
+const isWithdrawn = computed(() => documentStates.value.includes('WITHDRAWN'))
+const originalLinkLabel = computed(() => {
+  if (isWithdrawn.value) return '查看撤回与存档信息'
+  if (documentStates.value.includes('SOURCE_UNAVAILABLE')) return '原文失效，查看存档信息'
+  return '查看官方原文'
+})
+
+const safetyCaseSummary = computed<SafetyCaseTypeSummary | null>(() => {
+  const summary = props.item.type_summary
+  return summary?.kind === 'SAFETY_CASE' ? summary : null
+})
+
+const regulationSummary = computed<SafetyRegulationTypeSummary | null>(() => {
+  const summary = props.item.type_summary
+  return summary?.kind === 'SAFETY_REGULATION' ? summary : null
+})
+
+const caseStatusMap = {
+  CLOSED: { label: '已结案', tone: 'verified' },
+  CORRECTED: { label: '已更正', tone: 'info' },
+  ENFORCEMENT_DECISION: { label: '处罚问责', tone: 'verified' },
+  FINAL_INVESTIGATION_REPORT: { label: '正式调查', tone: 'verified' },
+  INITIAL_OFFICIAL_REPORT: { label: '官方初报', tone: 'pending' },
+  RECTIFICATION_FOLLOW_UP: { label: '整改跟进', tone: 'pending' },
+  UNDER_INVESTIGATION: { label: '调查中', tone: 'pending' },
+  UNVERIFIED_LEAD: { label: '线索待核实', tone: 'conflict' },
+  WITHDRAWN: { label: '已撤回', tone: 'withdrawn' },
+} as const satisfies Record<
+  NonNullable<SafetyCaseTypeSummary['incident_status']>,
+  { label: string; tone: StatusBadgeTone }
+>
+
+const caseStatus = computed<{ label: string; tone: StatusBadgeTone } | null>(() => {
+  const summary = safetyCaseSummary.value
+  if (!summary?.incident_status) return null
+  if (summary.incident_status === 'RECTIFICATION_FOLLOW_UP' && summary.rectification_has_open_issues) {
+    return { label: '整改评估完成但仍有问题', tone: 'conflict' }
+  }
+  return caseStatusMap[summary.incident_status]
+})
+
+function hasValue(value: unknown): boolean {
+  return value !== null && value !== undefined && value !== ''
+}
+
+function formatLoss(amountMinor: number, currency: string): string {
+  const major = Math.trunc(amountMinor / 100)
+  const minor = amountMinor % 100
+  const formattedMajor = new Intl.NumberFormat('zh-CN').format(major)
+  const formattedMinor = minor === 0 ? '' : `.${String(minor).padStart(2, '0')}`
+  return `${formattedMajor}${formattedMinor} ${currency === 'CNY' ? '人民币元' : currency}`
+}
 </script>
 
 <template>
   <article class="intelligence-card" :data-review-status="item.review_status">
     <div class="intelligence-card__meta">
-      <span class="intelligence-card__type">安全规定</span>
+      <span
+        class="intelligence-card__type"
+        :class="{ 'is-safety-case': item.content_type === 'SAFETY_CASE' }"
+      >
+        {{ item.content_type === 'SAFETY_CASE' ? '安全案例' : '安全规定' }}
+      </span>
       <span
         v-for="state in documentStates"
         :key="state"
@@ -49,6 +120,15 @@ const documentStates = computed(() => props.item.document_states ?? [])
         </span>
         <span class="intelligence-card__badge is-reviewed">已人工复核</span>
       </template>
+      <span v-if="caseStatus" data-testid="case-status">
+        <StatusBadge :tone="caseStatus.tone" :label="caseStatus.label" />
+      </span>
+      <span
+        v-if="safetyCaseSummary?.conflicted_fields?.length"
+        data-testid="case-conflict"
+      >
+        <StatusBadge tone="conflict" label="冲突待核实" />
+      </span>
     </div>
 
     <h3 class="intelligence-card__title">
@@ -66,34 +146,90 @@ const documentStates = computed(() => props.item.document_states ?? [])
       </div>
     </dl>
 
-    <template v-if="item.publication_revision_id && item.type_summary">
+    <template v-if="!isWithdrawn && item.publication_revision_id && regulationSummary">
       <dl class="intelligence-card__facts">
         <div>
           <dt>文号</dt>
-          <dd>{{ item.type_summary.document_number }}</dd>
+          <dd>{{ regulationSummary.document_number }}</dd>
         </div>
         <div>
           <dt>发布机关</dt>
-          <dd>{{ item.type_summary.issuing_authority }}</dd>
+          <dd>{{ regulationSummary.issuing_authority }}</dd>
         </div>
         <div>
           <dt>效力状态</dt>
           <dd>
-            {{ item.type_summary.regulation_status === 'UNKNOWN' ? '效力状态待核验' : item.type_summary.regulation_status }}
+            {{ regulationSummary.regulation_status === 'UNKNOWN' ? '效力状态待核验' : regulationSummary.regulation_status }}
           </dd>
         </div>
       </dl>
     </template>
 
+    <template v-else-if="!isWithdrawn && item.publication_revision_id && safetyCaseSummary">
+      <dl class="intelligence-card__facts is-safety-case">
+        <div v-if="safetyCaseSummary.engineering_type">
+          <dt>工程类型</dt>
+          <dd>{{ safetyEngineeringLabel(safetyCaseSummary.engineering_type) }}</dd>
+        </div>
+        <div v-if="safetyCaseSummary.hazard_type">
+          <dt>事故类型</dt>
+          <dd>{{ safetyHazardLabel(safetyCaseSummary.hazard_type) }}</dd>
+        </div>
+        <div v-if="safetyCaseSummary.occurred_at">
+          <dt>发生时间</dt>
+          <dd>{{ formatDate(safetyCaseSummary.occurred_at) }}</dd>
+        </div>
+        <div v-if="safetyCaseSummary.region">
+          <dt>地区</dt>
+          <dd>{{ safetyCaseSummary.region }}</dd>
+        </div>
+        <div v-if="hasValue(safetyCaseSummary.deaths)">
+          <dt>死亡人数</dt>
+          <dd>{{ safetyCaseSummary.deaths }} 人</dd>
+        </div>
+        <div v-if="hasValue(safetyCaseSummary.injuries)">
+          <dt>受伤人数</dt>
+          <dd>{{ safetyCaseSummary.injuries }} 人</dd>
+        </div>
+        <div
+          v-if="safetyCaseSummary.loss_amount_minor !== null
+            && safetyCaseSummary.loss_amount_minor !== undefined
+            && safetyCaseSummary.loss_currency"
+        >
+          <dt>直接经济损失</dt>
+          <dd>
+            {{ formatLoss(safetyCaseSummary.loss_amount_minor, safetyCaseSummary.loss_currency) }}
+          </dd>
+        </div>
+        <div v-if="safetyCaseSummary.official_direct_causes?.length">
+          <dt>正式原因</dt>
+          <dd>{{ safetyCaseSummary.official_direct_causes.length }} 项已审核认定</dd>
+        </div>
+        <div v-if="safetyCaseSummary.responsibility_findings?.length">
+          <dt>责任认定</dt>
+          <dd>{{ safetyCaseSummary.responsibility_findings.length }} 项已审核认定</dd>
+        </div>
+      </dl>
+    </template>
+
     <footer class="intelligence-card__footer">
-      <a :href="item.original_url" target="_blank" rel="noreferrer">查看官方原文</a>
+      <a :href="item.original_url" target="_blank" rel="noreferrer">
+        {{ originalLinkLabel }}
+      </a>
+      <a
+        v-if="safetyCaseSummary?.event_id"
+        :href="`/events/${safetyCaseSummary.event_id}`"
+        data-testid="event-link"
+      >
+        查看事件时间线
+      </a>
       <button
         v-if="item.publication_revision_id && item.evidence_status === 'VERIFIED'"
         type="button"
         data-testid="evidence-trigger"
         @click="emit('evidence', item.id)"
       >
-        查看证据（{{ item.evidence_count ?? 0 }}）
+        {{ isWithdrawn ? '查看历史证据' : '查看证据' }}（{{ item.evidence_count ?? 0 }}）
       </button>
     </footer>
   </article>
@@ -126,6 +262,16 @@ const documentStates = computed(() => props.item.document_states ?? [])
   font-weight: var(--font-weight-semibold);
   background: var(--color-surfaceMuted);
   border-radius: var(--radius-pill);
+}
+
+.intelligence-card__type {
+  color: var(--color-safetyRegulation-700);
+  background: var(--color-safetyRegulation-50);
+}
+
+.intelligence-card__type.is-safety-case {
+  color: var(--color-safetyCase-700);
+  background: var(--color-safetyCase-50);
 }
 
 .intelligence-card__badge.is-pending {
@@ -186,6 +332,11 @@ const documentStates = computed(() => props.item.document_states ?? [])
   border-radius: var(--radius-md);
 }
 
+.intelligence-card__facts.is-safety-case {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  background: var(--color-safetyCase-50);
+}
+
 .intelligence-card dl div {
   min-width: 0;
 }
@@ -225,8 +376,15 @@ const documentStates = computed(() => props.item.document_states ?? [])
     padding: var(--spacing-4);
   }
 
-  .intelligence-card__source {
+  .intelligence-card__source,
+  .intelligence-card__facts.is-safety-case {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 40.001rem) and (max-width: 63.999rem) {
+  .intelligence-card__facts.is-safety-case {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 </style>

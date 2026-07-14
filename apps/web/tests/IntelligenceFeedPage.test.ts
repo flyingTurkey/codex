@@ -11,6 +11,34 @@ function getIntelligenceFeedPage(): Component | undefined {
 }
 
 describe('IntelligenceFeedPage', () => {
+  it('keeps the /all content-type filter usable when the parent does not bind v-model', async () => {
+    const IntelligenceFeedPage = getIntelligenceFeedPage()
+    expect(IntelligenceFeedPage, 'IntelligenceFeedPage.vue should exist').toBeDefined()
+    if (!IntelligenceFeedPage) return
+
+    const wrapper = mount(IntelligenceFeedPage, {
+      props: {
+        contentTypeOptions: [
+          { label: 'All', value: 'all' },
+          { label: 'Regulations', value: 'SAFETY_REGULATION' },
+        ],
+        emptyTitle: 'No items',
+        showFilters: true,
+        title: 'All intelligence',
+      },
+    })
+
+    const allButton = wrapper.get('[data-content-type="all"]')
+    const regulationButton = wrapper.get('[data-content-type="SAFETY_REGULATION"]')
+    expect(allButton.attributes('aria-pressed')).toBe('true')
+
+    await regulationButton.trigger('click')
+
+    expect(regulationButton.attributes('aria-pressed')).toBe('true')
+    expect(allButton.attributes('aria-pressed')).toBe('false')
+    expect(wrapper.emitted('update:contentType')).toEqual([['SAFETY_REGULATION']])
+  })
+
   it('combines a page header, explicit status, and honest empty state', () => {
     const IntelligenceFeedPage = getIntelligenceFeedPage()
     expect(IntelligenceFeedPage, 'IntelligenceFeedPage.vue should exist').toBeDefined()
@@ -26,7 +54,7 @@ describe('IntelligenceFeedPage', () => {
         updatedAt: '2026-07-13T01:00:00.000Z',
         updatedLabel: '更新时间',
       },
-      slots: { 'status-detail': '<span>API v1 · Schema 1.0.0</span>' },
+      slots: { 'status-detail': '<span>API v1 · Schema 1.1.0</span>' },
     })
 
     expect(wrapper.findAll('h1')).toHaveLength(1)
@@ -34,7 +62,7 @@ describe('IntelligenceFeedPage', () => {
     expect(wrapper.text()).toContain('后续轮次接入')
     expect(wrapper.get('time').attributes('datetime')).toBe('2026-07-13T01:00:00.000Z')
     expect(wrapper.get('time').text()).toBe('2026-07-13 09:00')
-    expect(wrapper.get('header').text()).toContain('API v1 · Schema 1.0.0')
+    expect(wrapper.get('header').text()).toContain('API v1 · Schema 1.1.0')
     expect(wrapper.text()).toContain('业务数据尚未接入')
     expect(wrapper.find('.intelligence-feed-page__status').exists()).toBe(false)
     expect(wrapper.find('main').exists()).toBe(false)

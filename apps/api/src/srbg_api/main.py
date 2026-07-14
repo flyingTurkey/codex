@@ -2,14 +2,15 @@
 
 import asyncio
 import logging
+from collections import Counter
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from time import perf_counter
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse
 from srbg_contracts import (
@@ -20,10 +21,12 @@ from srbg_contracts import (
     LivenessResponse,
     ProblemDetails,
     ReadinessResponse,
+    UserRole,
     VersionResponse,
 )
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from srbg_api.auth import Principal, require_roles
 from srbg_api.config import get_settings
 from srbg_api.database import create_database_engine, create_publication_engine
 from srbg_api.document_vault.security import UploadRejected
@@ -31,11 +34,19 @@ from srbg_api.document_vault.storage import S3ObjectStore
 from srbg_api.health import HealthChecker, build_default_checkers, run_check
 from srbg_api.identifiers import uuid7
 from srbg_api.logging import configure_logging
-from srbg_api.publication.api import IntelligenceQueryService, ReviewPublicationService
+from srbg_api.publication.api import (
+    EventCandidateGenerationService,
+    IntelligenceQueryService,
+    ReviewPublicationService,
+)
 from srbg_api.publication.api import router as intelligence_router
 from srbg_api.publication.gate import PublicationGate
 from srbg_api.publication.repository import PostgresPublicationRepository
 from srbg_api.publication.service import PublicationDenied, PublicationService
+from srbg_api.safety_cases.candidates import (
+    PostgresEventCandidateStore,
+    SafetyEventCandidateService,
+)
 from srbg_api.safety_regulations.query import (
     IntelligenceNotFound,
     InvalidFeedCursor,
@@ -45,6 +56,11 @@ from srbg_api.source_registry.api import AdminSourceService
 from srbg_api.source_registry.api import router as source_vault_router
 from srbg_api.source_registry.repository import RepositoryConflict, SourceNotFound
 from srbg_api.source_registry.service import SourceServiceRejected, build_default_source_service
+
+MetricsPrincipal = Annotated[
+    Principal,
+    Depends(require_roles(UserRole.PLATFORM_ADMIN, UserRole.AUDITOR)),
+]
 
 
 def _utc_now() -> datetime:
@@ -56,6 +72,7 @@ def create_app(
     source_service: AdminSourceService | None = None,
     intelligence_service: IntelligenceQueryService | None = None,
     publication_service: ReviewPublicationService | None = None,
+    safety_event_candidate_service: EventCandidateGenerationService | None = None,
 ) -> FastAPI:
     configure_logging()
     settings = get_settings()
@@ -66,7 +83,12 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
-        for service in (source_service, intelligence_service, publication_service):
+        for service in (
+            source_service,
+            intelligence_service,
+            publication_service,
+            safety_event_candidate_service,
+        ):
             close = getattr(service, "close", None)
             if close is not None:
                 await close()
@@ -75,6 +97,8 @@ def create_app(
     app.state.source_service = source_service
     app.state.intelligence_service = intelligence_service
     app.state.publication_service = publication_service
+    app.state.safety_event_candidate_service = safety_event_candidate_service
+    app.state.publication_gate_denials = Counter()
     logger = logging.getLogger("srbg.api")
 
     @app.middleware("http")
@@ -188,6 +212,15 @@ def create_app(
         request: Request,
         exc: PublicationDenied,
     ) -> JSONResponse:
+        app.state.publication_gate_denials.update(exc.reasons)
+        logger.warning(
+            "publication_gate_denied",
+            extra={
+                "request_id": request.state.request_id,
+                "path": request.url.path,
+                "reason_codes": list(exc.reasons),
+            },
+        )
         problem = ProblemDetails(
             title="Publication gate denied the operation",
             status=409,
@@ -317,7 +350,7 @@ def create_app(
     app.include_router(intelligence_router)
 
     @app.get("/metrics", response_class=PlainTextResponse, include_in_schema=False)
-    async def metrics() -> str:
+    async def metrics(_principal: MetricsPrincipal) -> str:
         service = app.state.source_service
         source_metrics = (
             str(service.metrics.render_prometheus())
@@ -330,7 +363,8 @@ def create_app(
             if intelligence is not None and hasattr(intelligence, "render_processing_metrics")
             else ""
         )
-        return source_metrics + str(processing_metrics)
+        gate_metrics = _render_publication_gate_denial_metrics(app.state.publication_gate_denials)
+        return source_metrics + str(processing_metrics) + gate_metrics
 
     return app
 
@@ -339,12 +373,34 @@ async def _missing_checker() -> None:
     raise RuntimeError("dependency checker is not configured")
 
 
+def _render_publication_gate_denial_metrics(denials: Counter[str]) -> str:
+    if not denials:
+        return ""
+    bounded_denials: Counter[str] = Counter()
+    for reason, count in denials.items():
+        safe_reason = (
+            reason
+            if reason
+            and reason.isascii()
+            and all(
+                character.isupper() or character.isdigit() or character == "_"
+                for character in reason
+            )
+            else "UNKNOWN"
+        )
+        bounded_denials[safe_reason] += count
+    rendered = "# TYPE srbg_publication_gate_denials_total counter\n"
+    for safe_reason, count in sorted(bounded_denials.items()):
+        rendered += f'srbg_publication_gate_denials_total{{reason="{safe_reason}"}} {count}\n'
+    return rendered
+
+
 def build_default_app() -> FastAPI:
     settings = get_settings()
     policy_root = Path("docs/codex-kit/assets/validation")
     publication_gate = PublicationGate.from_files(
-        policy_root / "publication_gate_v3.json",
-        policy_root / "publication_evaluation_v3.schema.json",
+        policy_root / "publication_gate_v4.json",
+        policy_root / "publication_evaluation_v4.schema.json",
     )
     return create_app(
         source_service=build_default_source_service(settings),
@@ -355,6 +411,9 @@ def build_default_app() -> FastAPI:
         publication_service=PublicationService(
             repository=PostgresPublicationRepository(create_publication_engine(settings)),
             gate=publication_gate,
+        ),
+        safety_event_candidate_service=SafetyEventCandidateService(
+            PostgresEventCandidateStore(create_database_engine(settings))
         ),
     )
 

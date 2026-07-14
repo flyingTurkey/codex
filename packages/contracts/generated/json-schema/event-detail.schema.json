@@ -1,0 +1,611 @@
+{
+  "$defs": {
+    "ConfirmedFact": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_id": {
+          "format": "uuid",
+          "title": "Claim Id",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "field": {
+          "$ref": "#/$defs/SafetyCaseFactField"
+        },
+        "label": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "reviewed_at": {
+          "format": "date-time",
+          "title": "Reviewed At",
+          "type": "string"
+        },
+        "source_item_id": {
+          "format": "uuid",
+          "title": "Source Item Id",
+          "type": "string"
+        },
+        "status": {
+          "const": "CONFIRMED",
+          "default": "CONFIRMED",
+          "title": "Status",
+          "type": "string"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "maxLength": 30,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "source_item_id",
+        "claim_id",
+        "field",
+        "label",
+        "value",
+        "evidence_ids",
+        "reviewed_at"
+      ],
+      "title": "ConfirmedFact",
+      "type": "object"
+    },
+    "DocumentState": {
+      "enum": [
+        "UPDATED",
+        "RE_REVIEW_PENDING",
+        "WITHDRAWN",
+        "SOURCE_UNAVAILABLE"
+      ],
+      "title": "DocumentState",
+      "type": "string"
+    },
+    "EventItem": {
+      "additionalProperties": false,
+      "properties": {
+        "document_states": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DocumentState"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Document States"
+        },
+        "evidence_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Count"
+        },
+        "incident_status": {
+          "$ref": "#/$defs/IncidentStatus"
+        },
+        "item_id": {
+          "format": "uuid",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "original_url": {
+          "maxLength": 2048,
+          "pattern": "^https?://[^\\s]+$",
+          "title": "Original Url",
+          "type": "string"
+        },
+        "publication_revision_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Publication Revision Id"
+        },
+        "relation_type": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EventRelation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "report_stage": {
+          "$ref": "#/$defs/SafetyCaseReportStage"
+        },
+        "review_status": {
+          "$ref": "#/$defs/ReviewStatus"
+        },
+        "source_name": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Source Name",
+          "type": "string"
+        },
+        "source_published_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Published At"
+        },
+        "title": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "item_id",
+        "title",
+        "report_stage",
+        "incident_status",
+        "source_name",
+        "source_published_at",
+        "original_url",
+        "review_status",
+        "publication_revision_id"
+      ],
+      "title": "EventItem",
+      "type": "object"
+    },
+    "EventRelation": {
+      "enum": [
+        "FOLLOW_UP",
+        "INVESTIGATES",
+        "PENALIZES",
+        "RECTIFIES",
+        "CORRECTS"
+      ],
+      "title": "EventRelation",
+      "type": "string"
+    },
+    "EventRelationView": {
+      "additionalProperties": false,
+      "properties": {
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "from_item_id": {
+          "format": "uuid",
+          "title": "From Item Id",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "relation_type": {
+          "$ref": "#/$defs/EventRelation"
+        },
+        "reviewed_at": {
+          "format": "date-time",
+          "title": "Reviewed At",
+          "type": "string"
+        },
+        "reviewed_by": {
+          "format": "uuid",
+          "title": "Reviewed By",
+          "type": "string"
+        },
+        "to_item_id": {
+          "format": "uuid",
+          "title": "To Item Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "event_id",
+        "from_item_id",
+        "to_item_id",
+        "relation_type",
+        "reviewed_by",
+        "reviewed_at"
+      ],
+      "title": "EventRelationView",
+      "type": "object"
+    },
+    "EventTimeline": {
+      "additionalProperties": false,
+      "properties": {
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/EventItem"
+          },
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "event_id",
+        "items"
+      ],
+      "title": "EventTimeline",
+      "type": "object"
+    },
+    "IncidentStatus": {
+      "enum": [
+        "UNVERIFIED_LEAD",
+        "INITIAL_OFFICIAL_REPORT",
+        "UNDER_INVESTIGATION",
+        "FINAL_INVESTIGATION_REPORT",
+        "ENFORCEMENT_DECISION",
+        "RECTIFICATION_FOLLOW_UP",
+        "CLOSED",
+        "CORRECTED",
+        "WITHDRAWN"
+      ],
+      "title": "IncidentStatus",
+      "type": "string"
+    },
+    "PreventionMeasureTag": {
+      "enum": [
+        "HAZARD_IDENTIFICATION",
+        "MONITORING_AND_EARLY_WARNING",
+        "INSPECTION_AND_MAINTENANCE",
+        "DESIGN_REVIEW",
+        "CONSTRUCTION_QUALITY_CONTROL",
+        "EMERGENCY_PREPAREDNESS",
+        "TRAFFIC_OPERATION_RISK_CONTROL",
+        "RESPONSIBILITY_AND_OVERSIGHT"
+      ],
+      "title": "PreventionMeasureTag",
+      "type": "string"
+    },
+    "ReviewStatus": {
+      "enum": [
+        "PENDING",
+        "APPROVED",
+        "REJECTED"
+      ],
+      "title": "ReviewStatus",
+      "type": "string"
+    },
+    "SafetyCaseFactField": {
+      "enum": [
+        "OCCURRED_AT",
+        "REGION",
+        "PROJECT_NAME",
+        "HAZARD_TYPE",
+        "ENGINEERING_TYPE",
+        "DEATH_COUNT",
+        "INJURY_COUNT",
+        "LOSS_AMOUNT_MINOR",
+        "OFFICIAL_DIRECT_CAUSES",
+        "RESPONSIBILITY_FINDINGS",
+        "CORRECTIVE_ACTIONS"
+      ],
+      "title": "SafetyCaseFactField",
+      "type": "string"
+    },
+    "SafetyCaseReportStage": {
+      "enum": [
+        "INITIAL_REPORT",
+        "FOLLOW_UP_REPORT",
+        "FINAL_INVESTIGATION",
+        "ENFORCEMENT",
+        "RECTIFICATION"
+      ],
+      "title": "SafetyCaseReportStage",
+      "type": "string"
+    },
+    "SimilarScenarioTag": {
+      "enum": [
+        "HIGHWAY_OPERATION_GEOLOGICAL_RISK",
+        "ROADBED_SLOPE_INSTABILITY",
+        "BRIDGE_APPROACH_TRANSITION",
+        "EXTREME_WEATHER_EXPOSURE",
+        "TEMPORARY_STRUCTURE_FAILURE",
+        "TUNNEL_GEOLOGICAL_RISK"
+      ],
+      "title": "SimilarScenarioTag",
+      "type": "string"
+    },
+    "UnverifiedFact": {
+      "additionalProperties": false,
+      "description": "Public-safe unresolved fact: candidate values are intentionally absent.",
+      "properties": {
+        "claim_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Claim Id"
+        },
+        "conflict_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Conflict Id"
+        },
+        "display_value": {
+          "const": "待核实",
+          "default": "待核实",
+          "title": "Display Value",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "field": {
+          "$ref": "#/$defs/SafetyCaseFactField"
+        },
+        "label": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "source_item_id": {
+          "format": "uuid",
+          "title": "Source Item Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "PENDING_REVIEW",
+            "CONFLICTING"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "value": {
+          "default": null,
+          "title": "Value",
+          "type": "null"
+        }
+      },
+      "required": [
+        "source_item_id",
+        "field",
+        "label",
+        "status",
+        "reason"
+      ],
+      "title": "UnverifiedFact",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "confirmed_facts": {
+      "items": {
+        "$ref": "#/$defs/ConfirmedFact"
+      },
+      "title": "Confirmed Facts",
+      "type": "array"
+    },
+    "engineering_type": {
+      "anyOf": [
+        {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Engineering Type"
+    },
+    "hazard_type": {
+      "anyOf": [
+        {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Hazard Type"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "incident_status": {
+      "$ref": "#/$defs/IncidentStatus"
+    },
+    "occurred_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Occurred At"
+    },
+    "prevention_measure_tags": {
+      "items": {
+        "$ref": "#/$defs/PreventionMeasureTag"
+      },
+      "title": "Prevention Measure Tags",
+      "type": "array"
+    },
+    "project_name": {
+      "anyOf": [
+        {
+          "maxLength": 300,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Project Name"
+    },
+    "rectification_has_open_issues": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rectification Has Open Issues"
+    },
+    "region": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Region"
+    },
+    "relations": {
+      "items": {
+        "$ref": "#/$defs/EventRelationView"
+      },
+      "title": "Relations",
+      "type": "array"
+    },
+    "similar_scenario_tags": {
+      "items": {
+        "$ref": "#/$defs/SimilarScenarioTag"
+      },
+      "title": "Similar Scenario Tags",
+      "type": "array"
+    },
+    "timeline": {
+      "$ref": "#/$defs/EventTimeline"
+    },
+    "title": {
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "unverified_facts": {
+      "items": {
+        "$ref": "#/$defs/UnverifiedFact"
+      },
+      "title": "Unverified Facts",
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "title",
+    "incident_status",
+    "confirmed_facts",
+    "unverified_facts",
+    "timeline",
+    "relations",
+    "similar_scenario_tags",
+    "prevention_measure_tags"
+  ],
+  "title": "EventDetail",
+  "type": "object"
+}
