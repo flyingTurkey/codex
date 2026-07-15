@@ -121,6 +121,40 @@ class PreviewObjectReader(Protocol):
     async def get_bytes(self, key: str) -> bytes: ...
 
 
+_SCORE_QUERY_SUFFIX = """
+JOIN score_dimension dimension ON dimension.score_set_id = score_set.id
+LEFT JOIN LATERAL (
+  SELECT candidate.score, candidate.reason
+  FROM score_override candidate
+  WHERE candidate.score_dimension_id = dimension.id
+  ORDER BY candidate.reviewed_at DESC, candidate.id DESC
+  LIMIT 1
+) override ON true
+WHERE {identity_expression} = ANY(CAST(:item_ids AS uuid[]))
+  AND score_set.is_current
+ORDER BY score_set.calculated_at DESC, score_set.id DESC
+"""
+_SCORE_SELECT = """
+SELECT {identity_expression} AS identity_id,
+       score_set.rule_version, score_set.calculated_at, dimension.dimension,
+       dimension.raw_score, dimension.features,
+       override.score AS override_score, override.reason AS override_reason
+FROM score_set
+{alias_join}
+"""
+_EVENT_SCORE_QUERY = (_SCORE_SELECT + _SCORE_QUERY_SUFFIX).format(
+    identity_expression="COALESCE(binding.event_id, score_set.item_id)",
+    alias_join=(
+        "LEFT JOIN event_identity_binding binding "
+        "ON binding.item_id = score_set.item_id"
+    ),
+)
+_LEGACY_SCORE_QUERY = (_SCORE_SELECT + _SCORE_QUERY_SUFFIX).format(
+    identity_expression="score_set.item_id",
+    alias_join="",
+)
+
+
 class PostgresIntelligenceQueryService:
     def __init__(
         self,
@@ -143,35 +177,19 @@ class PostgresIntelligenceQueryService:
         if not visible_ids:
             return items
         async with self._engine.connect() as connection:
+            alias_readable = bool(
+                await connection.scalar(
+                    text(
+                        "SELECT has_table_privilege(current_user, "
+                        "'event_identity_binding', 'SELECT')"
+                    )
+                )
+            )
+            score_query = _EVENT_SCORE_QUERY if alias_readable else _LEGACY_SCORE_QUERY
             rows = list(
                 (
                     await connection.execute(
-                        text(
-                            """
-                            SELECT COALESCE(binding.event_id, score_set.item_id) AS identity_id,
-                                   score_set.rule_version,
-                                   score_set.calculated_at, dimension.dimension,
-                                   dimension.raw_score, dimension.features,
-                                   override.score AS override_score,
-                                   override.reason AS override_reason
-                            FROM score_set
-                            LEFT JOIN event_identity_binding binding
-                              ON binding.item_id = score_set.item_id
-                            JOIN score_dimension dimension
-                              ON dimension.score_set_id = score_set.id
-                            LEFT JOIN LATERAL (
-                              SELECT candidate.score, candidate.reason
-                              FROM score_override candidate
-                              WHERE candidate.score_dimension_id = dimension.id
-                              ORDER BY candidate.reviewed_at DESC, candidate.id DESC
-                              LIMIT 1
-                            ) override ON true
-                            WHERE COALESCE(binding.event_id, score_set.item_id)
-                                  = ANY(CAST(:item_ids AS uuid[]))
-                              AND score_set.is_current
-                            ORDER BY score_set.calculated_at DESC, score_set.id DESC
-                            """
-                        ),
+                        text(score_query),
                         {"item_ids": visible_ids},
                     )
                 ).mappings()
@@ -222,9 +240,15 @@ class PostgresIntelligenceQueryService:
                         text(
                             """
                             SELECT item.id, binding.event_id, event.event_type,
-                                   event.status AS event_status,
-                                   event.canonical_event_id,
-                                   event.version AS event_version,
+                                   COALESCE(to_jsonb(event)->>'status', 'ACTIVE')
+                                     AS event_status,
+                                   COALESCE(
+                                     (to_jsonb(event)->>'canonical_event_id')::uuid,
+                                     event.id
+                                   ) AS canonical_event_id,
+                                   COALESCE(
+                                     (to_jsonb(event)->>'version')::integer, 1
+                                   ) AS event_version,
                                    current_revision.revision_number,
                                    current_revision.action AS revision_action,
                                    current_revision.created_at AS revision_created_at,
@@ -1479,7 +1503,11 @@ class PostgresIntelligenceQueryService:
             row = (
                 (
                     await connection.execute(
-                        text("SELECT status, canonical_event_id FROM event WHERE id=:event_id"),
+                        text(
+                            "SELECT COALESCE(to_jsonb(event)->>'status','ACTIVE') AS status, "
+                            "COALESCE((to_jsonb(event)->>'canonical_event_id')::uuid,id) "
+                            "AS canonical_event_id FROM event WHERE id=:event_id"
+                        ),
                         {"event_id": event_id},
                     )
                 )
@@ -1521,8 +1549,15 @@ class PostgresIntelligenceQueryService:
                 await connection.execute(
                     text(
                         """
-                        SELECT event.id,event.event_type,event.status,
-                               event.canonical_event_id,event.version
+                        SELECT event.id,event.event_type,
+                               COALESCE(to_jsonb(event)->>'status','ACTIVE') AS status,
+                               COALESCE(
+                                 (to_jsonb(event)->>'canonical_event_id')::uuid,
+                                 event.id
+                               ) AS canonical_event_id,
+                               COALESCE(
+                                 (to_jsonb(event)->>'version')::integer, 1
+                               ) AS version
                           FROM event_identity_binding binding
                           JOIN event ON event.id=binding.event_id
                          WHERE binding.item_id=:item_id
@@ -1649,7 +1684,11 @@ class PostgresIntelligenceQueryService:
             identity = (
                 await connection.execute(
                     text(
-                        "SELECT id,event_type,title,status,canonical_event_id,version "
+                        "SELECT id,event_type,title, "
+                        "COALESCE(to_jsonb(event)->>'status','ACTIVE') AS status, "
+                        "COALESCE((to_jsonb(event)->>'canonical_event_id')::uuid,id) "
+                        "AS canonical_event_id, "
+                        "COALESCE((to_jsonb(event)->>'version')::integer,1) AS version "
                         "FROM event WHERE id = :event_id"
                     ),
                     {"event_id": event_id},

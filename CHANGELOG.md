@@ -6,6 +6,7 @@
 
 ### Round 14 — Event 统一身份、关系拆分与 Item 兼容迁移
 
+- 独立验收修复了应用回退到 0013 时读取 0014 Event 列及 alias 权限导致的失败，并补齐五类身份迁移告警和 Runbook。复验同时确认本轮仍未完成：默认普通读取装配和多个 consumer 查询仍走业务表/`item_id`，与专用 `published_v1` 和单次 Event consumer switch 约束不符；README 与验收结论已改为 `NOT_COMPLETED`，没有以现有绿测掩盖该架构差异。
 - 扩展现有 Event 为显式通用事件模型，增加稳定 canonical identity、版本、合并/拆分/回滚工作流和不可变 Item alias；没有创建平行事件服务或 `PROVISIONAL_EVENT`。
 - 分离 Document 来源角色、Event 生命周期、Event-Entity、Topic-Event 和受控分类关系；八类 Item 显式映射 Event 类型，模糊匹配只生成候选且 `auto_merge` 保持关闭。
 - 以版本化、幂等、可断点恢复任务完成 shadow backfill 和 consumer parity；已发布 Item 身份 23/23 可解析，差异为 0，23 条未知来源角色进入人工队列。

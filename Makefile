@@ -295,6 +295,7 @@ phase2-round14-test:
 		apps/api/tests/test_round14_identity_changes.py \
 		apps/api/tests/test_round14_identity_integration.py \
 		apps/api/tests/test_round14_migration.py \
+		tests/infrastructure/test_round14_observability.py \
 		packages/contracts/tests/test_round14_contracts.py \
 		apps/api/tests/test_round13_access_boundary.py \
 		apps/api/tests/test_round13_projection_policy.py \

@@ -41,3 +41,28 @@ groups:
         for: 5m
         labels: {severity: p0}
         annotations: {summary: "审计hash链根超过25小时未独立锚定"}
+      - alert: EventMigrationBlocked
+        expr: srbg_event_migration_records{outcome="blocked"} > 0
+        for: 5m
+        labels: {severity: p1}
+        annotations: {summary: "Item 到 Event 迁移存在人工阻断"}
+      - alert: EventConsumerParityMismatch
+        expr: srbg_event_consumer_parity_differences > 0
+        for: 1m
+        labels: {severity: p0}
+        annotations: {summary: "Event consumer 切换对账存在差异"}
+      - alert: EventAliasResolutionFailure
+        expr: increase(srbg_event_alias_resolutions_total{outcome=~"loop|error"}[10m]) > 0
+        for: 1m
+        labels: {severity: p0}
+        annotations: {summary: "Item/Event 别名解析出现循环或错误"}
+      - alert: EventIdentityCandidateBacklog
+        expr: srbg_event_identity_candidate_backlog > 0
+        for: 24h
+        labels: {severity: p2}
+        annotations: {summary: "Event 模糊身份候选积压超过 24 小时"}
+      - alert: EventIdentityRollbackDetected
+        expr: increase(srbg_event_identity_rollbacks_total[15m]) > 0
+        for: 1m
+        labels: {severity: p1}
+        annotations: {summary: "Event 身份合并或拆分发生审核回滚"}

@@ -144,3 +144,23 @@ Location: /events/019f65e9-53db-7e8d-adf6-d827b254fd06
 | `make web-a11y` | 13 passed |
 
 实现提交为 `ff8d429a414d427b87a7a38671f7dcc2cbbe9c28`；验收前工作树基线为 `0068921d75c190c1c204bc8d8428036de85361cb`，开始时工作树干净。记录哈希的文档提交以最终 `git rev-parse HEAD` 为准。
+
+## 2026-07-16 独立复验
+
+结论修正为 `NOT_COMPLETED`。本次从干净的 `159e1492c11fb25ddda8f161d1cc926cf55ee62a` 开始，不复用旧日志；Windows 11、GNU Make 4.4.1、Python 3.12.13、Docker 29.6.1 / Compose 5.3.0、PostgreSQL 17 容器环境执行。
+
+已修复两类本轮问题：
+
+- `phase2-round13-test` 首次为 1 failed / 31 passed：Round14 查询在 0013 schema 上直接读取 `event.status/canonical_event_id/version`，继而读取当时未授权给 runtime 的 alias 表。读取现改为 0013/0014 兼容投影，并按实际表权限选择旧评分身份；复跑为 32 passed。
+- 第14轮只有指标、没有告警和处置入口。新增失败测试后补齐 migration blocker、consumer parity、alias loop、candidate backlog、identity rollback 五类 Prometheus 告警及 `event_identity_migration` Runbook；`phase2-round14-test` 现为 23 passed。
+
+独立否决证据：
+
+- `build_default_app()` 仍把 `PostgresIntelligenceQueryService(create_database_engine(settings))` 同时提供给 Feed、详情和 Portal；没有装配 `create_projection_reader_engine` / `PublishedProjectionReader`。实际权限为 `srbg_api_login`: `public.intelligence_item SELECT=true`、`published_v1.current_event_summary SELECT=false`；`srbg_projection_reader_login` 正好相反。
+- `safety_regulations/query.py` 的普通 Feed/详情仍查询 `intelligence_item/publication`；`discovery/repository.py` 的搜索、收藏和日报仍查询 `search_projection/intelligence_item/publication` 并以 `item_id` 排序、关联和返回。0014 只增加 nullable `event_id` 并回填，没有完成单次 consumer switch。
+- 本地 consumer 五张表全部为 0 行，因而 `parity=0` 不能证明真实旧用户引用的切换闭环。当前迁移 run 为 `NEEDS_REVIEW`，23 个 blocker 均为来源角色待人工确认；这部分未猜测。
+- 运行态旧 Item API 为 200，含 `Deprecation` 和 successor `Link` 且无未确认 `Sunset`；新 Event API 为 200；旧页面为 308 到 Event。该兼容证据成立，但不能抵消读取身份未切换。
+
+本次有效命令与结果：`phase2-round13-test` 32 passed；`phase2-round14-test` 23 passed，含 `0013 -> 0014 -> 0013 -> 0014`；`lint`、`typecheck`、`contract-test`、`security-check`、`quality-gate` 均退出 0；`test` 为 Python 516 passed / 25 skipped、UI 53 passed、Web 71 passed；`fixture-replay` 164 passed且 mock provider 评估通过；`web-e2e` 42 passed；`web-a11y` 13 passed；API/Web 镜像构建退出 0。`quality-gate` 有一次被 64 秒执行器时限终止，不计结果，随后从头重跑 61.5 秒退出 0。
+
+回滚仍采用应用版本回退，保留 0014 Event、alias、发布修订和审计事实；有 event-keyed 事实的数据库不得破坏性 downgrade。完成验收前必须把普通内容读取装配到专用投影角色，扩展投影以承载统一 EventSummary/EventDetail，并将所有 consumer 查询/新写入真正切为 event_id，再用含真实旧引用的 PostgreSQL 数据对账。
