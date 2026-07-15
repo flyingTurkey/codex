@@ -10,6 +10,7 @@
 - 确认46条种子均为CANDIDATE，运行库54条ACTIVE全是固定/集成测试来源，108次采集全为FIXTURE；因此真实端到端追踪为`NOT_AVAILABLE`，生产模型、通知、国际来源、连续运行和真人金标指标均保持null。
 - 实测API/Worker登录可读写大量业务表和audit_log，普通用户尚无专用只读发布投影；audit_log可由运行角色自造INSERT、仅UPDATE/DELETE受不可变触发器阻止，且无独立hash根锚定。Event/Topic运行数据为空，门户、发布、搜索、日报和收藏仍以Item为身份。
 - 全局quality gate、Round08—11、42项E2E和13项a11y通过；Round02—04旧专项因隔离迁移边界缺少`ai_pipeline_run`失败，smoke因旧版本响应断言失败，严格真人金标/readiness按设计BLOCKED。本轮未修改业务代码或测试阈值，结论保持未完成。
+- 独立验收以失败测试复现并修复上述工程漂移：隔离集成默认回放当前0012 head，smoke校验完整版本契约并按权威Feed区分空态/有数据状态；同时修复未评分已发布内容进入`/selected`的回归。Round01—11专项、quality gate、fixture replay、smoke、42项E2E和13项a11y现均通过；严格真人金标/readiness仍因五类真实样本为0保持BLOCKED。
 
 ### 二阶段文档基线
 

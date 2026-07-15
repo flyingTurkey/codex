@@ -778,7 +778,7 @@ async def _vertical_slice() -> None:
         assert published.publication_revision_id == decision.publication_revision_id
         assert published.type_summary is not None
         assert published.type_summary.regulation_status == "UNKNOWN"
-        assert not hasattr(published, "scores")
+        assert published.scores is None
         published_detail = await query_service.get_item(pending.id)
         assert len(published_detail.claims or []) == 4
         assert len(published_detail.evidence or []) == 4

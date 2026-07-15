@@ -8,6 +8,13 @@ import time
 from http.client import HTTPConnection
 from typing import Any
 
+EXPECTED_VERSION_CONTRACT: dict[str, Any] = {
+    "api_version": "v1",
+    "content_schema_version": "1.1.0",
+    "search_schema_version": "1.0.0",
+    "semantic_search_enabled": False,
+}
+
 
 def host_port(name: str, default: int) -> int:
     """Return a validated host port shared with the Compose environment."""
@@ -58,6 +65,24 @@ def require(condition: bool, message: str) -> None:
         raise RuntimeError(message)
 
 
+def validate_version_contract(version: dict[str, Any]) -> None:
+    """Reject stale or incomplete runtime version responses."""
+    require(
+        version == EXPECTED_VERSION_CONTRACT,
+        "version contract does not match the generated contracts",
+    )
+
+
+def validate_homepage_contract(homepage: str, feed: dict[str, Any]) -> None:
+    """Require branding and an empty state only when the authoritative feed is empty."""
+    require("四川路桥" in homepage, "homepage organization brand is missing")
+    require("智安情报" in homepage, "homepage product brand is missing")
+    items = feed.get("items")
+    require(isinstance(items, list), "feed contract does not contain an items list")
+    if not items:
+        require("业务数据尚未接入" in homepage, "honest homepage empty state is missing")
+
+
 def main() -> None:
     api_port = host_port("API_PORT", 8000)
     web_port = host_port("WEB_PORT", 3000)
@@ -77,15 +102,13 @@ def main() -> None:
     require(liveness["status"] == "ok", "API liveness status is not ok")
 
     version = parse_object(wait_for_status(api_port, "/api/v1/version", 200))
-    require(
-        version == {"api_version": "v1", "content_schema_version": "1.1.0"},
-        "version contract does not match the generated contracts",
-    )
+    validate_version_contract(version)
 
+    feed = parse_object(
+        wait_for_status(api_port, "/api/v1/feed?mode=all&limit=1", 200)
+    )
     homepage = wait_for_status(web_port, "/", 200)
-    require("四川路桥" in homepage, "homepage organization brand is missing")
-    require("智安情报" in homepage, "homepage product brand is missing")
-    require("业务数据尚未接入" in homepage, "honest homepage empty state is missing")
+    validate_homepage_contract(homepage, feed)
 
     print(json.dumps({"status": "ok", "checks": readiness["checks"]}, ensure_ascii=False))
 

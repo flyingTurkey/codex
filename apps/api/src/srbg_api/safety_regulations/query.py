@@ -828,7 +828,14 @@ class PostgresIntelligenceQueryService:
                                 OR p.status IN ('PUBLISHED', 'WITHDRAWN')
                             )
                               AND i.risk_level = 'R3'
-                              AND (:mode <> 'selected' OR p.status = 'PUBLISHED')
+                              AND (:mode <> 'selected' OR (
+                                p.status = 'PUBLISHED'
+                                AND EXISTS (
+                                  SELECT 1 FROM score_set selected_score
+                                  WHERE selected_score.item_id = i.id
+                                    AND selected_score.is_current
+                                )
+                              ))
                               AND (
                                 CAST(:content_type AS text) IS NULL
                                 OR i.item_type = CAST(:content_type AS text)
@@ -1075,6 +1082,11 @@ class PostgresIntelligenceQueryService:
                                 OR (
                                   i.review_status = 'APPROVED'
                                   AND publication.status = 'PUBLISHED'
+                                  AND EXISTS (
+                                    SELECT 1 FROM score_set selected_score
+                                    WHERE selected_score.item_id = i.id
+                                      AND selected_score.is_current
+                                  )
                                 )
                               )
                               AND (
@@ -1196,6 +1208,11 @@ class PostgresIntelligenceQueryService:
                               AND (:mode <> 'selected' OR (
                                 i.review_status = 'APPROVED'
                                 AND publication.status = 'PUBLISHED'
+                                AND EXISTS (
+                                  SELECT 1 FROM score_set selected_score
+                                  WHERE selected_score.item_id = i.id
+                                    AND selected_score.is_current
+                                )
                               ))
                               AND (CAST(:engineering_domain AS text) IS NULL
                                 OR :engineering_domain = ANY(taxonomy.engineering_domains))
@@ -1328,6 +1345,11 @@ class PostgresIntelligenceQueryService:
                               AND (:mode <> 'selected' OR (
                                 item.review_status = 'APPROVED'
                                 AND publication.status = 'PUBLISHED'
+                                AND EXISTS (
+                                  SELECT 1 FROM score_set selected_score
+                                  WHERE selected_score.item_id = item.id
+                                    AND selected_score.is_current
+                                )
                               ))
                               AND (CAST(:product_kind AS text) IS NULL
                                 OR product.product_kind = CAST(:product_kind AS text))

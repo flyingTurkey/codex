@@ -62,3 +62,10 @@ API、Web、PostgreSQL、Redis、MinIO、ClamAV、Worker、Parser、Scheduler、
 ## 未核验
 
 没有预生产/生产连接、真实OIDC、真实告警路由、生产PITR、连续14天窗口、真实来源时效或150来源容量数据。相关指标必须为null。
+
+## 独立验收复测
+
+- 复测开始：`2026-07-15T12:01:07.7527716Z`；入口HEAD `9a300cdfbb49141448d89f7bfc573373445f034e`；工作树clean。
+- 静态和运行Alembic head均为`0012_operations_readiness`；API live/ready、完整版本响应、4个Celery节点和Web均通过。
+- 100请求/并发10：错误0、P95 500.01ms；搜索40请求P95 31.72ms。两者均为TEST，不替代真实容量证据。
+- 隔离恢复RPO 0、RTO 0.1分钟，`pitr_production_evidence=false`。

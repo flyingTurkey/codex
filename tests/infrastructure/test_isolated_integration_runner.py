@@ -119,7 +119,7 @@ def test_suite_uses_only_unique_temporary_database_and_bucket(
     suite_command, suite_environment = processes.calls[1]
     assert migration_command == (
         "python",
-        "scripts/verify_round08_migration.py",
+        "scripts/verify_round11_migration.py",
     )
     assert migration_environment["SRBG_DATABASE_URL"].endswith(
         "/srbg_it_0123456789abcdef01234567"
@@ -147,6 +147,27 @@ def test_suite_uses_only_unique_temporary_database_and_bucket(
     ]
     assert suite_environment["SRBG_S3_BUCKET"] != config.shared_s3_bucket
     assert all(name not in suite_environment for name in shared_credentials)
+
+
+def test_default_runner_migrates_the_disposable_database_to_current_head(
+    config: IntegrationConfig,
+) -> None:
+    backend = RecordingBackend()
+    processes = RecordingProcessRunner([0, 0])
+
+    result = run_isolated_integration(
+        ("test_current_runtime.py",),
+        config=config,
+        backend=backend,
+        process_runner=processes,
+        token_factory=lambda: "5" * 32,
+    )
+
+    assert result == 0
+    assert processes.calls[0][0] == (
+        "python",
+        "scripts/verify_round11_migration.py",
+    )
 
 
 def test_suite_failure_keeps_exit_code_and_still_cleans_every_resource(

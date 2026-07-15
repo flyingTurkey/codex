@@ -11,7 +11,7 @@
 | 普通用户依赖专用发布投影 | 架构/二阶段目标如此；实际普通API登录读取业务表，projection state当前0 | 未实现目标，非文档证明 |
 | audit_log不可篡改 | 根约束使用强表述；实际为immutable trigger+应用hash，API/Worker可自造INSERT，无独立锚定，owner可重写 | 应统一表述为append-only/tamper-evident，绝非绝对不可篡改 |
 | usage_event不保存浏览历史 | Round11新代码写匿名聚合桶；旧表仍有250条带actor_id的SEARCH | 验收只描述新路径，遗漏历史数据治理 |
-| Smoke验证运行契约 | `smoke.py`期待旧两字段版本对象；当前契约增加search schema和semantic flag | 测试脚本漂移，退出2 |
+| Smoke验证运行契约 | 独立验收已同步完整版本契约，并按权威Feed区分空态与有数据环境 | 已修复，`make smoke`退出0 |
 | Round02—04专项仍可运行 | target隔离库停在0009，当前查询引用0010表 | 三个专项target漂移，退出2 |
 
 ## 提交状态差异

@@ -17,5 +17,5 @@ MF-015,notifications,Email/WeCom,MISSING,"No implementation or credentials","50-
 MF-016,international,English source translation,MISSING,"No approved list or translation evidence","100-source gate budget and reviewer",20
 MF-017,privacy,Legacy actor-linked usage_event,PARTIAL,"250 SEARCH rows with actor_id","Retention/delete decision and restricted admin access",13
 MF-018,audit,Independent audit hash anchor,MISSING,"No external root anchor found","Daily root to independent immutable store",13
-MF-019,tests,Round02-04 specialty targets,BROKEN,"Current queries require ai_pipeline_run absent at target migration head","Update isolated target migration boundary with regression tests",14
-MF-020,tests,smoke version assertion,BROKEN,"Script rejects valid new version fields","Validate current VersionResponse contract",14
+MF-019,tests,Round02-04 specialty targets,IMPLEMENTED,"Independent acceptance now defaults isolated suites to the current 0012 head","Regression tests and all three targets pass",12
+MF-020,tests,smoke version assertion,IMPLEMENTED,"Independent acceptance validates the complete VersionResponse and feed-aware homepage state","Unit regression tests and make smoke pass",12

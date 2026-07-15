@@ -370,7 +370,7 @@ def run_isolated_integration(
     process_runner: ProcessRunner,
     token_factory: Callable[[], str] | None = None,
     password_factory: Callable[[], str] | None = None,
-    migration_verifier: str = "verify_round08_migration.py",
+    migration_verifier: str = "verify_round11_migration.py",
 ) -> int:
     """Provision, run migrations and pytest, then clean up without masking test failures."""
     if not pytest_args:
@@ -438,7 +438,7 @@ def run_isolated_integration(
 
 
 def _migration_command(
-    config: IntegrationConfig, verifier: str = "verify_round08_migration.py"
+    config: IntegrationConfig, verifier: str = "verify_round11_migration.py"
 ) -> tuple[str, ...]:
     if verifier not in {
         "verify_round08_migration.py",
@@ -550,7 +550,7 @@ def _parse_args(arguments: Sequence[str] | None) -> tuple[str, tuple[str, ...]]:
             "verify_round10_migration.py",
             "verify_round11_migration.py",
         ),
-        default="verify_round08_migration.py",
+        default="verify_round11_migration.py",
     )
     parser.add_argument("pytest_args", nargs=argparse.REMAINDER)
     namespace = parser.parse_args(arguments)

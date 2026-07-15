@@ -52,13 +52,15 @@
     "production_pitr_rto_minutes": {"value": null, "reason": "Only isolated logical recovery was executed."}
   },
   "test_runtime": {
+    "independent_acceptance_observed_at": "2026-07-15T12:08:43Z",
+    "independent_acceptance_base_commit": "9a300cdfbb49141448d89f7bfc573373445f034e",
     "api_load_samples": 100,
     "api_load_errors": 0,
-    "api_load_p95_ms": 103.45,
+    "api_load_p95_ms": 500.01,
     "search_samples": 40,
-    "search_p95_ms": 31.53,
+    "search_p95_ms": 31.72,
     "recovery_rpo_minutes": 0,
-    "recovery_rto_minutes": 0.11,
+    "recovery_rto_minutes": 0.1,
     "production_baseline": false
   }
 }
