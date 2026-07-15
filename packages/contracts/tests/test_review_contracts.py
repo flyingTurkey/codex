@@ -57,4 +57,8 @@ def test_review_contract_exposes_bidirectional_claim_evidence_and_decision_shape
 
     assert claim.evidence_ids == [evidence.id]
     assert evidence.claim_ids == [claim.id]
-    assert request.model_dump() == {"action": "APPROVE", "reason": "字段与证据一致"}
+    assert request.model_dump() == {
+        "action": "APPROVE",
+        "reason": "字段与证据一致",
+        "digital_case_patch": None,
+    }

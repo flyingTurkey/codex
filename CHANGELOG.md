@@ -4,6 +4,34 @@
 
 ## [Unreleased]
 
+### Round 07 — 软件、物联网、低空和 AI 设备
+
+- 新增 Alembic `0008_technology_products`，以统一 vendor/product/model/version/profile/capability/taxonomy 模型表达四类技术产品；型号和版本分别保持唯一身份与历史记录，同名不同型号不静默合并，疑似别名、后继版本和重复项进入人工归一候选。
+- 将厂商声明与独立验证能力在数据库约束、契约、publication gate `7.0.0`、统一 API、共享卡片和详情页全链路分离；已验证能力必须携带独立证据，任何产品内容不得生成“四川路桥采购”结论。
+- 复用既有来源准入和统一 `SourceAdapter`，提供广联达软件与大疆低空设备的最小固定回放；ENT-007/008 继续保持 `CANDIDATE/disabled`，固定样本不授予生产采集资格，厂商图片默认不下载。
+- 增量扩展冻结的 `FeedPage`、`ItemSummary`、`TypeSummary` 与详情契约，在同一 `/api/v1/feed`、`/api/v1/items/{id}`、`/digital` 和 `IntelligenceCard` 支持 SOFTWARE_PRODUCT、IOT_PRODUCT、LOW_ALTITUDE_EQUIPMENT、AI_EQUIPMENT 及产品类型、证据等级、部署方式、场景和成熟度筛选。
+- 产品详情统一显示“产品能力/工程证据/许可与限制”，通过经审核的 `APPLIED_IN` 关系连接数字化案例；低空设备固定提示“产品发布不代表空域、适航、飞手和项目许可。”，无官方许可证据时许可状态为 `UNKNOWN`。
+- 在既有审核工作台增加 reviewer 专用型号/版本归一入口，所有决定只经唯一 `PublicationService` 写入并追加审计；新增按类型/证据/许可、能力分组及待归一队列指标，以及契约、迁移回放、门禁、固定回放、E2E 和 axe 测试与 `make product-test`。
+
+### Round 06 — 期刊论文
+
+- 新增 Alembic `0007_papers`，以论文题录、作者/机构、来源记录、受控分类、候选去重和经审核的更正/撤稿关系表达学术元数据；DOI 使用规范化唯一索引，无 DOI 时以规范题名、首位作者和年份生成候选指纹，并完成 `0006 → 0007 → 0006 → 0007` 隔离回放。
+- 接入统一 `SourceAdapter` 下的 OpenAlex 游标分页连接器与 Crossref DOI/更新关系补充器；共享 HTTP 客户端统一执行域名白名单、超时、限速、礼貌 User-Agent、条件请求、有限重试、熔断和 `Retry-After`，固定响应不授予生产来源 active 权限。
+- publication gate 升级至 `6.0.0`，由唯一 `PublicationService` 校验论文身份、accepted claim、研究成熟度、访问许可和更正/撤稿关系；运行角色不能直接写正式关系，未授权全文永不落入对象存储或浏览器响应，摘要许可不清时仅投影题录和原文链接。
+- 增量扩展冻结的 `FeedPage`、`ItemSummary`、`TypeSummary` 与详情契约，提供 DOI、期刊、ISSN、作者、机构、卷期、年份、关键词、开放状态、论文类型、工程专业、技术标签、研究成熟度、相似论文、RIS/BibTeX/GB/T 7714 引用及原文入口。
+- 复用 `AppShell`、`IntelligenceFeedPage`、`TimelineFeed` 和 `IntelligenceCard`，在既有 `/digital` 增加论文 Tab、筛选、共享卡片和详情；元数据、摘要、全文权限分区显示，撤稿/更正显著提示，并明确“研究结果不代表已完成工程生产应用”。
+- 新增 OpenAlex/Crossref/中国公路学报固定样本、API Mock、版权边界、迁移/契约/门禁/固定回放/E2E/axe 测试和 `make paper-test` 专项门禁；知网、万方维持授权 API 或人工题录方式，禁止绕过登录或付费机制。
+
+### Round 05 — 数字化转型案例
+
+- 新增 Alembic `0006_digital_cases`，以数字案例档案、受控分类、企业/技术/项目实体关系、claimed/verified 成效和 `relevance-v1.0.0` 分项事实表达数字化案例；空库支持 0005→0006→0005→0006 回放，存在数字案例数据时拒绝破坏性降级。
+- 接入交通运输部政府案例汇编与蜀道集团企业案例两个统一 `SourceAdapter`，Git 仅固定短摘录、原文 URL、PDF 页码和 SHA-256；生产来源保持 `CANDIDATE/disabled`，不能由样本自报 active。
+- publication gate 升级到 `5.0.0`；分类、成熟度、归因、独立证据、允许动作和相关性规则均由服务端权威上下文默认拒绝校验，企业自述未经职责分离的人工审核不能进入精选。
+- 扩展唯一 `PublicationService` 的审核事务，支持修改工程专业、生命周期、技术、场景、成熟度和成效归因；修改只能选择当前版本 accepted claim 和已有独立证据，随后由服务端重算相关性。
+- 复用 `AppShell`、`IntelligenceFeedPage`、`TimelineFeed`、`IntelligenceCard`、`FeedPage`、`ItemSummary` 和证据抽屉完成 `/digital`、筛选、全部/精选、卡片、详情和审核页；不创建数字化专用卡片或平行查询/发布实现。
+- 明确分列“发布方声称的成效”和“独立证据支持的成效”，所有量化结果可回到证据；卡片显示政府/行业案例源或企业自述、厂商声明、成熟度、场景、部署规模、四川路桥关系及可解释相关性，不显示为可信度。
+- 新增数字案例量、来源/成熟度、claimed/verified 成效和企业待审核队列指标，以及契约、规则、迁移、固定回放、PublicationService、E2E、axe 和 1440×900 新页面截图。
+
 ### Round 04 — 安全案例生命周期
 
 - 新增 Alembic `0005_safety_case_lifecycle`，以 `safety_case_profile`、事件、事件材料候选/决定/成员、关系候选/决定/正式关系、逐字段审核、事实冲突及追加式审计表达初报、续报、正式调查、处罚、整改、更正与撤回；迁移提供实验室降级/再升级验证，生产回滚保留事实表。

@@ -16,7 +16,7 @@
       "required": ["claim_id", "field", "value", "claim_status", "confidence", "evidence_ids"],
       "properties": {
         "claim_id": {"type": "string"},
-        "field": {"enum": ["title", "publisher", "published_at", "document_no", "effective_at", "regulation_status", "occurred_at", "death_count", "injury_count", "direct_loss", "incident_cause", "responsibility", "corrective_action", "product_name", "model_no", "capability", "deployment_scope", "claimed_outcome", "verified_outcome", "doi", "author", "institution", "research_method"]},
+        "field": {"enum": ["title", "publisher", "published_at", "document_no", "effective_at", "regulation_status", "occurred_at", "death_count", "injury_count", "direct_loss", "incident_cause", "responsibility", "corrective_action", "product_name", "model_no", "capability", "deployment_scope", "claimed_outcome", "verified_outcome", "doi", "journal", "issn", "volume", "issue", "publication_year", "abstract", "keyword", "paper_type", "author", "institution", "research_object", "research_method", "research_condition", "research_conclusion", "research_limitation", "research_maturity_evidence"]},
         "value": {},
         "normalized_value": {},
         "unit": {"type": ["string", "null"]},
@@ -47,4 +47,3 @@
     }
   }
 }
-

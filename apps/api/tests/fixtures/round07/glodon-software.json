@@ -1,0 +1,17 @@
+{
+  "fixture_only": true,
+  "external_id": "glodon-digital-project-platform-v5",
+  "source_url": "https://www.glodon.com/",
+  "title": "【固定样本】数字项目平台 V5.0",
+  "item_type": "SOFTWARE_PRODUCT",
+  "vendor": "广联达",
+  "product_name": "数字项目平台",
+  "model_no": null,
+  "version": "5.0",
+  "promotional_claims": ["厂商材料声明支持工程项目协同和数据接入"],
+  "verified_capabilities": [],
+  "interfaces": ["REST API"],
+  "deployment_modes": ["PRIVATE_CLOUD"],
+  "image_downloaded": false,
+  "publishable": false
+}

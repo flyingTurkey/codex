@@ -22,6 +22,7 @@ from srbg_contracts import (
     ClaimConflictDecisionResponse,
     ClaimConflictStatus,
     CriticalSafetyField,
+    DigitalCaseReviewPatch,
     PreventionMeasureTag,
     ReviewDecisionResponse,
     ReviewStatus,
@@ -29,9 +30,16 @@ from srbg_contracts import (
     SimilarScenarioTag,
 )
 
+from srbg_api.digital_cases.domain import (
+    MaturityEvidence,
+    calculate_relevance,
+    validate_maturity,
+    validate_taxonomy,
+)
 from srbg_api.identifiers import uuid7
 from srbg_api.publication.service import PublicationDenied, PublicationTransaction
 from srbg_api.source_registry.repository import canonical_json_hash, fixture_set_hash
+from srbg_api.technology_products.domain import contains_procurement_conclusion
 
 logger = logging.getLogger(__name__)
 
@@ -615,8 +623,99 @@ class PostgresPublicationRepository:
                     reason=reason,
                     decided_at=decided_at,
                 )
+            elif candidate_kind == "PAPER_RELATION":
+                await _decide_paper_relation_candidate(
+                    connection,
+                    candidate_id=candidate_id,
+                    action=action,
+                    reviewer_id=reviewer_id,
+                    reason=reason,
+                    decided_at=decided_at,
+                )
             else:
                 raise PublicationDenied(("UNKNOWN_CANDIDATE_KIND",))
+
+    async def decide_product_normalization(
+        self,
+        *,
+        candidate_id: UUID,
+        action: str,
+        reviewer_id: UUID,
+        reason: str,
+        decided_at: datetime,
+    ) -> None:
+        if not reason.strip():
+            raise PublicationDenied(("PRODUCT_NORMALIZATION_REASON_REQUIRED",))
+        if action not in {"MERGE_ALIAS", "LINK_AS_NEW_VERSION", "KEEP_DISTINCT"}:
+            raise PublicationDenied(("PRODUCT_NORMALIZATION_DECISION_INVALID",))
+        async with self._engine.begin() as connection:
+            candidate = (
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT id, incoming_version_id, candidate_version_id,
+                                   candidate_type, status
+                            FROM product_normalization_candidate
+                            WHERE id = :candidate_id FOR UPDATE
+                            """
+                        ),
+                        {"candidate_id": candidate_id},
+                    )
+                ).mappings().first()
+            )
+            if candidate is None or candidate["status"] != "PENDING_REVIEW":
+                raise PublicationDenied(("PRODUCT_NORMALIZATION_CANDIDATE_NOT_PENDING",))
+            if (
+                action == "LINK_AS_NEW_VERSION"
+                and candidate["candidate_type"] != "VERSION_SUCCESSOR"
+            ):
+                raise PublicationDenied(("PRODUCT_VERSION_SUCCESSOR_CANDIDATE_REQUIRED",))
+            if action == "LINK_AS_NEW_VERSION":
+                await connection.execute(
+                    text(
+                        """
+                        UPDATE technology_product_version
+                        SET supersedes_version_id = :candidate_version_id
+                        WHERE id = :incoming_version_id
+                          AND supersedes_version_id IS NULL
+                        """
+                    ),
+                    {
+                        "incoming_version_id": candidate["incoming_version_id"],
+                        "candidate_version_id": candidate["candidate_version_id"],
+                    },
+                )
+            terminal_status = "REJECTED" if action == "KEEP_DISTINCT" else "ACCEPTED"
+            await connection.execute(
+                text(
+                    """
+                    UPDATE product_normalization_candidate
+                    SET status = :status, decision = :decision, reason = :reason,
+                        reviewed_by = :reviewer_id, reviewed_at = :decided_at
+                    WHERE id = :candidate_id
+                    """
+                ),
+                {
+                    "status": terminal_status,
+                    "decision": action,
+                    "reason": reason.strip(),
+                    "reviewer_id": reviewer_id,
+                    "decided_at": decided_at,
+                    "candidate_id": candidate_id,
+                },
+            )
+            await _append_audit(
+                connection,
+                event_type=f"PRODUCT_NORMALIZATION_{action}",
+                actor_id=reviewer_id,
+                target_type="product_normalization_candidate",
+                target_id=candidate_id,
+                after_state={"status": terminal_status, "decision": action},
+                reason=reason.strip(),
+                request_id=str(candidate_id),
+                now=decided_at,
+            )
 
     async def resolve_claim_conflict(
         self,
@@ -939,6 +1038,282 @@ class _PostgresPublicationTransaction:
         self._context: dict[str, Any] | None = None
         self._facts: RowMapping | None = None
 
+    async def apply_digital_case_patch(self, patch: DigitalCaseReviewPatch) -> None:
+        taxonomy_reasons = validate_taxonomy(
+            engineering_domains=patch.engineering_domains,
+            lifecycle_stages=patch.lifecycle_stages,
+            technology_tags=patch.technology_tags,
+            application_scenarios=patch.application_scenarios,
+        )
+        if taxonomy_reasons:
+            raise PublicationDenied(taxonomy_reasons)
+        profile = (
+            (
+                await self._connection.execute(
+                    text(
+                        """
+                        SELECT profile.*, item.current_document_version_id
+                        FROM digital_case_profile profile
+                        JOIN intelligence_item item ON item.id = profile.item_id
+                        WHERE profile.item_id = :item_id
+                          AND item.item_type = 'DIGITAL_CASE'
+                        FOR UPDATE
+                        """
+                    ),
+                    {"item_id": self._task["item_id"]},
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if profile is None:
+            raise PublicationDenied(("DIGITAL_CASE_PROFILE_REQUIRED",))
+
+        requested = {
+            "ENGINEERING_DOMAIN": patch.engineering_domains,
+            "LIFECYCLE_STAGE": patch.lifecycle_stages,
+            "TECHNOLOGY_TAG": patch.technology_tags,
+            "APPLICATION_SCENARIO": patch.application_scenarios,
+        }
+        claim_rows = list(
+            (
+                await self._connection.execute(
+                    text(
+                        """
+                        SELECT id, literal_value
+                        FROM claim
+                        WHERE item_id = :item_id
+                          AND document_version_id = :version_id
+                          AND verification_status = 'ACCEPTED'
+                        """
+                    ),
+                    {
+                        "item_id": self._task["item_id"],
+                        "version_id": profile["current_document_version_id"],
+                    },
+                )
+            ).mappings()
+        )
+        authorized: dict[tuple[str, str], UUID] = {}
+        for claim in claim_rows:
+            value = claim["literal_value"]
+            if isinstance(value, Mapping):
+                facet = value.get("facet")
+                code = value.get("code")
+                if isinstance(facet, str) and isinstance(code, str):
+                    authorized[(facet, code)] = claim["id"]
+        missing = [
+            f"{facet}:{code}"
+            for facet, codes in requested.items()
+            for code in codes
+            if (facet, code) not in authorized
+        ]
+        if missing:
+            raise PublicationDenied(("DIGITAL_CLASSIFICATION_EVIDENCE_REQUIRED",))
+
+        maturity_evidence = set(patch.maturity_evidence_ids)
+        if maturity_evidence:
+            authorized_evidence = set(
+                await self._connection.scalars(
+                    text(
+                        """
+                        SELECT evidence.id
+                        FROM claim_evidence evidence
+                        JOIN claim ON claim.id = evidence.claim_id
+                        WHERE claim.item_id = :item_id
+                          AND claim.document_version_id = :version_id
+                          AND claim.verification_status = 'ACCEPTED'
+                          AND evidence.id = ANY(:evidence_ids)
+                        """
+                    ),
+                    {
+                        "item_id": self._task["item_id"],
+                        "version_id": profile["current_document_version_id"],
+                        "evidence_ids": list(maturity_evidence),
+                    },
+                )
+            )
+            if authorized_evidence != maturity_evidence:
+                raise PublicationDenied(("DIGITAL_MATURITY_EVIDENCE_REQUIRED",))
+        project_count = int(
+            await self._connection.scalar(
+                text(
+                    """
+                    SELECT count(*)
+                    FROM digital_case_entity_relation relation
+                    JOIN digital_case_entity entity ON entity.id = relation.entity_id
+                    WHERE relation.item_id = :item_id
+                      AND entity.entity_type = 'PROJECT'
+                    """
+                ),
+                {"item_id": self._task["item_id"]},
+            )
+            or 0
+        )
+        maturity_reasons = validate_maturity(
+            patch.maturity_level.value,
+            MaturityEvidence(
+                named_project_count=project_count,
+                deployment_count=None,
+                operating_months=None,
+                acceptance_evidence_count=len(maturity_evidence),
+                enterprise_scope_confirmed=(
+                    patch.maturity_level.value == "ENTERPRISE_SCALE"
+                    and profile["maturity_level"] == "ENTERPRISE_SCALE"
+                ),
+            ),
+        )
+        if maturity_reasons:
+            raise PublicationDenied(maturity_reasons)
+
+        for outcome_patch in patch.outcome_attributions:
+            outcome = (
+                (
+                    await self._connection.execute(
+                        text(
+                            """
+                            SELECT independent_evidence_ids
+                            FROM digital_case_outcome
+                            WHERE id = :outcome_id AND item_id = :item_id
+                            FOR UPDATE
+                            """
+                        ),
+                        {
+                            "outcome_id": outcome_patch.outcome_id,
+                            "item_id": self._task["item_id"],
+                        },
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            entity_allowed = bool(
+                await self._connection.scalar(
+                    text(
+                        """
+                        SELECT EXISTS(
+                          SELECT 1 FROM digital_case_entity_relation
+                          WHERE item_id = :item_id AND entity_id = :entity_id
+                        )
+                        """
+                    ),
+                    {
+                        "item_id": self._task["item_id"],
+                        "entity_id": outcome_patch.attribution_entity_id,
+                    },
+                )
+            )
+            if outcome is None or not entity_allowed:
+                raise PublicationDenied(("DIGITAL_OUTCOME_ATTRIBUTION_INVALID",))
+            existing_independent = set(outcome["independent_evidence_ids"] or [])
+            selected_independent = set(outcome_patch.independent_evidence_ids)
+            if outcome_patch.verification.value == "VERIFIED" and (
+                not selected_independent or not selected_independent.issubset(existing_independent)
+            ):
+                raise PublicationDenied(("INDEPENDENT_EVIDENCE_REQUIRED",))
+            await self._connection.execute(
+                text(
+                    """
+                    UPDATE digital_case_outcome
+                    SET attribution_entity_id = :entity_id,
+                        outcome_kind = :outcome_kind,
+                        independent_evidence_ids = :independent_evidence_ids
+                    WHERE id = :outcome_id AND item_id = :item_id
+                    """
+                ),
+                {
+                    "entity_id": outcome_patch.attribution_entity_id,
+                    "outcome_kind": outcome_patch.verification.value,
+                    "independent_evidence_ids": list(selected_independent),
+                    "outcome_id": outcome_patch.outcome_id,
+                    "item_id": self._task["item_id"],
+                },
+            )
+
+        await self._connection.execute(
+            text("DELETE FROM digital_case_taxonomy WHERE item_id = :item_id"),
+            {"item_id": self._task["item_id"]},
+        )
+        selected_claim_ids: list[UUID] = []
+        for facet, codes in requested.items():
+            for code in codes:
+                claim_id = authorized[(facet, code)]
+                selected_claim_ids.append(claim_id)
+                await self._connection.execute(
+                    text(
+                        """
+                        INSERT INTO digital_case_taxonomy
+                          (id, item_id, facet, code, claim_id, created_at)
+                        VALUES (:id, :item_id, :facet, :code, :claim_id, now())
+                        """
+                    ),
+                    {
+                        "id": uuid7(),
+                        "item_id": self._task["item_id"],
+                        "facet": facet,
+                        "code": code,
+                        "claim_id": claim_id,
+                    },
+                )
+        await self._connection.execute(
+            text(
+                """
+                UPDATE digital_case_profile
+                SET maturity_level = :maturity_level,
+                    maturity_evidence_ids = :maturity_evidence_ids,
+                    updated_at = now()
+                WHERE item_id = :item_id
+                """
+            ),
+            {
+                "maturity_level": patch.maturity_level.value,
+                "maturity_evidence_ids": list(maturity_evidence),
+                "item_id": self._task["item_id"],
+            },
+        )
+        direct_srbg = bool(
+            await self._connection.scalar(
+                text(
+                    """
+                    SELECT EXISTS(
+                      SELECT 1 FROM digital_case_entity_relation
+                      WHERE item_id = :item_id AND direct_srbg = true
+                    )
+                    """
+                ),
+                {"item_id": self._task["item_id"]},
+            )
+        )
+        relevance = calculate_relevance(
+            patch.engineering_domains,
+            is_sichuan=bool(profile["is_sichuan"]),
+            has_direct_srbg_relation=direct_srbg,
+        )
+        factor_points = {factor.code: factor.points for factor in relevance.factors}
+        await self._connection.execute(
+            text(
+                """
+                UPDATE digital_case_relevance
+                SET score = :score, rule_version = :rule_version,
+                    engineering_points = :engineering_points,
+                    sichuan_points = :sichuan_points,
+                    srbg_direct_points = :srbg_direct_points,
+                    factor_claim_ids = :factor_claim_ids,
+                    calculated_at = now()
+                WHERE item_id = :item_id
+                """
+            ),
+            {
+                "score": relevance.score,
+                "rule_version": relevance.rule_version,
+                "engineering_points": factor_points["ENGINEERING_DOMAIN"],
+                "sichuan_points": factor_points["SICHUAN"],
+                "srbg_direct_points": factor_points["SRBG_DIRECT"],
+                "factor_claim_ids": selected_claim_ids,
+                "item_id": self._task["item_id"],
+            },
+        )
+
     async def authoritative_context(
         self,
         *,
@@ -1053,7 +1428,7 @@ class _PostgresPublicationTransaction:
             facts["paragraphs"] or [],
             item_type=item_type,
         )
-        if policy_version not in {"3.0.0", "4.0.0"}:
+        if policy_version not in {"3.0.0", "4.0.0", "5.0.0", "6.0.0", "7.0.0"}:
             evidence_integrity.pop("minimum_critical_ocr_confidence_bps", None)
         round03 = await _round03_gate_facts(
             self._connection,
@@ -1062,7 +1437,20 @@ class _PostgresPublicationTransaction:
             accepted_claim_count=cast(int, evidence_integrity["claim_count"]),
             regulation_status=str(facts["regulation_status"]),
             authority_level=str(facts["authority_level"]),
-            minimum_summary_claim_count=1 if item_type == "SAFETY_CASE" else 4,
+            minimum_summary_claim_count=(
+                1
+                if item_type
+                in {
+                    "SAFETY_CASE",
+                    "DIGITAL_CASE",
+                    "JOURNAL_PAPER",
+                    "SOFTWARE_PRODUCT",
+                    "IOT_PRODUCT",
+                    "LOW_ALTITUDE_EQUIPMENT",
+                    "AI_EQUIPMENT",
+                }
+                else 4
+            ),
         )
         round04: dict[str, object] | None = None
         if item_type == "SAFETY_CASE":
@@ -1072,6 +1460,31 @@ class _PostgresPublicationTransaction:
                 claims=claims,
             )
             evidence_integrity["unresolved_conflict_count"] = round04["unresolved_conflict_count"]
+        round05: dict[str, object] | None = None
+        if item_type == "DIGITAL_CASE":
+            round05 = await _round05_gate_facts(
+                self._connection,
+                item_id=facts["item_id"],
+                document_version_id=facts["document_version_id"],
+            )
+        round06: dict[str, object] | None = None
+        if item_type == "JOURNAL_PAPER":
+            round06 = await _round06_gate_facts(
+                self._connection,
+                item_id=facts["item_id"],
+                document_version_id=facts["document_version_id"],
+            )
+        round07: dict[str, object] | None = None
+        if item_type in {
+            "SOFTWARE_PRODUCT",
+            "IOT_PRODUCT",
+            "LOW_ALTITUDE_EQUIPMENT",
+            "AI_EQUIPMENT",
+        }:
+            round07 = await _round07_gate_facts(
+                self._connection,
+                item_id=facts["item_id"],
+            )
         content_hash = str(facts["content_hash"])
         context: dict[str, Any] = {
             "evaluation_id": str(evaluation_id),
@@ -1143,7 +1556,7 @@ class _PostgresPublicationTransaction:
                 },
             },
         }
-        if policy_version in {"3.0.0", "4.0.0"}:
+        if policy_version in {"3.0.0", "4.0.0", "5.0.0", "6.0.0", "7.0.0"}:
             cast(dict[str, Any], context["server"])["round03"] = round03
             cast(dict[str, Any], cast(dict[str, Any], context["server"])["document"]).update(
                 {
@@ -1151,8 +1564,14 @@ class _PostgresPublicationTransaction:
                     "raw_security_status": facts["raw_security_status"],
                 }
             )
-        if policy_version == "4.0.0" and round04 is not None:
+        if policy_version in {"4.0.0", "5.0.0", "6.0.0", "7.0.0"} and round04 is not None:
             cast(dict[str, Any], context["server"])["round04"] = round04
+        if policy_version in {"5.0.0", "6.0.0", "7.0.0"} and round05 is not None:
+            cast(dict[str, Any], context["server"])["round05"] = round05
+        if policy_version in {"6.0.0", "7.0.0"} and round06 is not None:
+            cast(dict[str, Any], context["server"])["round06"] = round06
+        if policy_version == "7.0.0" and round07 is not None:
+            cast(dict[str, Any], context["server"])["round07"] = round07
         self._context = context
         return context
 
@@ -2341,6 +2760,98 @@ async def _lock_decision_key(
     )
 
 
+async def _decide_paper_relation_candidate(
+    connection: AsyncConnection,
+    *,
+    candidate_id: UUID,
+    action: str,
+    reviewer_id: UUID,
+    reason: str,
+    decided_at: datetime,
+) -> None:
+    candidate = (
+        (
+            await connection.execute(
+                text(
+                    """
+                    SELECT id, source_item_id, target_item_id, relation_type, status
+                    FROM item_relation_candidate
+                    WHERE id = :candidate_id FOR UPDATE
+                    """
+                ),
+                {"candidate_id": candidate_id},
+            )
+        ).mappings().first()
+    )
+    if candidate is None:
+        raise PublicationDenied(("PAPER_RELATION_CANDIDATE_NOT_FOUND",))
+    if candidate["status"] != "PENDING_REVIEW":
+        raise PublicationDenied(("PAPER_RELATION_CANDIDATE_ALREADY_DECIDED",))
+    if action not in {"ACCEPT", "REJECT"}:
+        raise PublicationDenied(("PAPER_RELATION_DECISION_INVALID",))
+    if action == "ACCEPT" and candidate["target_item_id"] is None:
+        raise PublicationDenied(("PAPER_RELATION_TARGET_REQUIRED",))
+    await connection.execute(
+        text("UPDATE item_relation_candidate SET status = :status WHERE id = :candidate_id"),
+        {"status": "ACCEPTED" if action == "ACCEPT" else "REJECTED", "candidate_id": candidate_id},
+    )
+    if action == "ACCEPT":
+        relation_id = uuid7()
+        await connection.execute(
+            text(
+                """
+                INSERT INTO item_relation (
+                    id, source_item_id, target_item_id, relation_type,
+                    candidate_id, reviewed_by, reviewed_at
+                ) VALUES (
+                    :id, :source_item_id, :target_item_id, :relation_type,
+                    :candidate_id, :reviewed_by, :reviewed_at
+                )
+                """
+            ),
+            {
+                "id": relation_id,
+                "source_item_id": candidate["source_item_id"],
+                "target_item_id": candidate["target_item_id"],
+                "relation_type": candidate["relation_type"],
+                "candidate_id": candidate_id,
+                "reviewed_by": reviewer_id,
+                "reviewed_at": decided_at,
+            },
+        )
+        relation_status = {
+            "RETRACTS": "RETRACTED",
+            "CORRECTS": "CORRECTED",
+            "SUPERSEDES": "WITHDRAWN",
+        }.get(str(candidate["relation_type"]))
+        if relation_status:
+            await connection.execute(
+                text(
+                    """
+                    UPDATE paper_profile
+                    SET relation_status = :relation_status, updated_at = :decided_at
+                    WHERE item_id = :target_item_id
+                    """
+                ),
+                {
+                    "relation_status": relation_status,
+                    "decided_at": decided_at,
+                    "target_item_id": candidate["target_item_id"],
+                },
+            )
+    await _append_audit(
+        connection,
+        event_type=f"PAPER_RELATION_{action}",
+        actor_id=reviewer_id,
+        target_type="item_relation_candidate",
+        target_id=candidate_id,
+        after_state={"status": "ACCEPTED" if action == "ACCEPT" else "REJECTED"},
+        reason=reason,
+        request_id=str(candidate_id),
+        now=decided_at,
+    )
+
+
 async def _decide_relation_candidate(
     connection: AsyncConnection,
     *,
@@ -3092,6 +3603,9 @@ async def _publication_facts(
                     LEFT JOIN safety_case_profile safety_profile
                       ON safety_profile.item_id = i.id
                      AND i.item_type = 'SAFETY_CASE'
+                    LEFT JOIN digital_case_profile digital_profile
+                      ON digital_profile.item_id = i.id
+                     AND i.item_type = 'DIGITAL_CASE'
                     LEFT JOIN event_item membership ON membership.item_id = i.id
                     LEFT JOIN event safety_event ON safety_event.id = membership.event_id
                     JOIN processing_run run ON run.document_version_id = v.id
@@ -3114,6 +3628,9 @@ async def _publication_facts(
                         OR
                         (i.item_type = 'SAFETY_CASE'
                          AND safety_profile.item_id IS NOT NULL)
+                        OR
+                        (i.item_type = 'DIGITAL_CASE'
+                         AND digital_profile.item_id IS NOT NULL)
                       )
                     ORDER BY run.completed_at DESC, run.id DESC LIMIT 1
                     """
@@ -3220,6 +3737,9 @@ def _publication_snapshot(
         "original_url": facts["original_url"],
         "published_at": published_value,
     }
+    if facts["item_type"] == "DIGITAL_CASE":
+        base["profile_type"] = "DIGITAL_CASE"
+        return base
     if facts["item_type"] != "SAFETY_CASE":
         base.update(
             {
@@ -3459,6 +3979,416 @@ async def _round03_gate_facts(
             and accepted_status_decision
         ),
         "status_reviewer_decision": accepted_status_decision,
+    }
+
+
+async def _round05_gate_facts(
+    connection: AsyncConnection,
+    *,
+    item_id: UUID,
+    document_version_id: UUID,
+) -> dict[str, object]:
+    profile = (
+        (
+            await connection.execute(
+                text(
+                    """
+                    SELECT source_nature, maturity_level, maturity_evidence_ids
+                    FROM digital_case_profile
+                    WHERE item_id = :item_id
+                    """
+                ),
+                {"item_id": item_id},
+            )
+        )
+        .mappings()
+        .one()
+    )
+    classification_count = int(
+        await connection.scalar(
+            text("SELECT count(*) FROM digital_case_taxonomy WHERE item_id = :item_id"),
+            {"item_id": item_id},
+        )
+        or 0
+    )
+    unauthorized_classifications = int(
+        await connection.scalar(
+            text(
+                """
+                SELECT count(*)
+                FROM digital_case_taxonomy taxonomy
+                JOIN claim ON claim.id = taxonomy.claim_id
+                WHERE taxonomy.item_id = :item_id
+                  AND (
+                    claim.item_id <> :item_id
+                    OR claim.document_version_id <> :version_id
+                    OR claim.verification_status <> 'ACCEPTED'
+                  )
+                """
+            ),
+            {"item_id": item_id, "version_id": document_version_id},
+        )
+        or 0
+    )
+    invalid_outcomes = int(
+        await connection.scalar(
+            text(
+                """
+                SELECT count(*)
+                FROM digital_case_outcome outcome
+                WHERE outcome.item_id = :item_id
+                  AND (
+                    cardinality(outcome.evidence_ids) = 0
+                    OR NOT EXISTS (
+                      SELECT 1 FROM digital_case_entity_relation relation
+                      WHERE relation.item_id = outcome.item_id
+                        AND relation.entity_id = outcome.attribution_entity_id
+                    )
+                    OR NOT EXISTS (
+                      SELECT 1 FROM claim
+                      WHERE claim.id = outcome.claim_id
+                        AND claim.item_id = outcome.item_id
+                        AND claim.document_version_id = :version_id
+                        AND claim.verification_status = 'ACCEPTED'
+                    )
+                  )
+                """
+            ),
+            {"item_id": item_id, "version_id": document_version_id},
+        )
+        or 0
+    )
+    invalid_verified = int(
+        await connection.scalar(
+            text(
+                """
+                SELECT count(*)
+                FROM digital_case_outcome
+                WHERE item_id = :item_id
+                  AND outcome_kind = 'VERIFIED'
+                  AND cardinality(independent_evidence_ids) = 0
+                """
+            ),
+            {"item_id": item_id},
+        )
+        or 0
+    )
+    maturity_ids = list(profile["maturity_evidence_ids"] or [])
+    authorized_maturity_count = 0
+    if maturity_ids:
+        authorized_maturity_count = int(
+            await connection.scalar(
+                text(
+                    """
+                    SELECT count(DISTINCT evidence.id)
+                    FROM claim_evidence evidence
+                    JOIN claim ON claim.id = evidence.claim_id
+                    WHERE claim.item_id = :item_id
+                      AND claim.document_version_id = :version_id
+                      AND claim.verification_status = 'ACCEPTED'
+                      AND evidence.id = ANY(:evidence_ids)
+                    """
+                ),
+                {
+                    "item_id": item_id,
+                    "version_id": document_version_id,
+                    "evidence_ids": maturity_ids,
+                },
+            )
+            or 0
+        )
+    project_count = int(
+        await connection.scalar(
+            text(
+                """
+                SELECT count(*)
+                FROM digital_case_entity_relation relation
+                JOIN digital_case_entity entity ON entity.id = relation.entity_id
+                WHERE relation.item_id = :item_id
+                  AND entity.entity_type = 'PROJECT'
+                """
+            ),
+            {"item_id": item_id},
+        )
+        or 0
+    )
+    maturity_reasons = validate_maturity(
+        str(profile["maturity_level"]),
+        MaturityEvidence(
+            named_project_count=project_count,
+            deployment_count=None,
+            operating_months=None,
+            acceptance_evidence_count=authorized_maturity_count,
+            enterprise_scope_confirmed=str(profile["maturity_level"]) == "ENTERPRISE_SCALE",
+        ),
+    )
+    relevance = (
+        (
+            await connection.execute(
+                text(
+                    """
+                    SELECT score, rule_version
+                    FROM digital_case_relevance
+                    WHERE item_id = :item_id
+                    """
+                ),
+                {"item_id": item_id},
+            )
+        )
+        .mappings()
+        .first()
+    )
+    return {
+        "source_nature": profile["source_nature"],
+        "classification_claims_authorized": (
+            classification_count > 0 and unauthorized_classifications == 0
+        ),
+        "outcome_attribution_valid": invalid_outcomes == 0,
+        "verified_outcomes_have_independent_evidence": invalid_verified == 0,
+        "maturity_evidence_valid": (
+            authorized_maturity_count == len(set(maturity_ids)) and not maturity_reasons
+        ),
+        "relevance_rule_version": relevance["rule_version"] if relevance else None,
+        "relevance_score": int(relevance["score"]) if relevance else None,
+        "recommended_actions_valid": True,
+    }
+
+
+async def _round06_gate_facts(
+    connection: AsyncConnection,
+    *,
+    item_id: UUID,
+    document_version_id: UUID,
+) -> dict[str, object]:
+    profile = (
+        (
+            await connection.execute(
+                text(
+                    """
+                    SELECT normalized_doi, access_level, open_license,
+                           open_fulltext_url, abstract, maturity_level,
+                           research_interpretation, relation_status
+                    FROM paper_profile WHERE item_id = :item_id
+                    """
+                ),
+                {"item_id": item_id},
+            )
+        ).mappings().one()
+    )
+    pending_duplicates = int(
+        await connection.scalar(
+            text(
+                """
+                SELECT count(*) FROM paper_duplicate_candidate
+                WHERE candidate_item_id = :item_id AND status = 'PENDING_REVIEW'
+                """
+            ),
+            {"item_id": item_id},
+        )
+        or 0
+    )
+    unreviewed_updates = int(
+        await connection.scalar(
+            text(
+                """
+                SELECT count(*) FROM item_relation_candidate
+                WHERE source_item_id = :item_id
+                  AND relation_type IN ('CORRECTS','SUPERSEDES','RETRACTS')
+                  AND status = 'PENDING_REVIEW'
+                """
+            ),
+            {"item_id": item_id},
+        )
+        or 0
+    )
+    interpretation = profile["research_interpretation"]
+    research_refs_valid = True
+    if interpretation:
+        valid_ref_count = int(
+            await connection.scalar(
+                text(
+                    """
+                    SELECT count(DISTINCT claim.id)
+                    FROM claim
+                    JOIN claim_evidence evidence ON evidence.claim_id = claim.id
+                    WHERE claim.item_id = :item_id
+                      AND claim.document_version_id = :version_id
+                      AND claim.verification_status = 'ACCEPTED'
+                      AND claim.id = ANY(CAST(:claim_ids AS uuid[]))
+                      AND evidence.id = ANY(CAST(:evidence_ids AS uuid[]))
+                    """
+                ),
+                {
+                    "item_id": item_id,
+                    "version_id": document_version_id,
+                    "claim_ids": interpretation.get("claim_ids", []),
+                    "evidence_ids": interpretation.get("evidence_ids", []),
+                },
+            )
+            or 0
+        )
+        research_refs_valid = valid_ref_count == len(set(interpretation.get("claim_ids", [])))
+    access_level = str(profile["access_level"])
+    abstract_present = bool(profile["abstract"])
+    return {
+        "identity_resolved": bool(profile["normalized_doi"]) or pending_duplicates == 0,
+        "access_level": access_level,
+        "access_policy_valid": (
+            (access_level != "METADATA_ONLY" or not abstract_present)
+            and (access_level == "OPEN_FULLTEXT" or profile["open_fulltext_url"] is None)
+        ),
+        "abstract_permitted": access_level in {"ABSTRACT_ALLOWED", "OPEN_FULLTEXT"},
+        "abstract_present": abstract_present,
+        "fulltext_storage_count": 0,
+        "fulltext_link_licensed": bool(
+            access_level == "OPEN_FULLTEXT"
+            and profile["open_fulltext_url"]
+            and profile["open_license"]
+        ),
+        "research_claim_refs_valid": research_refs_valid,
+        "maturity_evidence_valid": str(profile["maturity_level"])
+        not in {"SINGLE_PROJECT_PRODUCTION", "MULTI_PROJECT_REPLICATION", "ENTERPRISE_SCALE"},
+        "unreviewed_update_relation_count": unreviewed_updates,
+        "relation_status": profile["relation_status"],
+    }
+
+
+async def _round07_gate_facts(
+    connection: AsyncConnection,
+    *,
+    item_id: UUID,
+) -> dict[str, object]:
+    profile = (
+        (
+            await connection.execute(
+                text(
+                    """
+                    SELECT profile.version_id, profile.item_type, profile.permit_status,
+                           profile.image_downloaded, profile.limitations,
+                           vendor.name AS vendor_name,
+                           product_document.source_id AS product_source_id
+                    FROM technology_product_profile profile
+                    JOIN intelligence_item item ON item.id = profile.item_id
+                    JOIN document_version product_version
+                      ON product_version.id = item.current_document_version_id
+                    JOIN document product_document
+                      ON product_document.id = product_version.document_id
+                    JOIN technology_product_version version ON version.id = profile.version_id
+                    JOIN technology_product_model model ON model.id = version.model_id
+                    JOIN technology_product product ON product.id = model.product_id
+                    JOIN technology_vendor vendor ON vendor.id = product.vendor_id
+                    WHERE profile.item_id = :item_id
+                    """
+                ),
+                {"item_id": item_id},
+            )
+        ).mappings().one()
+    )
+    capabilities = list(
+        (
+            await connection.execute(
+                text(
+                    """
+                    SELECT kind, statement, attribution, evidence_ids, independent_evidence_ids
+                    FROM technology_product_capability
+                    WHERE item_id = :item_id
+                    ORDER BY id
+                    """
+                ),
+                {"item_id": item_id},
+            )
+        ).mappings()
+    )
+    pending_identity_candidates = int(
+        await connection.scalar(
+            text(
+                """
+                SELECT count(*) FROM product_normalization_candidate
+                WHERE status = 'PENDING_REVIEW'
+                  AND (
+                    incoming_version_id = :version_id
+                    OR candidate_version_id = :version_id
+                  )
+                """
+            ),
+            {"version_id": profile["version_id"]},
+        )
+        or 0
+    )
+    permit_evidence_authorized = bool(
+        await connection.scalar(
+            text(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM technology_product_capability capability
+                    CROSS JOIN LATERAL unnest(
+                        capability.evidence_ids || capability.independent_evidence_ids
+                    ) AS permit_evidence(evidence_id)
+                    JOIN claim_evidence evidence ON evidence.id = permit_evidence.evidence_id
+                      AND evidence.claim_id = capability.claim_id
+                    JOIN claim ON claim.id = capability.claim_id
+                    JOIN document_version version ON version.id = evidence.document_version_id
+                    JOIN document ON document.id = version.document_id
+                    JOIN source ON source.id = document.source_id
+                    WHERE capability.item_id = :item_id
+                      AND claim.verification_status = 'ACCEPTED'
+                      AND evidence.evidence_role = 'PRIMARY_OFFICIAL'
+                      AND source.authority_level IN ('A0','A1')
+                )
+                """
+            ),
+            {"item_id": item_id},
+        )
+    )
+    known_capability_count = sum(
+        capability["kind"] in {"PROMOTIONAL_CLAIM", "VERIFIED_CAPABILITY"}
+        for capability in capabilities
+    )
+    invalid_verified_capabilities = int(
+        await connection.scalar(
+            text(
+                """
+                SELECT count(*)
+                FROM technology_product_capability capability
+                WHERE capability.item_id = :item_id
+                  AND capability.kind = 'VERIFIED_CAPABILITY'
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM unnest(capability.independent_evidence_ids)
+                      AS independent(evidence_id)
+                    JOIN claim_evidence evidence ON evidence.id = independent.evidence_id
+                      AND evidence.claim_id = capability.claim_id
+                    JOIN document_version version
+                      ON version.id = evidence.document_version_id
+                    JOIN document ON document.id = version.document_id
+                    WHERE evidence.evidence_role = 'INDEPENDENT_CONFIRMATION'
+                      AND document.source_id <> :product_source_id
+                  )
+                """
+            ),
+            {"item_id": item_id, "product_source_id": profile["product_source_id"]},
+        )
+        or 0
+    )
+    promotional_claims_attributed = all(
+        capability["kind"] != "PROMOTIONAL_CLAIM"
+        or bool(str(capability["attribution"]).strip())
+        for capability in capabilities
+    )
+    public_text = [str(capability["statement"]) for capability in capabilities]
+    public_text.extend(str(value) for value in profile["limitations"] or [])
+    return {
+        "identity_safe": pending_identity_candidates == 0,
+        "capability_groups_separated": known_capability_count == len(capabilities),
+        "verified_capabilities_have_independent_evidence": invalid_verified_capabilities == 0,
+        "promotional_claims_vendor_attributed": promotional_claims_attributed,
+        "procurement_conclusion_count": sum(
+            contains_procurement_conclusion(value) for value in public_text
+        ),
+        "vendor_image_download_count": int(bool(profile["image_downloaded"])),
+        "permit_status": str(profile["permit_status"]),
+        "permit_evidence_authorized": permit_evidence_authorized,
     }
 
 
@@ -3968,6 +4898,11 @@ def _candidate_schema_valid(
     *,
     item_type: str = "SAFETY_REGULATION",
 ) -> bool:
+    if item_type in {"DIGITAL_CASE", "JOURNAL_PAPER"}:
+        accepted = [row for row in rows if row["verification_status"] == "ACCEPTED"]
+        return bool(accepted) and all(
+            row.get("evidence_id") is not None and row.get("critical") is False for row in accepted
+        )
     if item_type == "SAFETY_CASE":
         grouped: dict[object, list[RowMapping | dict[str, object]]] = {}
         for candidate_row in rows:

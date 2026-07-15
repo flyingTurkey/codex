@@ -1,0 +1,17 @@
+{
+  "fixture_set": "round06-papers-v1",
+  "copyright_policy": "Metadata-only fixed responses; no publisher abstract or fulltext is redistributed.",
+  "files": [
+    {"path": "openalex-page1.json", "sha256": "dd147b4c5a82799542fa425944e372632166cdcdea38a7dcb7a52796b5c90704"},
+    {"path": "openalex-page2.json", "sha256": "7896423b4c495934c23f7a8ad9a6e565332a3c9898d76f38d72c0b4f8badbd34"},
+    {"path": "crossref-work.json", "sha256": "6164ecd3270e6ffc573aa2c093a48985316e43a7e56697260f1b7cdc479e2fa7"},
+    {"path": "china-highway-journal-catalog.json", "sha256": "15cb3e2bf58d85cff1e2215e1c09981c0dea2f7e53bc9b07efb81a4a6b003668"}
+  ],
+  "expected": {
+    "canonical_doi": "10.1000/bridge.2025.1",
+    "source_records": ["OpenAlex", "Crossref"],
+    "canonical_item_count": 1,
+    "default_access_level": "METADATA_ONLY",
+    "fulltext_object_count": 0
+  }
+}

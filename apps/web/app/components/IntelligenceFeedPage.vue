@@ -31,6 +31,20 @@ const props = withDefaults(
     initialDomain?: 'all' | 'safety' | 'digital'
     contentType?: FeedContentTypeFilter
     contentTypeOptions?: readonly FeedContentTypeOption[]
+    showDigitalFilters?: boolean
+    showPaperFilters?: boolean
+    showProductFilters?: boolean
+    engineeringDomain?: string
+    scenario?: string
+    maturity?: string
+    sourceNature?: string
+    paperType?: string
+    technologyTag?: string
+    accessLevel?: string
+    publicationYear?: string
+    productKind?: string
+    evidenceLevel?: string
+    deploymentMode?: string
   }>(),
   {
     eyebrow: undefined,
@@ -52,6 +66,20 @@ const props = withDefaults(
       { label: '全部类型', value: 'all' },
       { label: '安全规定', value: 'SAFETY_REGULATION' },
     ],
+    showDigitalFilters: false,
+    showPaperFilters: false,
+    showProductFilters: false,
+    engineeringDomain: 'all',
+    scenario: 'all',
+    maturity: 'all',
+    sourceNature: 'all',
+    paperType: 'all',
+    technologyTag: 'all',
+    accessLevel: 'all',
+    publicationYear: 'all',
+    productKind: 'all',
+    evidenceLevel: 'all',
+    deploymentMode: 'all',
   },
 )
 
@@ -59,6 +87,17 @@ const emit = defineEmits<{
   'content-type-change': [value: FeedContentTypeFilter]
   retry: []
   'update:contentType': [value: FeedContentTypeFilter]
+  'update:engineeringDomain': [value: string]
+  'update:scenario': [value: string]
+  'update:maturity': [value: string]
+  'update:sourceNature': [value: string]
+  'update:paperType': [value: string]
+  'update:technologyTag': [value: string]
+  'update:accessLevel': [value: string]
+  'update:publicationYear': [value: string]
+  'update:productKind': [value: string]
+  'update:evidenceLevel': [value: string]
+  'update:deploymentMode': [value: string]
 }>()
 
 const selectedDomain = ref(props.initialDomain)
@@ -125,6 +164,31 @@ const visibleItems = computed(() =>
       v-model:content-type="selectedType"
       :content-type-options="contentTypeOptions"
       :show-domain="showDomainFilter"
+      :show-digital-filters="showDigitalFilters"
+      :show-paper-filters="showPaperFilters"
+      :show-product-filters="showProductFilters"
+      :engineering-domain="engineeringDomain"
+      :scenario="scenario"
+      :maturity="maturity"
+      :source-nature="sourceNature"
+      :paper-type="paperType"
+      :technology-tag="technologyTag"
+      :access-level="accessLevel"
+      :publication-year="publicationYear"
+      :product-kind="productKind"
+      :evidence-level="evidenceLevel"
+      :deployment-mode="deploymentMode"
+      @update:engineering-domain="emit('update:engineeringDomain', $event)"
+      @update:scenario="emit('update:scenario', $event)"
+      @update:maturity="emit('update:maturity', $event)"
+      @update:source-nature="emit('update:sourceNature', $event)"
+      @update:paper-type="emit('update:paperType', $event)"
+      @update:technology-tag="emit('update:technologyTag', $event)"
+      @update:access-level="emit('update:accessLevel', $event)"
+      @update:publication-year="emit('update:publicationYear', $event)"
+      @update:product-kind="emit('update:productKind', $event)"
+      @update:evidence-level="emit('update:evidenceLevel', $event)"
+      @update:deployment-mode="emit('update:deploymentMode', $event)"
     />
 
     <div class="intelligence-feed-page__content">

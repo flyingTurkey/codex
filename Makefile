@@ -46,7 +46,7 @@ export PLAYWRIGHT_BROWSERS_PATH
 
 .PHONY: setup dev runtime-ready down lint typecheck test contract-test security-check smoke \
 	resilience-test fixture-replay quality-gate web-e2e web-a11y source-fixture-test \
-	safety-regulation-test pdf-ocr-test safety-case-test
+	safety-regulation-test pdf-ocr-test safety-case-test digital-case-test paper-test product-test
 
 setup:
 	$(UV) sync --frozen --all-packages
@@ -110,9 +110,21 @@ fixture-replay:
 		apps/api/tests/test_safety_regulation_pipeline.py \
 		apps/api/tests/test_publication_gate.py \
 		apps/api/tests/test_publication_gate_v4.py \
+		apps/api/tests/test_publication_gate_v5.py \
+		apps/api/tests/test_publication_gate_v6.py \
+		apps/api/tests/test_publication_gate_v7.py \
 		apps/api/tests/test_safety_case_domain.py \
 		apps/api/tests/test_safety_case_candidate_service.py \
 		apps/api/tests/test_round04_official_fixtures.py \
+		apps/api/tests/test_digital_case_domain.py \
+		apps/api/tests/test_digital_case_source.py \
+		apps/api/tests/test_round05_fixtures.py \
+		apps/api/tests/test_round06_fixtures.py \
+		apps/api/tests/test_paper_domain.py \
+		apps/api/tests/test_paper_source.py \
+		apps/api/tests/test_round07_fixtures.py \
+		apps/api/tests/test_technology_product_domain.py \
+		apps/api/tests/test_technology_product_source.py \
 		apps/api/tests/test_publication_service.py -q
 
 quality-gate: lint typecheck test contract-test security-check
@@ -144,6 +156,38 @@ safety-case-test:
 	$(UV) run python scripts/run_isolated_integration.py -- \
 		apps/api/tests/test_safety_case_integration.py \
 		apps/api/tests/test_round04_official_fixtures.py -q
+
+digital-case-test:
+	$(COMPOSE) up --detach --wait postgres minio
+	$(UV) run python scripts/run_isolated_integration.py -- \
+		apps/api/tests/test_round05_migration.py \
+		apps/api/tests/test_round05_fixtures.py \
+		apps/api/tests/test_digital_case_domain.py \
+		apps/api/tests/test_digital_case_source.py \
+		apps/api/tests/test_publication_gate_v5.py -q
+
+paper-test:
+	$(COMPOSE) up --detach --wait postgres minio
+	$(UV) run python scripts/run_isolated_integration.py -- \
+		apps/api/tests/test_round06_migration.py \
+		apps/api/tests/test_round06_fixtures.py \
+		apps/api/tests/test_paper_domain.py \
+		apps/api/tests/test_paper_source.py \
+		apps/api/tests/test_publication_gate_v6.py \
+		packages/contracts/tests/test_paper_contracts.py -q
+
+product-test:
+	$(COMPOSE) up --detach --wait postgres minio
+	$(UV) run python scripts/run_isolated_integration.py -- \
+		apps/api/tests/test_round07_migration.py \
+		apps/api/tests/test_round07_fixtures.py \
+		apps/api/tests/test_technology_product_domain.py \
+		apps/api/tests/test_technology_product_source.py \
+		apps/api/tests/test_technology_product_query.py \
+		apps/api/tests/test_technology_product_metrics.py \
+		apps/api/tests/test_publication_gate_v7.py \
+		apps/api/tests/test_publication_repository_round07.py \
+		packages/contracts/tests/test_technology_product_contracts.py -q
 
 web-e2e: runtime-ready
 	$(PNPM) --filter @srbg/web e2e

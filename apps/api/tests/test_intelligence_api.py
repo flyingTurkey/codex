@@ -51,7 +51,10 @@ def _pending_item() -> ItemSummary:
 
 
 class StubQueryService:
-    async def get_feed(self, **_: object) -> FeedPage:
+    feed_arguments: dict[str, object] | None = None
+
+    async def get_feed(self, **arguments: object) -> FeedPage:
+        self.feed_arguments = arguments
         return FeedPage(
             items=[_pending_item()],
             next_cursor=None,
@@ -78,6 +81,15 @@ class StubQueryService:
             ),
         )
 
+    async def list_product_normalization_candidates(self, *, status: str) -> list[object]:
+        assert status == "PENDING_REVIEW"
+        return []
+
+    async def get_citation(self, item_id: UUID, citation_format: str) -> tuple[str, str]:
+        assert item_id == ITEM_ID
+        assert citation_format == "gb-t-7714"
+        return "张三. 桥梁数字孪生研究[J]. 中国公路学报, 2025.", "text/plain; charset=utf-8"
+
     async def list_review_tasks(self) -> list[ReviewTaskSummary]:
         return [
             ReviewTaskSummary(
@@ -99,6 +111,8 @@ class StubQueryService:
 
 class StubPublicationService:
     reviewer_id: UUID | None = None
+    digital_case_patch: object | None = None
+    product_normalization_action: str | None = None
 
     async def decide_review(
         self,
@@ -107,16 +121,31 @@ class StubPublicationService:
         action: str,
         reason: str,
         reviewer_id: UUID,
+        digital_case_patch: object | None = None,
     ) -> ReviewDecisionResponse:
         assert review_task_id == TASK_ID
         assert action == "APPROVE"
         assert reason
         self.reviewer_id = reviewer_id
+        self.digital_case_patch = digital_case_patch
         return ReviewDecisionResponse(
             review_task_id=TASK_ID,
             status="APPROVED",
             publication_revision_id=UUID("019b0000-0000-7000-8000-000000006005"),
         )
+
+    async def decide_product_normalization(
+        self,
+        candidate_id: UUID,
+        *,
+        action: str,
+        reason: str,
+        reviewer_id: UUID,
+    ) -> None:
+        assert candidate_id == TASK_ID
+        assert reason
+        assert reviewer_id == REVIEWER_ID
+        self.product_normalization_action = action
 
 
 def _client() -> tuple[TestClient, StubPublicationService]:
@@ -191,3 +220,126 @@ def test_reviewer_identity_is_server_parsed_and_passed_to_publication_service() 
 
     assert response.status_code == 200
     assert publication.reviewer_id == REVIEWER_ID
+
+
+def test_digital_feed_filters_are_forwarded_to_the_shared_query_service() -> None:
+    client, _ = _client()
+    query = client.app.state.intelligence_service
+
+    response = client.get(
+        "/api/v1/feed?domain=digital&content_type=DIGITAL_CASE"
+        "&engineering_domain=BRIDGE&scenario=SMART_BEAM_FACTORY"
+        "&maturity=SINGLE_PROJECT_PRODUCTION"
+        "&source_nature=ENTERPRISE_SELF_REPORT&sort=relevance",
+        headers={"X-SRBG-Local-Roles": "viewer"},
+    )
+
+    assert response.status_code == 200
+    assert query.feed_arguments == {
+        "mode": "all",
+        "domain": "digital",
+        "content_type": "DIGITAL_CASE",
+        "engineering_domain": "BRIDGE",
+        "scenario": "SMART_BEAM_FACTORY",
+        "maturity": "SINGLE_PROJECT_PRODUCTION",
+        "source_nature": "ENTERPRISE_SELF_REPORT",
+        "paper_type": None,
+        "technology_tag": None,
+        "access_level": None,
+        "year": None,
+        "product_kind": None,
+        "evidence_level": None,
+        "deployment_mode": None,
+        "sort": "relevance",
+        "cursor": None,
+        "limit": 20,
+    }
+
+
+def test_paper_filters_and_citation_use_existing_item_resource() -> None:
+    client, _ = _client()
+    query = client.app.state.intelligence_service
+    headers = {"X-SRBG-Local-Roles": "viewer"}
+
+    feed = client.get(
+        "/api/v1/feed?domain=digital&content_type=JOURNAL_PAPER"
+        "&engineering_domain=BRIDGE&technology_tag=DIGITAL_TWIN"
+        "&paper_type=ARTICLE&access_level=METADATA_ONLY&year=2025",
+        headers=headers,
+    )
+    citation = client.get(
+        f"/api/v1/items/{ITEM_ID}/citation?format=gb-t-7714", headers=headers
+    )
+
+    assert feed.status_code == 200
+    assert query.feed_arguments is not None
+    assert query.feed_arguments["content_type"] == "JOURNAL_PAPER"
+    assert query.feed_arguments["technology_tag"] == "DIGITAL_TWIN"
+    assert query.feed_arguments["paper_type"] == "ARTICLE"
+    assert query.feed_arguments["access_level"] == "METADATA_ONLY"
+    assert query.feed_arguments["year"] == 2025
+    assert citation.status_code == 200
+    assert "桥梁数字孪生研究" in citation.text
+
+
+def test_product_filters_are_forwarded_to_the_unified_feed_service() -> None:
+    client, _ = _client()
+    query = client.app.state.intelligence_service
+    response = client.get(
+        "/api/v1/feed?domain=digital&content_type=LOW_ALTITUDE_EQUIPMENT"
+        "&product_kind=UAV_DOCK&evidence_level=VENDOR_CLAIM_ONLY"
+        "&deployment_mode=EDGE&scenario=INSPECTION&maturity=ENGINEERING_PROTOTYPE",
+        headers={"X-SRBG-Local-Roles": "viewer"},
+    )
+
+    assert response.status_code == 200
+    assert query.feed_arguments is not None
+    assert query.feed_arguments["content_type"] == "LOW_ALTITUDE_EQUIPMENT"
+    assert query.feed_arguments["product_kind"] == "UAV_DOCK"
+    assert query.feed_arguments["evidence_level"] == "VENDOR_CLAIM_ONLY"
+    assert query.feed_arguments["deployment_mode"] == "EDGE"
+
+
+def test_reviewer_can_submit_a_structured_digital_case_patch() -> None:
+    client, publication = _client()
+    patch = {
+        "engineering_domains": ["BRIDGE"],
+        "lifecycle_stages": ["CONSTRUCTION"],
+        "technology_tags": ["BIM"],
+        "application_scenarios": ["SMART_BEAM_FACTORY"],
+        "maturity_level": "SINGLE_PROJECT_PRODUCTION",
+        "maturity_evidence_ids": ["019b0000-0000-7000-8000-000000050010"],
+        "outcome_attributions": [],
+    }
+
+    response = client.post(
+        f"/api/v1/admin/review-tasks/{TASK_ID}/decisions",
+        headers={"X-SRBG-Local-Roles": "reviewer"},
+        json={"action": "APPROVE", "reason": "evidence matches", "digital_case_patch": patch},
+    )
+
+    assert response.status_code == 200
+    assert publication.digital_case_patch is not None
+    assert publication.digital_case_patch.maturity_level == "SINGLE_PROJECT_PRODUCTION"
+
+
+def test_product_normalization_entry_is_reviewer_only_and_uses_publication_service() -> None:
+    client, publication = _client()
+    payload = {"action": "KEEP_DISTINCT", "reason": "型号不同，保持独立产品记录"}  # noqa: RUF001
+    denied = client.post(
+        f"/api/v1/admin/product-normalization-candidates/{TASK_ID}/decision",
+        headers={"X-SRBG-Local-Roles": "viewer"},
+        json=payload,
+    )
+    accepted = client.post(
+        f"/api/v1/admin/product-normalization-candidates/{TASK_ID}/decision",
+        headers={
+            "X-SRBG-Local-Roles": "reviewer",
+            "X-SRBG-Local-User-ID": str(REVIEWER_ID),
+        },
+        json=payload,
+    )
+
+    assert denied.status_code == 403
+    assert accepted.status_code == 204
+    assert publication.product_normalization_action == "KEEP_DISTINCT"

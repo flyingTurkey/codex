@@ -1,0 +1,16 @@
+{
+  "fixture_only": true,
+  "external_id": "dji-dock-3-m3d",
+  "source_url": "https://enterprise.dji.com/cn",
+  "title": "【固定样本】低空巡检设备与载荷",
+  "item_type": "LOW_ALTITUDE_EQUIPMENT",
+  "vendor": "大疆行业应用",
+  "product_name": "机场 3",
+  "model_no": "M3D",
+  "version": "1.0",
+  "promotional_claims": ["厂商材料声明可用于自动化巡检"],
+  "verified_capabilities": [],
+  "permit_status": "UNKNOWN",
+  "image_downloaded": false,
+  "publishable": false
+}

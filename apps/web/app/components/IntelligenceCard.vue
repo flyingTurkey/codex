@@ -1,8 +1,14 @@
 <script setup lang="ts">
 import type {
+  DigitalCaseTypeSummary,
+  AiEquipmentTypeSummary,
+  IotProductTypeSummary,
   ItemSummary,
+  LowAltitudeEquipmentTypeSummary,
+  PaperTypeSummary,
   SafetyCaseTypeSummary,
   SafetyRegulationTypeSummary,
+  SoftwareProductTypeSummary,
 } from '@srbg/contracts'
 import type { StatusBadgeTone } from '@srbg/ui'
 import { StatusBadge } from '@srbg/ui'
@@ -10,7 +16,9 @@ import { computed } from 'vue'
 
 import { safetyEngineeringLabel, safetyHazardLabel } from '../utils/safety-case-labels'
 
-const props = defineProps<{ item: ItemSummary }>()
+const props = withDefaults(defineProps<{ item: ItemSummary, headingLevel?: 2 | 3 }>(), {
+  headingLevel: 3,
+})
 
 const emit = defineEmits<{
   evidence: [itemId: string]
@@ -57,6 +65,88 @@ const regulationSummary = computed<SafetyRegulationTypeSummary | null>(() => {
   return summary?.kind === 'SAFETY_REGULATION' ? summary : null
 })
 
+const digitalSummary = computed<DigitalCaseTypeSummary | null>(() => {
+  const summary = props.item.type_summary
+  return summary?.kind === 'DIGITAL_CASE' ? summary : null
+})
+const paperSummary = computed<PaperTypeSummary | null>(() => {
+  const summary = props.item.type_summary
+  return summary?.kind === 'JOURNAL_PAPER' ? summary : null
+})
+type ProductTypeSummary = SoftwareProductTypeSummary | IotProductTypeSummary
+  | LowAltitudeEquipmentTypeSummary | AiEquipmentTypeSummary
+const productSummary = computed<ProductTypeSummary | null>(() => {
+  const summary = props.item.type_summary
+  return summary && [
+    'SOFTWARE_PRODUCT',
+    'IOT_PRODUCT',
+    'LOW_ALTITUDE_EQUIPMENT',
+    'AI_EQUIPMENT',
+  ].includes(summary.kind) ? summary as ProductTypeSummary : null
+})
+const headingTag = computed(() => `h${props.headingLevel}`)
+
+const typeLabel = computed(() => {
+  if (props.item.content_type === 'DIGITAL_CASE') return '数字化案例'
+  if (props.item.content_type === 'JOURNAL_PAPER') return '期刊论文'
+  if (props.item.content_type === 'SOFTWARE_PRODUCT') return '软件产品'
+  if (props.item.content_type === 'IOT_PRODUCT') return '物联网产品'
+  if (props.item.content_type === 'LOW_ALTITUDE_EQUIPMENT') return '低空设备'
+  if (props.item.content_type === 'AI_EQUIPMENT') return 'AI 设备'
+  if (props.item.content_type === 'SAFETY_CASE') return '安全案例'
+  return '安全规定'
+})
+
+const maturityLabels: Record<string, string> = {
+  CONCEPT: '概念',
+  LAB_PROTOTYPE: '实验室原型',
+  ENGINEERING_PROTOTYPE: '工程样机',
+  PILOT: '试点',
+  SINGLE_PROJECT_PRODUCTION: '单项目生产应用',
+  MULTI_PROJECT_REPLICATION: '多项目复制',
+  ENTERPRISE_SCALE: '企业规模应用',
+  UNKNOWN: '成熟度未知',
+}
+
+const paperAccessLabels: Record<string, string> = {
+  METADATA_ONLY: '仅题录',
+  ABSTRACT_ALLOWED: '摘要可展示',
+  OPEN_FULLTEXT: '开放全文入口',
+}
+
+const paperTypeLabels: Record<string, string> = {
+  ARTICLE: '研究论文',
+  REVIEW: '综述',
+  METHOD: '方法论文',
+  CASE_STUDY: '案例研究',
+  OTHER: '其他',
+  UNKNOWN: '类型待确认',
+}
+
+const scenarioLabels: Record<string, string> = {
+  QUALITY_CONTROL: '质量控制',
+  PROGRESS_CONTROL: '进度控制',
+  INSPECTION: '巡检',
+  STRUCTURAL_HEALTH_MONITORING: '结构健康监测',
+  DECISION_SUPPORT: '决策支持',
+  EQUIPMENT_MANAGEMENT: '设备管理',
+}
+
+const productEvidenceLabels: Record<string, string> = {
+  VENDOR_CLAIM_ONLY: '仅厂商声明',
+  PROJECT_EVIDENCE: '工程案例证据',
+  RESEARCH_EVIDENCE: '研究证据',
+  INDEPENDENT_VALIDATION: '独立验证',
+  OFFICIAL_CERTIFICATION: '官方许可或认证',
+  UNKNOWN: '证据等级未知',
+}
+
+const permitLabels: Record<string, string> = {
+  UNKNOWN: '许可状态未知',
+  NOT_REQUIRED: '无需许可',
+  VERIFIED: '许可证据已核验',
+}
+
 const caseStatusMap = {
   CLOSED: { label: '已结案', tone: 'verified' },
   CORRECTED: { label: '已更正', tone: 'info' },
@@ -99,9 +189,14 @@ function formatLoss(amountMinor: number, currency: string): string {
     <div class="intelligence-card__meta">
       <span
         class="intelligence-card__type"
-        :class="{ 'is-safety-case': item.content_type === 'SAFETY_CASE' }"
+        :class="{
+          'is-safety-case': item.content_type === 'SAFETY_CASE',
+          'is-digital-case': item.content_type === 'DIGITAL_CASE',
+          'is-paper': item.content_type === 'JOURNAL_PAPER',
+          'is-product': productSummary,
+        }"
       >
-        {{ item.content_type === 'SAFETY_CASE' ? '安全案例' : '安全规定' }}
+        {{ typeLabel }}
       </span>
       <span
         v-for="state in documentStates"
@@ -110,6 +205,12 @@ function formatLoss(amountMinor: number, currency: string): string {
         :data-document-state="state"
       >
         {{ documentStateLabels[state] }}
+      </span>
+      <span v-if="paperSummary?.relation_status === 'RETRACTED'" data-testid="paper-retraction">
+        <StatusBadge tone="withdrawn" label="已撤稿" />
+      </span>
+      <span v-else-if="paperSummary?.relation_status === 'CORRECTED'" data-testid="paper-correction">
+        <StatusBadge tone="info" label="已有更正" />
       </span>
       <span v-if="item.review_status === 'PENDING'" class="intelligence-card__badge is-pending">
         待人工审核
@@ -131,9 +232,9 @@ function formatLoss(amountMinor: number, currency: string): string {
       </span>
     </div>
 
-    <h3 class="intelligence-card__title">
+    <component :is="headingTag" class="intelligence-card__title">
       <a :href="`/items/${item.id}`">{{ item.title }}</a>
-    </h3>
+    </component>
 
     <dl class="intelligence-card__source">
       <div>
@@ -163,6 +264,97 @@ function formatLoss(amountMinor: number, currency: string): string {
           </dd>
         </div>
       </dl>
+    </template>
+
+    <template v-else-if="!isWithdrawn && paperSummary">
+      <section class="intelligence-card__paper" data-testid="paper-summary">
+        <dl class="intelligence-card__facts is-paper">
+          <div>
+            <dt>期刊</dt>
+            <dd>{{ paperSummary.journal ?? '期刊待补充' }}</dd>
+          </div>
+          <div>
+            <dt>年份 / 类型</dt>
+            <dd>{{ paperSummary.year ?? '年份待补充' }} · {{ paperTypeLabels[paperSummary.paper_type] }}</dd>
+          </div>
+          <div>
+            <dt>开放状态</dt>
+            <dd>{{ paperAccessLabels[paperSummary.access_level] }}</dd>
+          </div>
+          <div>
+            <dt>研究成熟度</dt>
+            <dd>{{ maturityLabels[paperSummary.maturity_level] ?? paperSummary.maturity_level }}</dd>
+          </div>
+          <div v-if="paperSummary.doi" class="intelligence-card__doi">
+            <dt>DOI</dt>
+            <dd>{{ paperSummary.doi }}</dd>
+          </div>
+        </dl>
+        <p class="intelligence-card__research-boundary">
+          研究结果不代表已完成工程生产应用。
+        </p>
+      </section>
+    </template>
+
+    <template v-else-if="!isWithdrawn && productSummary">
+      <section class="intelligence-card__product" data-testid="product-summary">
+        <dl class="intelligence-card__facts is-product">
+          <div><dt>厂商</dt><dd>{{ productSummary.vendor_name }}</dd></div>
+          <div><dt>产品</dt><dd>{{ productSummary.product_name }}</dd></div>
+          <div><dt>型号 / 版本</dt><dd>{{ [productSummary.model_no, productSummary.version].filter(Boolean).join(' / ') || '待补充' }}</dd></div>
+          <div><dt>证据等级</dt><dd>{{ productEvidenceLabels[productSummary.evidence_level] ?? productSummary.evidence_level }}</dd></div>
+          <div v-if="productSummary.kind === 'LOW_ALTITUDE_EQUIPMENT'">
+            <dt>许可</dt><dd>{{ permitLabels[productSummary.permit_status] ?? productSummary.permit_status }}</dd>
+          </div>
+        </dl>
+        <p class="intelligence-card__publisher-claim" data-testid="product-vendor-claims">
+          厂商声明 {{ productSummary.promotional_claim_count }} 项
+        </p>
+        <p class="intelligence-card__verified-capabilities">
+          独立验证 {{ productSummary.verified_capability_count }} 项
+        </p>
+        <p v-if="productSummary.kind === 'LOW_ALTITUDE_EQUIPMENT'" class="intelligence-card__product-boundary">
+          产品发布不代表空域、适航、飞手和项目许可。
+        </p>
+      </section>
+    </template>
+
+    <template v-else-if="!isWithdrawn && digitalSummary">
+      <section class="intelligence-card__digital" data-testid="digital-case-summary">
+        <dl class="intelligence-card__facts is-digital-case">
+          <div>
+            <dt>成熟度</dt>
+            <dd>{{ maturityLabels[digitalSummary.maturity_level] ?? digitalSummary.maturity_level }}</dd>
+          </div>
+          <div v-if="digitalSummary.application_scenarios.length">
+            <dt>场景</dt>
+            <dd>
+              {{ digitalSummary.application_scenarios.map((value) => scenarioLabels[value] ?? value).join('、') }}
+            </dd>
+          </div>
+          <div v-if="digitalSummary.deployment_scale">
+            <dt>部署规模</dt>
+            <dd>{{ digitalSummary.deployment_scale }}</dd>
+          </div>
+        </dl>
+        <p v-if="digitalSummary.publisher_claim_label" class="intelligence-card__publisher-claim">
+          {{ digitalSummary.publisher_claim_label }}
+        </p>
+        <p class="intelligence-card__relationship">
+          <strong>与四川路桥的关系：</strong>{{ digitalSummary.srbg_relationship }}
+        </p>
+        <details class="intelligence-card__relevance" data-testid="relevance-breakdown">
+          <summary data-testid="relevance-summary">
+            相关性 {{ digitalSummary.relevance.score }}
+          </summary>
+          <p>{{ digitalSummary.relevance.rule_version }}</p>
+          <ul>
+            <li v-for="factor in digitalSummary.relevance.factors" :key="factor.code">
+              {{ factor.label }}：+{{ factor.points }}
+            </li>
+          </ul>
+        </details>
+      </section>
     </template>
 
     <template v-else-if="!isWithdrawn && item.publication_revision_id && safetyCaseSummary">
@@ -274,6 +466,16 @@ function formatLoss(amountMinor: number, currency: string): string {
   background: var(--color-safetyCase-50);
 }
 
+.intelligence-card__type.is-digital-case {
+  color: var(--color-digital-700);
+  background: var(--color-digital-50);
+}
+
+.intelligence-card__type.is-paper {
+  color: var(--color-digital-700);
+  background: var(--color-digital-50);
+}
+
 .intelligence-card__badge.is-pending {
   color: var(--color-reviewPending-700);
   background: var(--color-reviewPending-50);
@@ -337,6 +539,103 @@ function formatLoss(amountMinor: number, currency: string): string {
   background: var(--color-safetyCase-50);
 }
 
+.intelligence-card__digital {
+  display: grid;
+  gap: var(--spacing-3);
+}
+
+.intelligence-card__paper {
+  display: grid;
+  gap: var(--spacing-3);
+}
+
+.intelligence-card__product {
+  display: grid;
+  gap: var(--spacing-3);
+}
+
+.intelligence-card__facts.is-product {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  background: var(--color-surfaceMuted);
+}
+
+.intelligence-card__verified-capabilities,
+.intelligence-card__product-boundary {
+  margin: 0;
+  color: var(--color-ink-700);
+  font-size: var(--text-sm);
+}
+
+.intelligence-card__product-boundary {
+  padding: var(--spacing-3);
+  background: var(--color-reviewPending-50);
+  border-radius: var(--radius-sm);
+}
+
+.intelligence-card__facts.is-paper {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  background: var(--color-digital-50);
+}
+
+.intelligence-card__doi dd {
+  overflow-wrap: anywhere;
+}
+
+.intelligence-card__research-boundary {
+  margin: 0;
+  color: var(--color-ink-700);
+  font-size: var(--text-sm);
+}
+
+.intelligence-card__facts.is-digital-case {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  background: var(--color-digital-50);
+}
+
+.intelligence-card__publisher-claim,
+.intelligence-card__relationship,
+.intelligence-card__relevance p,
+.intelligence-card__relevance ul {
+  margin: 0;
+}
+
+.intelligence-card__publisher-claim {
+  justify-self: start;
+  padding: var(--spacing-1) var(--spacing-2);
+  color: var(--color-vendorClaim-700);
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-semibold);
+  background: var(--color-vendorClaim-50);
+  border-radius: var(--radius-pill);
+}
+
+.intelligence-card__relationship {
+  color: var(--color-ink-700);
+}
+
+.intelligence-card__relationship strong {
+  color: var(--color-digital-700);
+}
+
+.intelligence-card__relevance {
+  padding: var(--spacing-3);
+  border: 1px solid var(--color-digital-500);
+  border-radius: var(--radius-sm);
+}
+
+.intelligence-card__relevance summary {
+  color: var(--color-digital-700);
+  font-weight: var(--font-weight-bold);
+  cursor: pointer;
+}
+
+.intelligence-card__relevance p,
+.intelligence-card__relevance ul {
+  margin-top: var(--spacing-2);
+  color: var(--color-ink-600);
+  font-size: var(--text-xs);
+}
+
 .intelligence-card dl div {
   min-width: 0;
 }
@@ -377,7 +676,16 @@ function formatLoss(amountMinor: number, currency: string): string {
   }
 
   .intelligence-card__source,
-  .intelligence-card__facts.is-safety-case {
+  .intelligence-card__facts.is-safety-case,
+  .intelligence-card__facts.is-digital-case {
+    grid-template-columns: 1fr;
+  }
+
+  .intelligence-card__facts.is-paper {
+    grid-template-columns: 1fr;
+  }
+
+  .intelligence-card__facts.is-product {
     grid-template-columns: 1fr;
   }
 }

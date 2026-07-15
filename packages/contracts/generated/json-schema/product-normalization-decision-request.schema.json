@@ -1,0 +1,26 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "MERGE_ALIAS",
+        "LINK_AS_NEW_VERSION",
+        "KEEP_DISTINCT"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "reason": {
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Reason",
+      "type": "string"
+    }
+  },
+  "required": [
+    "action",
+    "reason"
+  ],
+  "title": "ProductNormalizationDecisionRequest",
+  "type": "object"
+}

@@ -2,7 +2,7 @@ export type ClaimId = string
 /**
  * @minItems 1
  */
-export type EvidenceIds = [string, ...string[]]
+export type EvidenceIds = string[]
 export type SafetyCaseFactField =
   | 'OCCURRED_AT'
   | 'REGION'

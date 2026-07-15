@@ -1,0 +1,13 @@
+{
+  "fixture_set": "round07-technology-products-v1",
+  "copyright_policy": "Minimal factual metadata and short vendor-attributed statements only; no vendor images or full pages are redistributed.",
+  "files": [
+    {"path": "glodon-software.json", "sha256": "550707cf3136c98234f20398754fef1d26d1a7bc38f514c2ab882a64c0c0c3e8"},
+    {"path": "dji-low-altitude.json", "sha256": "2bbd278a04fd01b969d87e2c23f812019fc1ff96389610e66d35f008721305ac"}
+  ],
+  "expected": {
+    "item_types": ["SOFTWARE_PRODUCT", "LOW_ALTITUDE_EQUIPMENT"],
+    "vendor_image_download_count": 0,
+    "production_source_state": "CANDIDATE"
+  }
+}

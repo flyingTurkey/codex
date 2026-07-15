@@ -3,6 +3,7 @@
 import ipaddress
 from dataclasses import dataclass
 from datetime import datetime
+from email.utils import parsedate_to_datetime
 from typing import Protocol
 from urllib.parse import urljoin, urlsplit
 
@@ -15,6 +16,12 @@ class SsrfRejected(ValueError):
 
 class CircuitOpen(RuntimeError):
     pass
+
+
+class _RetryableResponse(OSError):
+    def __init__(self, message: str, *, retry_after_seconds: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,13 +95,19 @@ class ResilientHttpClient:
         self._circuit_open_until: dict[str, float] = {}
         self._last_request_at: dict[str, float] = {}
 
-    async def get(self, url: str, *, checkpoint: SourceCheckpoint) -> FetchResult:
+    async def get(
+        self,
+        url: str,
+        *,
+        checkpoint: SourceCheckpoint,
+        accept: str = "text/html",
+    ) -> FetchResult:
         hostname = _hostname(url)
         open_until = self._circuit_open_until.get(hostname, 0.0)
         if open_until > self._clock.monotonic():
             raise CircuitOpen("source circuit is open")
 
-        headers = {"Accept": "text/html", "User-Agent": self._policy.user_agent}
+        headers = {"Accept": accept, "User-Agent": self._policy.user_agent}
         if checkpoint.etag:
             headers["If-None-Match"] = checkpoint.etag
         if checkpoint.last_modified:
@@ -110,7 +123,12 @@ class ResilientHttpClient:
                 ):
                     raise OSError("upstream response exceeds the configured size limit")
                 if response.status_code in {429, 500, 502, 503, 504}:
-                    raise OSError(f"upstream returned {response.status_code}")
+                    raise _RetryableResponse(
+                        f"upstream returned {response.status_code}",
+                        retry_after_seconds=_retry_after_seconds(
+                            _header(response.headers, "retry-after"), self._clock.now()
+                        ),
+                    )
                 if response.status_code == 304:
                     self._record_success(hostname)
                     return _fetch_result(response, final_url, self._clock.now(), True)
@@ -123,7 +141,10 @@ class ResilientHttpClient:
             except OSError as exc:
                 last_error = exc
                 if attempt + 1 < self._policy.max_attempts:
-                    await self._clock.sleep(self._policy.base_backoff_seconds * (2**attempt))
+                    backoff = self._policy.base_backoff_seconds * (2**attempt)
+                    if isinstance(exc, _RetryableResponse):
+                        backoff = max(backoff, exc.retry_after_seconds or 0.0)
+                    await self._clock.sleep(backoff)
 
         self._record_failure(hostname)
         if last_error is None:
@@ -217,6 +238,22 @@ def _hostname(url: str) -> str:
 def _header(headers: dict[str, str], name: str) -> str | None:
     expected = name.lower()
     return next((value for key, value in headers.items() if key.lower() == expected), None)
+
+
+def _retry_after_seconds(value: str | None, now: datetime) -> float | None:
+    if value is None:
+        return None
+    try:
+        seconds = float(value.strip())
+    except ValueError:
+        try:
+            retry_at = parsedate_to_datetime(value)
+            if retry_at.tzinfo is None or now.tzinfo is None:
+                return None
+            seconds = (retry_at - now).total_seconds()
+        except (TypeError, ValueError, OverflowError):
+            return None
+    return max(0.0, seconds)
 
 
 def _fetch_result(

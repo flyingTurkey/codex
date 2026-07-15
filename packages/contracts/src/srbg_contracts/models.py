@@ -272,6 +272,106 @@ class PreventionMeasureTag(StrEnum):
     RESPONSIBILITY_AND_OVERSIGHT = "RESPONSIBILITY_AND_OVERSIGHT"
 
 
+class DigitalCaseSourceNature(StrEnum):
+    GOVERNMENT_CASE_COLLECTION = "GOVERNMENT_CASE_COLLECTION"
+    ENTERPRISE_SELF_REPORT = "ENTERPRISE_SELF_REPORT"
+
+
+class MaturityLevel(StrEnum):
+    CONCEPT = "CONCEPT"
+    LAB_PROTOTYPE = "LAB_PROTOTYPE"
+    ENGINEERING_PROTOTYPE = "ENGINEERING_PROTOTYPE"
+    PILOT = "PILOT"
+    SINGLE_PROJECT_PRODUCTION = "SINGLE_PROJECT_PRODUCTION"
+    MULTI_PROJECT_REPLICATION = "MULTI_PROJECT_REPLICATION"
+    ENTERPRISE_SCALE = "ENTERPRISE_SCALE"
+    UNKNOWN = "UNKNOWN"
+
+
+class ProductEvidenceLevel(StrEnum):
+    VENDOR_CLAIM_ONLY = "VENDOR_CLAIM_ONLY"
+    PROJECT_EVIDENCE = "PROJECT_EVIDENCE"
+    RESEARCH_EVIDENCE = "RESEARCH_EVIDENCE"
+    INDEPENDENT_VALIDATION = "INDEPENDENT_VALIDATION"
+    OFFICIAL_CERTIFICATION = "OFFICIAL_CERTIFICATION"
+    UNKNOWN = "UNKNOWN"
+
+
+class ProductPermitStatus(StrEnum):
+    VERIFIED = "VERIFIED"
+    NOT_REQUIRED = "NOT_REQUIRED"
+    UNKNOWN = "UNKNOWN"
+
+
+class ProductCapabilityKind(StrEnum):
+    PROMOTIONAL_CLAIM = "PROMOTIONAL_CLAIM"
+    VERIFIED_CAPABILITY = "VERIFIED_CAPABILITY"
+
+
+class PaperType(StrEnum):
+    ARTICLE = "ARTICLE"
+    REVIEW = "REVIEW"
+    METHOD = "METHOD"
+    CASE_STUDY = "CASE_STUDY"
+    OTHER = "OTHER"
+    UNKNOWN = "UNKNOWN"
+
+
+class PaperAccessLevel(StrEnum):
+    METADATA_ONLY = "METADATA_ONLY"
+    ABSTRACT_ALLOWED = "ABSTRACT_ALLOWED"
+    OPEN_FULLTEXT = "OPEN_FULLTEXT"
+
+
+class PaperOpenStatus(StrEnum):
+    OPEN = "OPEN"
+    CLOSED = "CLOSED"
+    UNKNOWN = "UNKNOWN"
+
+
+class PaperRelationStatus(StrEnum):
+    CURRENT = "CURRENT"
+    CORRECTED = "CORRECTED"
+    RETRACTED = "RETRACTED"
+    WITHDRAWN = "WITHDRAWN"
+
+
+class PaperRelationType(StrEnum):
+    CORRECTS = "CORRECTS"
+    SUPERSEDES = "SUPERSEDES"
+    RETRACTS = "RETRACTS"
+
+
+class RelationCandidateStatus(StrEnum):
+    PENDING_REVIEW = "PENDING_REVIEW"
+    ACCEPTED = "ACCEPTED"
+    REJECTED = "REJECTED"
+
+
+class AbstractAvailability(StrEnum):
+    AVAILABLE = "AVAILABLE"
+    NOT_PROVIDED = "NOT_PROVIDED"
+    LICENCE_UNCLEAR = "LICENCE_UNCLEAR"
+
+
+class OutcomeVerification(StrEnum):
+    CLAIMED = "CLAIMED"
+    VERIFIED = "VERIFIED"
+
+
+class RecommendedAction(StrEnum):
+    READ_ORIGINAL = "READ_ORIGINAL"
+    SAVE = "SAVE"
+    FOLLOW = "FOLLOW"
+    TECHNICAL_RESEARCH = "TECHNICAL_RESEARCH"
+
+
+class DigitalCaseEntityType(StrEnum):
+    ORGANIZATION = "ORGANIZATION"
+    TECHNOLOGY = "TECHNOLOGY"
+    PROJECT = "PROJECT"
+
+
 class DependencyName(StrEnum):
     POSTGRESQL = "postgresql"
     REDIS = "redis"
@@ -528,8 +628,325 @@ class SafetyCaseTypeSummary(ContractModel):
         return self
 
 
+class RelevanceFactor(ContractModel):
+    code: Literal["ENGINEERING_DOMAIN", "SICHUAN", "SRBG_DIRECT"]
+    label: str = Field(min_length=1, max_length=100)
+    points: int = Field(ge=0, le=70)
+
+
+class RelevanceSummary(ContractModel):
+    score: int = Field(ge=0, le=100)
+    rule_version: Literal["relevance-v1.0.0"]
+    factors: list[RelevanceFactor] = Field(min_length=1, max_length=3)
+
+    @model_validator(mode="after")
+    def require_factor_total(self) -> "RelevanceSummary":
+        if sum(factor.points for factor in self.factors) != self.score:
+            raise ValueError("relevance factor points must equal score")
+        return self
+
+
+class DigitalCaseTypeSummary(ContractModel):
+    kind: Literal["DIGITAL_CASE"]
+    maturity_level: MaturityLevel
+    application_scenarios: list[str] = Field(max_length=20)
+    source_nature: DigitalCaseSourceNature
+    deployment_scale: str | None = Field(default=None, max_length=500)
+    publisher_claim_label: str | None = Field(default=None, max_length=100)
+    srbg_relationship: str = Field(min_length=1, max_length=500)
+    relevance: RelevanceSummary
+    ai_short_comment: None = None
+
+
+class PaperTypeSummary(ContractModel):
+    kind: Literal["JOURNAL_PAPER"]
+    doi: str | None = Field(default=None, pattern=r"^10\.\d{4,9}/\S+$", max_length=300)
+    journal: str | None = Field(default=None, max_length=300)
+    year: int | None = Field(default=None, ge=1000, le=9999)
+    paper_type: PaperType
+    access_level: PaperAccessLevel
+    open_status: PaperOpenStatus
+    maturity_level: MaturityLevel
+    engineering_domains: list[str] = Field(max_length=20)
+    technology_tags: list[str] = Field(max_length=50)
+    relation_status: PaperRelationStatus
+    ai_short_comment: None = None
+
+
+class PaperAuthor(ContractModel):
+    name: str = Field(min_length=1, max_length=300)
+    orcid: str | None = Field(
+        default=None, pattern=r"^https://orcid\.org/\d{4}-\d{4}-\d{4}-\d{3}[\dX]$"
+    )
+    institutions: list[str] = Field(max_length=30)
+
+
+class ResearchInterpretation(ContractModel):
+    research_object: str | None = Field(default=None, max_length=1000)
+    method: str | None = Field(default=None, max_length=1000)
+    conditions: list[str] = Field(max_length=30)
+    conclusions: list[str] = Field(max_length=30)
+    limitations: list[str] = Field(max_length=30)
+    claim_ids: list[UUID] = Field(min_length=1)
+    evidence_ids: list[UUID] = Field(min_length=1)
+
+
+class SimilarPaper(ContractModel):
+    item_id: UUID
+    title: str = Field(min_length=1, max_length=500)
+    journal: str | None = Field(default=None, max_length=300)
+    year: int | None = Field(default=None, ge=1000, le=9999)
+    match_reasons: list[str] = Field(min_length=1, max_length=20)
+
+
+class PaperDetail(ContractModel):
+    doi: str | None = Field(default=None, pattern=r"^10\.\d{4,9}/\S+$", max_length=300)
+    journal: str | None = Field(default=None, max_length=300)
+    issns: list[str] = Field(max_length=20)
+    authors: list[PaperAuthor] = Field(max_length=500)
+    volume: str | None = Field(default=None, max_length=50)
+    issue: str | None = Field(default=None, max_length=50)
+    pages: str | None = Field(default=None, max_length=100)
+    year: int | None = Field(default=None, ge=1000, le=9999)
+    abstract: str | None = Field(default=None, max_length=20000)
+    abstract_availability: AbstractAvailability
+    keywords: list[str] = Field(max_length=100)
+    access_level: PaperAccessLevel
+    open_status: PaperOpenStatus
+    open_fulltext_url: HttpUrlString | None = Field(
+        default=None, pattern=r"^https?://[^\s]+$", max_length=2048
+    )
+    maturity_level: MaturityLevel
+    engineering_domains: list[str] = Field(max_length=20)
+    technology_tags: list[str] = Field(max_length=50)
+    research_interpretation: ResearchInterpretation | None = None
+    similar_papers: list[SimilarPaper] = Field(max_length=5)
+    relation_status: PaperRelationStatus
+
+    @model_validator(mode="after")
+    def enforce_access_boundary(self) -> "PaperDetail":
+        if self.access_level is PaperAccessLevel.METADATA_ONLY and self.abstract is not None:
+            raise ValueError("metadata-only papers cannot expose an abstract")
+        if self.access_level is not PaperAccessLevel.OPEN_FULLTEXT and self.open_fulltext_url:
+            raise ValueError("fulltext links require OPEN_FULLTEXT access")
+        return self
+
+
+class PaperRelationCandidate(ContractModel):
+    id: UUID
+    source_doi: str = Field(pattern=r"^10\.\d{4,9}/\S+$", max_length=300)
+    target_doi: str = Field(pattern=r"^10\.\d{4,9}/\S+$", max_length=300)
+    relation_type: PaperRelationType
+    status: RelationCandidateStatus
+    evidence_ids: list[UUID] = Field(min_length=1)
+
+
+class DigitalCaseEntity(ContractModel):
+    id: UUID
+    entity_type: DigitalCaseEntityType
+    name: str = Field(min_length=1, max_length=300)
+    relation_type: str = Field(min_length=1, max_length=50)
+    claim_id: UUID
+
+
+class DigitalCaseOutcome(ContractModel):
+    id: UUID
+    statement: str = Field(min_length=1, max_length=1000)
+    attribution: str = Field(min_length=1, max_length=300)
+    verification: OutcomeVerification
+    evidence_ids: list[UUID] = Field(min_length=1)
+    independent_evidence_ids: list[UUID] = Field(default_factory=list)
+    metric_name: str | None = Field(default=None, max_length=200)
+    numeric_value: str | None = Field(default=None, pattern=r"^-?\d+(?:\.\d+)?$")
+    unit: str | None = Field(default=None, max_length=50)
+
+    @model_validator(mode="after")
+    def require_independent_evidence(self) -> "DigitalCaseOutcome":
+        if self.verification is OutcomeVerification.VERIFIED and not self.independent_evidence_ids:
+            raise ValueError("verified outcomes require independent evidence")
+        return self
+
+
+class DigitalCaseDetail(ContractModel):
+    engineering_domains: list[str] = Field(max_length=20)
+    lifecycle_stages: list[str] = Field(max_length=20)
+    technology_tags: list[str] = Field(max_length=50)
+    application_scenarios: list[str] = Field(max_length=30)
+    maturity_level: MaturityLevel
+    deployment_scale: str | None = Field(default=None, max_length=500)
+    entities: list[DigitalCaseEntity]
+    claimed_outcomes: list[DigitalCaseOutcome]
+    verified_outcomes: list[DigitalCaseOutcome]
+    applicability: list[str]
+    replication_conditions: list[str]
+    limitations: list[str]
+    risks: list[str]
+    recommended_actions: list[RecommendedAction]
+    ai_short_comment: None = None
+
+    @model_validator(mode="after")
+    def keep_outcome_groups_separate(self) -> "DigitalCaseDetail":
+        if any(
+            item.verification is not OutcomeVerification.CLAIMED for item in self.claimed_outcomes
+        ):
+            raise ValueError("claimed outcomes must use CLAIMED verification")
+        if any(
+            item.verification is not OutcomeVerification.VERIFIED for item in self.verified_outcomes
+        ):
+            raise ValueError("verified outcomes must use VERIFIED verification")
+        return self
+
+
+class DigitalOutcomeAttributionPatch(ContractModel):
+    outcome_id: UUID
+    attribution_entity_id: UUID
+    verification: OutcomeVerification
+    independent_evidence_ids: list[UUID] = Field(default_factory=list)
+
+
+class DigitalCaseReviewPatch(ContractModel):
+    engineering_domains: list[str] = Field(max_length=20)
+    lifecycle_stages: list[str] = Field(max_length=20)
+    technology_tags: list[str] = Field(max_length=50)
+    application_scenarios: list[str] = Field(max_length=30)
+    maturity_level: MaturityLevel
+    maturity_evidence_ids: list[UUID]
+    outcome_attributions: list[DigitalOutcomeAttributionPatch]
+
+
+class _ProductTypeSummaryBase(ContractModel):
+    vendor_name: str = Field(min_length=1, max_length=300)
+    product_name: str = Field(min_length=1, max_length=300)
+    product_kind: str = Field(min_length=1, max_length=100)
+    model_no: str | None = Field(default=None, max_length=200)
+    version: str | None = Field(default=None, max_length=200)
+    evidence_level: ProductEvidenceLevel
+    promotional_claim_count: int = Field(ge=0)
+    verified_capability_count: int = Field(ge=0)
+
+
+class SoftwareProductTypeSummary(_ProductTypeSummaryBase):
+    kind: Literal["SOFTWARE_PRODUCT"]
+    interfaces: list[str] = Field(max_length=30)
+    deployment_modes: list[str] = Field(max_length=20)
+
+
+class IotProductTypeSummary(_ProductTypeSummaryBase):
+    kind: Literal["IOT_PRODUCT"]
+    connectivity: list[str] = Field(max_length=30)
+    maturity_level: MaturityLevel
+
+
+class LowAltitudeEquipmentTypeSummary(_ProductTypeSummaryBase):
+    kind: Literal["LOW_ALTITUDE_EQUIPMENT"]
+    platform_type: str | None = Field(default=None, max_length=100)
+    payload_types: list[str] = Field(max_length=30)
+    permit_status: ProductPermitStatus
+
+
+class AiEquipmentTypeSummary(_ProductTypeSummaryBase):
+    kind: Literal["AI_EQUIPMENT"]
+    equipment_form: str | None = Field(default=None, max_length=100)
+    ai_tasks: list[str] = Field(max_length=30)
+    maturity_level: MaturityLevel
+    production_validation: bool
+
+
+class ProductCapability(ContractModel):
+    claim_id: UUID
+    statement: str = Field(min_length=1, max_length=1000)
+    attribution: str = Field(min_length=1, max_length=300)
+    kind: ProductCapabilityKind
+    evidence_ids: list[UUID] = Field(min_length=1)
+    independent_evidence_ids: list[UUID] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def require_independent_evidence(self) -> "ProductCapability":
+        if (
+            self.kind is ProductCapabilityKind.VERIFIED_CAPABILITY
+            and not self.independent_evidence_ids
+        ):
+            raise ValueError("verified product capabilities require independent evidence")
+        if (
+            self.kind is ProductCapabilityKind.PROMOTIONAL_CLAIM
+            and self.independent_evidence_ids
+        ):
+            raise ValueError("promotional claims cannot carry independent verification")
+        return self
+
+
+class ProductEntity(ContractModel):
+    id: UUID
+    name: str = Field(min_length=1, max_length=300)
+
+
+class ProductEngineeringCase(ContractModel):
+    item_id: UUID
+    title: str = Field(min_length=1, max_length=500)
+    evidence_ids: list[UUID] = Field(min_length=1)
+
+
+class TechnologyProductDetail(ContractModel):
+    vendor: ProductEntity
+    product: ProductEntity
+    model: ProductEntity | None = None
+    current_version: str | None = Field(default=None, max_length=200)
+    version_history: list[str] = Field(max_length=100)
+    product_kind: str = Field(min_length=1, max_length=100)
+    promotional_claims: list[ProductCapability]
+    verified_capabilities: list[ProductCapability]
+    interfaces: list[str] = Field(max_length=30)
+    deployment_modes: list[str] = Field(max_length=20)
+    application_scenarios: list[str] = Field(max_length=30)
+    engineering_cases: list[ProductEngineeringCase] = Field(max_length=50)
+    evidence_level: ProductEvidenceLevel
+    permit_status: ProductPermitStatus
+    limitations: list[str] = Field(max_length=50)
+    procurement_notice: Literal["仅供技术调研，不构成采购建议"]  # noqa: RUF001
+    low_altitude_notice: Literal[
+        "产品发布不代表空域、适航、飞手和项目许可。"
+    ] | None = None
+
+    @model_validator(mode="after")
+    def keep_capability_groups_separate(self) -> "TechnologyProductDetail":
+        if any(
+            capability.kind is not ProductCapabilityKind.PROMOTIONAL_CLAIM
+            for capability in self.promotional_claims
+        ):
+            raise ValueError("promotional claims must remain vendor-attributed")
+        if any(
+            capability.kind is not ProductCapabilityKind.VERIFIED_CAPABILITY
+            for capability in self.verified_capabilities
+        ):
+            raise ValueError("verified capabilities must remain independently evidenced")
+        return self
+
+
+class ProductNormalizationCandidateView(ContractModel):
+    id: UUID
+    incoming_version_id: UUID
+    candidate_version_id: UUID
+    candidate_type: Literal["MODEL_ALIAS", "VERSION_SUCCESSOR", "POSSIBLE_DUPLICATE"]
+    status: Literal["PENDING_REVIEW", "ACCEPTED", "REJECTED"]
+    incoming_label: str = Field(min_length=1, max_length=1000)
+    candidate_label: str = Field(min_length=1, max_length=1000)
+    created_at: datetime
+
+
+class ProductNormalizationDecisionRequest(ContractModel):
+    action: Literal["MERGE_ALIAS", "LINK_AS_NEW_VERSION", "KEEP_DISTINCT"]
+    reason: str = Field(min_length=1, max_length=1000)
+
+
 TypeSummaryValue = Annotated[
-    SafetyRegulationTypeSummary | SafetyCaseTypeSummary,
+    SafetyRegulationTypeSummary
+    | SafetyCaseTypeSummary
+    | DigitalCaseTypeSummary
+    | PaperTypeSummary
+    | SoftwareProductTypeSummary
+    | IotProductTypeSummary
+    | LowAltitudeEquipmentTypeSummary
+    | AiEquipmentTypeSummary,
     Field(discriminator="kind"),
 ]
 
@@ -876,11 +1293,21 @@ class ItemDetail(ContractModel):
     notice: FeedNotice | None = None
     claims: list[ClaimView] | None = None
     evidence: list[EvidenceView] | None = None
+    digital_case: DigitalCaseDetail | None = None
+    paper: PaperDetail | None = None
+    technology_product: TechnologyProductDetail | None = None
 
 
 class ReviewDecisionRequest(ContractModel):
     action: Literal["APPROVE", "REJECT"]
     reason: str = Field(min_length=1, max_length=1000)
+    digital_case_patch: DigitalCaseReviewPatch | None = None
+
+    @model_validator(mode="after")
+    def reject_patch_on_rejection(self) -> "ReviewDecisionRequest":
+        if self.action == "REJECT" and self.digital_case_patch is not None:
+            raise ValueError("digital case patches are only accepted with APPROVE")
+        return self
 
 
 class ReviewDecisionResponse(ContractModel):
@@ -906,6 +1333,8 @@ class ReviewTaskDetail(ContractModel):
     item: ItemSummary
     claims: list[ClaimView]
     evidence: list[EvidenceView]
+    digital_case: DigitalCaseDetail | None = None
+    paper: PaperDetail | None = None
 
 
 class MeResponse(ContractModel):

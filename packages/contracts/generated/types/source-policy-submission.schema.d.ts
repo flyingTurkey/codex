@@ -1,7 +1,7 @@
 /**
  * @minItems 1
  */
-export type AllowedDomains = [string, ...string[]]
+export type AllowedDomains = string[]
 export type RateLimitPerMinute = number
 export type RequiresAuth = boolean
 export type UserAgent = string

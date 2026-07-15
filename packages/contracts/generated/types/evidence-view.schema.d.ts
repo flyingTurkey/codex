@@ -3,7 +3,7 @@ export type CharStart = number | null
 /**
  * @minItems 1
  */
-export type ClaimIds = [string, ...string[]]
+export type ClaimIds = string[]
 export type DocumentVersionId = string | null
 export type Excerpt = string
 export type ExcerptSha256 = string

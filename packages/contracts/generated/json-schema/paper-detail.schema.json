@@ -1,0 +1,433 @@
+{
+  "$defs": {
+    "AbstractAvailability": {
+      "enum": [
+        "AVAILABLE",
+        "NOT_PROVIDED",
+        "LICENCE_UNCLEAR"
+      ],
+      "title": "AbstractAvailability",
+      "type": "string"
+    },
+    "MaturityLevel": {
+      "enum": [
+        "CONCEPT",
+        "LAB_PROTOTYPE",
+        "ENGINEERING_PROTOTYPE",
+        "PILOT",
+        "SINGLE_PROJECT_PRODUCTION",
+        "MULTI_PROJECT_REPLICATION",
+        "ENTERPRISE_SCALE",
+        "UNKNOWN"
+      ],
+      "title": "MaturityLevel",
+      "type": "string"
+    },
+    "PaperAccessLevel": {
+      "enum": [
+        "METADATA_ONLY",
+        "ABSTRACT_ALLOWED",
+        "OPEN_FULLTEXT"
+      ],
+      "title": "PaperAccessLevel",
+      "type": "string"
+    },
+    "PaperAuthor": {
+      "additionalProperties": false,
+      "properties": {
+        "institutions": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "title": "Institutions",
+          "type": "array"
+        },
+        "name": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "orcid": {
+          "anyOf": [
+            {
+              "pattern": "^https://orcid\\.org/\\d{4}-\\d{4}-\\d{4}-\\d{3}[\\dX]$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Orcid"
+        }
+      },
+      "required": [
+        "name",
+        "institutions"
+      ],
+      "title": "PaperAuthor",
+      "type": "object"
+    },
+    "PaperOpenStatus": {
+      "enum": [
+        "OPEN",
+        "CLOSED",
+        "UNKNOWN"
+      ],
+      "title": "PaperOpenStatus",
+      "type": "string"
+    },
+    "PaperRelationStatus": {
+      "enum": [
+        "CURRENT",
+        "CORRECTED",
+        "RETRACTED",
+        "WITHDRAWN"
+      ],
+      "title": "PaperRelationStatus",
+      "type": "string"
+    },
+    "ResearchInterpretation": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Claim Ids",
+          "type": "array"
+        },
+        "conclusions": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "title": "Conclusions",
+          "type": "array"
+        },
+        "conditions": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "title": "Conditions",
+          "type": "array"
+        },
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "title": "Limitations",
+          "type": "array"
+        },
+        "method": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Method"
+        },
+        "research_object": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Research Object"
+        }
+      },
+      "required": [
+        "conditions",
+        "conclusions",
+        "limitations",
+        "claim_ids",
+        "evidence_ids"
+      ],
+      "title": "ResearchInterpretation",
+      "type": "object"
+    },
+    "SimilarPaper": {
+      "additionalProperties": false,
+      "properties": {
+        "item_id": {
+          "format": "uuid",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "journal": {
+          "anyOf": [
+            {
+              "maxLength": 300,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Journal"
+        },
+        "match_reasons": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "title": "Match Reasons",
+          "type": "array"
+        },
+        "title": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "year": {
+          "anyOf": [
+            {
+              "maximum": 9999,
+              "minimum": 1000,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Year"
+        }
+      },
+      "required": [
+        "item_id",
+        "title",
+        "match_reasons"
+      ],
+      "title": "SimilarPaper",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "abstract": {
+      "anyOf": [
+        {
+          "maxLength": 20000,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Abstract"
+    },
+    "abstract_availability": {
+      "$ref": "#/$defs/AbstractAvailability"
+    },
+    "access_level": {
+      "$ref": "#/$defs/PaperAccessLevel"
+    },
+    "authors": {
+      "items": {
+        "$ref": "#/$defs/PaperAuthor"
+      },
+      "maxItems": 500,
+      "title": "Authors",
+      "type": "array"
+    },
+    "doi": {
+      "anyOf": [
+        {
+          "maxLength": 300,
+          "pattern": "^10\\.\\d{4,9}/\\S+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Doi"
+    },
+    "engineering_domains": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 20,
+      "title": "Engineering Domains",
+      "type": "array"
+    },
+    "issns": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 20,
+      "title": "Issns",
+      "type": "array"
+    },
+    "issue": {
+      "anyOf": [
+        {
+          "maxLength": 50,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Issue"
+    },
+    "journal": {
+      "anyOf": [
+        {
+          "maxLength": 300,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Journal"
+    },
+    "keywords": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Keywords",
+      "type": "array"
+    },
+    "maturity_level": {
+      "$ref": "#/$defs/MaturityLevel"
+    },
+    "open_fulltext_url": {
+      "anyOf": [
+        {
+          "maxLength": 2048,
+          "pattern": "^https?://[^\\s]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Open Fulltext Url"
+    },
+    "open_status": {
+      "$ref": "#/$defs/PaperOpenStatus"
+    },
+    "pages": {
+      "anyOf": [
+        {
+          "maxLength": 100,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Pages"
+    },
+    "relation_status": {
+      "$ref": "#/$defs/PaperRelationStatus"
+    },
+    "research_interpretation": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ResearchInterpretation"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "similar_papers": {
+      "items": {
+        "$ref": "#/$defs/SimilarPaper"
+      },
+      "maxItems": 5,
+      "title": "Similar Papers",
+      "type": "array"
+    },
+    "technology_tags": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 50,
+      "title": "Technology Tags",
+      "type": "array"
+    },
+    "volume": {
+      "anyOf": [
+        {
+          "maxLength": 50,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Volume"
+    },
+    "year": {
+      "anyOf": [
+        {
+          "maximum": 9999,
+          "minimum": 1000,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Year"
+    }
+  },
+  "required": [
+    "issns",
+    "authors",
+    "abstract_availability",
+    "keywords",
+    "access_level",
+    "open_status",
+    "maturity_level",
+    "engineering_domains",
+    "technology_tags",
+    "similar_papers",
+    "relation_status"
+  ],
+  "title": "PaperDetail",
+  "type": "object"
+}

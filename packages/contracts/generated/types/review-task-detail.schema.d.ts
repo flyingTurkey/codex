@@ -3,21 +3,74 @@ export type DecisionStatus = ('PENDING' | 'ACCEPTED' | 'REJECTED') | null
 /**
  * @minItems 1
  */
-export type EvidenceIds = [string, ...string[]]
+export type EvidenceIds = string[]
 export type Id = string
 export type Label = string
 export type Value = string
 export type Claims = ClaimView[]
+export type AiShortComment = null
+export type Applicability = string[]
+/**
+ * @maxItems 30
+ */
+export type ApplicationScenarios = string[]
+export type Attribution = string
+/**
+ * @minItems 1
+ */
+export type EvidenceIds1 = string[]
+export type Id1 = string
+export type IndependentEvidenceIds = string[]
+export type MetricName = string | null
+export type NumericValue = string | null
+export type Statement = string
+export type Unit = string | null
+export type OutcomeVerification = 'CLAIMED' | 'VERIFIED'
+export type ClaimedOutcomes = DigitalCaseOutcome[]
+export type DeploymentScale = string | null
+/**
+ * @maxItems 20
+ */
+export type EngineeringDomains = string[]
+export type ClaimId = string
+export type DigitalCaseEntityType = 'ORGANIZATION' | 'TECHNOLOGY' | 'PROJECT'
+export type Id2 = string
+export type Name = string
+export type RelationType = string
+export type Entities = DigitalCaseEntity[]
+/**
+ * @maxItems 20
+ */
+export type LifecycleStages = string[]
+export type Limitations = string[]
+export type MaturityLevel =
+  | 'CONCEPT'
+  | 'LAB_PROTOTYPE'
+  | 'ENGINEERING_PROTOTYPE'
+  | 'PILOT'
+  | 'SINGLE_PROJECT_PRODUCTION'
+  | 'MULTI_PROJECT_REPLICATION'
+  | 'ENTERPRISE_SCALE'
+  | 'UNKNOWN'
+export type RecommendedAction = 'READ_ORIGINAL' | 'SAVE' | 'FOLLOW' | 'TECHNICAL_RESEARCH'
+export type RecommendedActions = RecommendedAction[]
+export type ReplicationConditions = string[]
+export type Risks = string[]
+/**
+ * @maxItems 50
+ */
+export type TechnologyTags = string[]
+export type VerifiedOutcomes = DigitalCaseOutcome[]
 export type CharEnd = number | null
 export type CharStart = number | null
 /**
  * @minItems 1
  */
-export type ClaimIds = [string, ...string[]]
+export type ClaimIds = string[]
 export type DocumentVersionId = string | null
 export type Excerpt = string
 export type ExcerptSha256 = string
-export type Id1 = string
+export type Id3 = string
 export type Locator = (HtmlParagraphLocator | PdfTextLocator | PdfOcrLocator | PdfTableCellLocator) | null
 export type CharEnd1 = number
 export type CharStart1 = number
@@ -61,7 +114,7 @@ export type EvidenceCount = number | null
 export type EvidenceStatus = 'WITHHELD' | 'VERIFIED'
 export type FirstDiscoveredAt = string
 export type HasVersionHistory = boolean | null
-export type Id2 = string
+export type Id4 = string
 export type IsSaved = boolean | null
 export type LastUpdatedAt = string | null
 export type OneSentenceFact = string | null
@@ -75,7 +128,18 @@ export type SourcePublishedAt = string | null
 export type SourceRole = string | null
 export type Tags = string[] | null
 export type Title = string
-export type TypeSummary = (SafetyRegulationTypeSummary | SafetyCaseTypeSummary) | null
+export type TypeSummary =
+  | (
+      | SafetyRegulationTypeSummary
+      | SafetyCaseTypeSummary
+      | DigitalCaseTypeSummary
+      | PaperTypeSummary
+      | SoftwareProductTypeSummary
+      | IotProductTypeSummary
+      | LowAltitudeEquipmentTypeSummary
+      | AiEquipmentTypeSummary
+    )
+  | null
 export type RegulationClassification =
   'LAW' | 'ADMINISTRATIVE_REGULATION' | 'DEPARTMENT_RULE' | 'NORMATIVE_DOCUMENT' | 'STANDARD_OR_GUIDE'
 export type DocumentNumber = string
@@ -138,19 +202,191 @@ export type SimilarScenarioTag =
   | 'EXTREME_WEATHER_EXPOSURE'
   | 'TEMPORARY_STRUCTURE_FAILURE'
   | 'TUNNEL_GEOLOGICAL_RISK'
-export type AssignedTo = string | null
-export type Id3 = string
+export type AiShortComment1 = null
+/**
+ * @maxItems 20
+ */
+export type ApplicationScenarios1 = string[]
+export type DeploymentScale1 = string | null
+export type Kind2 = 'DIGITAL_CASE'
+export type PublisherClaimLabel = string | null
+export type Code = 'ENGINEERING_DOMAIN' | 'SICHUAN' | 'SRBG_DIRECT'
+export type Label1 = string
+export type Points = number
+/**
+ * @minItems 1
+ * @maxItems 3
+ */
+export type Factors = RelevanceFactor[]
+export type RuleVersion = 'relevance-v1.0.0'
+export type Score = number
+export type DigitalCaseSourceNature = 'GOVERNMENT_CASE_COLLECTION' | 'ENTERPRISE_SELF_REPORT'
+export type SrbgRelationship = string
+export type PaperAccessLevel = 'METADATA_ONLY' | 'ABSTRACT_ALLOWED' | 'OPEN_FULLTEXT'
+export type AiShortComment2 = null
+export type Doi = string | null
+/**
+ * @maxItems 20
+ */
+export type EngineeringDomains1 = string[]
+export type Journal = string | null
+export type Kind3 = 'JOURNAL_PAPER'
+export type PaperOpenStatus = 'OPEN' | 'CLOSED' | 'UNKNOWN'
+export type PaperType = 'ARTICLE' | 'REVIEW' | 'METHOD' | 'CASE_STUDY' | 'OTHER' | 'UNKNOWN'
+export type PaperRelationStatus = 'CURRENT' | 'CORRECTED' | 'RETRACTED' | 'WITHDRAWN'
+/**
+ * @maxItems 50
+ */
+export type TechnologyTags1 = string[]
+export type Year = number | null
+/**
+ * @maxItems 20
+ */
+export type DeploymentModes = string[]
+export type ProductEvidenceLevel =
+  | 'VENDOR_CLAIM_ONLY'
+  | 'PROJECT_EVIDENCE'
+  | 'RESEARCH_EVIDENCE'
+  | 'INDEPENDENT_VALIDATION'
+  | 'OFFICIAL_CERTIFICATION'
+  | 'UNKNOWN'
+/**
+ * @maxItems 30
+ */
+export type Interfaces = string[]
+export type Kind4 = 'SOFTWARE_PRODUCT'
+export type ModelNo = string | null
+export type ProductKind = string
+export type ProductName = string
+export type PromotionalClaimCount = number
+export type VendorName = string
+export type VerifiedCapabilityCount = number
+export type Version = string | null
+/**
+ * @maxItems 30
+ */
+export type Connectivity = string[]
+export type Kind5 = 'IOT_PRODUCT'
+export type ModelNo1 = string | null
+export type ProductKind1 = string
+export type ProductName1 = string
+export type PromotionalClaimCount1 = number
+export type VendorName1 = string
+export type VerifiedCapabilityCount1 = number
+export type Version1 = string | null
+export type Kind6 = 'LOW_ALTITUDE_EQUIPMENT'
+export type ModelNo2 = string | null
+/**
+ * @maxItems 30
+ */
+export type PayloadTypes = string[]
+export type ProductPermitStatus = 'VERIFIED' | 'NOT_REQUIRED' | 'UNKNOWN'
+export type PlatformType = string | null
+export type ProductKind2 = string
+export type ProductName2 = string
+export type PromotionalClaimCount2 = number
+export type VendorName2 = string
+export type VerifiedCapabilityCount2 = number
+export type Version2 = string | null
+/**
+ * @maxItems 30
+ */
+export type AiTasks = string[]
+export type EquipmentForm = string | null
+export type Kind7 = 'AI_EQUIPMENT'
+export type ModelNo3 = string | null
+export type ProductKind3 = string
+export type ProductName3 = string
+export type ProductionValidation = boolean
+export type PromotionalClaimCount3 = number
+export type VendorName3 = string
+export type VerifiedCapabilityCount3 = number
+export type Version3 = string | null
+export type Abstract = string | null
+export type AbstractAvailability = 'AVAILABLE' | 'NOT_PROVIDED' | 'LICENCE_UNCLEAR'
+/**
+ * @maxItems 30
+ */
+export type Institutions = string[]
+export type Name1 = string
+export type Orcid = string | null
+/**
+ * @maxItems 500
+ */
+export type Authors = PaperAuthor[]
+export type Doi1 = string | null
+/**
+ * @maxItems 20
+ */
+export type EngineeringDomains2 = string[]
+/**
+ * @maxItems 20
+ */
+export type Issns = string[]
+export type Issue = string | null
+export type Journal1 = string | null
+/**
+ * @maxItems 100
+ */
+export type Keywords = string[]
+export type OpenFulltextUrl = string | null
+export type Pages = string | null
+/**
+ * @minItems 1
+ */
+export type ClaimIds1 = string[]
+/**
+ * @maxItems 30
+ */
+export type Conclusions = string[]
+/**
+ * @maxItems 30
+ */
+export type Conditions = string[]
+/**
+ * @minItems 1
+ */
+export type EvidenceIds2 = string[]
+/**
+ * @maxItems 30
+ */
+export type Limitations1 = string[]
+export type Method = string | null
+export type ResearchObject = string | null
 export type ItemId = string
+export type Journal2 = string | null
+/**
+ * @minItems 1
+ * @maxItems 20
+ */
+export type MatchReasons = string[]
+export type Title1 = string
+export type Year1 = number | null
+/**
+ * @maxItems 5
+ */
+export type SimilarPapers = SimilarPaper[]
+/**
+ * @maxItems 50
+ */
+export type TechnologyTags2 = string[]
+export type Volume = string | null
+export type Year2 = number | null
+export type AssignedTo = string | null
+export type Id5 = string
+export type ItemId1 = string
 export type RiskLevel = 'R1' | 'R2' | 'R3' | 'R4'
 export type SourceName1 = string
 export type SubmittedAt = string
 export type SubmittedBy = string
-export type Title1 = string
+export type Title2 = string
 
 export interface ReviewTaskDetail {
   claims: Claims
+  digital_case?: DigitalCaseDetail | null
   evidence: Evidence
   item: ItemSummary
+  paper?: PaperDetail | null
   task: ReviewTaskSummary
 }
 export interface ClaimView {
@@ -161,6 +397,41 @@ export interface ClaimView {
   label: Label
   value: Value
 }
+export interface DigitalCaseDetail {
+  ai_short_comment?: AiShortComment
+  applicability: Applicability
+  application_scenarios: ApplicationScenarios
+  claimed_outcomes: ClaimedOutcomes
+  deployment_scale?: DeploymentScale
+  engineering_domains: EngineeringDomains
+  entities: Entities
+  lifecycle_stages: LifecycleStages
+  limitations: Limitations
+  maturity_level: MaturityLevel
+  recommended_actions: RecommendedActions
+  replication_conditions: ReplicationConditions
+  risks: Risks
+  technology_tags: TechnologyTags
+  verified_outcomes: VerifiedOutcomes
+}
+export interface DigitalCaseOutcome {
+  attribution: Attribution
+  evidence_ids: EvidenceIds1
+  id: Id1
+  independent_evidence_ids?: IndependentEvidenceIds
+  metric_name?: MetricName
+  numeric_value?: NumericValue
+  statement: Statement
+  unit?: Unit
+  verification: OutcomeVerification
+}
+export interface DigitalCaseEntity {
+  claim_id: ClaimId
+  entity_type: DigitalCaseEntityType
+  id: Id2
+  name: Name
+  relation_type: RelationType
+}
 export interface EvidenceView {
   char_end?: CharEnd
   char_start?: CharStart
@@ -168,7 +439,7 @@ export interface EvidenceView {
   document_version_id?: DocumentVersionId
   excerpt: Excerpt
   excerpt_sha256: ExcerptSha256
-  id: Id1
+  id: Id3
   locator?: Locator
   original_url: OriginalUrl
   paragraph_id?: ParagraphId1
@@ -220,7 +491,7 @@ export interface ItemSummary {
   evidence_status?: EvidenceStatus | null
   first_discovered_at: FirstDiscoveredAt
   has_version_history?: HasVersionHistory
-  id: Id2
+  id: Id4
   is_saved?: IsSaved
   last_updated_at?: LastUpdatedAt
   one_sentence_fact?: OneSentenceFact
@@ -266,14 +537,147 @@ export interface SafetyCaseTypeSummary {
   responsibility_findings?: ResponsibilityFindings
   similar_scenario_tags?: SimilarScenarioTags
 }
+export interface DigitalCaseTypeSummary {
+  ai_short_comment?: AiShortComment1
+  application_scenarios: ApplicationScenarios1
+  deployment_scale?: DeploymentScale1
+  kind: Kind2
+  maturity_level: MaturityLevel
+  publisher_claim_label?: PublisherClaimLabel
+  relevance: RelevanceSummary
+  source_nature: DigitalCaseSourceNature
+  srbg_relationship: SrbgRelationship
+}
+export interface RelevanceSummary {
+  factors: Factors
+  rule_version: RuleVersion
+  score: Score
+}
+export interface RelevanceFactor {
+  code: Code
+  label: Label1
+  points: Points
+}
+export interface PaperTypeSummary {
+  access_level: PaperAccessLevel
+  ai_short_comment?: AiShortComment2
+  doi?: Doi
+  engineering_domains: EngineeringDomains1
+  journal?: Journal
+  kind: Kind3
+  maturity_level: MaturityLevel
+  open_status: PaperOpenStatus
+  paper_type: PaperType
+  relation_status: PaperRelationStatus
+  technology_tags: TechnologyTags1
+  year?: Year
+}
+export interface SoftwareProductTypeSummary {
+  deployment_modes: DeploymentModes
+  evidence_level: ProductEvidenceLevel
+  interfaces: Interfaces
+  kind: Kind4
+  model_no?: ModelNo
+  product_kind: ProductKind
+  product_name: ProductName
+  promotional_claim_count: PromotionalClaimCount
+  vendor_name: VendorName
+  verified_capability_count: VerifiedCapabilityCount
+  version?: Version
+}
+export interface IotProductTypeSummary {
+  connectivity: Connectivity
+  evidence_level: ProductEvidenceLevel
+  kind: Kind5
+  maturity_level: MaturityLevel
+  model_no?: ModelNo1
+  product_kind: ProductKind1
+  product_name: ProductName1
+  promotional_claim_count: PromotionalClaimCount1
+  vendor_name: VendorName1
+  verified_capability_count: VerifiedCapabilityCount1
+  version?: Version1
+}
+export interface LowAltitudeEquipmentTypeSummary {
+  evidence_level: ProductEvidenceLevel
+  kind: Kind6
+  model_no?: ModelNo2
+  payload_types: PayloadTypes
+  permit_status: ProductPermitStatus
+  platform_type?: PlatformType
+  product_kind: ProductKind2
+  product_name: ProductName2
+  promotional_claim_count: PromotionalClaimCount2
+  vendor_name: VendorName2
+  verified_capability_count: VerifiedCapabilityCount2
+  version?: Version2
+}
+export interface AiEquipmentTypeSummary {
+  ai_tasks: AiTasks
+  equipment_form?: EquipmentForm
+  evidence_level: ProductEvidenceLevel
+  kind: Kind7
+  maturity_level: MaturityLevel
+  model_no?: ModelNo3
+  product_kind: ProductKind3
+  product_name: ProductName3
+  production_validation: ProductionValidation
+  promotional_claim_count: PromotionalClaimCount3
+  vendor_name: VendorName3
+  verified_capability_count: VerifiedCapabilityCount3
+  version?: Version3
+}
+export interface PaperDetail {
+  abstract?: Abstract
+  abstract_availability: AbstractAvailability
+  access_level: PaperAccessLevel
+  authors: Authors
+  doi?: Doi1
+  engineering_domains: EngineeringDomains2
+  issns: Issns
+  issue?: Issue
+  journal?: Journal1
+  keywords: Keywords
+  maturity_level: MaturityLevel
+  open_fulltext_url?: OpenFulltextUrl
+  open_status: PaperOpenStatus
+  pages?: Pages
+  relation_status: PaperRelationStatus
+  research_interpretation?: ResearchInterpretation | null
+  similar_papers: SimilarPapers
+  technology_tags: TechnologyTags2
+  volume?: Volume
+  year?: Year2
+}
+export interface PaperAuthor {
+  institutions: Institutions
+  name: Name1
+  orcid?: Orcid
+}
+export interface ResearchInterpretation {
+  claim_ids: ClaimIds1
+  conclusions: Conclusions
+  conditions: Conditions
+  evidence_ids: EvidenceIds2
+  limitations: Limitations1
+  method?: Method
+  research_object?: ResearchObject
+}
+export interface SimilarPaper {
+  item_id: ItemId
+  journal?: Journal2
+  match_reasons: MatchReasons
+  title: Title1
+  year?: Year1
+}
 export interface ReviewTaskSummary {
   assigned_to?: AssignedTo
-  id: Id3
-  item_id: ItemId
+  id: Id5
+  item_id: ItemId1
   risk_level: RiskLevel
   source_name: SourceName1
   status: ReviewStatus
   submitted_at: SubmittedAt
   submitted_by: SubmittedBy
-  title: Title1
+  title: Title2
 }

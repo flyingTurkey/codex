@@ -103,6 +103,12 @@ def test_runtime_build_context_includes_authoritative_publication_gate_assets() 
         "!docs/codex-kit/assets/validation/publication_evaluation_v3.schema.json",
         "!docs/codex-kit/assets/validation/publication_gate_v4.json",
         "!docs/codex-kit/assets/validation/publication_evaluation_v4.schema.json",
+        "!docs/codex-kit/assets/validation/publication_gate_v5.json",
+        "!docs/codex-kit/assets/validation/publication_evaluation_v5.schema.json",
+        "!docs/codex-kit/assets/validation/publication_gate_v6.json",
+        "!docs/codex-kit/assets/validation/publication_evaluation_v6.schema.json",
+        "!docs/codex-kit/assets/validation/publication_gate_v7.json",
+        "!docs/codex-kit/assets/validation/publication_evaluation_v7.schema.json",
     }
 
     assert included_assets <= set(dockerignore.splitlines())

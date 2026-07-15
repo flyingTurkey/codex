@@ -21,7 +21,8 @@ class GateResult:
 class PublicationGate:
     def __init__(self, policy: dict[str, Any], schema: dict[str, Any], policy_sha256: str) -> None:
         if (
-            policy.get("version") not in {"2.0.0", "3.0.0", "4.0.0"}
+            policy.get("version")
+            not in {"2.0.0", "3.0.0", "4.0.0", "5.0.0", "6.0.0", "7.0.0"}
             or policy.get("default_decision") != "DENY"
         ):
             raise ValueError("publication gate must be a supported default-deny policy")
@@ -69,6 +70,9 @@ class PublicationGate:
         pipeline = _mapping(server.get("pipeline"))
         round03 = _mapping(server.get("round03"))
         round04 = _mapping(server.get("round04"))
+        round05 = _mapping(server.get("round05"))
+        round06 = _mapping(server.get("round06"))
+        round07 = _mapping(server.get("round07"))
 
         if item.get("is_demo") is True or item.get("publishable") is not True:
             reasons.append("DEMO_OR_NONPUBLISHABLE")
@@ -123,7 +127,7 @@ class PublicationGate:
             if review.get("submitted_by") == review.get("decided_by"):
                 reasons.append("DUTIES_NOT_SEPARATED")
 
-        if self.policy_version in {"3.0.0", "4.0.0"}:
+        if self.policy_version in {"3.0.0", "4.0.0", "5.0.0", "6.0.0", "7.0.0"}:
             if document.get("processing_state") != "READY":
                 reasons.append("DOCUMENT_NOT_READY")
             if document.get("raw_security_status") != "CLEAN":
@@ -149,7 +153,10 @@ class PublicationGate:
         elif item.get("regulation_status", "UNKNOWN") != "UNKNOWN":
             reasons.append("LEGAL_EFFECT_NOT_AUTHORIZED")
 
-        if self.policy_version == "4.0.0" and item.get("item_type") == "SAFETY_CASE":
+        if (
+            self.policy_version in {"4.0.0", "5.0.0", "6.0.0", "7.0.0"}
+            and item.get("item_type") == "SAFETY_CASE"
+        ):
             if round04.get("event_assignment_confirmed") is not True:
                 reasons.append("SAFETY_CASE_EVENT_UNCONFIRMED")
             if round04.get("profile_metadata_claims_authorized") is not True:
@@ -185,14 +192,133 @@ class PublicationGate:
             ):
                 reasons.append("SAFETY_CASE_OPERATIONAL_INSTRUCTION_FORBIDDEN")
 
+        if (
+            self.policy_version in {"5.0.0", "6.0.0", "7.0.0"}
+            and item.get("item_type") == "DIGITAL_CASE"
+        ):
+            if round05.get("classification_claims_authorized") is not True:
+                reasons.append("DIGITAL_CLASSIFICATION_UNAUTHORIZED")
+            if round05.get("outcome_attribution_valid") is not True:
+                reasons.append("DIGITAL_OUTCOME_ATTRIBUTION_INVALID")
+            if round05.get("verified_outcomes_have_independent_evidence") is not True:
+                reasons.append("DIGITAL_VERIFIED_OUTCOME_EVIDENCE_REQUIRED")
+            if round05.get("maturity_evidence_valid") is not True:
+                reasons.append("DIGITAL_MATURITY_EVIDENCE_REQUIRED")
+            if round05.get("relevance_rule_version") != "relevance-v1.0.0":
+                reasons.append("DIGITAL_RELEVANCE_RULE_INVALID")
+            relevance_score = round05.get("relevance_score")
+            if (
+                not isinstance(relevance_score, int)
+                or isinstance(relevance_score, bool)
+                or not 0 <= relevance_score <= 100
+            ):
+                reasons.append("DIGITAL_RELEVANCE_RULE_INVALID")
+            if round05.get("recommended_actions_valid") is not True:
+                reasons.append("DIGITAL_RECOMMENDED_ACTION_INVALID")
+            source_nature = round05.get("source_nature")
+            if source_nature not in {
+                "GOVERNMENT_CASE_COLLECTION",
+                "ENTERPRISE_SELF_REPORT",
+            }:
+                reasons.append("DIGITAL_SOURCE_NATURE_INVALID")
+            if source_nature == "ENTERPRISE_SELF_REPORT" and (
+                review.get("decision_status") != "APPROVED"
+                or not review.get("decision_id")
+                or review.get("duties_separated") is not True
+            ):
+                reasons.append("ENTERPRISE_CASE_HUMAN_REVIEW_REQUIRED")
+
+        if self.policy_version in {"6.0.0", "7.0.0"} and item.get("item_type") == "JOURNAL_PAPER":
+            if round06.get("identity_resolved") is not True:
+                reasons.append("PAPER_IDENTITY_UNRESOLVED")
+            access_level = round06.get("access_level")
+            if access_level not in {
+                "METADATA_ONLY",
+                "ABSTRACT_ALLOWED",
+                "OPEN_FULLTEXT",
+            } or round06.get("access_policy_valid") is not True:
+                reasons.append("PAPER_ACCESS_POLICY_INVALID")
+            if round06.get("abstract_present") is True and (
+                round06.get("abstract_permitted") is not True
+                or access_level == "METADATA_ONLY"
+            ):
+                reasons.append("PAPER_ABSTRACT_LICENCE_REQUIRED")
+            fulltext_storage_count = round06.get("fulltext_storage_count")
+            if (
+                not _is_nonnegative_count(fulltext_storage_count)
+                or fulltext_storage_count > 0
+            ):
+                reasons.append("PAPER_FULLTEXT_STORAGE_FORBIDDEN")
+            if (
+                access_level == "OPEN_FULLTEXT"
+                and round06.get("fulltext_link_licensed") is not True
+            ):
+                reasons.append("PAPER_FULLTEXT_LICENCE_REQUIRED")
+            if round06.get("research_claim_refs_valid") is not True:
+                reasons.append("PAPER_RESEARCH_CLAIM_REFS_INVALID")
+            if round06.get("maturity_evidence_valid") is not True:
+                reasons.append("PAPER_MATURITY_EVIDENCE_REQUIRED")
+            unreviewed_updates = round06.get("unreviewed_update_relation_count")
+            if not _is_nonnegative_count(unreviewed_updates) or unreviewed_updates > 0:
+                reasons.append("PAPER_UPDATE_RELATION_UNREVIEWED")
+            if round06.get("relation_status") not in {
+                "CURRENT",
+                "CORRECTED",
+                "RETRACTED",
+                "WITHDRAWN",
+            }:
+                reasons.append("PAPER_RELATION_STATUS_INVALID")
+
+        product_types = {
+            "SOFTWARE_PRODUCT",
+            "IOT_PRODUCT",
+            "LOW_ALTITUDE_EQUIPMENT",
+            "AI_EQUIPMENT",
+        }
+        if self.policy_version == "7.0.0" and item.get("item_type") in product_types:
+            if round07.get("identity_safe") is not True:
+                reasons.append("PRODUCT_IDENTITY_UNSAFE")
+            if round07.get("capability_groups_separated") is not True:
+                reasons.append("PRODUCT_CAPABILITY_GROUPS_INVALID")
+            if round07.get("verified_capabilities_have_independent_evidence") is not True:
+                reasons.append("PRODUCT_VERIFIED_CAPABILITY_EVIDENCE_REQUIRED")
+            if round07.get("promotional_claims_vendor_attributed") is not True:
+                reasons.append("PRODUCT_PROMOTIONAL_ATTRIBUTION_REQUIRED")
+            procurement_conclusions = round07.get("procurement_conclusion_count")
+            if not _is_nonnegative_count(procurement_conclusions) or procurement_conclusions > 0:
+                reasons.append("PRODUCT_PROCUREMENT_CONCLUSION_FORBIDDEN")
+            image_downloads = round07.get("vendor_image_download_count")
+            if not _is_nonnegative_count(image_downloads) or image_downloads > 0:
+                reasons.append("PRODUCT_VENDOR_IMAGE_DOWNLOAD_FORBIDDEN")
+            permit_status = round07.get("permit_status")
+            if permit_status not in {"VERIFIED", "NOT_REQUIRED", "UNKNOWN"}:
+                reasons.append("PRODUCT_PERMIT_STATUS_INVALID")
+            if (
+                item.get("item_type") == "LOW_ALTITUDE_EQUIPMENT"
+                and permit_status == "VERIFIED"
+                and round07.get("permit_evidence_authorized") is not True
+            ):
+                reasons.append("PRODUCT_PERMIT_EVIDENCE_REQUIRED")
+            if action == "SELECTED" and (
+                review.get("decision_status") != "APPROVED"
+                or not review.get("decision_id")
+                or review.get("duties_separated") is not True
+                or review.get("submitted_by") == review.get("decided_by")
+            ):
+                reasons.append("PRODUCT_SELECTED_HUMAN_REVIEW_REQUIRED")
+
         if action == "SELECTED":
-            scores = server.get("scores")
-            if not isinstance(scores, Mapping):
-                reasons.append("SELECTED_SCORES_REQUIRED")
-            else:
-                minimums = self._policy["selected_feed_rules"]["minimum_server_scores"]
-                if any(_number(scores.get(name)) < minimum for name, minimum in minimums.items()):
-                    reasons.append("SELECTED_SCORE_THRESHOLD_FAILED")
+            if item.get("item_type") not in {"DIGITAL_CASE", "JOURNAL_PAPER", *product_types}:
+                scores = server.get("scores")
+                if not isinstance(scores, Mapping):
+                    reasons.append("SELECTED_SCORES_REQUIRED")
+                else:
+                    minimums = self._policy["selected_feed_rules"]["minimum_server_scores"]
+                    if any(
+                        _number(scores.get(name)) < minimum
+                        for name, minimum in minimums.items()
+                    ):
+                        reasons.append("SELECTED_SCORE_THRESHOLD_FAILED")
 
         unique_reasons = tuple(dict.fromkeys(reasons))
         return GateResult(

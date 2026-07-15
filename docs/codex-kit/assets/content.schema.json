@@ -318,12 +318,25 @@
     "paper_profile": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["profile_type", "doi", "journal", "access_level"],
+      "required": ["profile_type", "doi", "journal", "issns", "authors", "institutions", "volume", "issue", "year", "abstract", "abstract_availability", "keywords", "paper_type", "access_level", "open_status", "maturity_level", "relation_status"],
       "properties": {
         "profile_type": {"const": "JOURNAL_PAPER"},
         "doi": {"type": ["string", "null"]},
-        "journal": {"type": "string"},
-        "access_level": {"enum": ["OPEN_FULLTEXT", "ABSTRACT_ALLOWED", "METADATA_ONLY"]}
+        "journal": {"type": ["string", "null"]},
+        "issns": {"type": "array", "items": {"type": "string"}},
+        "authors": {"type": "array", "items": {"type": "string"}},
+        "institutions": {"type": "array", "items": {"type": "string"}},
+        "volume": {"type": ["string", "null"]},
+        "issue": {"type": ["string", "null"]},
+        "year": {"type": ["integer", "null"], "minimum": 1000, "maximum": 9999},
+        "abstract": {"type": ["string", "null"]},
+        "abstract_availability": {"enum": ["AVAILABLE", "NOT_PROVIDED", "LICENCE_UNCLEAR"]},
+        "keywords": {"type": "array", "items": {"type": "string"}},
+        "paper_type": {"enum": ["ARTICLE", "REVIEW", "METHOD", "CASE_STUDY", "OTHER", "UNKNOWN"]},
+        "access_level": {"enum": ["OPEN_FULLTEXT", "ABSTRACT_ALLOWED", "METADATA_ONLY"]},
+        "open_status": {"enum": ["OPEN", "CLOSED", "UNKNOWN"]},
+        "maturity_level": {"enum": ["CONCEPT", "LAB_PROTOTYPE", "ENGINEERING_PROTOTYPE", "PILOT", "SINGLE_PROJECT_PRODUCTION", "MULTI_PROJECT_REPLICATION", "ENTERPRISE_SCALE", "UNKNOWN"]},
+        "relation_status": {"enum": ["CURRENT", "CORRECTED", "RETRACTED", "WITHDRAWN"]}
       }
     },
     "product_profile": {

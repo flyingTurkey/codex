@@ -705,7 +705,7 @@ def test_publication_facts_are_item_type_discriminated_not_regulation_inner_join
 
     assert "LEFT JOIN safety_regulation_profile" in text_value
     assert "LEFT JOIN safety_case_profile" in text_value
-    assert 'policy_version in {"3.0.0", "4.0.0"}' in text_value
+    assert 'policy_version in {"3.0.0", "4.0.0", "5.0.0", "6.0.0", "7.0.0"}' in text_value
     assert "source.authority_level IN ('A0','A1')" in text_value
     assert '"CORRECTED"' in text_value
     assert 'action="WITHDRAWN"' in text_value

@@ -1,0 +1,303 @@
+{
+  "$defs": {
+    "DigitalCaseEntity": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_id": {
+          "format": "uuid",
+          "title": "Claim Id",
+          "type": "string"
+        },
+        "entity_type": {
+          "$ref": "#/$defs/DigitalCaseEntityType"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "relation_type": {
+          "maxLength": 50,
+          "minLength": 1,
+          "title": "Relation Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "entity_type",
+        "name",
+        "relation_type",
+        "claim_id"
+      ],
+      "title": "DigitalCaseEntity",
+      "type": "object"
+    },
+    "DigitalCaseEntityType": {
+      "enum": [
+        "ORGANIZATION",
+        "TECHNOLOGY",
+        "PROJECT"
+      ],
+      "title": "DigitalCaseEntityType",
+      "type": "string"
+    },
+    "DigitalCaseOutcome": {
+      "additionalProperties": false,
+      "properties": {
+        "attribution": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Attribution",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "independent_evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Independent Evidence Ids",
+          "type": "array"
+        },
+        "metric_name": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metric Name"
+        },
+        "numeric_value": {
+          "anyOf": [
+            {
+              "pattern": "^-?\\d+(?:\\.\\d+)?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Numeric Value"
+        },
+        "statement": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Statement",
+          "type": "string"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "maxLength": 50,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        },
+        "verification": {
+          "$ref": "#/$defs/OutcomeVerification"
+        }
+      },
+      "required": [
+        "id",
+        "statement",
+        "attribution",
+        "verification",
+        "evidence_ids"
+      ],
+      "title": "DigitalCaseOutcome",
+      "type": "object"
+    },
+    "MaturityLevel": {
+      "enum": [
+        "CONCEPT",
+        "LAB_PROTOTYPE",
+        "ENGINEERING_PROTOTYPE",
+        "PILOT",
+        "SINGLE_PROJECT_PRODUCTION",
+        "MULTI_PROJECT_REPLICATION",
+        "ENTERPRISE_SCALE",
+        "UNKNOWN"
+      ],
+      "title": "MaturityLevel",
+      "type": "string"
+    },
+    "OutcomeVerification": {
+      "enum": [
+        "CLAIMED",
+        "VERIFIED"
+      ],
+      "title": "OutcomeVerification",
+      "type": "string"
+    },
+    "RecommendedAction": {
+      "enum": [
+        "READ_ORIGINAL",
+        "SAVE",
+        "FOLLOW",
+        "TECHNICAL_RESEARCH"
+      ],
+      "title": "RecommendedAction",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "ai_short_comment": {
+      "default": null,
+      "title": "Ai Short Comment",
+      "type": "null"
+    },
+    "applicability": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Applicability",
+      "type": "array"
+    },
+    "application_scenarios": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 30,
+      "title": "Application Scenarios",
+      "type": "array"
+    },
+    "claimed_outcomes": {
+      "items": {
+        "$ref": "#/$defs/DigitalCaseOutcome"
+      },
+      "title": "Claimed Outcomes",
+      "type": "array"
+    },
+    "deployment_scale": {
+      "anyOf": [
+        {
+          "maxLength": 500,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Deployment Scale"
+    },
+    "engineering_domains": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 20,
+      "title": "Engineering Domains",
+      "type": "array"
+    },
+    "entities": {
+      "items": {
+        "$ref": "#/$defs/DigitalCaseEntity"
+      },
+      "title": "Entities",
+      "type": "array"
+    },
+    "lifecycle_stages": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 20,
+      "title": "Lifecycle Stages",
+      "type": "array"
+    },
+    "limitations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    },
+    "maturity_level": {
+      "$ref": "#/$defs/MaturityLevel"
+    },
+    "recommended_actions": {
+      "items": {
+        "$ref": "#/$defs/RecommendedAction"
+      },
+      "title": "Recommended Actions",
+      "type": "array"
+    },
+    "replication_conditions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Replication Conditions",
+      "type": "array"
+    },
+    "risks": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Risks",
+      "type": "array"
+    },
+    "technology_tags": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 50,
+      "title": "Technology Tags",
+      "type": "array"
+    },
+    "verified_outcomes": {
+      "items": {
+        "$ref": "#/$defs/DigitalCaseOutcome"
+      },
+      "title": "Verified Outcomes",
+      "type": "array"
+    }
+  },
+  "required": [
+    "engineering_domains",
+    "lifecycle_stages",
+    "technology_tags",
+    "application_scenarios",
+    "maturity_level",
+    "entities",
+    "claimed_outcomes",
+    "verified_outcomes",
+    "applicability",
+    "replication_conditions",
+    "limitations",
+    "risks",
+    "recommended_actions"
+  ],
+  "title": "DigitalCaseDetail",
+  "type": "object"
+}

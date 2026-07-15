@@ -1,0 +1,9 @@
+{
+  "version": "7.0.0",
+  "contract": "publication_evaluation_v7.schema.json",
+  "trust_boundary": "Technology product publication separates vendor claims from independently evidenced capabilities and never infers procurement or low-altitude permits.",
+  "default_decision": "DENY",
+  "selected_feed_rules": {
+    "minimum_server_scores": {"relevance": 70, "impact": 65, "authority": 75, "evidence": 90, "confidence": 90}
+  }
+}

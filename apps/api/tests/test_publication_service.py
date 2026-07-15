@@ -10,7 +10,7 @@ from uuid import UUID
 import pytest
 from srbg_api.publication.gate import PublicationGate
 from srbg_api.publication.service import PublicationDenied, PublicationService
-from srbg_contracts import ReviewDecisionResponse
+from srbg_contracts import DigitalCaseReviewPatch, ReviewDecisionResponse
 
 POLICY = Path("docs/codex-kit/assets/validation/publication_gate.json")
 SCHEMA = Path("docs/codex-kit/assets/validation/publication_evaluation.schema.json")
@@ -101,6 +101,10 @@ class FakeTransaction:
         self.context = context
         self.published = False
         self.revision_id: UUID | None = None
+        self.digital_case_patch: DigitalCaseReviewPatch | None = None
+
+    async def apply_digital_case_patch(self, patch: DigitalCaseReviewPatch) -> None:
+        self.digital_case_patch = patch
 
     async def authoritative_context(
         self,
@@ -216,6 +220,31 @@ def test_approval_uses_authoritative_context_and_binds_new_revision() -> None:
     assert response.publication_revision_id is not None
     assert response.publication_revision_id.version == 7
     assert repository.transaction.published is True
+
+
+def test_digital_case_review_patch_is_applied_inside_the_publication_transaction() -> None:
+    repository = FakeRepository(_context())
+    patch = DigitalCaseReviewPatch(
+        engineering_domains=["BRIDGE"],
+        lifecycle_stages=["CONSTRUCTION"],
+        technology_tags=["BIM"],
+        application_scenarios=["QUALITY_CONTROL"],
+        maturity_level="PILOT",
+        maturity_evidence_ids=[],
+        outcome_attributions=[],
+    )
+
+    asyncio.run(
+        _service(repository).decide_review(
+            REVIEW_TASK_ID,
+            action="APPROVE",
+            reason="分类、成熟度和归因均已核对证据",
+            reviewer_id=REVIEWER_ID,
+            digital_case_patch=patch,
+        )
+    )
+
+    assert repository.transaction.digital_case_patch == patch
 
 
 def test_inactive_authoritative_source_denies_even_without_candidate_input() -> None:

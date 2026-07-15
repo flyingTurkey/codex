@@ -3,7 +3,7 @@ export type DecisionStatus = ('PENDING' | 'ACCEPTED' | 'REJECTED') | null
 /**
  * @minItems 1
  */
-export type EvidenceIds = [string, ...string[]]
+export type EvidenceIds = string[]
 export type Id = string
 export type Label = string
 export type Value = string

@@ -8,11 +8,14 @@ from srbg_contracts import (
     ClaimConflict,
     ClaimConflictDecisionRequest,
     ClaimConflictDecisionResponse,
+    DigitalCaseReviewPatch,
     DocumentPageView,
     EventCandidateGenerationResponse,
     EventDetail,
     FeedPage,
     ItemDetail,
+    ProductNormalizationCandidateView,
+    ProductNormalizationDecisionRequest,
     ReviewCandidateDecisionRequest,
     ReviewDecisionRequest,
     ReviewDecisionResponse,
@@ -35,12 +38,29 @@ class IntelligenceQueryService(Protocol):
         mode: str,
         domain: str | None,
         content_type: str | None,
+        engineering_domain: str | None,
+        scenario: str | None,
+        maturity: str | None,
+        source_nature: str | None,
+        paper_type: str | None,
+        technology_tag: str | None,
+        access_level: str | None,
+        year: int | None,
+        product_kind: str | None,
+        evidence_level: str | None,
+        deployment_mode: str | None,
         sort: str,
         cursor: str | None,
         limit: int,
     ) -> FeedPage: ...
 
     async def get_item(self, item_id: UUID) -> ItemDetail: ...
+
+    async def list_product_normalization_candidates(
+        self, *, status: str
+    ) -> list[ProductNormalizationCandidateView]: ...
+
+    async def get_citation(self, item_id: UUID, citation_format: str) -> tuple[str, str]: ...
 
     async def get_event(self, event_id: UUID) -> EventDetail: ...
 
@@ -88,12 +108,18 @@ class ReviewPublicationService(Protocol):
         action: Literal["APPROVE", "REJECT"],
         reason: str,
         reviewer_id: UUID,
+        digital_case_patch: DigitalCaseReviewPatch | None = None,
     ) -> ReviewDecisionResponse: ...
 
     async def decide_candidate(
         self,
         candidate_kind: Literal[
-            "RELATION", "REGULATION_STATUS", "EVENT_LINK", "EVENT_RELATION", "CLAIM"
+            "RELATION",
+            "REGULATION_STATUS",
+            "EVENT_LINK",
+            "EVENT_RELATION",
+            "CLAIM",
+            "PAPER_RELATION",
         ],
         candidate_id: UUID,
         *,
@@ -120,6 +146,15 @@ class ReviewPublicationService(Protocol):
         reviewer_id: UUID,
     ) -> ClaimConflictDecisionResponse: ...
 
+    async def decide_product_normalization(
+        self,
+        candidate_id: UUID,
+        *,
+        action: Literal["MERGE_ALIAS", "LINK_AS_NEW_VERSION", "KEEP_DISTINCT"],
+        reason: str,
+        reviewer_id: UUID,
+    ) -> None: ...
+
 
 class EventCandidateGenerationService(Protocol):
     async def generate_candidate(
@@ -143,9 +178,7 @@ ReviewWritePrincipal = Annotated[
 ]
 EventCandidateWritePrincipal = Annotated[
     Principal,
-    Depends(
-        require_roles(UserRole.EDITOR, UserRole.REVIEWER, UserRole.PLATFORM_ADMIN)
-    ),
+    Depends(require_roles(UserRole.EDITOR, UserRole.REVIEWER, UserRole.PLATFORM_ADMIN)),
 ]
 
 router = APIRouter(prefix="/api/v1", tags=["intelligence"])
@@ -194,6 +227,17 @@ async def get_feed(
     mode: Literal["selected", "all"] = "all",
     domain: Literal["digital", "safety"] | None = None,
     content_type: str | None = Query(default=None, max_length=100),
+    engineering_domain: str | None = Query(default=None, max_length=100),
+    scenario: str | None = Query(default=None, max_length=100),
+    maturity: str | None = Query(default=None, max_length=100),
+    source_nature: str | None = Query(default=None, max_length=100),
+    paper_type: str | None = Query(default=None, max_length=100),
+    technology_tag: str | None = Query(default=None, max_length=100),
+    access_level: str | None = Query(default=None, max_length=100),
+    year: int | None = Query(default=None, ge=1000, le=9999),
+    product_kind: str | None = Query(default=None, max_length=100),
+    evidence_level: str | None = Query(default=None, max_length=100),
+    deployment_mode: str | None = Query(default=None, max_length=100),
     sort: Literal["latest", "relevance", "impact", "heat"] = "latest",
     cursor: str | None = Query(default=None, max_length=1000),
     limit: int = Query(default=20, ge=1, le=100),
@@ -202,6 +246,17 @@ async def get_feed(
         mode=mode,
         domain=domain,
         content_type=content_type,
+        engineering_domain=engineering_domain,
+        scenario=scenario,
+        maturity=maturity,
+        source_nature=source_nature,
+        paper_type=paper_type,
+        technology_tag=technology_tag,
+        access_level=access_level,
+        year=year,
+        product_kind=product_kind,
+        evidence_level=evidence_level,
+        deployment_mode=deployment_mode,
         sort=sort,
         cursor=cursor,
         limit=limit,
@@ -219,6 +274,60 @@ async def get_item(
     _: CurrentPrincipal,
 ) -> ItemDetail:
     return await _query_service(request).get_item(item_id)
+
+
+@router.get(
+    "/admin/product-normalization-candidates",
+    response_model=list[ProductNormalizationCandidateView],
+)
+async def list_product_normalization_candidates(
+    request: Request,
+    _: ReviewReadPrincipal,
+    candidate_status: Literal["PENDING_REVIEW", "ACCEPTED", "REJECTED"] = Query(
+        default="PENDING_REVIEW", alias="status"
+    ),
+) -> list[ProductNormalizationCandidateView]:
+    return await _query_service(request).list_product_normalization_candidates(
+        status=candidate_status
+    )
+
+
+@router.post(
+    "/admin/product-normalization-candidates/{candidate_id}/decision",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def decide_product_normalization(
+    candidate_id: UUID,
+    payload: ProductNormalizationDecisionRequest,
+    request: Request,
+    principal: ReviewWritePrincipal,
+) -> Response:
+    await _publication_service(request).decide_product_normalization(
+        candidate_id,
+        action=payload.action,
+        reason=payload.reason,
+        reviewer_id=principal.user_id,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/items/{item_id}/citation")
+async def get_item_citation(
+    item_id: UUID,
+    request: Request,
+    _: CurrentPrincipal,
+    citation_format: Literal["ris", "bibtex", "gb-t-7714"] = Query(alias="format"),
+) -> Response:
+    content, media_type = await _query_service(request).get_citation(item_id, citation_format)
+    extension = {"ris": "ris", "bibtex": "bib", "gb-t-7714": "txt"}[citation_format]
+    return Response(
+        content=content.encode("utf-8"),
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="paper-{item_id}.{extension}"',
+            "Cache-Control": "private, max-age=300",
+        },
+    )
 
 
 @router.get(
@@ -375,6 +484,7 @@ async def decide_review(
         action=payload.action,
         reason=payload.reason,
         reviewer_id=principal.user_id,
+        digital_case_patch=payload.digital_case_patch,
     )
 
 
@@ -384,7 +494,12 @@ async def decide_review(
 )
 async def decide_candidate(
     candidate_kind: Literal[
-        "RELATION", "REGULATION_STATUS", "EVENT_LINK", "EVENT_RELATION", "CLAIM"
+        "RELATION",
+        "REGULATION_STATUS",
+        "EVENT_LINK",
+        "EVENT_RELATION",
+        "CLAIM",
+        "PAPER_RELATION",
     ],
     candidate_id: UUID,
     payload: ReviewCandidateDecisionRequest,

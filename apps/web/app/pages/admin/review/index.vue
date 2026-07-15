@@ -3,6 +3,8 @@ import type {
   ClaimConflict,
   ClaimConflictDecisionRequest,
   ClaimConflictDecisionResponse,
+  ProductNormalizationCandidateView,
+  ProductNormalizationDecisionRequest,
   ReviewTaskSummary,
 } from '@srbg/contracts'
 import { EmptyState, PageHeader, StatusBadge } from '@srbg/ui'
@@ -24,10 +26,23 @@ const {
   retry: 0,
   timeout: 5_000,
 })
+const {
+  data: productCandidates,
+  status: productCandidateStatus,
+  error: productCandidateError,
+  refresh: refreshProductCandidates,
+} = await useFetch<ProductNormalizationCandidateView[]>(
+  '/api/v1/admin/product-normalization-candidates',
+  { server: false, retry: 0, timeout: 5_000 },
+)
 
 const busyConflictId = ref<string | null>(null)
 const decisionError = ref<string | null>(null)
 const decisionSuccess = ref<string | null>(null)
+const productDecision = ref<Record<string, ProductNormalizationDecisionRequest['action']>>({})
+const productReason = ref<Record<string, string>>({})
+const busyProductCandidateId = ref<string | null>(null)
+const productDecisionMessage = ref<string | null>(null)
 
 const conflictErrorMessage = computed(() => {
   if (decisionError.value) return decisionError.value
@@ -62,6 +77,31 @@ async function decideConflict(
     busyConflictId.value = null
   }
 }
+
+async function decideProductCandidate(candidateId: string): Promise<void> {
+  const action = productDecision.value[candidateId] ?? 'KEEP_DISTINCT'
+  const reason = productReason.value[candidateId]?.trim()
+  if (!reason) {
+    productDecisionMessage.value = '请填写归一决定依据。'
+    return
+  }
+  busyProductCandidateId.value = candidateId
+  productDecisionMessage.value = null
+  try {
+    await $fetch(`/api/v1/admin/product-normalization-candidates/${candidateId}/decision`, {
+      method: 'POST',
+      body: { action, reason } satisfies ProductNormalizationDecisionRequest,
+      retry: 0,
+      timeout: 5_000,
+    })
+    await refreshProductCandidates()
+    productDecisionMessage.value = '型号与版本归一决定已记录。'
+  } catch {
+    productDecisionMessage.value = '归一决定保存失败，候选状态未改变。'
+  } finally {
+    busyProductCandidateId.value = null
+  }
+}
 </script>
 
 <template>
@@ -79,6 +119,43 @@ async function decideConflict(
       :success-message="decisionSuccess"
       @decide="decideConflict"
     />
+
+    <section class="review-queue__product-candidates" aria-labelledby="product-candidate-title">
+      <h2 id="product-candidate-title">型号与版本归一候选</h2>
+      <p>同名不同型号默认保持独立；合并别名或链接新版本必须由审核人明确决定。</p>
+      <p v-if="productCandidateStatus === 'pending'" role="status">正在加载归一候选…</p>
+      <p v-else-if="productCandidateError" role="alert">归一候选暂时不可用。</p>
+      <p v-if="productDecisionMessage" aria-live="polite">{{ productDecisionMessage }}</p>
+      <ol v-if="productCandidates?.length" class="review-queue__list">
+        <li v-for="candidate in productCandidates" :key="candidate.id">
+          <div>
+            <StatusBadge tone="pending" label="待人工归一" />
+            <h3>{{ candidate.incoming_label }}</h3>
+            <p>候选：{{ candidate.candidate_label }} · {{ candidate.candidate_type }}</p>
+            <label>
+              决定
+              <select v-model="productDecision[candidate.id]">
+                <option value="KEEP_DISTINCT">保持不同型号/版本</option>
+                <option value="LINK_AS_NEW_VERSION">链接为新版本</option>
+                <option value="MERGE_ALIAS">合并为别名</option>
+              </select>
+            </label>
+            <label>
+              决定依据
+              <textarea v-model="productReason[candidate.id]" required maxlength="1000" />
+            </label>
+          </div>
+          <button
+            type="button"
+            :disabled="busyProductCandidateId === candidate.id"
+            @click="decideProductCandidate(candidate.id)"
+          >
+            提交归一决定
+          </button>
+        </li>
+      </ol>
+      <EmptyState v-else-if="!productCandidateError" title="暂无归一候选" icon="List" />
+    </section>
 
     <section class="review-queue__tasks" aria-labelledby="review-task-title">
       <h2 id="review-task-title">R3 审核任务</h2>
@@ -126,6 +203,28 @@ async function decideConflict(
 .review-queue__tasks {
   display: grid;
   gap: var(--spacing-4);
+}
+
+.review-queue__product-candidates {
+  display: grid;
+  gap: var(--spacing-4);
+}
+
+.review-queue__product-candidates label {
+  display: grid;
+  margin-top: var(--spacing-2);
+  color: var(--color-ink-600);
+  font-size: var(--text-xs);
+  gap: var(--spacing-1);
+}
+
+.review-queue__product-candidates select,
+.review-queue__product-candidates textarea,
+.review-queue__product-candidates button {
+  min-height: var(--spacing-10);
+  padding: var(--spacing-2) var(--spacing-3);
+  border: 1px solid var(--color-borderStrong);
+  border-radius: var(--radius-sm);
 }
 
 .review-queue__tasks > h2 {

@@ -8,7 +8,12 @@ from hashlib import sha256
 from typing import Any, Literal, Protocol
 from uuid import UUID
 
-from srbg_contracts import ClaimConflict, ClaimConflictDecisionResponse, ReviewDecisionResponse
+from srbg_contracts import (
+    ClaimConflict,
+    ClaimConflictDecisionResponse,
+    DigitalCaseReviewPatch,
+    ReviewDecisionResponse,
+)
 
 from srbg_api.identifiers import uuid7
 from srbg_api.publication.gate import PublicationGate
@@ -21,6 +26,8 @@ class PublicationDenied(PermissionError):
 
 
 class PublicationTransaction(Protocol):
+    async def apply_digital_case_patch(self, patch: DigitalCaseReviewPatch) -> None: ...
+
     async def authoritative_context(
         self,
         *,
@@ -78,11 +85,26 @@ class PublicationRepository(Protocol):
 
     async def process_outbox_once(self, *, processed_at: datetime) -> bool: ...
 
+    async def decide_product_normalization(
+        self,
+        *,
+        candidate_id: UUID,
+        action: Literal["MERGE_ALIAS", "LINK_AS_NEW_VERSION", "KEEP_DISTINCT"],
+        reviewer_id: UUID,
+        reason: str,
+        decided_at: datetime,
+    ) -> None: ...
+
     async def decide_candidate(
         self,
         *,
         candidate_kind: Literal[
-            "RELATION", "REGULATION_STATUS", "EVENT_LINK", "EVENT_RELATION", "CLAIM"
+            "RELATION",
+            "REGULATION_STATUS",
+            "EVENT_LINK",
+            "EVENT_RELATION",
+            "CLAIM",
+            "PAPER_RELATION",
         ],
         candidate_id: UUID,
         action: Literal["ACCEPT", "REJECT", "CONFIRM_UNRESOLVED"],
@@ -139,6 +161,7 @@ class PublicationService:
         action: Literal["APPROVE", "REJECT"],
         reason: str,
         reviewer_id: UUID,
+        digital_case_patch: DigitalCaseReviewPatch | None = None,
     ) -> ReviewDecisionResponse:
         if action == "REJECT":
             return await self._repository.reject(
@@ -152,6 +175,7 @@ class PublicationService:
             reviewer_id=reviewer_id,
             reason=reason,
             revision_action="PUBLISH",
+            digital_case_patch=digital_case_patch,
         )
 
     async def revise(
@@ -202,10 +226,31 @@ class PublicationService:
         """The publisher worker enters version lifecycle changes through this service only."""
         return await self._repository.process_outbox_once(processed_at=self._now())
 
+    async def decide_product_normalization(
+        self,
+        candidate_id: UUID,
+        *,
+        action: Literal["MERGE_ALIAS", "LINK_AS_NEW_VERSION", "KEEP_DISTINCT"],
+        reason: str,
+        reviewer_id: UUID,
+    ) -> None:
+        await self._repository.decide_product_normalization(
+            candidate_id=candidate_id,
+            action=action,
+            reason=reason,
+            reviewer_id=reviewer_id,
+            decided_at=self._now(),
+        )
+
     async def decide_candidate(
         self,
         candidate_kind: Literal[
-            "RELATION", "REGULATION_STATUS", "EVENT_LINK", "EVENT_RELATION", "CLAIM"
+            "RELATION",
+            "REGULATION_STATUS",
+            "EVENT_LINK",
+            "EVENT_RELATION",
+            "CLAIM",
+            "PAPER_RELATION",
         ],
         candidate_id: UUID,
         *,
@@ -261,6 +306,7 @@ class PublicationService:
         reviewer_id: UUID,
         reason: str,
         revision_action: Literal["PUBLISH", "REVISE", "REPUBLISH"],
+        digital_case_patch: DigitalCaseReviewPatch | None = None,
     ) -> ReviewDecisionResponse:
         decided_at = self._now()
         revision_id = uuid7()
@@ -270,6 +316,8 @@ class PublicationService:
             reason=reason,
             decided_at=decided_at,
         ) as transaction:
+            if digital_case_patch is not None:
+                await transaction.apply_digital_case_patch(digital_case_patch)
             evaluation = await transaction.authoritative_context(
                 evaluation_id=uuid7(),
                 policy_version=self._gate.policy_version,

@@ -1,0 +1,43 @@
+{
+  "schema_version": "1.0.0",
+  "fixture_policy": "SHORT_EXCERPTS_ONLY",
+  "copyright_note": "Full PDFs remain private source evidence and are not redistributed in Git.",
+  "samples": [
+    {
+      "id": "mot-pujiang-rural-road-digitalization",
+      "registry_code": "GOV-ROUND05-MOT",
+      "source_name": "交通运输部",
+      "source_nature": "GOVERNMENT_CASE_COLLECTION",
+      "production_source_state": "CANDIDATE_DISABLED",
+      "title": "打造智慧交通 赋能蒲江农村公路现代化建设",
+      "original_url": "https://zizhan.mot.gov.cn/sj2019/gongluj/sihaoncl/dianxingal/202311/P020250627753815314372.pdf",
+      "excerpt": "平台累计归集路产数据11428条，完成巡查30余万公里，问题处置率达到100%。",
+      "excerpt_sha256": "90c19634ef31b36b9a2b0ca1dcb3af299d8ffd8a3b45d22c88c33b2a9537e8df",
+      "evidence_locator": {"type": "PDF_TEXT", "page_number": 91},
+      "expected": {
+        "engineering_domains": ["HIGHWAY", "ROAD", "BRIDGE", "TUNNEL"],
+        "maturity_level": "SINGLE_PROJECT_PRODUCTION",
+        "verified_outcome_count": 0,
+        "relevance_score": 90
+      }
+    },
+    {
+      "id": "shudao-smart-beam-factory-2",
+      "registry_code": "ENT-ROUND05-SHUDAO",
+      "source_name": "蜀道集团",
+      "source_nature": "ENTERPRISE_SELF_REPORT",
+      "production_source_state": "CANDIDATE_DISABLED",
+      "title": "智慧梁厂2.0",
+      "original_url": "https://www.shudaojt.com/public/uploads/files/2022/03/20220310164807146.pdf",
+      "excerpt": "智慧梁厂2.0采用BIM、物联网和自动化生产线，发布方称综合减人50%、提速50%。",
+      "excerpt_sha256": "6f9bd3f1f858891f931a476d64a0e45914d48c7e9efdff4922b9944e0469270e",
+      "evidence_locator": {"type": "PDF_TEXT", "page_number": 64},
+      "expected": {
+        "engineering_domains": ["HIGHWAY", "BRIDGE"],
+        "maturity_level": "SINGLE_PROJECT_PRODUCTION",
+        "verified_outcome_count": 0,
+        "relevance_score": 100
+      }
+    }
+  ]
+}

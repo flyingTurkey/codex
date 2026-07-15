@@ -19,6 +19,29 @@ const publicExports = {
   'confirmed-fact.schema.json': ['ConfirmedFact'],
   'create-source-request.schema.json': ['CreateSourceRequest'],
   'cursor-page.schema.json': ['CursorPageDictStrUnionStrIntBoolNoneType'],
+  'digital-case-detail.schema.json': [
+    'DigitalCaseDetail',
+    'DigitalCaseEntity',
+    'DigitalCaseOutcome',
+  ],
+  'digital-case-review-patch.schema.json': [
+    'DigitalCaseReviewPatch',
+    'DigitalOutcomeAttributionPatch',
+  ],
+  'paper-detail.schema.json': [
+    'PaperDetail',
+    'PaperAuthor',
+    'ResearchInterpretation',
+    'SimilarPaper',
+  ],
+  'technology-product-detail.schema.json': [
+    'TechnologyProductDetail',
+    'ProductCapability',
+    'ProductEngineeringCase',
+    'ProductEntity',
+  ],
+  'product-normalization-candidate.schema.json': ['ProductNormalizationCandidateView'],
+  'product-normalization-decision-request.schema.json': ['ProductNormalizationDecisionRequest'],
   'document-detail.schema.json': ['DocumentDetail'],
   'document-page-view.schema.json': ['DocumentPageView'],
   'evidence-view.schema.json': ['EvidenceView'],
@@ -51,6 +74,14 @@ const publicExports = {
     'TypeSummary',
     'SafetyRegulationTypeSummary',
     'SafetyCaseTypeSummary',
+    'DigitalCaseTypeSummary',
+    'PaperTypeSummary',
+    'SoftwareProductTypeSummary',
+    'IotProductTypeSummary',
+    'LowAltitudeEquipmentTypeSummary',
+    'AiEquipmentTypeSummary',
+    'RelevanceFactor',
+    'RelevanceSummary',
   ],
   'unverified-fact.schema.json': ['UnverifiedFact'],
   'version-diff-response.schema.json': ['VersionDiffResponse'],
@@ -71,6 +102,7 @@ for (const schemaFile of schemaFiles) {
   const outputFile = schemaFile.replace(/\.json$/, '.d.ts')
   const declaration = await compileFromFile(join(schemaDir, schemaFile), {
     bannerComment: '',
+    ignoreMinAndMaxItems: true,
     style: { semi: false, singleQuote: true },
     unknownAny: false,
   })

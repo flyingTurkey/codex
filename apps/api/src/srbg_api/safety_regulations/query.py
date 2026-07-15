@@ -14,12 +14,19 @@ from sqlalchemy import text
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 from srbg_contracts import (
+    AbstractAvailability,
+    AiEquipmentTypeSummary,
     Channel,
     ClaimView,
     ConfirmedFact,
     CriticalFieldDiff,
     CriticalSafetyField,
     DiffHunk,
+    DigitalCaseDetail,
+    DigitalCaseEntity,
+    DigitalCaseOutcome,
+    DigitalCaseSourceNature,
+    DigitalCaseTypeSummary,
     DocumentPageView,
     DocumentState,
     EventDetail,
@@ -30,26 +37,53 @@ from srbg_contracts import (
     EvidenceView,
     FeedNotice,
     FeedPage,
+    IotProductTypeSummary,
     ItemDetail,
     ItemSummary,
     ItemType,
+    LowAltitudeEquipmentTypeSummary,
+    MaturityLevel,
+    OutcomeVerification,
     PageBoundingBox,
     PageDiff,
+    PaperAccessLevel,
+    PaperAuthor,
+    PaperDetail,
+    PaperOpenStatus,
+    PaperRelationStatus,
+    PaperType,
+    PaperTypeSummary,
     PdfOcrLocator,
     PdfTableCellLocator,
     PdfTextLocator,
+    ProductCapability,
+    ProductCapabilityKind,
+    ProductEngineeringCase,
+    ProductEntity,
+    ProductEvidenceLevel,
+    ProductNormalizationCandidateView,
+    ProductPermitStatus,
     PublicationStatus,
+    RecommendedAction,
+    RelevanceFactor,
+    RelevanceSummary,
+    ResearchInterpretation,
     ReviewStatus,
     ReviewTaskDetail,
     ReviewTaskSummary,
     SafetyCaseFactField,
     SafetyCaseTypeSummary,
     SafetyRegulationTypeSummary,
+    SimilarPaper,
+    SoftwareProductTypeSummary,
+    TechnologyProductDetail,
     UnverifiedFact,
     VersionDiffResponse,
     VersionTimelineEntry,
     VersionTimelineResponse,
 )
+
+from srbg_api.papers.domain import format_bibtex, format_gbt7714, format_ris
 
 
 class IntelligenceNotFound(LookupError):
@@ -208,6 +242,117 @@ class PostgresIntelligenceQueryService:
                 .mappings()
                 .one()
             )
+            digital_profiles = list(
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT source_nature, maturity_level, count(*) AS count
+                            FROM digital_case_profile
+                            GROUP BY source_nature, maturity_level
+                            ORDER BY source_nature, maturity_level
+                            """
+                        )
+                    )
+                ).mappings()
+            )
+            digital_outcomes = dict(
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT outcome_kind, count(*) AS count
+                            FROM digital_case_outcome
+                            GROUP BY outcome_kind
+                            """
+                        )
+                    )
+                ).tuples()
+            )
+            pending_enterprise_review = int(
+                await connection.scalar(
+                    text(
+                        """
+                        SELECT count(*)
+                        FROM digital_case_profile profile
+                        JOIN intelligence_item item ON item.id = profile.item_id
+                        WHERE profile.source_nature = 'ENTERPRISE_SELF_REPORT'
+                          AND item.review_status = 'PENDING'
+                        """
+                    )
+                )
+                or 0
+            )
+            paper_profiles = list(
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT access_level, relation_status, count(*) AS count
+                            FROM paper_profile
+                            GROUP BY access_level, relation_status
+                            ORDER BY access_level, relation_status
+                            """
+                        )
+                    )
+                ).mappings()
+            )
+            paper_queues = (
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT
+                              count(*) FILTER (WHERE status = 'PENDING_REVIEW')
+                                AS pending_duplicates,
+                              (SELECT count(*) FROM item_relation_candidate
+                               WHERE status = 'PENDING_REVIEW'
+                                 AND relation_type IN ('CORRECTS','SUPERSEDES','RETRACTS'))
+                                AS pending_updates
+                            FROM paper_duplicate_candidate
+                            """
+                        )
+                    )
+                ).mappings().one()
+            )
+            product_profiles = list(
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT item_type, evidence_level, permit_status, count(*) AS count
+                            FROM technology_product_profile
+                            GROUP BY item_type, evidence_level, permit_status
+                            ORDER BY item_type, evidence_level, permit_status
+                            """
+                        )
+                    )
+                ).mappings()
+            )
+            product_capabilities = dict(
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT kind, count(*) AS count
+                            FROM technology_product_capability
+                            GROUP BY kind
+                            """
+                        )
+                    )
+                ).tuples()
+            )
+            pending_product_normalization = int(
+                await connection.scalar(
+                    text(
+                        """
+                        SELECT count(*) FROM product_normalization_candidate
+                        WHERE status = 'PENDING_REVIEW'
+                        """
+                    )
+                )
+                or 0
+            )
         pdf_total = int(row["pdf_total"])
         ocr_pages = int(row["ocr_pages"])
         values = [
@@ -246,6 +391,21 @@ class PostgresIntelligenceQueryService:
             pending_event_candidates=int(safety_queues["pending_event_candidates"]),
             pending_critical_claims=int(safety_queues["pending_critical_claims"]),
         )
+        rendered += _render_digital_case_metrics(
+            profiles=[dict(profile) for profile in digital_profiles],
+            outcomes={str(key): int(value) for key, value in digital_outcomes.items()},
+            pending_enterprise_review=pending_enterprise_review,
+        )
+        rendered += _render_paper_metrics(
+            profiles=[dict(profile) for profile in paper_profiles],
+            pending_duplicates=int(paper_queues["pending_duplicates"]),
+            pending_updates=int(paper_queues["pending_updates"]),
+        )
+        rendered += _render_technology_product_metrics(
+            profiles=[dict(profile) for profile in product_profiles],
+            capabilities={str(key): int(value) for key, value in product_capabilities.items()},
+            pending_normalization=pending_product_normalization,
+        )
         return rendered
 
     async def get_feed(
@@ -257,15 +417,61 @@ class PostgresIntelligenceQueryService:
         sort: str,
         cursor: str | None,
         limit: int,
+        engineering_domain: str | None = None,
+        scenario: str | None = None,
+        maturity: str | None = None,
+        source_nature: str | None = None,
+        paper_type: str | None = None,
+        technology_tag: str | None = None,
+        access_level: str | None = None,
+        year: int | None = None,
+        product_kind: str | None = None,
+        evidence_level: str | None = None,
+        deployment_mode: str | None = None,
     ) -> FeedPage:
         now = datetime.now(UTC)
-        if (
-            mode == "selected"
-            or domain == "digital"
-            or (
-                content_type is not None
-                and content_type not in {"SAFETY_REGULATION", "SAFETY_CASE"}
+        if content_type in {
+            "SOFTWARE_PRODUCT",
+            "IOT_PRODUCT",
+            "LOW_ALTITUDE_EQUIPMENT",
+            "AI_EQUIPMENT",
+        }:
+            return await self._get_product_feed(
+                mode=mode,
+                content_type=content_type,
+                cursor=cursor,
+                limit=limit,
+                product_kind=product_kind,
+                evidence_level=evidence_level,
+                deployment_mode=deployment_mode,
+                scenario=scenario,
+                maturity=maturity,
             )
+        if content_type == "JOURNAL_PAPER":
+            return await self._get_paper_feed(
+                mode=mode,
+                cursor=cursor,
+                limit=limit,
+                engineering_domain=engineering_domain,
+                technology_tag=technology_tag,
+                maturity=maturity,
+                paper_type=paper_type,
+                access_level=access_level,
+                year=year,
+            )
+        if domain == "digital" or content_type == "DIGITAL_CASE":
+            return await self._get_digital_feed(
+                mode=mode,
+                sort=sort,
+                cursor=cursor,
+                limit=limit,
+                engineering_domain=engineering_domain,
+                scenario=scenario,
+                maturity=maturity,
+                source_nature=source_nature,
+            )
+        if mode == "selected" or (
+            content_type is not None and content_type not in {"SAFETY_REGULATION", "SAFETY_CASE"}
         ):
             return _feed_page([], now=now, mode=mode, domain=domain, next_cursor=None)
 
@@ -414,16 +620,522 @@ class PostgresIntelligenceQueryService:
             next_cursor = _encode_cursor(visible[-1]["activity_at"], visible[-1]["id"])
         return _feed_page(items, now=now, mode=mode, domain=domain, next_cursor=next_cursor)
 
+    async def _get_digital_feed(
+        self,
+        *,
+        mode: str,
+        sort: str,
+        cursor: str | None,
+        limit: int,
+        engineering_domain: str | None,
+        scenario: str | None,
+        maturity: str | None,
+        source_nature: str | None,
+    ) -> FeedPage:
+        cursor_time, cursor_id = _decode_cursor(cursor)
+        async with self._engine.connect() as connection:
+            rows = list(
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT i.id, i.item_type, i.title, i.original_url,
+                                   i.source_published_at, i.first_discovered_at,
+                                   i.activity_at, i.updated_at, i.review_status,
+                                   source.name AS source_name,
+                                   publication.status AS publication_status,
+                                   publication.current_revision_id AS publication_revision_id,
+                                   profile.source_nature, profile.maturity_level,
+                                   profile.deployment_scale, profile.srbg_relationship,
+                                   relevance.score AS relevance_score,
+                                   relevance.rule_version AS relevance_rule_version,
+                                   relevance.engineering_points,
+                                   relevance.sichuan_points,
+                                   relevance.srbg_direct_points,
+                                   taxonomy.engineering_domains,
+                                   taxonomy.lifecycle_stages,
+                                   taxonomy.technology_tags,
+                                   taxonomy.application_scenarios,
+                                   (SELECT count(*) FROM document_version version
+                                    WHERE version.document_id = i.primary_document_id)
+                                     AS version_count,
+                                   NULL::text AS latest_change_type,
+                                   NULL::text AS latest_change_review_state,
+                                   false AS source_unavailable,
+                                   (SELECT count(*) FROM claim_evidence evidence
+                                    JOIN claim ON claim.id = evidence.claim_id
+                                    WHERE claim.item_id = i.id
+                                      AND claim.verification_status = 'ACCEPTED')
+                                     AS evidence_count
+                            FROM intelligence_item i
+                            JOIN source ON source.id = i.source_id
+                            JOIN digital_case_profile profile ON profile.item_id = i.id
+                            JOIN digital_case_relevance relevance ON relevance.item_id = i.id
+                            LEFT JOIN publication ON publication.item_id = i.id
+                            JOIN LATERAL (
+                              SELECT
+                                COALESCE(array_agg(code ORDER BY code)
+                                  FILTER (WHERE facet = 'ENGINEERING_DOMAIN'), ARRAY[]::text[])
+                                  AS engineering_domains,
+                                COALESCE(array_agg(code ORDER BY code)
+                                  FILTER (WHERE facet = 'LIFECYCLE_STAGE'), ARRAY[]::text[])
+                                  AS lifecycle_stages,
+                                COALESCE(array_agg(code ORDER BY code)
+                                  FILTER (WHERE facet = 'TECHNOLOGY_TAG'), ARRAY[]::text[])
+                                  AS technology_tags,
+                                COALESCE(array_agg(code ORDER BY code)
+                                  FILTER (WHERE facet = 'APPLICATION_SCENARIO'), ARRAY[]::text[])
+                                  AS application_scenarios
+                              FROM digital_case_taxonomy
+                              WHERE item_id = i.id
+                            ) taxonomy ON true
+                            WHERE i.item_type = 'DIGITAL_CASE'
+                              AND i.channel = 'DIGITAL'
+                              AND i.risk_level <> 'R4'
+                              AND i.review_status <> 'REJECTED'
+                              AND (
+                                :mode <> 'selected'
+                                OR (
+                                  i.review_status = 'APPROVED'
+                                  AND publication.status = 'PUBLISHED'
+                                )
+                              )
+                              AND (
+                                CAST(:engineering_domain AS text) IS NULL
+                                OR :engineering_domain = ANY(taxonomy.engineering_domains)
+                              )
+                              AND (
+                                CAST(:scenario AS text) IS NULL
+                                OR :scenario = ANY(taxonomy.application_scenarios)
+                              )
+                              AND (
+                                CAST(:maturity AS text) IS NULL
+                                OR profile.maturity_level = CAST(:maturity AS text)
+                              )
+                              AND (
+                                CAST(:source_nature AS text) IS NULL
+                                OR profile.source_nature = CAST(:source_nature AS text)
+                              )
+                              AND (
+                                CAST(:cursor_time AS timestamptz) IS NULL
+                                OR (i.activity_at, i.id) <
+                                   (CAST(:cursor_time AS timestamptz), CAST(:cursor_id AS uuid))
+                              )
+                            ORDER BY
+                              CASE WHEN :sort = 'relevance' THEN relevance.score END DESC,
+                              i.activity_at DESC, i.id DESC
+                            LIMIT :row_limit
+                            """
+                        ),
+                        {
+                            "mode": mode,
+                            "sort": sort,
+                            "engineering_domain": _none_for_all(engineering_domain),
+                            "scenario": _none_for_all(scenario),
+                            "maturity": _none_for_all(maturity),
+                            "source_nature": _none_for_all(source_nature),
+                            "cursor_time": cursor_time,
+                            "cursor_id": cursor_id,
+                            "row_limit": limit + 1,
+                        },
+                    )
+                ).mappings()
+            )
+        has_more = len(rows) > limit
+        visible = rows[:limit]
+        items = [_item_summary(row) for row in visible]
+        next_cursor = None
+        if has_more and visible and sort == "latest":
+            next_cursor = _encode_cursor(visible[-1]["activity_at"], visible[-1]["id"])
+        return _feed_page(
+            items,
+            now=datetime.now(UTC),
+            mode=mode,
+            domain="digital",
+            next_cursor=next_cursor,
+        )
+
+    async def _get_paper_feed(
+        self,
+        *,
+        mode: str,
+        cursor: str | None,
+        limit: int,
+        engineering_domain: str | None,
+        technology_tag: str | None,
+        maturity: str | None,
+        paper_type: str | None,
+        access_level: str | None,
+        year: int | None,
+    ) -> FeedPage:
+        cursor_time, cursor_id = _decode_cursor(cursor)
+        async with self._engine.connect() as connection:
+            rows = list(
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT i.id, i.item_type, i.title, i.original_url,
+                                   i.source_published_at, i.first_discovered_at,
+                                   i.activity_at, i.updated_at, i.review_status,
+                                   source.name AS source_name,
+                                   publication.status AS publication_status,
+                                   publication.current_revision_id AS publication_revision_id,
+                                   profile.normalized_doi, profile.journal,
+                                   profile.publication_year, profile.paper_type,
+                                   profile.access_level, profile.open_status,
+                                   profile.maturity_level, profile.relation_status,
+                                   taxonomy.engineering_domains, taxonomy.technology_tags,
+                                   (SELECT count(*) FROM document_version version
+                                    WHERE version.document_id = i.primary_document_id)
+                                      AS version_count,
+                                   NULL::text AS latest_change_type,
+                                   NULL::text AS latest_change_review_state,
+                                   false AS source_unavailable,
+                                   (SELECT count(*) FROM claim_evidence evidence
+                                    JOIN claim ON claim.id = evidence.claim_id
+                                    WHERE claim.item_id = i.id
+                                      AND claim.verification_status = 'ACCEPTED')
+                                      AS evidence_count
+                            FROM intelligence_item i
+                            JOIN source ON source.id = i.source_id
+                            JOIN paper_profile profile ON profile.item_id = i.id
+                            LEFT JOIN publication ON publication.item_id = i.id
+                            JOIN LATERAL (
+                              SELECT
+                                COALESCE(array_agg(code ORDER BY code)
+                                  FILTER (WHERE dimension = 'ENGINEERING_DOMAIN'), ARRAY[]::text[])
+                                  AS engineering_domains,
+                                COALESCE(array_agg(code ORDER BY code)
+                                  FILTER (WHERE dimension = 'TECHNOLOGY_TAG'), ARRAY[]::text[])
+                                  AS technology_tags
+                              FROM paper_taxonomy WHERE item_id = i.id
+                            ) taxonomy ON true
+                            WHERE i.item_type = 'JOURNAL_PAPER'
+                              AND i.channel = 'DIGITAL'
+                              AND i.risk_level <> 'R4'
+                              AND i.review_status <> 'REJECTED'
+                              AND (:mode <> 'selected' OR (
+                                i.review_status = 'APPROVED'
+                                AND publication.status = 'PUBLISHED'
+                              ))
+                              AND (CAST(:engineering_domain AS text) IS NULL
+                                OR :engineering_domain = ANY(taxonomy.engineering_domains))
+                              AND (CAST(:technology_tag AS text) IS NULL
+                                OR :technology_tag = ANY(taxonomy.technology_tags))
+                              AND (CAST(:maturity AS text) IS NULL
+                                OR profile.maturity_level = CAST(:maturity AS text))
+                              AND (CAST(:paper_type AS text) IS NULL
+                                OR profile.paper_type = CAST(:paper_type AS text))
+                              AND (CAST(:access_level AS text) IS NULL
+                                OR profile.access_level = CAST(:access_level AS text))
+                              AND (CAST(:year AS smallint) IS NULL
+                                OR profile.publication_year = CAST(:year AS smallint))
+                              AND (CAST(:cursor_time AS timestamptz) IS NULL
+                                OR (i.activity_at, i.id) <
+                                  (CAST(:cursor_time AS timestamptz), CAST(:cursor_id AS uuid)))
+                            ORDER BY i.activity_at DESC, i.id DESC
+                            LIMIT :row_limit
+                            """
+                        ),
+                        {
+                            "mode": mode,
+                            "engineering_domain": _none_for_all(engineering_domain),
+                            "technology_tag": _none_for_all(technology_tag),
+                            "maturity": _none_for_all(maturity),
+                            "paper_type": _none_for_all(paper_type),
+                            "access_level": _none_for_all(access_level),
+                            "year": year,
+                            "cursor_time": cursor_time,
+                            "cursor_id": cursor_id,
+                            "row_limit": limit + 1,
+                        },
+                    )
+                ).mappings()
+            )
+        visible = rows[:limit]
+        next_cursor = (
+            _encode_cursor(visible[-1]["activity_at"], visible[-1]["id"])
+            if len(rows) > limit and visible
+            else None
+        )
+        return _feed_page(
+            [_item_summary(row) for row in visible],
+            now=datetime.now(UTC),
+            mode=mode,
+            domain="digital",
+            next_cursor=next_cursor,
+        )
+
+    async def _get_product_feed(
+        self,
+        *,
+        mode: str,
+        content_type: str,
+        cursor: str | None,
+        limit: int,
+        product_kind: str | None,
+        evidence_level: str | None,
+        deployment_mode: str | None,
+        scenario: str | None,
+        maturity: str | None,
+    ) -> FeedPage:
+        cursor_time, cursor_id = _decode_cursor(cursor)
+        async with self._engine.connect() as connection:
+            rows = list(
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT item.id, item.item_type, item.title, item.original_url,
+                                   item.source_published_at, item.first_discovered_at,
+                                   item.activity_at, item.updated_at, item.review_status,
+                                   source.name AS source_name,
+                                   publication.status AS publication_status,
+                                   publication.current_revision_id AS publication_revision_id,
+                                   vendor.id AS vendor_id, vendor.name AS vendor_name,
+                                   product.id AS product_id, product.name AS product_name,
+                                   product.product_kind,
+                                   model.id AS model_id, model.model_no,
+                                   version.version, profile.evidence_level,
+                                   profile.permit_status, profile.maturity_level,
+                                   profile.platform_type, profile.equipment_form,
+                                   profile.interfaces, profile.deployment_modes,
+                                   profile.connectivity, profile.payload_types,
+                                   profile.ai_tasks, profile.limitations,
+                                   profile.production_validation,
+                                   taxonomy.application_scenarios,
+                                   capabilities.promotional_claim_count,
+                                   capabilities.verified_capability_count,
+                                   (SELECT count(*) FROM document_version document_version
+                                    WHERE document_version.document_id = item.primary_document_id)
+                                      AS version_count,
+                                   NULL::text AS latest_change_type,
+                                   NULL::text AS latest_change_review_state,
+                                   false AS source_unavailable,
+                                   (SELECT count(*) FROM claim_evidence evidence
+                                    JOIN claim ON claim.id = evidence.claim_id
+                                    WHERE claim.item_id = item.id
+                                      AND claim.verification_status = 'ACCEPTED') AS evidence_count
+                            FROM intelligence_item item
+                            JOIN source ON source.id = item.source_id
+                            JOIN technology_product_profile profile ON profile.item_id = item.id
+                            JOIN technology_product_version version
+                              ON version.id = profile.version_id
+                            JOIN technology_product_model model ON model.id = version.model_id
+                            JOIN technology_product product ON product.id = model.product_id
+                            JOIN technology_vendor vendor ON vendor.id = product.vendor_id
+                            LEFT JOIN publication ON publication.item_id = item.id
+                            LEFT JOIN LATERAL (
+                              SELECT
+                                count(*) FILTER (WHERE kind = 'PROMOTIONAL_CLAIM')
+                                  AS promotional_claim_count,
+                                count(*) FILTER (WHERE kind = 'VERIFIED_CAPABILITY')
+                                  AS verified_capability_count
+                              FROM technology_product_capability
+                              WHERE item_id = item.id
+                            ) capabilities ON true
+                            LEFT JOIN LATERAL (
+                              SELECT COALESCE(array_agg(code ORDER BY code)
+                                FILTER (WHERE dimension = 'APPLICATION_SCENARIO'), ARRAY[]::text[])
+                                  AS application_scenarios
+                              FROM technology_product_taxonomy WHERE item_id = item.id
+                            ) taxonomy ON true
+                            WHERE item.item_type = :content_type
+                              AND item.channel = 'DIGITAL'
+                              AND item.risk_level = 'R2'
+                              AND item.review_status <> 'REJECTED'
+                              AND (:mode <> 'selected' OR (
+                                item.review_status = 'APPROVED'
+                                AND publication.status = 'PUBLISHED'
+                              ))
+                              AND (CAST(:product_kind AS text) IS NULL
+                                OR product.product_kind = CAST(:product_kind AS text))
+                              AND (CAST(:evidence_level AS text) IS NULL
+                                OR profile.evidence_level = CAST(:evidence_level AS text))
+                              AND (CAST(:deployment_mode AS text) IS NULL
+                                OR :deployment_mode = ANY(profile.deployment_modes))
+                              AND (CAST(:scenario AS text) IS NULL
+                                OR :scenario = ANY(taxonomy.application_scenarios))
+                              AND (CAST(:maturity AS text) IS NULL
+                                OR profile.maturity_level = CAST(:maturity AS text))
+                              AND (CAST(:cursor_time AS timestamptz) IS NULL
+                                OR (item.activity_at, item.id) <
+                                   (CAST(:cursor_time AS timestamptz), CAST(:cursor_id AS uuid)))
+                            ORDER BY item.activity_at DESC, item.id DESC
+                            LIMIT :row_limit
+                            """
+                        ),
+                        {
+                            "content_type": content_type,
+                            "mode": mode,
+                            "product_kind": _none_for_all(product_kind),
+                            "evidence_level": _none_for_all(evidence_level),
+                            "deployment_mode": _none_for_all(deployment_mode),
+                            "scenario": _none_for_all(scenario),
+                            "maturity": _none_for_all(maturity),
+                            "cursor_time": cursor_time,
+                            "cursor_id": cursor_id,
+                            "row_limit": limit + 1,
+                        },
+                    )
+                ).mappings()
+            )
+        visible = rows[:limit]
+        next_cursor = (
+            _encode_cursor(visible[-1]["activity_at"], visible[-1]["id"])
+            if len(rows) > limit and visible
+            else None
+        )
+        return _feed_page(
+            [_item_summary(row) for row in visible],
+            now=datetime.now(UTC),
+            mode=mode,
+            domain="digital",
+            next_cursor=next_cursor,
+        )
+
     async def get_item(self, item_id: UUID) -> ItemDetail:
         async with self._engine.connect() as connection:
             row = await _item_row(connection, item_id, include_unpublished=False)
             if row is None:
                 raise IntelligenceNotFound("intelligence item does not exist")
             item = _item_summary(row)
-            if row["publication_status"] != "PUBLISHED" or row["review_status"] != "APPROVED":
+            product_types = {
+                "SOFTWARE_PRODUCT",
+                "IOT_PRODUCT",
+                "LOW_ALTITUDE_EQUIPMENT",
+                "AI_EQUIPMENT",
+            }
+            if (
+                row["item_type"] not in product_types
+                and (row["publication_status"] != "PUBLISHED" or row["review_status"] != "APPROVED")
+            ):
                 return ItemDetail(item=item, notice=_restricted_notice())
             claims, evidence = await _claims_and_evidence(connection, item_id)
+            if row["item_type"] == "DIGITAL_CASE":
+                digital_case = await _digital_case_detail(connection, row)
+                return ItemDetail(
+                    item=item,
+                    claims=claims,
+                    evidence=evidence,
+                    digital_case=digital_case,
+                )
+            if row["item_type"] == "JOURNAL_PAPER":
+                return ItemDetail(
+                    item=item,
+                    claims=claims,
+                    evidence=evidence,
+                    paper=await _paper_detail(connection, row),
+                )
+            if row["item_type"] in product_types:
+                return ItemDetail(
+                    item=item,
+                    claims=claims,
+                    evidence=evidence,
+                    technology_product=await _technology_product_detail(connection, row),
+                )
             return ItemDetail(item=item, claims=claims, evidence=evidence)
+
+    async def list_product_normalization_candidates(
+        self, *, status: str
+    ) -> list[ProductNormalizationCandidateView]:
+        async with self._engine.connect() as connection:
+            rows = list(
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT candidate.id, candidate.incoming_version_id,
+                                   candidate.candidate_version_id,
+                                   candidate.candidate_type, candidate.status,
+                                   candidate.created_at,
+                                   concat(incoming_vendor.name, ' / ', incoming_product.name,
+                                          ' / ', COALESCE(incoming_model.model_no, '型号未知'),
+                                          ' / ', COALESCE(incoming_version.version, '版本未知'))
+                                     AS incoming_label,
+                                   concat(existing_vendor.name, ' / ', existing_product.name,
+                                          ' / ', COALESCE(existing_model.model_no, '型号未知'),
+                                          ' / ', COALESCE(existing_version.version, '版本未知'))
+                                     AS candidate_label
+                            FROM product_normalization_candidate candidate
+                            JOIN technology_product_version incoming_version
+                              ON incoming_version.id = candidate.incoming_version_id
+                            JOIN technology_product_model incoming_model
+                              ON incoming_model.id = incoming_version.model_id
+                            JOIN technology_product incoming_product
+                              ON incoming_product.id = incoming_model.product_id
+                            JOIN technology_vendor incoming_vendor
+                              ON incoming_vendor.id = incoming_product.vendor_id
+                            JOIN technology_product_version existing_version
+                              ON existing_version.id = candidate.candidate_version_id
+                            JOIN technology_product_model existing_model
+                              ON existing_model.id = existing_version.model_id
+                            JOIN technology_product existing_product
+                              ON existing_product.id = existing_model.product_id
+                            JOIN technology_vendor existing_vendor
+                              ON existing_vendor.id = existing_product.vendor_id
+                            WHERE candidate.status = :status
+                            ORDER BY candidate.created_at, candidate.id
+                            """
+                        ),
+                        {"status": status},
+                    )
+                ).mappings()
+            )
+        return [ProductNormalizationCandidateView.model_validate(row) for row in rows]
+
+    async def get_citation(self, item_id: UUID, citation_format: str) -> tuple[str, str]:
+        async with self._engine.connect() as connection:
+            row = (
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT item.title, profile.normalized_doi AS doi,
+                                   profile.journal, profile.publication_year AS year,
+                                   profile.volume, profile.issue, profile.pages,
+                                   COALESCE(
+                                     array_agg(author.name ORDER BY authorship.author_order)
+                                       FILTER (WHERE author.id IS NOT NULL),
+                                     ARRAY[]::text[]
+                                   ) AS authors
+                            FROM intelligence_item item
+                            JOIN paper_profile profile ON profile.item_id = item.id
+                            JOIN publication ON publication.item_id = item.id
+                              AND publication.status = 'PUBLISHED'
+                            LEFT JOIN paper_authorship authorship ON authorship.item_id = item.id
+                            LEFT JOIN paper_author author ON author.id = authorship.author_id
+                            WHERE item.id = :item_id
+                              AND item.item_type = 'JOURNAL_PAPER'
+                              AND item.review_status = 'APPROVED'
+                            GROUP BY item.id, item.title, profile.normalized_doi,
+                                     profile.journal, profile.publication_year,
+                                     profile.volume, profile.issue, profile.pages
+                            """
+                        ),
+                        {"item_id": item_id},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+        if row is None:
+            raise IntelligenceNotFound("published journal paper does not exist")
+        metadata = dict(row)
+        formatter = {
+            "ris": format_ris,
+            "bibtex": format_bibtex,
+            "gb-t-7714": format_gbt7714,
+        }.get(citation_format)
+        if formatter is None:
+            raise ValueError("unsupported citation format")
+        media_type = {
+            "ris": "application/x-research-info-systems; charset=utf-8",
+            "bibtex": "application/x-bibtex; charset=utf-8",
+            "gb-t-7714": "text/plain; charset=utf-8",
+        }[citation_format]
+        return formatter(metadata), media_type
 
     async def get_event(self, event_id: UUID) -> EventDetail:
         async with self._engine.connect() as connection:
@@ -809,6 +1521,11 @@ class PostgresIntelligenceQueryService:
                 item=_item_summary(item_row, reviewer_projection=True),
                 claims=claims,
                 evidence=evidence,
+                digital_case=(
+                    await _digital_case_detail(connection, item_row)
+                    if item_row["item_type"] == "DIGITAL_CASE"
+                    else None
+                ),
             )
 
     async def get_versions(
@@ -1195,6 +1912,66 @@ async def _item_row(
                    case_profile.rectification_has_open_issues,
                    case_profile.similar_scenario_tags,
                    case_profile.prevention_measure_tags,
+                   digital_profile.source_nature,
+                   digital_profile.maturity_level,
+                   digital_profile.deployment_scale,
+                   digital_profile.applicability,
+                   digital_profile.replication_conditions,
+                   digital_profile.limitations,
+                   digital_profile.risks,
+                   digital_profile.srbg_relationship,
+                   digital_relevance.score AS relevance_score,
+                   digital_relevance.rule_version AS relevance_rule_version,
+                   digital_relevance.engineering_points,
+                   digital_relevance.sichuan_points,
+                   digital_relevance.srbg_direct_points,
+                   digital_taxonomy.engineering_domains,
+                   digital_taxonomy.lifecycle_stages,
+                   digital_taxonomy.technology_tags,
+                   digital_taxonomy.application_scenarios,
+                   paper_profile.normalized_doi,
+                   paper_profile.journal,
+                   paper_profile.issns,
+                   paper_profile.volume,
+                   paper_profile.issue,
+                   paper_profile.pages,
+                   paper_profile.publication_year,
+                   paper_profile.paper_type,
+                   paper_profile.access_level,
+                   paper_profile.open_status,
+                   paper_profile.open_fulltext_url,
+                   paper_profile.abstract,
+                   paper_profile.abstract_availability,
+                   paper_profile.keywords,
+                   paper_profile.maturity_level AS paper_maturity_level,
+                   paper_profile.research_interpretation,
+                   paper_profile.relation_status,
+                   paper_taxonomy.engineering_domains AS paper_engineering_domains,
+                   paper_taxonomy.technology_tags AS paper_technology_tags,
+                   product_profile.item_type AS product_item_type,
+                   product_profile.evidence_level,
+                   product_profile.permit_status,
+                   product_profile.maturity_level AS product_maturity_level,
+                   product_profile.platform_type,
+                   product_profile.equipment_form,
+                   product_profile.interfaces,
+                   product_profile.deployment_modes,
+                   product_profile.connectivity,
+                   product_profile.payload_types,
+                   product_profile.ai_tasks,
+                   product_profile.limitations AS product_limitations,
+                   product_profile.production_validation,
+                   product_vendor.id AS vendor_id,
+                   product_vendor.name AS vendor_name,
+                   product.id AS product_id,
+                   product.name AS product_name,
+                   product.product_kind,
+                   product_model.id AS model_id,
+                   product_model.model_no,
+                   product_version.version,
+                   product_taxonomy.application_scenarios AS product_application_scenarios,
+                   product_capabilities.promotional_claim_count,
+                   product_capabilities.verified_capability_count,
                    event_link.event_id,
                    COALESCE(conflicts.fields, ARRAY[]::text[]) AS conflicted_fields,
                    (SELECT count(*) FROM document_version version
@@ -1249,6 +2026,57 @@ async def _item_row(
             JOIN source s ON s.id = i.source_id
             LEFT JOIN safety_regulation_profile r ON r.item_id = i.id
             LEFT JOIN safety_case_profile case_profile ON case_profile.item_id = i.id
+            LEFT JOIN digital_case_profile digital_profile ON digital_profile.item_id = i.id
+            LEFT JOIN digital_case_relevance digital_relevance
+              ON digital_relevance.item_id = i.id
+            LEFT JOIN paper_profile ON paper_profile.item_id = i.id
+            LEFT JOIN technology_product_profile product_profile ON product_profile.item_id = i.id
+            LEFT JOIN technology_product_version product_version
+              ON product_version.id = product_profile.version_id
+            LEFT JOIN technology_product_model product_model
+              ON product_model.id = product_version.model_id
+            LEFT JOIN technology_product product ON product.id = product_model.product_id
+            LEFT JOIN technology_vendor product_vendor ON product_vendor.id = product.vendor_id
+            LEFT JOIN LATERAL (
+              SELECT
+                COALESCE(array_agg(code ORDER BY code)
+                  FILTER (WHERE facet = 'ENGINEERING_DOMAIN'), ARRAY[]::text[])
+                  AS engineering_domains,
+                COALESCE(array_agg(code ORDER BY code)
+                  FILTER (WHERE facet = 'LIFECYCLE_STAGE'), ARRAY[]::text[])
+                  AS lifecycle_stages,
+                COALESCE(array_agg(code ORDER BY code)
+                  FILTER (WHERE facet = 'TECHNOLOGY_TAG'), ARRAY[]::text[])
+                  AS technology_tags,
+                COALESCE(array_agg(code ORDER BY code)
+                  FILTER (WHERE facet = 'APPLICATION_SCENARIO'), ARRAY[]::text[])
+                  AS application_scenarios
+              FROM digital_case_taxonomy
+              WHERE item_id = i.id
+            ) digital_taxonomy ON true
+            LEFT JOIN LATERAL (
+              SELECT
+                COALESCE(array_agg(code ORDER BY code)
+                  FILTER (WHERE dimension = 'ENGINEERING_DOMAIN'), ARRAY[]::text[])
+                  AS engineering_domains,
+                COALESCE(array_agg(code ORDER BY code)
+                  FILTER (WHERE dimension = 'TECHNOLOGY_TAG'), ARRAY[]::text[])
+                  AS technology_tags
+              FROM paper_taxonomy WHERE item_id = i.id
+            ) paper_taxonomy ON true
+            LEFT JOIN LATERAL (
+              SELECT COALESCE(array_agg(code ORDER BY code)
+                FILTER (WHERE dimension = 'APPLICATION_SCENARIO'), ARRAY[]::text[])
+                  AS application_scenarios
+              FROM technology_product_taxonomy WHERE item_id = i.id
+            ) product_taxonomy ON true
+            LEFT JOIN LATERAL (
+              SELECT count(*) FILTER (WHERE kind = 'PROMOTIONAL_CLAIM')
+                       AS promotional_claim_count,
+                     count(*) FILTER (WHERE kind = 'VERIFIED_CAPABILITY')
+                       AS verified_capability_count
+              FROM technology_product_capability WHERE item_id = i.id
+            ) product_capabilities ON true
             LEFT JOIN event_item event_link ON event_link.item_id = i.id
             LEFT JOIN publication p ON p.item_id = i.id
             LEFT JOIN LATERAL (
@@ -1275,6 +2103,15 @@ async def _item_row(
                 (i.item_type = 'SAFETY_REGULATION' AND r.item_id IS NOT NULL)
                 OR
                 (i.item_type = 'SAFETY_CASE' AND case_profile.item_id IS NOT NULL)
+                OR
+                (i.item_type = 'DIGITAL_CASE' AND digital_profile.item_id IS NOT NULL
+                  AND digital_relevance.item_id IS NOT NULL)
+                OR
+                (i.item_type = 'JOURNAL_PAPER' AND paper_profile.item_id IS NOT NULL)
+                OR
+                (i.item_type IN ('SOFTWARE_PRODUCT','IOT_PRODUCT',
+                                 'LOW_ALTITUDE_EQUIPMENT','AI_EQUIPMENT')
+                 AND product_profile.item_id IS NOT NULL)
               )
               AND (:include_unpublished OR i.review_status = 'PENDING'
                    OR p.status IN ('PUBLISHED', 'WITHDRAWN'))
@@ -1285,12 +2122,136 @@ async def _item_row(
     return result.mappings().first()
 
 
+async def _technology_product_detail(
+    connection: AsyncConnection, row: RowMapping
+) -> TechnologyProductDetail:
+    capabilities = list(
+        (
+            await connection.execute(
+                text(
+                    """
+                    SELECT capability.kind, capability.statement, capability.attribution,
+                           capability.claim_id, capability.evidence_ids,
+                           capability.independent_evidence_ids
+                    FROM technology_product_capability capability
+                    JOIN claim ON claim.id = capability.claim_id
+                    WHERE capability.item_id = :item_id
+                      AND claim.verification_status = 'ACCEPTED'
+                    ORDER BY capability.kind, capability.created_at, capability.id
+                    """
+                ),
+                {"item_id": row["id"]},
+            )
+        ).mappings()
+    )
+    version_history = list(
+        (
+            await connection.execute(
+                text(
+                    """
+                    SELECT version.version
+                    FROM technology_product_version version
+                    WHERE version.model_id = :model_id
+                    ORDER BY version.released_at DESC NULLS LAST,
+                             version.created_at DESC, version.id DESC
+                    """
+                ),
+                {"model_id": row["model_id"]},
+            )
+        ).scalars()
+    )
+    engineering_cases = list(
+        (
+            await connection.execute(
+                text(
+                    """
+                    SELECT target.id AS item_id, target.title,
+                           candidate.evidence_ids
+                    FROM item_relation relation
+                    JOIN item_relation_candidate candidate ON candidate.id = relation.candidate_id
+                    JOIN intelligence_item target ON target.id = relation.target_item_id
+                    JOIN publication ON publication.item_id = target.id
+                      AND publication.status = 'PUBLISHED'
+                    WHERE relation.source_item_id = :item_id
+                      AND relation.relation_type = 'APPLIED_IN'
+                      AND target.item_type = 'DIGITAL_CASE'
+                      AND target.review_status = 'APPROVED'
+                    ORDER BY target.activity_at DESC, target.id DESC
+                    """
+                ),
+                {"item_id": row["id"]},
+            )
+        ).mappings()
+    )
+
+    def capability_view(value: RowMapping) -> ProductCapability:
+        return ProductCapability(
+            claim_id=value["claim_id"],
+            statement=value["statement"],
+            attribution=value["attribution"],
+            kind=ProductCapabilityKind(str(value["kind"])),
+            evidence_ids=list(value["evidence_ids"]),
+            independent_evidence_ids=list(value["independent_evidence_ids"]),
+        )
+
+    promotional = [
+        capability_view(value) for value in capabilities if value["kind"] == "PROMOTIONAL_CLAIM"
+    ]
+    verified = [
+        capability_view(value) for value in capabilities if value["kind"] == "VERIFIED_CAPABILITY"
+    ]
+    item_type = ItemType(str(row["item_type"]))
+    is_low_altitude = item_type is ItemType.LOW_ALTITUDE_EQUIPMENT
+    return TechnologyProductDetail(
+        vendor=ProductEntity(id=row["vendor_id"], name=row["vendor_name"]),
+        product=ProductEntity(id=row["product_id"], name=row["product_name"]),
+        model=(
+            ProductEntity(id=row["model_id"], name=row["model_no"] or "型号未知")
+            if row.get("model_id")
+            else None
+        ),
+        current_version=row.get("version"),
+        version_history=[str(version) for version in version_history if version],
+        product_kind=str(row["product_kind"]),
+        promotional_claims=promotional,
+        verified_capabilities=verified,
+        interfaces=list(row.get("interfaces") or []),
+        deployment_modes=list(row.get("deployment_modes") or []),
+        application_scenarios=list(row.get("product_application_scenarios") or []),
+        engineering_cases=[
+            ProductEngineeringCase(
+                item_id=value["item_id"],
+                title=value["title"],
+                evidence_ids=list(value["evidence_ids"]),
+            )
+            for value in engineering_cases
+        ],
+        evidence_level=ProductEvidenceLevel(str(row.get("evidence_level", "UNKNOWN"))),
+        permit_status=ProductPermitStatus(str(row.get("permit_status", "UNKNOWN"))),
+        limitations=list(row.get("product_limitations") or []),
+        procurement_notice="仅供技术调研，不构成采购建议",
+        low_altitude_notice=(
+            "产品发布不代表空域、适航、飞手和项目许可。" if is_low_altitude else None
+        ),
+    )
+
+
 def _item_summary(row: RowMapping, *, reviewer_projection: bool = False) -> ItemSummary:
     states = _document_states(row)
     item_type = ItemType(str(row.get("item_type", ItemType.SAFETY_REGULATION.value)))
     published = row["publication_status"] == "PUBLISHED" and row["review_status"] == "APPROVED"
     withdrawn = row["publication_status"] == "WITHDRAWN"
-    if (not published or withdrawn) and not reviewer_projection:
+    product_types = {
+        ItemType.SOFTWARE_PRODUCT,
+        ItemType.IOT_PRODUCT,
+        ItemType.LOW_ALTITUDE_EQUIPMENT,
+        ItemType.AI_EQUIPMENT,
+    }
+    if (
+        (not published or withdrawn)
+        and item_type not in {ItemType.DIGITAL_CASE, ItemType.JOURNAL_PAPER, *product_types}
+        and not reviewer_projection
+    ):
         hints: dict[str, Any] = {}
         if states:
             hints["document_states"] = states
@@ -1310,12 +2271,144 @@ def _item_summary(row: RowMapping, *, reviewer_projection: bool = False) -> Item
             review_status=ReviewStatus(row["review_status"]),
             **hints,
         )
-    if item_type is ItemType.SAFETY_CASE:
+    if item_type is ItemType.DIGITAL_CASE:
+        type_summary: (
+            DigitalCaseTypeSummary
+            | PaperTypeSummary
+            | SafetyCaseTypeSummary
+            | SafetyRegulationTypeSummary
+            | SoftwareProductTypeSummary
+            | IotProductTypeSummary
+            | LowAltitudeEquipmentTypeSummary
+            | AiEquipmentTypeSummary
+        )
+        type_summary = DigitalCaseTypeSummary(
+            kind="DIGITAL_CASE",
+            maturity_level=MaturityLevel(str(row["maturity_level"])),
+            application_scenarios=list(row.get("application_scenarios") or []),
+            source_nature=DigitalCaseSourceNature(str(row["source_nature"])),
+            deployment_scale=row.get("deployment_scale"),
+            publisher_claim_label=(
+                "厂商声明，未经独立验证"
+                if row["source_nature"] == "ENTERPRISE_SELF_REPORT"
+                else "政府/行业案例汇编"
+            ),
+            srbg_relationship=str(row["srbg_relationship"]),
+            relevance=RelevanceSummary(
+                score=int(row["relevance_score"]),
+                rule_version="relevance-v1.0.0",
+                factors=[
+                    RelevanceFactor(
+                        code="ENGINEERING_DOMAIN",
+                        label="工程专业匹配",
+                        points=int(row["engineering_points"]),
+                    ),
+                    RelevanceFactor(
+                        code="SICHUAN",
+                        label="四川实施",
+                        points=int(row["sichuan_points"]),
+                    ),
+                    RelevanceFactor(
+                        code="SRBG_DIRECT",
+                        label="四川路桥直接关系",
+                        points=int(row["srbg_direct_points"]),
+                    ),
+                ],
+            ),
+        )
+        tags = [
+            "数字化案例",
+            *list(row.get("engineering_domains") or [])[:2],
+            *list(row.get("technology_tags") or [])[:2],
+        ]
+    elif item_type is ItemType.JOURNAL_PAPER:
+        maturity_value = row.get("paper_maturity_level", row.get("maturity_level", "UNKNOWN"))
+        type_summary = PaperTypeSummary(
+            kind="JOURNAL_PAPER",
+            doi=row.get("normalized_doi"),
+            journal=row.get("journal"),
+            year=row.get("publication_year"),
+            paper_type=PaperType(str(row.get("paper_type", "UNKNOWN"))),
+            access_level=PaperAccessLevel(str(row.get("access_level", "METADATA_ONLY"))),
+            open_status=PaperOpenStatus(str(row.get("open_status", "UNKNOWN"))),
+            maturity_level=MaturityLevel(str(maturity_value)),
+            engineering_domains=list(
+                row.get("paper_engineering_domains", row.get("engineering_domains", [])) or []
+            ),
+            technology_tags=list(
+                row.get("paper_technology_tags", row.get("technology_tags", [])) or []
+            ),
+            relation_status=PaperRelationStatus(str(row.get("relation_status", "CURRENT"))),
+        )
+        tags = [
+            "期刊论文",
+            *type_summary.engineering_domains[:2],
+            *type_summary.technology_tags[:2],
+        ]
+    elif item_type in product_types:
+        common: dict[str, Any] = {
+            "vendor_name": str(row["vendor_name"]),
+            "product_name": str(row["product_name"]),
+            "product_kind": str(row["product_kind"]),
+            "model_no": row.get("model_no"),
+            "version": row.get("version"),
+            "evidence_level": ProductEvidenceLevel(str(row.get("evidence_level", "UNKNOWN"))),
+            "promotional_claim_count": int(row.get("promotional_claim_count") or 0),
+            "verified_capability_count": int(row.get("verified_capability_count") or 0),
+        }
+        if item_type is ItemType.SOFTWARE_PRODUCT:
+            type_summary = SoftwareProductTypeSummary(
+                kind="SOFTWARE_PRODUCT",
+                interfaces=list(row.get("interfaces") or []),
+                deployment_modes=list(row.get("deployment_modes") or []),
+                **common,
+            )
+        elif item_type is ItemType.IOT_PRODUCT:
+            type_summary = IotProductTypeSummary(
+                kind="IOT_PRODUCT",
+                connectivity=list(row.get("connectivity") or []),
+                maturity_level=MaturityLevel(
+                    str(row.get("product_maturity_level", row.get("maturity_level", "UNKNOWN")))
+                ),
+                **common,
+            )
+        elif item_type is ItemType.LOW_ALTITUDE_EQUIPMENT:
+            type_summary = LowAltitudeEquipmentTypeSummary(
+                kind="LOW_ALTITUDE_EQUIPMENT",
+                platform_type=row.get("platform_type"),
+                payload_types=list(row.get("payload_types") or []),
+                permit_status=ProductPermitStatus(str(row.get("permit_status", "UNKNOWN"))),
+                **common,
+            )
+        else:
+            type_summary = AiEquipmentTypeSummary(
+                kind="AI_EQUIPMENT",
+                equipment_form=row.get("equipment_form"),
+                ai_tasks=list(row.get("ai_tasks") or []),
+                maturity_level=MaturityLevel(
+                    str(row.get("product_maturity_level", row.get("maturity_level", "UNKNOWN")))
+                ),
+                production_validation=bool(row.get("production_validation")),
+                **common,
+            )
+        tags = [
+            {
+                ItemType.SOFTWARE_PRODUCT: "软件与平台",
+                ItemType.IOT_PRODUCT: "物联网产品",
+                ItemType.LOW_ALTITUDE_EQUIPMENT: "低空装备",
+                ItemType.AI_EQUIPMENT: "AI设备与机器人",
+            }[item_type],
+            *list(
+                row.get("product_application_scenarios", row.get("application_scenarios", []))
+                or []
+            )[:2],
+        ]
+    elif item_type is ItemType.SAFETY_CASE:
         hidden_fields = {str(field) for field in row.get("conflicted_fields", []) or []}
         conflicted_fields = [
             _critical_safety_field(str(field)) for field in row.get("conflicted_fields", []) or []
         ]
-        type_summary: SafetyCaseTypeSummary | SafetyRegulationTypeSummary = SafetyCaseTypeSummary(
+        type_summary = SafetyCaseTypeSummary(
             kind="SAFETY_CASE",
             event_id=row.get("event_id"),
             report_stage=row.get("report_stage"),
@@ -1361,7 +2454,11 @@ def _item_summary(row: RowMapping, *, reviewer_projection: bool = False) -> Item
     return ItemSummary(
         id=row["id"],
         publication_revision_id=row["publication_revision_id"] if published else None,
-        domain=Channel.SAFETY,
+        domain=(
+            Channel.DIGITAL
+            if item_type in {ItemType.DIGITAL_CASE, ItemType.JOURNAL_PAPER, *product_types}
+            else Channel.SAFETY
+        ),
         content_type=item_type,
         title=row["title"],
         source_name=row["source_name"],
@@ -1370,7 +2467,18 @@ def _item_summary(row: RowMapping, *, reviewer_projection: bool = False) -> Item
         activity_at=row["activity_at"],
         original_url=row["original_url"],
         review_status=ReviewStatus(row["review_status"]),
-        source_role="官方一手来源",
+        source_role=(
+            "企业自述"
+            if item_type is ItemType.DIGITAL_CASE
+            and row.get("source_nature") == "ENTERPRISE_SELF_REPORT"
+            else "政府/行业案例源"
+            if item_type is ItemType.DIGITAL_CASE
+            else "开放学术元数据"
+            if item_type is ItemType.JOURNAL_PAPER
+            else "厂商一手来源"
+            if item_type in product_types
+            else "官方一手来源"
+        ),
         last_updated_at=row["updated_at"],
         publication_status=(
             PublicationStatus.WITHDRAWN
@@ -1379,7 +2487,7 @@ def _item_summary(row: RowMapping, *, reviewer_projection: bool = False) -> Item
             if published
             else PublicationStatus.PENDING_REVIEW
         ),
-        evidence_status=EvidenceStatus.VERIFIED,
+        evidence_status=(EvidenceStatus.VERIFIED if published else EvidenceStatus.WITHHELD),
         evidence_count=row["evidence_count"],
         tags=tags,
         type_summary=type_summary,
@@ -1412,6 +2520,233 @@ def _document_states(row: RowMapping) -> list[DocumentState]:
     if row["source_unavailable"] is True:
         states.append(DocumentState.SOURCE_UNAVAILABLE)
     return states
+
+
+async def _digital_case_detail(
+    connection: AsyncConnection,
+    row: RowMapping,
+) -> DigitalCaseDetail:
+    entity_rows = list(
+        (
+            await connection.execute(
+                text(
+                    """
+                    SELECT entity.id, entity.entity_type, entity.name,
+                           relation.relation_type, relation.claim_id
+                    FROM digital_case_entity_relation relation
+                    JOIN digital_case_entity entity ON entity.id = relation.entity_id
+                    WHERE relation.item_id = :item_id
+                    ORDER BY entity.entity_type, entity.name, entity.id
+                    """
+                ),
+                {"item_id": row["id"]},
+            )
+        ).mappings()
+    )
+    outcome_rows = list(
+        (
+            await connection.execute(
+                text(
+                    """
+                    SELECT outcome.id, outcome.statement, outcome.metric_name,
+                           outcome.numeric_value, outcome.unit, outcome.outcome_kind,
+                           outcome.evidence_ids, outcome.independent_evidence_ids,
+                           entity.name AS attribution
+                    FROM digital_case_outcome outcome
+                    JOIN digital_case_entity entity
+                      ON entity.id = outcome.attribution_entity_id
+                    WHERE outcome.item_id = :item_id
+                    ORDER BY outcome.created_at, outcome.id
+                    """
+                ),
+                {"item_id": row["id"]},
+            )
+        ).mappings()
+    )
+    outcomes = [
+        DigitalCaseOutcome(
+            id=outcome["id"],
+            statement=outcome["statement"],
+            attribution=outcome["attribution"],
+            verification=OutcomeVerification(str(outcome["outcome_kind"])),
+            evidence_ids=list(outcome["evidence_ids"]),
+            independent_evidence_ids=list(outcome["independent_evidence_ids"]),
+            metric_name=outcome["metric_name"],
+            numeric_value=(
+                format(outcome["numeric_value"], "f")
+                if outcome["numeric_value"] is not None
+                else None
+            ),
+            unit=outcome["unit"],
+        )
+        for outcome in outcome_rows
+    ]
+    return DigitalCaseDetail(
+        engineering_domains=list(row.get("engineering_domains") or []),
+        lifecycle_stages=list(row.get("lifecycle_stages") or []),
+        technology_tags=list(row.get("technology_tags") or []),
+        application_scenarios=list(row.get("application_scenarios") or []),
+        maturity_level=MaturityLevel(str(row["maturity_level"])),
+        deployment_scale=row.get("deployment_scale"),
+        entities=[
+            DigitalCaseEntity(
+                id=entity["id"],
+                entity_type=entity["entity_type"],
+                name=entity["name"],
+                relation_type=entity["relation_type"],
+                claim_id=entity["claim_id"],
+            )
+            for entity in entity_rows
+        ],
+        claimed_outcomes=[
+            outcome for outcome in outcomes if outcome.verification is OutcomeVerification.CLAIMED
+        ],
+        verified_outcomes=[
+            outcome for outcome in outcomes if outcome.verification is OutcomeVerification.VERIFIED
+        ],
+        applicability=list(row.get("applicability") or []),
+        replication_conditions=list(row.get("replication_conditions") or []),
+        limitations=list(row.get("limitations") or []),
+        risks=list(row.get("risks") or []),
+        recommended_actions=[
+            RecommendedAction.READ_ORIGINAL,
+            RecommendedAction.SAVE,
+            RecommendedAction.FOLLOW,
+            RecommendedAction.TECHNICAL_RESEARCH,
+        ],
+    )
+
+
+async def _paper_detail(connection: AsyncConnection, row: RowMapping) -> PaperDetail:
+    author_rows = list(
+        (
+            await connection.execute(
+                text(
+                    """
+                    SELECT author.name, author.orcid,
+                           COALESCE(array_agg(DISTINCT institution.name ORDER BY institution.name)
+                             FILTER (WHERE institution.id IS NOT NULL), ARRAY[]::text[])
+                             AS institutions
+                    FROM paper_authorship authorship
+                    JOIN paper_author author ON author.id = authorship.author_id
+                    LEFT JOIN paper_author_affiliation affiliation
+                      ON affiliation.item_id = authorship.item_id
+                     AND affiliation.author_id = authorship.author_id
+                    LEFT JOIN paper_institution institution
+                      ON institution.id = affiliation.institution_id
+                    WHERE authorship.item_id = :item_id
+                    GROUP BY author.id, author.name, author.orcid, authorship.author_order
+                    ORDER BY authorship.author_order
+                    """
+                ),
+                {"item_id": row["id"]},
+            )
+        ).mappings()
+    )
+    similar_rows = list(
+        (
+            await connection.execute(
+                text(
+                    """
+                    SELECT item.id, item.title, profile.journal, profile.publication_year,
+                           taxonomy.engineering_domains, taxonomy.technology_tags
+                    FROM intelligence_item item
+                    JOIN paper_profile profile ON profile.item_id = item.id
+                    JOIN publication ON publication.item_id = item.id
+                      AND publication.status = 'PUBLISHED'
+                    JOIN LATERAL (
+                      SELECT
+                        COALESCE(array_agg(code ORDER BY code)
+                          FILTER (WHERE dimension = 'ENGINEERING_DOMAIN'), ARRAY[]::text[])
+                          AS engineering_domains,
+                        COALESCE(array_agg(code ORDER BY code)
+                          FILTER (WHERE dimension = 'TECHNOLOGY_TAG'), ARRAY[]::text[])
+                          AS technology_tags
+                      FROM paper_taxonomy WHERE item_id = item.id
+                    ) taxonomy ON true
+                    WHERE item.id <> :item_id
+                      AND item.item_type = 'JOURNAL_PAPER'
+                      AND item.risk_level <> 'R4'
+                      AND item.review_status = 'APPROVED'
+                      AND (
+                        taxonomy.engineering_domains && CAST(:engineering_domains AS text[])
+                        OR taxonomy.technology_tags && CAST(:technology_tags AS text[])
+                      )
+                    ORDER BY
+                      cardinality(ARRAY(
+                        SELECT unnest(taxonomy.engineering_domains)
+                        INTERSECT SELECT unnest(CAST(:engineering_domains AS text[]))
+                      )) DESC,
+                      cardinality(ARRAY(
+                        SELECT unnest(taxonomy.technology_tags)
+                        INTERSECT SELECT unnest(CAST(:technology_tags AS text[]))
+                      )) DESC,
+                      item.activity_at DESC, item.id
+                    LIMIT 5
+                    """
+                ),
+                {
+                    "item_id": row["id"],
+                    "engineering_domains": list(row.get("paper_engineering_domains") or []),
+                    "technology_tags": list(row.get("paper_technology_tags") or []),
+                },
+            )
+        ).mappings()
+    )
+    current_domains = set(row.get("paper_engineering_domains") or [])
+    current_tags = set(row.get("paper_technology_tags") or [])
+    similar = []
+    for candidate in similar_rows:
+        shared_domains = sorted(
+            current_domains.intersection(candidate["engineering_domains"] or [])
+        )
+        shared_tags = sorted(current_tags.intersection(candidate["technology_tags"] or []))
+        similar.append(
+            SimilarPaper(
+                item_id=candidate["id"],
+                title=candidate["title"],
+                journal=candidate["journal"],
+                year=candidate["publication_year"],
+                match_reasons=[f"工程专业：{code}" for code in shared_domains]
+                + [f"技术标签：{code}" for code in shared_tags],
+            )
+        )
+    interpretation = row.get("research_interpretation")
+    return PaperDetail(
+        doi=row.get("normalized_doi"),
+        journal=row.get("journal"),
+        issns=list(row.get("issns") or []),
+        authors=[
+            PaperAuthor(
+                name=author["name"],
+                orcid=author["orcid"],
+                institutions=list(author["institutions"] or []),
+            )
+            for author in author_rows
+        ],
+        volume=row.get("volume"),
+        issue=row.get("issue"),
+        pages=row.get("pages"),
+        year=row.get("publication_year"),
+        abstract=row.get("abstract"),
+        abstract_availability=AbstractAvailability(str(row["abstract_availability"])),
+        keywords=list(row.get("keywords") or []),
+        access_level=PaperAccessLevel(str(row["access_level"])),
+        open_status=PaperOpenStatus(str(row["open_status"])),
+        open_fulltext_url=row.get("open_fulltext_url"),
+        maturity_level=MaturityLevel(str(row["paper_maturity_level"])),
+        engineering_domains=list(row.get("paper_engineering_domains") or []),
+        technology_tags=list(row.get("paper_technology_tags") or []),
+        research_interpretation=(
+            ResearchInterpretation.model_validate(interpretation) if interpretation else None
+        ),
+        similar_papers=similar,
+        relation_status=PaperRelationStatus(str(row["relation_status"])),
+    )
+
+
+def _none_for_all(value: str | None) -> str | None:
+    return None if value in {None, "", "all"} else value
 
 
 async def _claims_and_evidence(
@@ -1679,6 +3014,86 @@ def _render_safety_case_metrics(
             f'field_name="{conflict["field_name"]}"'
             f"}} {conflict['count']}\n"
         )
+    return rendered
+
+
+def _render_digital_case_metrics(
+    *,
+    profiles: list[Mapping[str, Any]],
+    outcomes: Mapping[str, int],
+    pending_enterprise_review: int,
+) -> str:
+    rendered = "# TYPE srbg_digital_case_items gauge\n"
+    for profile in profiles:
+        rendered += (
+            "srbg_digital_case_items{"
+            f'source_nature="{profile["source_nature"]}",'
+            f'maturity_level="{profile["maturity_level"]}"'
+            f"}} {profile['count']}\n"
+        )
+    rendered += "# TYPE srbg_digital_case_outcomes gauge\n"
+    for verification in ("CLAIMED", "VERIFIED"):
+        rendered += (
+            "srbg_digital_case_outcomes{"
+            f'verification="{verification}"'
+            f"}} {int(outcomes.get(verification, 0))}\n"
+        )
+    rendered += (
+        "# TYPE srbg_digital_enterprise_review_pending gauge\n"
+        f"srbg_digital_enterprise_review_pending {pending_enterprise_review}\n"
+    )
+    return rendered
+
+
+def _render_paper_metrics(
+    *,
+    profiles: list[dict[str, object]],
+    pending_duplicates: int,
+    pending_updates: int,
+) -> str:
+    rendered = "# TYPE srbg_papers_total gauge\n"
+    for profile in profiles:
+        rendered += (
+            "srbg_papers_total{"
+            f'access_level="{profile["access_level"]}",'
+            f'relation_status="{profile["relation_status"]}"'
+            f'}} {profile["count"]}\n'
+        )
+    rendered += (
+        "# TYPE srbg_paper_duplicate_candidates gauge\n"
+        f"srbg_paper_duplicate_candidates {pending_duplicates}\n"
+        "# TYPE srbg_paper_update_candidates gauge\n"
+        f"srbg_paper_update_candidates {pending_updates}\n"
+    )
+    return rendered
+
+
+def _render_technology_product_metrics(
+    *,
+    profiles: list[Mapping[str, Any]],
+    capabilities: Mapping[str, int],
+    pending_normalization: int,
+) -> str:
+    rendered = "# TYPE srbg_technology_products gauge\n"
+    for profile in profiles:
+        rendered += (
+            "srbg_technology_products{"
+            f'item_type="{profile["item_type"]}",'
+            f'evidence_level="{profile["evidence_level"]}",'
+            f'permit_status="{profile["permit_status"]}"'
+            f"}} {profile['count']}\n"
+        )
+    rendered += "# TYPE srbg_product_capabilities gauge\n"
+    for kind in ("PROMOTIONAL_CLAIM", "VERIFIED_CAPABILITY"):
+        rendered += (
+            "srbg_product_capabilities{"
+            f'kind="{kind}"'
+            f"}} {int(capabilities.get(kind, 0))}\n"
+        )
+    rendered += (
+        "# TYPE srbg_product_normalization_pending gauge\n"
+        f"srbg_product_normalization_pending {pending_normalization}\n"
+    )
     return rendered
 
 

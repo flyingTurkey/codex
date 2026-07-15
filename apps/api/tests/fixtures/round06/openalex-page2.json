@@ -1,0 +1,22 @@
+{
+  "meta": {"count": 1, "next_cursor": null, "per_page": 100},
+  "results": [
+    {
+      "id": "https://openalex.org/W6002",
+      "doi": null,
+      "title": "Computer vision inspection for bridge surface defects",
+      "type": "article",
+      "publication_year": 2024,
+      "publication_date": "2024-06-01",
+      "is_retracted": false,
+      "authorships": [{"author_position": "first", "author": {"id": "https://openalex.org/A6002", "display_name": "Li Wei", "orcid": null}, "institutions": []}],
+      "primary_location": {"landing_page_url": "https://openalex.org/W6002", "pdf_url": null, "license": null, "source": {"display_name": "Synthetic Fixture Journal", "issn_l": null, "issn": []}},
+      "best_oa_location": null,
+      "open_access": {"is_oa": false, "oa_status": "closed", "oa_url": null},
+      "biblio": {"volume": "2", "issue": "1", "first_page": "10", "last_page": "20"},
+      "keywords": [{"display_name": "computer vision"}],
+      "topics": [],
+      "related_works": []
+    }
+  ]
+}

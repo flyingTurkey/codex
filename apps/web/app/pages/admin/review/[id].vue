@@ -2,12 +2,14 @@
 import type {
   ClaimView,
   EvidenceView,
+  DigitalCaseReviewPatch,
   ReviewCandidateDecisionRequest,
+  ReviewDecisionRequest,
   ReviewDecisionResponse,
   ReviewTaskDetail,
 } from '@srbg/contracts'
 import { PageHeader, StatusBadge } from '@srbg/ui'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 import EvidenceDrawer from '../../../components/EvidenceDrawer.vue'
 import IntelligenceCard from '../../../components/IntelligenceCard.vue'
@@ -26,14 +28,51 @@ const evidenceClaimId = ref<string | null>(null)
 const claimReasons = ref<Record<string, string>>({})
 const claimSubmittingId = ref<string | null>(null)
 const claimDecisionErrors = ref<Record<string, string>>({})
+const engineeringDomains = ref('')
+const lifecycleStages = ref('')
+const technologyTags = ref('')
+const applicationScenarios = ref('')
+const maturityLevel = ref<DigitalCaseReviewPatch['maturity_level']>('UNKNOWN')
+const maturityEvidenceIds = ref<string[]>([])
+const outcomeEntities = ref<Record<string, string>>({})
+const outcomeVerification = ref<Record<string, 'CLAIMED' | 'VERIFIED'>>({})
 
 const isSafetyCase = computed(() => detail.value?.item.content_type === 'SAFETY_CASE')
+const isDigitalCase = computed(() => detail.value?.item.content_type === 'DIGITAL_CASE')
+const digitalOutcomes = computed(() => [
+  ...(detail.value?.digital_case?.claimed_outcomes ?? []),
+  ...(detail.value?.digital_case?.verified_outcomes ?? []),
+])
+watch(
+  () => detail.value?.digital_case,
+  (digitalCase) => {
+    if (!digitalCase) return
+    engineeringDomains.value = digitalCase.engineering_domains.join(', ')
+    lifecycleStages.value = digitalCase.lifecycle_stages.join(', ')
+    technologyTags.value = digitalCase.technology_tags.join(', ')
+    applicationScenarios.value = digitalCase.application_scenarios.join(', ')
+    maturityLevel.value = digitalCase.maturity_level
+    for (const outcome of [...digitalCase.claimed_outcomes, ...digitalCase.verified_outcomes]) {
+      const entity = digitalCase.entities.find((candidate) => candidate.name === outcome.attribution)
+      outcomeEntities.value[outcome.id] = entity?.id ?? ''
+      outcomeVerification.value[outcome.id] = outcome.verification
+    }
+  },
+  { immediate: true },
+)
 const pendingSafetyClaims = computed(() =>
   isSafetyCase.value
     ? (detail.value?.claims ?? []).filter((claim) => claim.decision_status === 'PENDING')
     : [],
 )
-const publishBlocked = computed(() => pendingSafetyClaims.value.length > 0)
+const digitalPatchIncomplete = computed(() => isDigitalCase.value && (
+  !engineeringDomains.value.trim()
+  || !lifecycleStages.value.trim()
+  || !technologyTags.value.trim()
+  || !applicationScenarios.value.trim()
+  || digitalOutcomes.value.some((outcome) => !outcomeEntities.value[outcome.id])
+))
+const publishBlocked = computed(() => pendingSafetyClaims.value.length > 0 || digitalPatchIncomplete.value)
 const drawerClaims = computed<ClaimView[]>(() => {
   if (!detail.value) return []
   if (!evidenceClaimId.value) return detail.value.claims
@@ -95,9 +134,37 @@ async function decide(action: 'APPROVE' | 'REJECT'): Promise<void> {
   submitting.value = true
   decisionError.value = null
   try {
+    const codes = (value: string): string[] => value
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+    const digital_case_patch = action === 'APPROVE' && isDigitalCase.value
+      ? {
+          engineering_domains: codes(engineeringDomains.value),
+          lifecycle_stages: codes(lifecycleStages.value),
+          technology_tags: codes(technologyTags.value),
+          application_scenarios: codes(applicationScenarios.value),
+          maturity_level: maturityLevel.value,
+          maturity_evidence_ids: maturityEvidenceIds.value,
+          outcome_attributions: digitalOutcomes.value.map((outcome) => ({
+            outcome_id: outcome.id,
+            attribution_entity_id: outcomeEntities.value[outcome.id] ?? '',
+            verification: outcomeVerification.value[outcome.id] ?? 'CLAIMED',
+            independent_evidence_ids:
+              outcomeVerification.value[outcome.id] === 'VERIFIED'
+                ? outcome.independent_evidence_ids
+                : [],
+          })),
+        } satisfies DigitalCaseReviewPatch
+      : undefined
+    const body = {
+      action,
+      reason: reason.value,
+      ...(digital_case_patch ? { digital_case_patch } : {}),
+    } satisfies ReviewDecisionRequest
     await $fetch<ReviewDecisionResponse>(
       `/api/v1/admin/review-tasks/${taskId}/decisions`,
-      { method: 'POST', body: { action, reason: reason.value } },
+      { method: 'POST', body },
     )
     await refresh()
   } catch {
@@ -212,6 +279,59 @@ async function decide(action: 'APPROVE' | 'REJECT'): Promise<void> {
         </button>
       </section>
 
+      <section v-if="isDigitalCase && detail.digital_case" class="review-detail__digital-patch">
+        <h2>数字化案例结构审核</h2>
+        <p>只能选择已有接受证据支持的代码；服务端会重新计算相关性 v1。</p>
+        <div class="review-detail__digital-grid">
+          <label>工程专业代码<input v-model="engineeringDomains" placeholder="BRIDGE, HIGHWAY"></label>
+          <label>生命周期代码<input v-model="lifecycleStages" placeholder="CONSTRUCTION"></label>
+          <label>技术标签代码<input v-model="technologyTags" placeholder="BIM, IOT"></label>
+          <label>应用场景代码<input v-model="applicationScenarios" placeholder="QUALITY_CONTROL"></label>
+          <label>
+            成熟度
+            <select v-model="maturityLevel">
+              <option value="CONCEPT">概念</option>
+              <option value="LAB_PROTOTYPE">实验室原型</option>
+              <option value="ENGINEERING_PROTOTYPE">工程样机</option>
+              <option value="PILOT">试点</option>
+              <option value="SINGLE_PROJECT_PRODUCTION">单项目生产应用</option>
+              <option value="MULTI_PROJECT_REPLICATION">多项目复制</option>
+              <option value="ENTERPRISE_SCALE">企业规模应用</option>
+              <option value="UNKNOWN">未知</option>
+            </select>
+          </label>
+        </div>
+        <fieldset class="review-detail__maturity-evidence">
+          <legend>成熟度证据</legend>
+          <label v-for="evidenceItem in detail.evidence" :key="evidenceItem.id">
+            <input v-model="maturityEvidenceIds" type="checkbox" :value="evidenceItem.id">
+            {{ evidenceItem.excerpt }}
+          </label>
+        </fieldset>
+        <div class="review-detail__attributions">
+          <h3>成效归因</h3>
+          <article v-for="outcome in digitalOutcomes" :key="outcome.id">
+            <p>{{ outcome.statement }}</p>
+            <label>
+              归因主体
+              <select v-model="outcomeEntities[outcome.id]">
+                <option value="" disabled>请选择证据中的主体</option>
+                <option v-for="entity in detail.digital_case.entities" :key="entity.id" :value="entity.id">
+                  {{ entity.name }}
+                </option>
+              </select>
+            </label>
+            <label>
+              证据性质
+              <select v-model="outcomeVerification[outcome.id]">
+                <option value="CLAIMED">发布方声明</option>
+            <option value="VERIFIED" :disabled="!outcome.independent_evidence_ids?.length">独立验证</option>
+              </select>
+            </label>
+          </article>
+        </div>
+      </section>
+
       <form v-if="detail.task.status === 'PENDING'" class="review-detail__decision" @submit.prevent>
         <label>
           审核说明
@@ -259,11 +379,78 @@ async function decide(action: 'APPROVE' | 'REJECT'): Promise<void> {
 }
 
 .review-detail__claims,
-.review-detail__decision {
+.review-detail__decision,
+.review-detail__digital-patch {
   padding: var(--spacing-5);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
+}
+
+.review-detail__digital-patch {
+  display: grid;
+  gap: var(--spacing-4);
+}
+
+.review-detail__digital-patch h2,
+.review-detail__digital-patch h3,
+.review-detail__digital-patch p {
+  margin: 0;
+}
+
+.review-detail__digital-grid,
+.review-detail__attributions article {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-3);
+}
+
+.review-detail__digital-grid label,
+.review-detail__attributions label,
+.review-detail__maturity-evidence label {
+  display: grid;
+  color: var(--color-ink-600);
+  font-size: var(--text-sm);
+  gap: var(--spacing-2);
+}
+
+.review-detail__digital-grid input,
+.review-detail__digital-grid select,
+.review-detail__attributions select {
+  min-height: var(--spacing-10);
+  padding: var(--spacing-2) var(--spacing-3);
+  color: var(--color-ink-900);
+  background: var(--color-surface);
+  border: 1px solid var(--color-borderStrong);
+  border-radius: var(--radius-sm);
+}
+
+.review-detail__maturity-evidence {
+  display: grid;
+  margin: 0;
+  padding: var(--spacing-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  gap: var(--spacing-2);
+}
+
+.review-detail__maturity-evidence label {
+  grid-template-columns: auto 1fr;
+}
+
+.review-detail__attributions {
+  display: grid;
+  gap: var(--spacing-3);
+}
+
+.review-detail__attributions article {
+  padding: var(--spacing-3);
+  background: var(--color-surfaceMuted);
+  border-radius: var(--radius-sm);
+}
+
+.review-detail__attributions article p {
+  grid-column: 1 / -1;
 }
 
 .review-detail__item {
@@ -447,6 +634,11 @@ async function decide(action: 'APPROVE' | 'REJECT'): Promise<void> {
   .review-detail__decision div {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .review-detail__digital-grid,
+  .review-detail__attributions article {
+    grid-template-columns: 1fr;
   }
 }
 </style>

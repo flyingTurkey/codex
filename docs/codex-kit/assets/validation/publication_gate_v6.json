@@ -1,0 +1,15 @@
+{
+  "version": "6.0.0",
+  "contract": "publication_evaluation_v6.schema.json",
+  "trust_boundary": "Paper publication uses canonical identity, source-approved access rights, accepted claims, traceable evidence, and reviewed update relations from the server database.",
+  "default_decision": "DENY",
+  "selected_feed_rules": {
+    "minimum_server_scores": {
+      "relevance": 70,
+      "impact": 65,
+      "authority": 75,
+      "evidence": 90,
+      "confidence": 90
+    }
+  }
+}

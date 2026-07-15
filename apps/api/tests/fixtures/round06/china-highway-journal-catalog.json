@@ -1,0 +1,15 @@
+{
+  "fixture_only": true,
+  "source": "中国公路学报固定目录样本",
+  "production_collection_enabled": false,
+  "records": [
+    {
+      "title": "公路桥梁智能监测方法研究（固定题录样本）",
+      "authors": ["示例作者"],
+      "journal": "中国公路学报",
+      "year": 2025,
+      "access_level": "METADATA_ONLY",
+      "original_url": "https://zgglxb.chd.edu.cn/"
+    }
+  ]
+}

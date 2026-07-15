@@ -1,0 +1,28 @@
+{
+  "meta": {"count": 1, "next_cursor": "round06-page-2", "per_page": 100},
+  "results": [
+    {
+      "id": "https://openalex.org/W6001",
+      "doi": "https://doi.org/10.1000/bridge.2025.1",
+      "title": "Bridge digital-twin monitoring with laboratory validation",
+      "type": "article",
+      "publication_year": 2025,
+      "publication_date": "2025-07-01",
+      "is_retracted": false,
+      "authorships": [
+        {
+          "author_position": "first",
+          "author": {"id": "https://openalex.org/A6001", "display_name": "Zhang San", "orcid": null},
+          "institutions": [{"id": "https://openalex.org/I6001", "display_name": "Southwest Jiaotong University", "ror": null}]
+        }
+      ],
+      "primary_location": {"landing_page_url": "https://doi.org/10.1000/bridge.2025.1", "pdf_url": null, "license": null, "source": {"display_name": "Journal of Highway and Transportation Research", "issn_l": "1001-7372", "issn": ["1001-7372"]}},
+      "best_oa_location": null,
+      "open_access": {"is_oa": false, "oa_status": "closed", "oa_url": null},
+      "biblio": {"volume": "38", "issue": "7", "first_page": "1", "last_page": "12"},
+      "keywords": [{"display_name": "digital twin"}, {"display_name": "bridge monitoring"}],
+      "topics": [],
+      "related_works": []
+    }
+  ]
+}

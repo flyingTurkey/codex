@@ -1,0 +1,281 @@
+{
+  "$defs": {
+    "ProductCapability": {
+      "additionalProperties": false,
+      "properties": {
+        "attribution": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Attribution",
+          "type": "string"
+        },
+        "claim_id": {
+          "format": "uuid",
+          "title": "Claim Id",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "independent_evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Independent Evidence Ids",
+          "type": "array"
+        },
+        "kind": {
+          "$ref": "#/$defs/ProductCapabilityKind"
+        },
+        "statement": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Statement",
+          "type": "string"
+        }
+      },
+      "required": [
+        "claim_id",
+        "statement",
+        "attribution",
+        "kind",
+        "evidence_ids"
+      ],
+      "title": "ProductCapability",
+      "type": "object"
+    },
+    "ProductCapabilityKind": {
+      "enum": [
+        "PROMOTIONAL_CLAIM",
+        "VERIFIED_CAPABILITY"
+      ],
+      "title": "ProductCapabilityKind",
+      "type": "string"
+    },
+    "ProductEngineeringCase": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "item_id": {
+          "format": "uuid",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "item_id",
+        "title",
+        "evidence_ids"
+      ],
+      "title": "ProductEngineeringCase",
+      "type": "object"
+    },
+    "ProductEntity": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "title": "ProductEntity",
+      "type": "object"
+    },
+    "ProductEvidenceLevel": {
+      "enum": [
+        "VENDOR_CLAIM_ONLY",
+        "PROJECT_EVIDENCE",
+        "RESEARCH_EVIDENCE",
+        "INDEPENDENT_VALIDATION",
+        "OFFICIAL_CERTIFICATION",
+        "UNKNOWN"
+      ],
+      "title": "ProductEvidenceLevel",
+      "type": "string"
+    },
+    "ProductPermitStatus": {
+      "enum": [
+        "VERIFIED",
+        "NOT_REQUIRED",
+        "UNKNOWN"
+      ],
+      "title": "ProductPermitStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "application_scenarios": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 30,
+      "title": "Application Scenarios",
+      "type": "array"
+    },
+    "current_version": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Current Version"
+    },
+    "deployment_modes": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 20,
+      "title": "Deployment Modes",
+      "type": "array"
+    },
+    "engineering_cases": {
+      "items": {
+        "$ref": "#/$defs/ProductEngineeringCase"
+      },
+      "maxItems": 50,
+      "title": "Engineering Cases",
+      "type": "array"
+    },
+    "evidence_level": {
+      "$ref": "#/$defs/ProductEvidenceLevel"
+    },
+    "interfaces": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 30,
+      "title": "Interfaces",
+      "type": "array"
+    },
+    "limitations": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 50,
+      "title": "Limitations",
+      "type": "array"
+    },
+    "low_altitude_notice": {
+      "anyOf": [
+        {
+          "const": "产品发布不代表空域、适航、飞手和项目许可。",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Low Altitude Notice"
+    },
+    "model": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ProductEntity"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "permit_status": {
+      "$ref": "#/$defs/ProductPermitStatus"
+    },
+    "procurement_notice": {
+      "const": "仅供技术调研，不构成采购建议",
+      "title": "Procurement Notice",
+      "type": "string"
+    },
+    "product": {
+      "$ref": "#/$defs/ProductEntity"
+    },
+    "product_kind": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Product Kind",
+      "type": "string"
+    },
+    "promotional_claims": {
+      "items": {
+        "$ref": "#/$defs/ProductCapability"
+      },
+      "title": "Promotional Claims",
+      "type": "array"
+    },
+    "vendor": {
+      "$ref": "#/$defs/ProductEntity"
+    },
+    "verified_capabilities": {
+      "items": {
+        "$ref": "#/$defs/ProductCapability"
+      },
+      "title": "Verified Capabilities",
+      "type": "array"
+    },
+    "version_history": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Version History",
+      "type": "array"
+    }
+  },
+  "required": [
+    "vendor",
+    "product",
+    "version_history",
+    "product_kind",
+    "promotional_claims",
+    "verified_capabilities",
+    "interfaces",
+    "deployment_modes",
+    "application_scenarios",
+    "engineering_cases",
+    "evidence_level",
+    "permit_status",
+    "limitations",
+    "procurement_notice"
+  ],
+  "title": "TechnologyProductDetail",
+  "type": "object"
+}

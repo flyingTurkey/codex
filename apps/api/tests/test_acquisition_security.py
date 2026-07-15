@@ -169,3 +169,29 @@ def test_retry_is_bounded_then_circuit_opens_for_subsequent_request() -> None:
             )
         )
     assert len(transport.calls) == 2
+
+
+def test_retry_after_header_is_honored_for_rate_limited_source() -> None:
+    transport = FakeTransport(
+        [
+            HttpResponse(status_code=429, headers={"Retry-After": "15"}),
+            HttpResponse(status_code=200, headers={}, content=b"{}"),
+        ]
+    )
+    clock = FakeClock()
+    client = ResilientHttpClient(
+        _policy(base_backoff_seconds=0.1),
+        resolver=FakeResolver({"www.mem.gov.cn": ("8.8.8.8",)}),
+        transport=transport,
+        clock=clock,
+    )
+
+    result = asyncio.run(
+        client.get(
+            "https://www.mem.gov.cn/gk/list.shtml",
+            checkpoint=SourceCheckpoint(),
+        )
+    )
+
+    assert result.status_code == 200
+    assert clock.value == 115.0

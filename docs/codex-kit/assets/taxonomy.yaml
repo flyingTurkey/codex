@@ -220,6 +220,7 @@ relation_types:
   - SUPERSEDES
   - CANCELS
   - CORRECTS
+  - RETRACTS
   - FOLLOW_UP
   - INVESTIGATES
   - PENALIZES

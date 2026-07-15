@@ -1,5 +1,123 @@
 {
   "$defs": {
+    "AbstractAvailability": {
+      "enum": [
+        "AVAILABLE",
+        "NOT_PROVIDED",
+        "LICENCE_UNCLEAR"
+      ],
+      "title": "AbstractAvailability",
+      "type": "string"
+    },
+    "AiEquipmentTypeSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "ai_tasks": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "title": "Ai Tasks",
+          "type": "array"
+        },
+        "equipment_form": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Equipment Form"
+        },
+        "evidence_level": {
+          "$ref": "#/$defs/ProductEvidenceLevel"
+        },
+        "kind": {
+          "const": "AI_EQUIPMENT",
+          "title": "Kind",
+          "type": "string"
+        },
+        "maturity_level": {
+          "$ref": "#/$defs/MaturityLevel"
+        },
+        "model_no": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model No"
+        },
+        "product_kind": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Product Kind",
+          "type": "string"
+        },
+        "product_name": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Product Name",
+          "type": "string"
+        },
+        "production_validation": {
+          "title": "Production Validation",
+          "type": "boolean"
+        },
+        "promotional_claim_count": {
+          "minimum": 0,
+          "title": "Promotional Claim Count",
+          "type": "integer"
+        },
+        "vendor_name": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Vendor Name",
+          "type": "string"
+        },
+        "verified_capability_count": {
+          "minimum": 0,
+          "title": "Verified Capability Count",
+          "type": "integer"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "vendor_name",
+        "product_name",
+        "product_kind",
+        "evidence_level",
+        "promotional_claim_count",
+        "verified_capability_count",
+        "kind",
+        "ai_tasks",
+        "maturity_level",
+        "production_validation"
+      ],
+      "title": "AiEquipmentTypeSummary",
+      "type": "object"
+    },
     "Channel": {
       "enum": [
         "DIGITAL",
@@ -81,6 +199,357 @@
       ],
       "title": "CriticalSafetyField",
       "type": "string"
+    },
+    "DigitalCaseDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "ai_short_comment": {
+          "default": null,
+          "title": "Ai Short Comment",
+          "type": "null"
+        },
+        "applicability": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Applicability",
+          "type": "array"
+        },
+        "application_scenarios": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "title": "Application Scenarios",
+          "type": "array"
+        },
+        "claimed_outcomes": {
+          "items": {
+            "$ref": "#/$defs/DigitalCaseOutcome"
+          },
+          "title": "Claimed Outcomes",
+          "type": "array"
+        },
+        "deployment_scale": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deployment Scale"
+        },
+        "engineering_domains": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Engineering Domains",
+          "type": "array"
+        },
+        "entities": {
+          "items": {
+            "$ref": "#/$defs/DigitalCaseEntity"
+          },
+          "title": "Entities",
+          "type": "array"
+        },
+        "lifecycle_stages": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Lifecycle Stages",
+          "type": "array"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Limitations",
+          "type": "array"
+        },
+        "maturity_level": {
+          "$ref": "#/$defs/MaturityLevel"
+        },
+        "recommended_actions": {
+          "items": {
+            "$ref": "#/$defs/RecommendedAction"
+          },
+          "title": "Recommended Actions",
+          "type": "array"
+        },
+        "replication_conditions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Replication Conditions",
+          "type": "array"
+        },
+        "risks": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Risks",
+          "type": "array"
+        },
+        "technology_tags": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Technology Tags",
+          "type": "array"
+        },
+        "verified_outcomes": {
+          "items": {
+            "$ref": "#/$defs/DigitalCaseOutcome"
+          },
+          "title": "Verified Outcomes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "engineering_domains",
+        "lifecycle_stages",
+        "technology_tags",
+        "application_scenarios",
+        "maturity_level",
+        "entities",
+        "claimed_outcomes",
+        "verified_outcomes",
+        "applicability",
+        "replication_conditions",
+        "limitations",
+        "risks",
+        "recommended_actions"
+      ],
+      "title": "DigitalCaseDetail",
+      "type": "object"
+    },
+    "DigitalCaseEntity": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_id": {
+          "format": "uuid",
+          "title": "Claim Id",
+          "type": "string"
+        },
+        "entity_type": {
+          "$ref": "#/$defs/DigitalCaseEntityType"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "relation_type": {
+          "maxLength": 50,
+          "minLength": 1,
+          "title": "Relation Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "entity_type",
+        "name",
+        "relation_type",
+        "claim_id"
+      ],
+      "title": "DigitalCaseEntity",
+      "type": "object"
+    },
+    "DigitalCaseEntityType": {
+      "enum": [
+        "ORGANIZATION",
+        "TECHNOLOGY",
+        "PROJECT"
+      ],
+      "title": "DigitalCaseEntityType",
+      "type": "string"
+    },
+    "DigitalCaseOutcome": {
+      "additionalProperties": false,
+      "properties": {
+        "attribution": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Attribution",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "independent_evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Independent Evidence Ids",
+          "type": "array"
+        },
+        "metric_name": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metric Name"
+        },
+        "numeric_value": {
+          "anyOf": [
+            {
+              "pattern": "^-?\\d+(?:\\.\\d+)?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Numeric Value"
+        },
+        "statement": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Statement",
+          "type": "string"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "maxLength": 50,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        },
+        "verification": {
+          "$ref": "#/$defs/OutcomeVerification"
+        }
+      },
+      "required": [
+        "id",
+        "statement",
+        "attribution",
+        "verification",
+        "evidence_ids"
+      ],
+      "title": "DigitalCaseOutcome",
+      "type": "object"
+    },
+    "DigitalCaseSourceNature": {
+      "enum": [
+        "GOVERNMENT_CASE_COLLECTION",
+        "ENTERPRISE_SELF_REPORT"
+      ],
+      "title": "DigitalCaseSourceNature",
+      "type": "string"
+    },
+    "DigitalCaseTypeSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "ai_short_comment": {
+          "default": null,
+          "title": "Ai Short Comment",
+          "type": "null"
+        },
+        "application_scenarios": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Application Scenarios",
+          "type": "array"
+        },
+        "deployment_scale": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deployment Scale"
+        },
+        "kind": {
+          "const": "DIGITAL_CASE",
+          "title": "Kind",
+          "type": "string"
+        },
+        "maturity_level": {
+          "$ref": "#/$defs/MaturityLevel"
+        },
+        "publisher_claim_label": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Publisher Claim Label"
+        },
+        "relevance": {
+          "$ref": "#/$defs/RelevanceSummary"
+        },
+        "source_nature": {
+          "$ref": "#/$defs/DigitalCaseSourceNature"
+        },
+        "srbg_relationship": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Srbg Relationship",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "maturity_level",
+        "application_scenarios",
+        "source_nature",
+        "srbg_relationship",
+        "relevance"
+      ],
+      "title": "DigitalCaseTypeSummary",
+      "type": "object"
     },
     "DocumentState": {
       "enum": [
@@ -312,6 +781,97 @@
       "title": "IncidentStatus",
       "type": "string"
     },
+    "IotProductTypeSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "connectivity": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "title": "Connectivity",
+          "type": "array"
+        },
+        "evidence_level": {
+          "$ref": "#/$defs/ProductEvidenceLevel"
+        },
+        "kind": {
+          "const": "IOT_PRODUCT",
+          "title": "Kind",
+          "type": "string"
+        },
+        "maturity_level": {
+          "$ref": "#/$defs/MaturityLevel"
+        },
+        "model_no": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model No"
+        },
+        "product_kind": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Product Kind",
+          "type": "string"
+        },
+        "product_name": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Product Name",
+          "type": "string"
+        },
+        "promotional_claim_count": {
+          "minimum": 0,
+          "title": "Promotional Claim Count",
+          "type": "integer"
+        },
+        "vendor_name": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Vendor Name",
+          "type": "string"
+        },
+        "verified_capability_count": {
+          "minimum": 0,
+          "title": "Verified Capability Count",
+          "type": "integer"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "vendor_name",
+        "product_name",
+        "product_kind",
+        "evidence_level",
+        "promotional_claim_count",
+        "verified_capability_count",
+        "kind",
+        "connectivity",
+        "maturity_level"
+      ],
+      "title": "IotProductTypeSummary",
+      "type": "object"
+    },
     "ItemSummary": {
       "additionalProperties": false,
       "properties": {
@@ -539,8 +1099,14 @@
             {
               "discriminator": {
                 "mapping": {
+                  "AI_EQUIPMENT": "#/$defs/AiEquipmentTypeSummary",
+                  "DIGITAL_CASE": "#/$defs/DigitalCaseTypeSummary",
+                  "IOT_PRODUCT": "#/$defs/IotProductTypeSummary",
+                  "JOURNAL_PAPER": "#/$defs/PaperTypeSummary",
+                  "LOW_ALTITUDE_EQUIPMENT": "#/$defs/LowAltitudeEquipmentTypeSummary",
                   "SAFETY_CASE": "#/$defs/SafetyCaseTypeSummary",
-                  "SAFETY_REGULATION": "#/$defs/SafetyRegulationTypeSummary"
+                  "SAFETY_REGULATION": "#/$defs/SafetyRegulationTypeSummary",
+                  "SOFTWARE_PRODUCT": "#/$defs/SoftwareProductTypeSummary"
                 },
                 "propertyName": "kind"
               },
@@ -550,6 +1116,24 @@
                 },
                 {
                   "$ref": "#/$defs/SafetyCaseTypeSummary"
+                },
+                {
+                  "$ref": "#/$defs/DigitalCaseTypeSummary"
+                },
+                {
+                  "$ref": "#/$defs/PaperTypeSummary"
+                },
+                {
+                  "$ref": "#/$defs/SoftwareProductTypeSummary"
+                },
+                {
+                  "$ref": "#/$defs/IotProductTypeSummary"
+                },
+                {
+                  "$ref": "#/$defs/LowAltitudeEquipmentTypeSummary"
+                },
+                {
+                  "$ref": "#/$defs/AiEquipmentTypeSummary"
                 }
               ]
             },
@@ -591,6 +1175,132 @@
       "title": "ItemType",
       "type": "string"
     },
+    "LowAltitudeEquipmentTypeSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence_level": {
+          "$ref": "#/$defs/ProductEvidenceLevel"
+        },
+        "kind": {
+          "const": "LOW_ALTITUDE_EQUIPMENT",
+          "title": "Kind",
+          "type": "string"
+        },
+        "model_no": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model No"
+        },
+        "payload_types": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "title": "Payload Types",
+          "type": "array"
+        },
+        "permit_status": {
+          "$ref": "#/$defs/ProductPermitStatus"
+        },
+        "platform_type": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Platform Type"
+        },
+        "product_kind": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Product Kind",
+          "type": "string"
+        },
+        "product_name": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Product Name",
+          "type": "string"
+        },
+        "promotional_claim_count": {
+          "minimum": 0,
+          "title": "Promotional Claim Count",
+          "type": "integer"
+        },
+        "vendor_name": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Vendor Name",
+          "type": "string"
+        },
+        "verified_capability_count": {
+          "minimum": 0,
+          "title": "Verified Capability Count",
+          "type": "integer"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "vendor_name",
+        "product_name",
+        "product_kind",
+        "evidence_level",
+        "promotional_claim_count",
+        "verified_capability_count",
+        "kind",
+        "payload_types",
+        "permit_status"
+      ],
+      "title": "LowAltitudeEquipmentTypeSummary",
+      "type": "object"
+    },
+    "MaturityLevel": {
+      "enum": [
+        "CONCEPT",
+        "LAB_PROTOTYPE",
+        "ENGINEERING_PROTOTYPE",
+        "PILOT",
+        "SINGLE_PROJECT_PRODUCTION",
+        "MULTI_PROJECT_REPLICATION",
+        "ENTERPRISE_SCALE",
+        "UNKNOWN"
+      ],
+      "title": "MaturityLevel",
+      "type": "string"
+    },
+    "OutcomeVerification": {
+      "enum": [
+        "CLAIMED",
+        "VERIFIED"
+      ],
+      "title": "OutcomeVerification",
+      "type": "string"
+    },
     "PageBoundingBox": {
       "additionalProperties": false,
       "description": "Rotation-normalized PDF coordinates in integer thousandths of a point.",
@@ -623,6 +1333,384 @@
         "y1"
       ],
       "title": "PageBoundingBox",
+      "type": "object"
+    },
+    "PaperAccessLevel": {
+      "enum": [
+        "METADATA_ONLY",
+        "ABSTRACT_ALLOWED",
+        "OPEN_FULLTEXT"
+      ],
+      "title": "PaperAccessLevel",
+      "type": "string"
+    },
+    "PaperAuthor": {
+      "additionalProperties": false,
+      "properties": {
+        "institutions": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "title": "Institutions",
+          "type": "array"
+        },
+        "name": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "orcid": {
+          "anyOf": [
+            {
+              "pattern": "^https://orcid\\.org/\\d{4}-\\d{4}-\\d{4}-\\d{3}[\\dX]$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Orcid"
+        }
+      },
+      "required": [
+        "name",
+        "institutions"
+      ],
+      "title": "PaperAuthor",
+      "type": "object"
+    },
+    "PaperDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "abstract": {
+          "anyOf": [
+            {
+              "maxLength": 20000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Abstract"
+        },
+        "abstract_availability": {
+          "$ref": "#/$defs/AbstractAvailability"
+        },
+        "access_level": {
+          "$ref": "#/$defs/PaperAccessLevel"
+        },
+        "authors": {
+          "items": {
+            "$ref": "#/$defs/PaperAuthor"
+          },
+          "maxItems": 500,
+          "title": "Authors",
+          "type": "array"
+        },
+        "doi": {
+          "anyOf": [
+            {
+              "maxLength": 300,
+              "pattern": "^10\\.\\d{4,9}/\\S+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Doi"
+        },
+        "engineering_domains": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Engineering Domains",
+          "type": "array"
+        },
+        "issns": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Issns",
+          "type": "array"
+        },
+        "issue": {
+          "anyOf": [
+            {
+              "maxLength": 50,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Issue"
+        },
+        "journal": {
+          "anyOf": [
+            {
+              "maxLength": 300,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Journal"
+        },
+        "keywords": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Keywords",
+          "type": "array"
+        },
+        "maturity_level": {
+          "$ref": "#/$defs/MaturityLevel"
+        },
+        "open_fulltext_url": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "pattern": "^https?://[^\\s]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Open Fulltext Url"
+        },
+        "open_status": {
+          "$ref": "#/$defs/PaperOpenStatus"
+        },
+        "pages": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pages"
+        },
+        "relation_status": {
+          "$ref": "#/$defs/PaperRelationStatus"
+        },
+        "research_interpretation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResearchInterpretation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "similar_papers": {
+          "items": {
+            "$ref": "#/$defs/SimilarPaper"
+          },
+          "maxItems": 5,
+          "title": "Similar Papers",
+          "type": "array"
+        },
+        "technology_tags": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Technology Tags",
+          "type": "array"
+        },
+        "volume": {
+          "anyOf": [
+            {
+              "maxLength": 50,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Volume"
+        },
+        "year": {
+          "anyOf": [
+            {
+              "maximum": 9999,
+              "minimum": 1000,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Year"
+        }
+      },
+      "required": [
+        "issns",
+        "authors",
+        "abstract_availability",
+        "keywords",
+        "access_level",
+        "open_status",
+        "maturity_level",
+        "engineering_domains",
+        "technology_tags",
+        "similar_papers",
+        "relation_status"
+      ],
+      "title": "PaperDetail",
+      "type": "object"
+    },
+    "PaperOpenStatus": {
+      "enum": [
+        "OPEN",
+        "CLOSED",
+        "UNKNOWN"
+      ],
+      "title": "PaperOpenStatus",
+      "type": "string"
+    },
+    "PaperRelationStatus": {
+      "enum": [
+        "CURRENT",
+        "CORRECTED",
+        "RETRACTED",
+        "WITHDRAWN"
+      ],
+      "title": "PaperRelationStatus",
+      "type": "string"
+    },
+    "PaperType": {
+      "enum": [
+        "ARTICLE",
+        "REVIEW",
+        "METHOD",
+        "CASE_STUDY",
+        "OTHER",
+        "UNKNOWN"
+      ],
+      "title": "PaperType",
+      "type": "string"
+    },
+    "PaperTypeSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "access_level": {
+          "$ref": "#/$defs/PaperAccessLevel"
+        },
+        "ai_short_comment": {
+          "default": null,
+          "title": "Ai Short Comment",
+          "type": "null"
+        },
+        "doi": {
+          "anyOf": [
+            {
+              "maxLength": 300,
+              "pattern": "^10\\.\\d{4,9}/\\S+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Doi"
+        },
+        "engineering_domains": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Engineering Domains",
+          "type": "array"
+        },
+        "journal": {
+          "anyOf": [
+            {
+              "maxLength": 300,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Journal"
+        },
+        "kind": {
+          "const": "JOURNAL_PAPER",
+          "title": "Kind",
+          "type": "string"
+        },
+        "maturity_level": {
+          "$ref": "#/$defs/MaturityLevel"
+        },
+        "open_status": {
+          "$ref": "#/$defs/PaperOpenStatus"
+        },
+        "paper_type": {
+          "$ref": "#/$defs/PaperType"
+        },
+        "relation_status": {
+          "$ref": "#/$defs/PaperRelationStatus"
+        },
+        "technology_tags": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Technology Tags",
+          "type": "array"
+        },
+        "year": {
+          "anyOf": [
+            {
+              "maximum": 9999,
+              "minimum": 1000,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Year"
+        }
+      },
+      "required": [
+        "kind",
+        "paper_type",
+        "access_level",
+        "open_status",
+        "maturity_level",
+        "engineering_domains",
+        "technology_tags",
+        "relation_status"
+      ],
+      "title": "PaperTypeSummary",
       "type": "object"
     },
     "PdfOcrLocator": {
@@ -768,6 +1856,140 @@
       "title": "PreventionMeasureTag",
       "type": "string"
     },
+    "ProductCapability": {
+      "additionalProperties": false,
+      "properties": {
+        "attribution": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Attribution",
+          "type": "string"
+        },
+        "claim_id": {
+          "format": "uuid",
+          "title": "Claim Id",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "independent_evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Independent Evidence Ids",
+          "type": "array"
+        },
+        "kind": {
+          "$ref": "#/$defs/ProductCapabilityKind"
+        },
+        "statement": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Statement",
+          "type": "string"
+        }
+      },
+      "required": [
+        "claim_id",
+        "statement",
+        "attribution",
+        "kind",
+        "evidence_ids"
+      ],
+      "title": "ProductCapability",
+      "type": "object"
+    },
+    "ProductCapabilityKind": {
+      "enum": [
+        "PROMOTIONAL_CLAIM",
+        "VERIFIED_CAPABILITY"
+      ],
+      "title": "ProductCapabilityKind",
+      "type": "string"
+    },
+    "ProductEngineeringCase": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "item_id": {
+          "format": "uuid",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "item_id",
+        "title",
+        "evidence_ids"
+      ],
+      "title": "ProductEngineeringCase",
+      "type": "object"
+    },
+    "ProductEntity": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "title": "ProductEntity",
+      "type": "object"
+    },
+    "ProductEvidenceLevel": {
+      "enum": [
+        "VENDOR_CLAIM_ONLY",
+        "PROJECT_EVIDENCE",
+        "RESEARCH_EVIDENCE",
+        "INDEPENDENT_VALIDATION",
+        "OFFICIAL_CERTIFICATION",
+        "UNKNOWN"
+      ],
+      "title": "ProductEvidenceLevel",
+      "type": "string"
+    },
+    "ProductPermitStatus": {
+      "enum": [
+        "VERIFIED",
+        "NOT_REQUIRED",
+        "UNKNOWN"
+      ],
+      "title": "ProductPermitStatus",
+      "type": "string"
+    },
     "PublicationStatus": {
       "enum": [
         "PENDING_REVIEW",
@@ -775,6 +1997,16 @@
         "WITHDRAWN"
       ],
       "title": "PublicationStatus",
+      "type": "string"
+    },
+    "RecommendedAction": {
+      "enum": [
+        "READ_ORIGINAL",
+        "SAVE",
+        "FOLLOW",
+        "TECHNICAL_RESEARCH"
+      ],
+      "title": "RecommendedAction",
       "type": "string"
     },
     "RegulationClassification": {
@@ -801,6 +2033,153 @@
       ],
       "title": "RegulationStatus",
       "type": "string"
+    },
+    "RelevanceFactor": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "ENGINEERING_DOMAIN",
+            "SICHUAN",
+            "SRBG_DIRECT"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "points": {
+          "maximum": 70,
+          "minimum": 0,
+          "title": "Points",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "code",
+        "label",
+        "points"
+      ],
+      "title": "RelevanceFactor",
+      "type": "object"
+    },
+    "RelevanceSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "factors": {
+          "items": {
+            "$ref": "#/$defs/RelevanceFactor"
+          },
+          "maxItems": 3,
+          "minItems": 1,
+          "title": "Factors",
+          "type": "array"
+        },
+        "rule_version": {
+          "const": "relevance-v1.0.0",
+          "title": "Rule Version",
+          "type": "string"
+        },
+        "score": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Score",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "score",
+        "rule_version",
+        "factors"
+      ],
+      "title": "RelevanceSummary",
+      "type": "object"
+    },
+    "ResearchInterpretation": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Claim Ids",
+          "type": "array"
+        },
+        "conclusions": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "title": "Conclusions",
+          "type": "array"
+        },
+        "conditions": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "title": "Conditions",
+          "type": "array"
+        },
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "title": "Limitations",
+          "type": "array"
+        },
+        "method": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Method"
+        },
+        "research_object": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Research Object"
+        }
+      },
+      "required": [
+        "conditions",
+        "conclusions",
+        "limitations",
+        "claim_ids",
+        "evidence_ids"
+      ],
+      "title": "ResearchInterpretation",
+      "type": "object"
     },
     "ReviewStatus": {
       "enum": [
@@ -1107,6 +2486,65 @@
       "title": "SafetyRegulationTypeSummary",
       "type": "object"
     },
+    "SimilarPaper": {
+      "additionalProperties": false,
+      "properties": {
+        "item_id": {
+          "format": "uuid",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "journal": {
+          "anyOf": [
+            {
+              "maxLength": 300,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Journal"
+        },
+        "match_reasons": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "title": "Match Reasons",
+          "type": "array"
+        },
+        "title": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "year": {
+          "anyOf": [
+            {
+              "maximum": 9999,
+              "minimum": 1000,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Year"
+        }
+      },
+      "required": [
+        "item_id",
+        "title",
+        "match_reasons"
+      ],
+      "title": "SimilarPaper",
+      "type": "object"
+    },
     "SimilarScenarioTag": {
       "enum": [
         "HIGHWAY_OPERATION_GEOLOGICAL_RISK",
@@ -1118,6 +2556,247 @@
       ],
       "title": "SimilarScenarioTag",
       "type": "string"
+    },
+    "SoftwareProductTypeSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "deployment_modes": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Deployment Modes",
+          "type": "array"
+        },
+        "evidence_level": {
+          "$ref": "#/$defs/ProductEvidenceLevel"
+        },
+        "interfaces": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "title": "Interfaces",
+          "type": "array"
+        },
+        "kind": {
+          "const": "SOFTWARE_PRODUCT",
+          "title": "Kind",
+          "type": "string"
+        },
+        "model_no": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model No"
+        },
+        "product_kind": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Product Kind",
+          "type": "string"
+        },
+        "product_name": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Product Name",
+          "type": "string"
+        },
+        "promotional_claim_count": {
+          "minimum": 0,
+          "title": "Promotional Claim Count",
+          "type": "integer"
+        },
+        "vendor_name": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Vendor Name",
+          "type": "string"
+        },
+        "verified_capability_count": {
+          "minimum": 0,
+          "title": "Verified Capability Count",
+          "type": "integer"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "vendor_name",
+        "product_name",
+        "product_kind",
+        "evidence_level",
+        "promotional_claim_count",
+        "verified_capability_count",
+        "kind",
+        "interfaces",
+        "deployment_modes"
+      ],
+      "title": "SoftwareProductTypeSummary",
+      "type": "object"
+    },
+    "TechnologyProductDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "application_scenarios": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "title": "Application Scenarios",
+          "type": "array"
+        },
+        "current_version": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Current Version"
+        },
+        "deployment_modes": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Deployment Modes",
+          "type": "array"
+        },
+        "engineering_cases": {
+          "items": {
+            "$ref": "#/$defs/ProductEngineeringCase"
+          },
+          "maxItems": 50,
+          "title": "Engineering Cases",
+          "type": "array"
+        },
+        "evidence_level": {
+          "$ref": "#/$defs/ProductEvidenceLevel"
+        },
+        "interfaces": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "title": "Interfaces",
+          "type": "array"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Limitations",
+          "type": "array"
+        },
+        "low_altitude_notice": {
+          "anyOf": [
+            {
+              "const": "产品发布不代表空域、适航、飞手和项目许可。",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Low Altitude Notice"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProductEntity"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "permit_status": {
+          "$ref": "#/$defs/ProductPermitStatus"
+        },
+        "procurement_notice": {
+          "const": "仅供技术调研，不构成采购建议",
+          "title": "Procurement Notice",
+          "type": "string"
+        },
+        "product": {
+          "$ref": "#/$defs/ProductEntity"
+        },
+        "product_kind": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Product Kind",
+          "type": "string"
+        },
+        "promotional_claims": {
+          "items": {
+            "$ref": "#/$defs/ProductCapability"
+          },
+          "title": "Promotional Claims",
+          "type": "array"
+        },
+        "vendor": {
+          "$ref": "#/$defs/ProductEntity"
+        },
+        "verified_capabilities": {
+          "items": {
+            "$ref": "#/$defs/ProductCapability"
+          },
+          "title": "Verified Capabilities",
+          "type": "array"
+        },
+        "version_history": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Version History",
+          "type": "array"
+        }
+      },
+      "required": [
+        "vendor",
+        "product",
+        "version_history",
+        "product_kind",
+        "promotional_claims",
+        "verified_capabilities",
+        "interfaces",
+        "deployment_modes",
+        "application_scenarios",
+        "engineering_cases",
+        "evidence_level",
+        "permit_status",
+        "limitations",
+        "procurement_notice"
+      ],
+      "title": "TechnologyProductDetail",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -1136,6 +2815,17 @@
       ],
       "default": null,
       "title": "Claims"
+    },
+    "digital_case": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DigitalCaseDetail"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "evidence": {
       "anyOf": [
@@ -1159,6 +2849,28 @@
       "anyOf": [
         {
           "$ref": "#/$defs/FeedNotice"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "paper": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PaperDetail"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "technology_product": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TechnologyProductDetail"
         },
         {
           "type": "null"

@@ -1,0 +1,67 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "candidate_label": {
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Candidate Label",
+      "type": "string"
+    },
+    "candidate_type": {
+      "enum": [
+        "MODEL_ALIAS",
+        "VERSION_SUCCESSOR",
+        "POSSIBLE_DUPLICATE"
+      ],
+      "title": "Candidate Type",
+      "type": "string"
+    },
+    "candidate_version_id": {
+      "format": "uuid",
+      "title": "Candidate Version Id",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "incoming_label": {
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Incoming Label",
+      "type": "string"
+    },
+    "incoming_version_id": {
+      "format": "uuid",
+      "title": "Incoming Version Id",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "PENDING_REVIEW",
+        "ACCEPTED",
+        "REJECTED"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "incoming_version_id",
+    "candidate_version_id",
+    "candidate_type",
+    "status",
+    "incoming_label",
+    "candidate_label",
+    "created_at"
+  ],
+  "title": "ProductNormalizationCandidateView",
+  "type": "object"
+}

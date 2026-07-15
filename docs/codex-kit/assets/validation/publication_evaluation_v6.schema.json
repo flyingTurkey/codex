@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srbg.example.internal/schemas/publication-evaluation-6.0.0.json",
+  "title": "Authoritative Publication Evaluation Context",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["evaluation_id", "policy_version", "policy_sha256", "evaluated_at", "item", "server"],
+  "properties": {
+    "evaluation_id": {"type": "string"},
+    "policy_version": {"const": "6.0.0"},
+    "policy_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "evaluated_at": {"type": "string"},
+    "item": {"type": "object"},
+    "server": {"type": "object"}
+  }
+}

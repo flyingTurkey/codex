@@ -1,0 +1,14 @@
+{
+  "status": "ok",
+  "message-type": "work",
+  "message": {
+    "DOI": "10.1000/BRIDGE.2025.1",
+    "title": ["Bridge digital-twin monitoring with laboratory validation"],
+    "type": "journal-article",
+    "container-title": ["Journal of Highway and Transportation Research"],
+    "ISSN": ["1001-7372"],
+    "update-to": [
+      {"DOI": "10.1000/bridge.2024.9", "type": "retraction", "updated": {"date-time": "2026-01-01T00:00:00Z"}}
+    ]
+  }
+}

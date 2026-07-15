@@ -1,0 +1,15 @@
+{
+  "version": "5.0.0",
+  "contract": "publication_evaluation_v5.schema.json",
+  "trust_boundary": "Digital-case publication uses only accepted claims, traceable evidence, explicit outcome attribution, independently evidenced verification, and deterministic relevance from the server database.",
+  "default_decision": "DENY",
+  "selected_feed_rules": {
+    "minimum_server_scores": {
+      "relevance": 70,
+      "impact": 65,
+      "authority": 75,
+      "evidence": 90,
+      "confidence": 90
+    }
+  }
+}
