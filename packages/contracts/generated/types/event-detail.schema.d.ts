@@ -23,6 +23,8 @@ export type Unit = string | null
 export type Value = string | number | string[]
 export type ConfirmedFacts = ConfirmedFact[]
 export type EngineeringType = string | null
+export type EventType =
+  'SAFETY_INCIDENT' | 'REGULATION_CHANGE' | 'DIGITAL_PROJECT' | 'RESEARCH_RESULT' | 'PRODUCT_RELEASE'
 export type HazardType = string | null
 export type Id = string
 export type IncidentStatus =
@@ -35,6 +37,7 @@ export type IncidentStatus =
   | 'CLOSED'
   | 'CORRECTED'
   | 'WITHDRAWN'
+export type IndependentSourceCount = number
 export type OccurredAt = string | null
 export type PreventionMeasureTag =
   | 'HAZARD_IDENTIFICATION'
@@ -57,6 +60,22 @@ export type ReviewedAt1 = string
 export type ReviewedBy = string
 export type ToItemId = string
 export type Relations = EventRelationView[]
+export type CalculatedAt = string
+export type ScoreDimension =
+  'RELEVANCE' | 'AUTHORITY' | 'IMPACT' | 'NOVELTY' | 'TIMELINESS' | 'EVIDENCE' | 'CONFIDENCE' | 'HEAT'
+export type Code = string
+export type Explanation = string
+export type Label1 = string
+export type Points = number
+/**
+ * @maxItems 20
+ */
+export type Features = ScoreFeature[]
+export type Overridden = boolean
+export type OverrideReason = string | null
+export type RawScore = number
+export type RuleVersion = 'scoring-v1.0.0'
+export type Score = number
 export type SimilarScenarioTag =
   | 'HIGHWAY_OPERATION_GEOLOGICAL_RISK'
   | 'ROADBED_SLOPE_INSTABILITY'
@@ -80,11 +99,12 @@ export type SourcePublishedAt = string | null
 export type Title = string
 export type Items = EventItem[]
 export type Title1 = string
+export type TopicIds = string[]
 export type ClaimId1 = string | null
 export type ConflictId = string | null
 export type DisplayValue = '待核实'
 export type EvidenceIds1 = string[]
-export type Label1 = string
+export type Label2 = string
 export type Reason = string
 export type SourceItemId1 = string
 export type Status1 = 'PENDING_REVIEW' | 'CONFLICTING'
@@ -94,18 +114,22 @@ export type UnverifiedFacts = UnverifiedFact[]
 export interface EventDetail {
   confirmed_facts: ConfirmedFacts
   engineering_type?: EngineeringType
+  event_type?: EventType
   hazard_type?: HazardType
   id: Id
-  incident_status: IncidentStatus
+  incident_status?: IncidentStatus | null
+  independent_source_count?: IndependentSourceCount
   occurred_at?: OccurredAt
   prevention_measure_tags: PreventionMeasureTags
   project_name?: ProjectName
   rectification_has_open_issues?: RectificationHasOpenIssues
   region?: Region
   relations: Relations
+  scores?: ScoreSummary | null
   similar_scenario_tags: SimilarScenarioTags
   timeline: EventTimeline
   title: Title1
+  topic_ids?: TopicIds
   unverified_facts: UnverifiedFacts
 }
 export interface ConfirmedFact {
@@ -128,6 +152,32 @@ export interface EventRelationView {
   reviewed_by: ReviewedBy
   to_item_id: ToItemId
 }
+export interface ScoreSummary {
+  authority?: ScoreDimensionSummary | null
+  confidence?: ScoreDimensionSummary | null
+  evidence?: ScoreDimensionSummary | null
+  heat?: ScoreDimensionSummary | null
+  impact?: ScoreDimensionSummary | null
+  novelty?: ScoreDimensionSummary | null
+  relevance?: ScoreDimensionSummary | null
+  timeliness?: ScoreDimensionSummary | null
+}
+export interface ScoreDimensionSummary {
+  calculated_at: CalculatedAt
+  dimension: ScoreDimension
+  features: Features
+  overridden?: Overridden
+  override_reason?: OverrideReason
+  raw_score: RawScore
+  rule_version: RuleVersion
+  score: Score
+}
+export interface ScoreFeature {
+  code: Code
+  explanation: Explanation
+  label: Label1
+  points: Points
+}
 export interface EventTimeline {
   event_id: EventId1
   items: Items
@@ -135,12 +185,12 @@ export interface EventTimeline {
 export interface EventItem {
   document_states?: DocumentStates
   evidence_count?: EvidenceCount
-  incident_status: IncidentStatus
+  incident_status?: IncidentStatus | null
   item_id: ItemId
   original_url: OriginalUrl
   publication_revision_id: PublicationRevisionId
   relation_type?: EventRelation | null
-  report_stage: SafetyCaseReportStage
+  report_stage?: SafetyCaseReportStage | null
   review_status: ReviewStatus
   source_name: SourceName
   source_published_at: SourcePublishedAt
@@ -155,7 +205,7 @@ export interface UnverifiedFact {
   display_value?: DisplayValue
   evidence_ids?: EvidenceIds1
   field: SafetyCaseFactField
-  label: Label1
+  label: Label2
   reason: Reason
   source_item_id: SourceItemId1
   status: Status1

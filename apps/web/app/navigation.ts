@@ -33,6 +33,7 @@ export const primaryNavigation = [
   { id: 'all', label: '全部动态', to: '/all', icon: 'List' },
   { id: 'digital', label: '数字化', to: '/digital', icon: 'GraphUp' },
   { id: 'safety', label: '安全情报', to: '/safety', icon: 'ShieldCheck' },
+  { id: 'hot', label: '行业热点', to: '/hot', icon: 'GraphUp' },
   { id: 'daily', label: '行业日报', to: '/daily', icon: 'Reports' },
   { id: 'saved', label: '收藏', to: '/saved', icon: 'Bookmark' },
 ] as const satisfies readonly AppNavigationItem[]
@@ -40,4 +41,5 @@ export const primaryNavigation = [
 export const adminNavigation = [
   { id: 'admin', label: '管理入口', to: '/admin/sources', icon: 'Settings' },
   { id: 'review', label: '审核工作台', to: '/admin/review', icon: 'ShieldCheck' },
+  { id: 'clusters', label: '聚类工作台', to: '/admin/clusters', icon: 'List' },
 ] as const satisfies readonly AppNavigationItem[]

@@ -31,6 +31,8 @@ function stagePresentation(stage: EventItem['report_stage']): {
       return { label: '处罚问责', tone: 'verified' }
     case 'RECTIFICATION':
       return { label: '整改评估', tone: 'info' }
+    default:
+      return { label: '事件材料', tone: 'info' }
   }
 }
 

@@ -8,11 +8,14 @@ from srbg_contracts import (
     ClaimConflict,
     ClaimConflictDecisionRequest,
     ClaimConflictDecisionResponse,
+    ClusterCandidateView,
+    ClusterDecisionRequest,
     DigitalCaseReviewPatch,
     DocumentPageView,
     EventCandidateGenerationResponse,
     EventDetail,
     FeedPage,
+    HotTopicPage,
     ItemDetail,
     ProductNormalizationCandidateView,
     ProductNormalizationDecisionRequest,
@@ -21,6 +24,9 @@ from srbg_contracts import (
     ReviewDecisionResponse,
     ReviewTaskDetail,
     ReviewTaskSummary,
+    ScoreDimension,
+    ScoreOverrideRequest,
+    SourceComparison,
     UserRole,
     VersionChangeEscalationRequest,
     VersionDiffResponse,
@@ -63,6 +69,21 @@ class IntelligenceQueryService(Protocol):
     async def get_citation(self, item_id: UUID, citation_format: str) -> tuple[str, str]: ...
 
     async def get_event(self, event_id: UUID) -> EventDetail: ...
+
+    async def list_hot_topics(
+        self,
+        *,
+        domain: str | None,
+        window_days: int,
+        cursor: str | None,
+        limit: int,
+    ) -> HotTopicPage: ...
+
+    async def get_source_comparison(self, event_id: UUID) -> SourceComparison: ...
+
+    async def list_cluster_candidates(
+        self, *, kind: str, status: str
+    ) -> list[ClusterCandidateView]: ...
 
     async def list_review_tasks(self) -> list[ReviewTaskSummary]: ...
 
@@ -151,6 +172,28 @@ class ReviewPublicationService(Protocol):
         candidate_id: UUID,
         *,
         action: Literal["MERGE_ALIAS", "LINK_AS_NEW_VERSION", "KEEP_DISTINCT"],
+        reason: str,
+        reviewer_id: UUID,
+    ) -> None: ...
+
+    async def decide_cluster(
+        self,
+        candidate_id: UUID,
+        *,
+        candidate_kind: Literal["DUPLICATE", "EVENT", "TOPIC", "RELATION"],
+        action: Literal["MERGE", "SPLIT", "KEEP_DISTINCT", "LINK_RELATION"],
+        member_ids: list[UUID],
+        relation_type: str | None,
+        reason: str,
+        reviewer_id: UUID,
+    ) -> None: ...
+
+    async def override_score(
+        self,
+        item_id: UUID,
+        *,
+        dimension: ScoreDimension,
+        score: int,
         reason: str,
         reviewer_id: UUID,
     ) -> None: ...
@@ -264,6 +307,27 @@ async def get_feed(
 
 
 @router.get(
+    "/hot-topics",
+    response_model=HotTopicPage,
+    response_model_exclude_none=True,
+)
+async def list_hot_topics(
+    request: Request,
+    _: CurrentPrincipal,
+    domain: Literal["digital", "safety"] | None = None,
+    window: Literal["7d", "14d", "30d"] = "7d",
+    cursor: str | None = Query(default=None, max_length=500),
+    limit: int = Query(default=20, ge=1, le=100),
+) -> HotTopicPage:
+    return await _query_service(request).list_hot_topics(
+        domain=domain.upper() if domain else None,
+        window_days=int(window.removesuffix("d")),
+        cursor=cursor,
+        limit=limit,
+    )
+
+
+@router.get(
     "/items/{item_id}",
     response_model=ItemDetail,
     response_model_exclude_unset=True,
@@ -340,6 +404,76 @@ async def get_event(
     _: CurrentPrincipal,
 ) -> EventDetail:
     return await _query_service(request).get_event(event_id)
+
+
+@router.get(
+    "/events/{event_id}/source-comparison",
+    response_model=SourceComparison,
+)
+async def get_event_source_comparison(
+    event_id: UUID,
+    request: Request,
+    _: CurrentPrincipal,
+) -> SourceComparison:
+    return await _query_service(request).get_source_comparison(event_id)
+
+
+@router.get(
+    "/admin/clustering-workbench",
+    response_model=list[ClusterCandidateView],
+)
+async def list_cluster_candidates(
+    request: Request,
+    _: ReviewReadPrincipal,
+    kind: Literal["DUPLICATE", "EVENT", "TOPIC", "RELATION"] = "DUPLICATE",
+    candidate_status: Literal["PENDING_REVIEW", "ACCEPTED", "REJECTED"] = Query(
+        default="PENDING_REVIEW", alias="status"
+    ),
+) -> list[ClusterCandidateView]:
+    return await _query_service(request).list_cluster_candidates(kind=kind, status=candidate_status)
+
+
+@router.post(
+    "/admin/clustering-workbench/{candidate_kind}/{candidate_id}/decisions",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def decide_cluster(
+    candidate_kind: Literal["DUPLICATE", "EVENT", "TOPIC", "RELATION"],
+    candidate_id: UUID,
+    payload: ClusterDecisionRequest,
+    request: Request,
+    principal: ReviewWritePrincipal,
+) -> Response:
+    await _publication_service(request).decide_cluster(
+        candidate_id,
+        candidate_kind=candidate_kind,
+        action=payload.action,
+        member_ids=payload.member_ids,
+        relation_type=payload.relation_type,
+        reason=payload.reason,
+        reviewer_id=principal.user_id,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/admin/items/{item_id}/score-overrides",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def override_score(
+    item_id: UUID,
+    payload: ScoreOverrideRequest,
+    request: Request,
+    principal: ReviewWritePrincipal,
+) -> Response:
+    await _publication_service(request).override_score(
+        item_id,
+        dimension=payload.dimension,
+        score=payload.score,
+        reason=payload.reason,
+        reviewer_id=principal.user_id,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(

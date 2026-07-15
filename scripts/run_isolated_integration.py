@@ -417,7 +417,7 @@ def run_isolated_integration(
 def _migration_command(config: IntegrationConfig) -> tuple[str, ...]:
     return (
         config.python_executable,
-        "scripts/verify_round07_migration.py",
+        "scripts/verify_round08_migration.py",
     )
 
 

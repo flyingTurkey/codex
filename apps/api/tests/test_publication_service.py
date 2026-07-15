@@ -10,7 +10,7 @@ from uuid import UUID
 import pytest
 from srbg_api.publication.gate import PublicationGate
 from srbg_api.publication.service import PublicationDenied, PublicationService
-from srbg_contracts import DigitalCaseReviewPatch, ReviewDecisionResponse
+from srbg_contracts import DigitalCaseReviewPatch, ReviewDecisionResponse, ScoreDimension
 
 POLICY = Path("docs/codex-kit/assets/validation/publication_gate.json")
 SCHEMA = Path("docs/codex-kit/assets/validation/publication_evaluation.schema.json")
@@ -155,6 +155,8 @@ class FakeRepository:
         self.candidate_decisions: list[dict[str, Any]] = []
         self.escalations: list[dict[str, Any]] = []
         self.conflict_decisions: list[dict[str, Any]] = []
+        self.cluster_decisions: list[dict[str, Any]] = []
+        self.score_overrides: list[dict[str, Any]] = []
 
     @asynccontextmanager
     async def approval_transaction(
@@ -194,6 +196,12 @@ class FakeRepository:
 
     async def resolve_claim_conflict(self, **values: Any) -> None:
         self.conflict_decisions.append(values)
+
+    async def decide_cluster(self, **values: Any) -> None:
+        self.cluster_decisions.append(values)
+
+    async def override_score(self, **values: Any) -> None:
+        self.score_overrides.append(values)
 
 
 def _service(repository: FakeRepository) -> PublicationService:
@@ -379,3 +387,67 @@ def test_event_claim_and_conflict_decisions_use_the_single_publication_service()
             "decided_at": datetime(2026, 7, 14, 2, 0, tzinfo=UTC),
         }
     ]
+
+
+def test_round08_cluster_and_score_decisions_use_the_single_publication_service() -> None:
+    repository = FakeRepository(_context())
+    service = _service(repository)
+    other_item = UUID("019b0000-0000-7000-8000-000000005099")
+
+    asyncio.run(
+        service.decide_cluster(
+            CANDIDATE_ID,
+            candidate_kind="DUPLICATE",
+            action="MERGE",
+            member_ids=[TARGET_DOCUMENT_ID, other_item],
+            relation_type=None,
+            reviewer_id=REVIEWER_ID,
+            reason="身份字段与证据一致",
+        )
+    )
+    asyncio.run(
+        service.override_score(
+            TARGET_DOCUMENT_ID,
+            dimension=ScoreDimension.IMPACT,
+            score=70,
+            reviewer_id=REVIEWER_ID,
+            reason="正式文件确认影响范围",
+        )
+    )
+
+    assert repository.cluster_decisions[0]["action"] == "MERGE"
+    assert repository.cluster_decisions[0]["decided_at"].tzinfo is not None
+    assert repository.score_overrides[0]["score"] == 70
+    assert repository.score_overrides[0]["reason"] == "正式文件确认影响范围"
+
+
+def test_round08_cluster_actions_are_scoped_to_candidate_kind() -> None:
+    repository = FakeRepository(_context())
+    service = _service(repository)
+    other_item = UUID("019b0000-0000-7000-8000-000000005099")
+
+    with pytest.raises(PublicationDenied, match="CLUSTER_ACTION_KIND_MISMATCH"):
+        asyncio.run(
+            service.decide_cluster(
+                CANDIDATE_ID,
+                candidate_kind="DUPLICATE",
+                action="SPLIT",
+                member_ids=[TARGET_DOCUMENT_ID, other_item],
+                relation_type=None,
+                reviewer_id=REVIEWER_ID,
+                reason="动作类型不适用",
+            )
+        )
+
+    with pytest.raises(PublicationDenied, match="CLUSTER_ACTION_KIND_MISMATCH"):
+        asyncio.run(
+            service.decide_cluster(
+                CANDIDATE_ID,
+                candidate_kind="RELATION",
+                action="MERGE",
+                member_ids=[TARGET_DOCUMENT_ID, other_item],
+                relation_type=None,
+                reviewer_id=REVIEWER_ID,
+                reason="关系不能按重复合并",
+            )
+        )

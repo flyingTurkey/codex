@@ -292,6 +292,293 @@ class PostgresPublicationRepository:
                 )
             return True
 
+    async def decide_cluster(
+        self,
+        *,
+        candidate_id: UUID,
+        candidate_kind: str,
+        action: str,
+        member_ids: list[UUID],
+        relation_type: str | None,
+        reviewer_id: UUID,
+        reason: str,
+        decided_at: datetime,
+    ) -> None:
+        if not reason.strip():
+            raise PublicationDenied(("CLUSTER_DECISION_REASON_REQUIRED",))
+        if len(set(member_ids)) < 2:
+            raise PublicationDenied(("CLUSTER_MEMBERS_INVALID",))
+        decision_id = uuid7()
+        async with self._engine.begin() as connection:
+            if candidate_kind == "DUPLICATE":
+                candidate = (
+                    (
+                        await connection.execute(
+                            text(
+                                """
+                                SELECT id, left_item_id, right_item_id, hard_conflicts, status
+                                FROM duplicate_candidate
+                                WHERE id = :candidate_id FOR UPDATE
+                                """
+                            ),
+                            {"candidate_id": candidate_id},
+                        )
+                    )
+                    .mappings()
+                    .first()
+                )
+                if candidate is None or candidate["status"] != "PENDING_REVIEW":
+                    raise PublicationDenied(("DUPLICATE_CANDIDATE_NOT_PENDING",))
+                expected = {candidate["left_item_id"], candidate["right_item_id"]}
+                if set(member_ids) != expected:
+                    raise PublicationDenied(("DUPLICATE_CANDIDATE_MEMBERS_MISMATCH",))
+                if action == "MERGE" and candidate["hard_conflicts"]:
+                    raise PublicationDenied(("DUPLICATE_HARD_CONSTRAINT_BLOCKED",))
+                await connection.execute(
+                    text(
+                        """
+                        INSERT INTO duplicate_decision (
+                            id, candidate_id, action, relation_type, reason,
+                            reviewed_by, reviewed_at
+                        ) VALUES (
+                            :id, :candidate_id, :action, :relation_type, :reason,
+                            :reviewer_id, :decided_at
+                        )
+                        """
+                    ),
+                    {
+                        "id": decision_id,
+                        "candidate_id": candidate_id,
+                        "action": action,
+                        "relation_type": relation_type,
+                        "reason": reason.strip(),
+                        "reviewer_id": reviewer_id,
+                        "decided_at": decided_at,
+                    },
+                )
+                await connection.execute(
+                    text(
+                        "UPDATE duplicate_candidate SET status = :status WHERE id = :candidate_id"
+                    ),
+                    {
+                        "status": "REJECTED" if action == "KEEP_DISTINCT" else "ACCEPTED",
+                        "candidate_id": candidate_id,
+                    },
+                )
+                if action == "MERGE":
+                    canonical, duplicate = sorted(member_ids, key=str)
+                    await connection.execute(
+                        text(
+                            """
+                            INSERT INTO duplicate_link (
+                                id, canonical_item_id, duplicate_item_id, decision_id, linked_at
+                            ) VALUES (:id, :canonical, :duplicate, :decision_id, :decided_at)
+                            """
+                        ),
+                        {
+                            "id": uuid7(),
+                            "canonical": canonical,
+                            "duplicate": duplicate,
+                            "decision_id": decision_id,
+                            "decided_at": decided_at,
+                        },
+                    )
+            elif candidate_kind == "EVENT":
+                await _decide_event_item_candidate(
+                    connection,
+                    candidate_id=candidate_id,
+                    action="ACCEPT" if action == "MERGE" else "REJECT",
+                    reviewer_id=reviewer_id,
+                    reason=reason.strip(),
+                    decided_at=decided_at,
+                )
+            elif candidate_kind == "RELATION":
+                await _decide_event_relation_candidate(
+                    connection,
+                    candidate_id=candidate_id,
+                    action="ACCEPT" if action == "LINK_RELATION" else "REJECT",
+                    reviewer_id=reviewer_id,
+                    reason=reason.strip(),
+                    decided_at=decided_at,
+                )
+            elif candidate_kind == "TOPIC":
+                topic_status = "CONFIRMED" if action == "MERGE" else "REJECTED"
+                updated = await connection.execute(
+                    text(
+                        """
+                        UPDATE topic_cluster SET status = :status, updated_at = :decided_at
+                        WHERE id = :candidate_id AND status = 'PENDING_REVIEW'
+                        """
+                    ),
+                    {
+                        "status": topic_status,
+                        "decided_at": decided_at,
+                        "candidate_id": candidate_id,
+                    },
+                )
+                if updated.rowcount != 1:
+                    raise PublicationDenied(("TOPIC_CANDIDATE_NOT_PENDING",))
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO cluster_decision (
+                        id, candidate_kind, candidate_id, action, member_ids,
+                        relation_type, reason, reviewed_by, reviewed_at
+                    ) VALUES (
+                        :id, :candidate_kind, :candidate_id, :action, :member_ids,
+                        :relation_type, :reason, :reviewer_id, :decided_at
+                    )
+                    """
+                ),
+                {
+                    "id": uuid7(),
+                    "candidate_kind": candidate_kind,
+                    "candidate_id": candidate_id,
+                    "action": action,
+                    "member_ids": member_ids,
+                    "relation_type": relation_type,
+                    "reason": reason.strip(),
+                    "reviewer_id": reviewer_id,
+                    "decided_at": decided_at,
+                },
+            )
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO resolution_regression_sample (
+                        id, sample_kind, decision_id, payload, created_at
+                    ) VALUES (
+                        :id, :sample_kind, :decision_id, CAST(:payload AS jsonb), :created_at
+                    )
+                    """
+                ),
+                {
+                    "id": uuid7(),
+                    "sample_kind": candidate_kind,
+                    "decision_id": decision_id,
+                    "payload": _json(
+                        {
+                            "candidate_id": str(candidate_id),
+                            "action": action,
+                            "member_ids": [str(value) for value in member_ids],
+                            "relation_type": relation_type,
+                        }
+                    ),
+                    "created_at": decided_at,
+                },
+            )
+            await _append_audit(
+                connection,
+                event_type=f"CLUSTER_{candidate_kind}_{action}",
+                actor_id=reviewer_id,
+                target_type="cluster_candidate",
+                target_id=candidate_id,
+                after_state={"member_ids": [str(value) for value in member_ids]},
+                reason=reason.strip(),
+                request_id=str(candidate_id),
+                now=decided_at,
+            )
+
+    async def override_score(
+        self,
+        *,
+        item_id: UUID,
+        dimension: object,
+        score: int,
+        reviewer_id: UUID,
+        reason: str,
+        decided_at: datetime,
+    ) -> None:
+        if not reason.strip():
+            raise PublicationDenied(("SCORE_OVERRIDE_REASON_REQUIRED",))
+        dimension_value = getattr(dimension, "value", str(dimension))
+        async with self._engine.begin() as connection:
+            score_row = (
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT dimension.id
+                            FROM score_set score_set
+                            JOIN score_dimension dimension
+                              ON dimension.score_set_id = score_set.id
+                            WHERE score_set.item_id = :item_id
+                              AND score_set.is_current
+                              AND dimension.dimension = :dimension
+                            ORDER BY score_set.calculated_at DESC, score_set.id DESC
+                            LIMIT 1 FOR UPDATE OF dimension
+                            """
+                        ),
+                        {"item_id": item_id, "dimension": dimension_value},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            if score_row is None:
+                raise PublicationDenied(("SCORE_DIMENSION_NOT_AVAILABLE",))
+            previous_id = await connection.scalar(
+                text(
+                    """
+                    SELECT id FROM score_override
+                    WHERE score_dimension_id = :score_dimension_id
+                    ORDER BY reviewed_at DESC, id DESC LIMIT 1
+                    """
+                ),
+                {"score_dimension_id": score_row["id"]},
+            )
+            override_id = uuid7()
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO score_override (
+                        id, score_dimension_id, score, reason, reviewed_by,
+                        reviewed_at, supersedes_override_id
+                    ) VALUES (
+                        :id, :score_dimension_id, :score, :reason, :reviewer_id,
+                        :reviewed_at, :previous_id
+                    )
+                    """
+                ),
+                {
+                    "id": override_id,
+                    "score_dimension_id": score_row["id"],
+                    "score": score,
+                    "reason": reason.strip(),
+                    "reviewer_id": reviewer_id,
+                    "reviewed_at": decided_at,
+                    "previous_id": previous_id,
+                },
+            )
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO resolution_regression_sample (
+                        id, sample_kind, decision_id, payload, created_at
+                    ) VALUES (:id, 'SCORE', :decision_id, CAST(:payload AS jsonb), :created_at)
+                    """
+                ),
+                {
+                    "id": uuid7(),
+                    "decision_id": override_id,
+                    "payload": _json(
+                        {"item_id": str(item_id), "dimension": dimension_value, "score": score}
+                    ),
+                    "created_at": decided_at,
+                },
+            )
+            await _append_audit(
+                connection,
+                event_type="SCORE_OVERRIDE_CREATED",
+                actor_id=reviewer_id,
+                target_type="intelligence_item",
+                target_id=item_id,
+                after_state={"dimension": dimension_value, "score": score},
+                reason=reason.strip(),
+                request_id=str(override_id),
+                now=decided_at,
+            )
+
     @asynccontextmanager
     async def approval_transaction(
         self,
@@ -662,7 +949,9 @@ class PostgresPublicationRepository:
                         ),
                         {"candidate_id": candidate_id},
                     )
-                ).mappings().first()
+                )
+                .mappings()
+                .first()
             )
             if candidate is None or candidate["status"] != "PENDING_REVIEW":
                 raise PublicationDenied(("PRODUCT_NORMALIZATION_CANDIDATE_NOT_PENDING",))
@@ -2781,7 +3070,9 @@ async def _decide_paper_relation_candidate(
                 ),
                 {"candidate_id": candidate_id},
             )
-        ).mappings().first()
+        )
+        .mappings()
+        .first()
     )
     if candidate is None:
         raise PublicationDenied(("PAPER_RELATION_CANDIDATE_NOT_FOUND",))
@@ -4173,7 +4464,9 @@ async def _round06_gate_facts(
                 ),
                 {"item_id": item_id},
             )
-        ).mappings().one()
+        )
+        .mappings()
+        .one()
     )
     pending_duplicates = int(
         await connection.scalar(
@@ -4282,7 +4575,9 @@ async def _round07_gate_facts(
                 ),
                 {"item_id": item_id},
             )
-        ).mappings().one()
+        )
+        .mappings()
+        .one()
     )
     capabilities = list(
         (
@@ -4372,8 +4667,7 @@ async def _round07_gate_facts(
         or 0
     )
     promotional_claims_attributed = all(
-        capability["kind"] != "PROMOTIONAL_CLAIM"
-        or bool(str(capability["attribution"]).strip())
+        capability["kind"] != "PROMOTIONAL_CLAIM" or bool(str(capability["attribution"]).strip())
         for capability in capabilities
     )
     public_text = [str(capability["statement"]) for capability in capabilities]

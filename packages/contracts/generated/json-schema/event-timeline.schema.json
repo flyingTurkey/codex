@@ -42,7 +42,15 @@
           "title": "Evidence Count"
         },
         "incident_status": {
-          "$ref": "#/$defs/IncidentStatus"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IncidentStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "item_id": {
           "format": "uuid",
@@ -79,7 +87,15 @@
           "default": null
         },
         "report_stage": {
-          "$ref": "#/$defs/SafetyCaseReportStage"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SafetyCaseReportStage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "review_status": {
           "$ref": "#/$defs/ReviewStatus"
@@ -112,8 +128,6 @@
       "required": [
         "item_id",
         "title",
-        "report_stage",
-        "incident_status",
         "source_name",
         "source_published_at",
         "original_url",

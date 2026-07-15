@@ -1009,6 +1009,17 @@
         "review_status": {
           "$ref": "#/$defs/ReviewStatus"
         },
+        "scores": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScoreSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "source_name": {
           "maxLength": 200,
           "minLength": 1,
@@ -2416,6 +2427,218 @@
         "classification"
       ],
       "title": "SafetyRegulationTypeSummary",
+      "type": "object"
+    },
+    "ScoreDimension": {
+      "enum": [
+        "RELEVANCE",
+        "AUTHORITY",
+        "IMPACT",
+        "NOVELTY",
+        "TIMELINESS",
+        "EVIDENCE",
+        "CONFIDENCE",
+        "HEAT"
+      ],
+      "title": "ScoreDimension",
+      "type": "string"
+    },
+    "ScoreDimensionSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "calculated_at": {
+          "format": "date-time",
+          "title": "Calculated At",
+          "type": "string"
+        },
+        "dimension": {
+          "$ref": "#/$defs/ScoreDimension"
+        },
+        "features": {
+          "items": {
+            "$ref": "#/$defs/ScoreFeature"
+          },
+          "maxItems": 20,
+          "title": "Features",
+          "type": "array"
+        },
+        "overridden": {
+          "default": false,
+          "title": "Overridden",
+          "type": "boolean"
+        },
+        "override_reason": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Override Reason"
+        },
+        "raw_score": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Raw Score",
+          "type": "integer"
+        },
+        "rule_version": {
+          "const": "scoring-v1.0.0",
+          "title": "Rule Version",
+          "type": "string"
+        },
+        "score": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Score",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "dimension",
+        "raw_score",
+        "score",
+        "features",
+        "rule_version",
+        "calculated_at"
+      ],
+      "title": "ScoreDimensionSummary",
+      "type": "object"
+    },
+    "ScoreFeature": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "pattern": "^[A-Z][A-Z0-9_]{1,79}$",
+          "title": "Code",
+          "type": "string"
+        },
+        "explanation": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Explanation",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "points": {
+          "maximum": 100,
+          "minimum": -100,
+          "title": "Points",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "code",
+        "label",
+        "points",
+        "explanation"
+      ],
+      "title": "ScoreFeature",
+      "type": "object"
+    },
+    "ScoreSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "authority": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScoreDimensionSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScoreDimensionSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "evidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScoreDimensionSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "heat": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScoreDimensionSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "impact": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScoreDimensionSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "novelty": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScoreDimensionSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "relevance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScoreDimensionSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "timeliness": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScoreDimensionSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "ScoreSummary",
       "type": "object"
     },
     "SimilarPaper": {

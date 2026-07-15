@@ -10,6 +10,8 @@ def test_exported_json_schemas_are_deterministic(tmp_path: Path) -> None:
     contract_export.write_schemas(tmp_path)
 
     expected_names = {
+        "cluster-candidate-view.schema.json",
+        "cluster-decision-request.schema.json",
         "claim-view.schema.json",
         "claim-conflict.schema.json",
         "claim-conflict-decision-request.schema.json",
@@ -29,6 +31,7 @@ def test_exported_json_schemas_are_deterministic(tmp_path: Path) -> None:
         "event-timeline.schema.json",
         "feed-notice.schema.json",
         "feed-page.schema.json",
+        "hot-topic-page.schema.json",
         "fixture-upload-response.schema.json",
         "liveness-response.schema.json",
         "item-detail.schema.json",
@@ -44,7 +47,10 @@ def test_exported_json_schemas_are_deterministic(tmp_path: Path) -> None:
         "review-candidate-decision-request.schema.json",
         "review-task-detail.schema.json",
         "review-task-summary.schema.json",
+        "score-override-request.schema.json",
+        "score-summary.schema.json",
         "source-action-request.schema.json",
+        "source-comparison.schema.json",
         "source-detail.schema.json",
         "source-onboarding-submission.schema.json",
         "source-policy-submission.schema.json",
@@ -89,6 +95,8 @@ def test_generated_types_expose_health_and_version_contracts() -> None:
     assert "export type { TypeSummary }" in generated_types
     assert "export type { SafetyCaseTypeSummary }" in generated_types
     assert "export type { EventDetail }" in generated_types
+    assert "export type { ScoreSummary }" in generated_types
+    assert "export type { HotTopicPage }" in generated_types
     assert "export type { ClaimConflict }" in generated_types
     assert "export type { ClaimConflictDecisionRequest }" in generated_types
     assert "export type { ReadinessResponse }" in generated_types

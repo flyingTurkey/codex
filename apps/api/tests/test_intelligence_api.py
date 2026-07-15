@@ -6,13 +6,16 @@ from fastapi.testclient import TestClient
 from srbg_api.main import create_app
 from srbg_api.safety_regulations.query import InvalidFeedCursor, _decode_cursor, _encode_cursor
 from srbg_contracts import (
+    ClusterCandidateView,
     FeedNotice,
     FeedPage,
+    HotTopicPage,
     ItemDetail,
     ItemSummary,
     ReviewDecisionResponse,
     ReviewTaskDetail,
     ReviewTaskSummary,
+    SourceComparison,
 )
 
 ITEM_ID = UUID("019b0000-0000-7000-8000-000000006001")
@@ -90,6 +93,36 @@ class StubQueryService:
         assert citation_format == "gb-t-7714"
         return "张三. 桥梁数字孪生研究[J]. 中国公路学报, 2025.", "text/plain; charset=utf-8"
 
+    async def list_hot_topics(self, **arguments: object) -> HotTopicPage:
+        assert arguments["window_days"] in {7, 14, 30}
+        return HotTopicPage(
+            items=[],
+            generated_at=NOW,
+            evaluation_tier="INTERNAL_TEST_FIXTURE",
+            auto_merge_enabled=False,
+        )
+
+    async def get_source_comparison(self, event_id: UUID) -> SourceComparison:
+        return SourceComparison(event_id=event_id, independent_source_count=0, sources=[])
+
+    async def list_cluster_candidates(
+        self, *, kind: str, status: str
+    ) -> list[ClusterCandidateView]:
+        assert kind == "DUPLICATE"
+        assert status == "PENDING_REVIEW"
+        return [
+            ClusterCandidateView(
+                id=TASK_ID,
+                kind="DUPLICATE",
+                status="PENDING_REVIEW",
+                member_ids=[ITEM_ID, UUID("019b0000-0000-7000-8000-000000006009")],
+                score_bps=9800,
+                feature_explanations=["标题相似"],
+                hard_conflicts=[],
+                created_at=NOW,
+            )
+        ]
+
     async def list_review_tasks(self) -> list[ReviewTaskSummary]:
         return [
             ReviewTaskSummary(
@@ -113,6 +146,8 @@ class StubPublicationService:
     reviewer_id: UUID | None = None
     digital_case_patch: object | None = None
     product_normalization_action: str | None = None
+    cluster_action: str | None = None
+    score_override: tuple[str, int] | None = None
 
     async def decide_review(
         self,
@@ -146,6 +181,17 @@ class StubPublicationService:
         assert reason
         assert reviewer_id == REVIEWER_ID
         self.product_normalization_action = action
+
+    async def decide_cluster(self, candidate_id: UUID, **values: object) -> None:
+        assert candidate_id == TASK_ID
+        assert values["reason"]
+        assert values["reviewer_id"] == REVIEWER_ID
+        self.cluster_action = str(values["action"])
+
+    async def override_score(self, item_id: UUID, **values: object) -> None:
+        assert item_id == ITEM_ID
+        assert values["reviewer_id"] == REVIEWER_ID
+        self.score_override = (str(values["dimension"]), int(values["score"]))
 
 
 def _client() -> tuple[TestClient, StubPublicationService]:
@@ -204,6 +250,65 @@ def test_viewer_cannot_approve_and_request_cannot_smuggle_publication_state() ->
 
     assert denied.status_code == 403
     assert smuggled.status_code == 422
+
+
+def test_hot_topics_are_readable_but_cluster_and_score_writes_are_reviewer_only() -> None:
+    client, publication = _client()
+    viewer = {"X-SRBG-Local-Roles": "viewer"}
+    reviewer = {
+        "X-SRBG-Local-Roles": "reviewer",
+        "X-SRBG-Local-User-ID": str(REVIEWER_ID),
+    }
+    other_item = "019b0000-0000-7000-8000-000000006009"
+
+    hot = client.get("/api/v1/hot-topics?window=14d", headers=viewer)
+    denied = client.post(
+        f"/api/v1/admin/clustering-workbench/DUPLICATE/{TASK_ID}/decisions",
+        headers=viewer,
+        json={
+            "action": "MERGE",
+            "member_ids": [str(ITEM_ID), other_item],
+            "reason": "证据一致",
+        },
+    )
+    queue = client.get(
+        "/api/v1/admin/clustering-workbench?kind=DUPLICATE&status=PENDING_REVIEW",
+        headers=reviewer,
+    )
+    decided = client.post(
+        f"/api/v1/admin/clustering-workbench/DUPLICATE/{TASK_ID}/decisions",
+        headers=reviewer,
+        json={
+            "action": "MERGE",
+            "member_ids": [str(ITEM_ID), other_item],
+            "reason": "同一项目、标段和阶段, 证据一致",
+        },
+    )
+    overridden = client.post(
+        f"/api/v1/admin/items/{ITEM_ID}/score-overrides",
+        headers=reviewer,
+        json={"dimension": "IMPACT", "score": 70, "reason": "正式文件确认影响范围"},
+    )
+    smuggled = client.post(
+        f"/api/v1/admin/items/{ITEM_ID}/score-overrides",
+        headers=reviewer,
+        json={
+            "dimension": "IMPACT",
+            "score": 70,
+            "reason": "正式文件确认影响范围",
+            "publication_status": "PUBLISHED",
+        },
+    )
+
+    assert hot.status_code == 200
+    assert hot.json()["auto_merge_enabled"] is False
+    assert denied.status_code == 403
+    assert queue.status_code == 200
+    assert decided.status_code == 204
+    assert overridden.status_code == 204
+    assert smuggled.status_code == 422
+    assert publication.cluster_action == "MERGE"
+    assert publication.score_override == ("IMPACT", 70)
 
 
 def test_reviewer_identity_is_server_parsed_and_passed_to_publication_service() -> None:
@@ -267,9 +372,7 @@ def test_paper_filters_and_citation_use_existing_item_resource() -> None:
         "&paper_type=ARTICLE&access_level=METADATA_ONLY&year=2025",
         headers=headers,
     )
-    citation = client.get(
-        f"/api/v1/items/{ITEM_ID}/citation?format=gb-t-7714", headers=headers
-    )
+    citation = client.get(f"/api/v1/items/{ITEM_ID}/citation?format=gb-t-7714", headers=headers)
 
     assert feed.status_code == 200
     assert query.feed_arguments is not None

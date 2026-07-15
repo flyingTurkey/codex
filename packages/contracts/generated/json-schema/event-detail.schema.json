@@ -128,7 +128,15 @@
           "title": "Evidence Count"
         },
         "incident_status": {
-          "$ref": "#/$defs/IncidentStatus"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IncidentStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "item_id": {
           "format": "uuid",
@@ -165,7 +173,15 @@
           "default": null
         },
         "report_stage": {
-          "$ref": "#/$defs/SafetyCaseReportStage"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SafetyCaseReportStage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "review_status": {
           "$ref": "#/$defs/ReviewStatus"
@@ -198,8 +214,6 @@
       "required": [
         "item_id",
         "title",
-        "report_stage",
-        "incident_status",
         "source_name",
         "source_published_at",
         "original_url",
@@ -292,6 +306,17 @@
       "title": "EventTimeline",
       "type": "object"
     },
+    "EventType": {
+      "enum": [
+        "SAFETY_INCIDENT",
+        "REGULATION_CHANGE",
+        "DIGITAL_PROJECT",
+        "RESEARCH_RESULT",
+        "PRODUCT_RELEASE"
+      ],
+      "title": "EventType",
+      "type": "string"
+    },
     "IncidentStatus": {
       "enum": [
         "UNVERIFIED_LEAD",
@@ -357,6 +382,218 @@
       ],
       "title": "SafetyCaseReportStage",
       "type": "string"
+    },
+    "ScoreDimension": {
+      "enum": [
+        "RELEVANCE",
+        "AUTHORITY",
+        "IMPACT",
+        "NOVELTY",
+        "TIMELINESS",
+        "EVIDENCE",
+        "CONFIDENCE",
+        "HEAT"
+      ],
+      "title": "ScoreDimension",
+      "type": "string"
+    },
+    "ScoreDimensionSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "calculated_at": {
+          "format": "date-time",
+          "title": "Calculated At",
+          "type": "string"
+        },
+        "dimension": {
+          "$ref": "#/$defs/ScoreDimension"
+        },
+        "features": {
+          "items": {
+            "$ref": "#/$defs/ScoreFeature"
+          },
+          "maxItems": 20,
+          "title": "Features",
+          "type": "array"
+        },
+        "overridden": {
+          "default": false,
+          "title": "Overridden",
+          "type": "boolean"
+        },
+        "override_reason": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Override Reason"
+        },
+        "raw_score": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Raw Score",
+          "type": "integer"
+        },
+        "rule_version": {
+          "const": "scoring-v1.0.0",
+          "title": "Rule Version",
+          "type": "string"
+        },
+        "score": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Score",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "dimension",
+        "raw_score",
+        "score",
+        "features",
+        "rule_version",
+        "calculated_at"
+      ],
+      "title": "ScoreDimensionSummary",
+      "type": "object"
+    },
+    "ScoreFeature": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "pattern": "^[A-Z][A-Z0-9_]{1,79}$",
+          "title": "Code",
+          "type": "string"
+        },
+        "explanation": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Explanation",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "points": {
+          "maximum": 100,
+          "minimum": -100,
+          "title": "Points",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "code",
+        "label",
+        "points",
+        "explanation"
+      ],
+      "title": "ScoreFeature",
+      "type": "object"
+    },
+    "ScoreSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "authority": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScoreDimensionSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScoreDimensionSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "evidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScoreDimensionSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "heat": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScoreDimensionSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "impact": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScoreDimensionSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "novelty": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScoreDimensionSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "relevance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScoreDimensionSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "timeliness": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScoreDimensionSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "ScoreSummary",
+      "type": "object"
     },
     "SimilarScenarioTag": {
       "enum": [
@@ -482,6 +719,10 @@
       "default": null,
       "title": "Engineering Type"
     },
+    "event_type": {
+      "$ref": "#/$defs/EventType",
+      "default": "SAFETY_INCIDENT"
+    },
     "hazard_type": {
       "anyOf": [
         {
@@ -502,7 +743,21 @@
       "type": "string"
     },
     "incident_status": {
-      "$ref": "#/$defs/IncidentStatus"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/IncidentStatus"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "independent_source_count": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Independent Source Count",
+      "type": "integer"
     },
     "occurred_at": {
       "anyOf": [
@@ -571,6 +826,17 @@
       "title": "Relations",
       "type": "array"
     },
+    "scores": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ScoreSummary"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "similar_scenario_tags": {
       "items": {
         "$ref": "#/$defs/SimilarScenarioTag"
@@ -587,6 +853,14 @@
       "title": "Title",
       "type": "string"
     },
+    "topic_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Topic Ids",
+      "type": "array"
+    },
     "unverified_facts": {
       "items": {
         "$ref": "#/$defs/UnverifiedFact"
@@ -598,7 +872,6 @@
   "required": [
     "id",
     "title",
-    "incident_status",
     "confirmed_facts",
     "unverified_facts",
     "timeline",

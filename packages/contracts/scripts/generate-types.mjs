@@ -12,6 +12,8 @@ const schemaFiles = (await readdir(schemaDir))
   .sort()
 
 const publicExports = {
+  'cluster-candidate-view.schema.json': ['ClusterCandidateView'],
+  'cluster-decision-request.schema.json': ['ClusterDecisionRequest'],
   'claim-view.schema.json': ['ClaimView'],
   'claim-conflict.schema.json': ['ClaimConflict'],
   'claim-conflict-decision-request.schema.json': ['ClaimConflictDecisionRequest'],
@@ -52,6 +54,7 @@ const publicExports = {
   'event-timeline.schema.json': ['EventTimeline'],
   'feed-notice.schema.json': ['FeedNotice'],
   'feed-page.schema.json': ['FeedPage'],
+  'hot-topic-page.schema.json': ['HotTopicPage', 'HotTopicSummary'],
   'fixture-upload-response.schema.json': ['FixtureUploadResponse'],
   'liveness-response.schema.json': ['LivenessResponse'],
   'item-summary.schema.json': ['ItemSummary'],
@@ -59,12 +62,19 @@ const publicExports = {
   'me-response.schema.json': ['MeResponse'],
   'problem-details.schema.json': ['ProblemDetails'],
   'readiness-response.schema.json': ['DependencyCheck', 'ReadinessResponse'],
+  'score-override-request.schema.json': ['ScoreOverrideRequest'],
+  'score-summary.schema.json': [
+    'ScoreSummary',
+    'ScoreDimensionSummary',
+    'ScoreFeature',
+  ],
   'review-decision-request.schema.json': ['ReviewDecisionRequest'],
   'review-decision-response.schema.json': ['ReviewDecisionResponse'],
   'review-candidate-decision-request.schema.json': ['ReviewCandidateDecisionRequest'],
   'review-task-detail.schema.json': ['ReviewTaskDetail'],
   'review-task-summary.schema.json': ['ReviewTaskSummary'],
   'source-action-request.schema.json': ['SourceActionRequest'],
+  'source-comparison.schema.json': ['SourceComparison', 'SourceComparisonEntry'],
   'source-detail.schema.json': ['SourceDetail'],
   'source-onboarding-submission.schema.json': ['SourceOnboardingSubmission'],
   'source-policy-submission.schema.json': ['SourcePolicySubmission'],

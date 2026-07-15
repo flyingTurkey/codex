@@ -56,11 +56,16 @@ describe('application shell contract', () => {
       ['全部动态', '/all'],
       ['数字化', '/digital'],
       ['安全情报', '/safety'],
+      ['行业热点', '/hot'],
       ['行业日报', '/daily'],
       ['收藏', '/saved'],
     ])
     expect(primaryNavigation[0]?.activePaths).toEqual(['/selected'])
-    expect(adminNavigation.map((item) => item.label)).toEqual(['管理入口', '审核工作台'])
+    expect(adminNavigation.map((item) => item.label)).toEqual([
+      '管理入口',
+      '审核工作台',
+      '聚类工作台',
+    ])
 
     const layoutSource = readAppFile('layouts/default.vue')
     expect(layoutSource.match(/<AppShell(?:\s|>)/g)).toHaveLength(1)

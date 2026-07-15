@@ -31,12 +31,12 @@ export interface EventTimeline {
 export interface EventItem {
   document_states?: DocumentStates
   evidence_count?: EvidenceCount
-  incident_status: IncidentStatus
+  incident_status?: IncidentStatus | null
   item_id: ItemId
   original_url: OriginalUrl
   publication_revision_id: PublicationRevisionId
   relation_type?: EventRelation | null
-  report_stage: SafetyCaseReportStage
+  report_stage?: SafetyCaseReportStage | null
   review_status: ReviewStatus
   source_name: SourceName
   source_published_at: SourcePublishedAt

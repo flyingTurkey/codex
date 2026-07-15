@@ -119,7 +119,7 @@ def test_suite_uses_only_unique_temporary_database_and_bucket(
     suite_command, suite_environment = processes.calls[1]
     assert migration_command == (
         "python",
-        "scripts/verify_round07_migration.py",
+        "scripts/verify_round08_migration.py",
     )
     assert migration_environment["SRBG_DATABASE_URL"].endswith(
         "/srbg_it_0123456789abcdef01234567"

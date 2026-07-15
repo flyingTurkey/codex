@@ -1,0 +1,117 @@
+{
+  "$defs": {
+    "Channel": {
+      "enum": [
+        "DIGITAL",
+        "SAFETY"
+      ],
+      "title": "Channel",
+      "type": "string"
+    },
+    "HotTopicSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "domain": {
+          "$ref": "#/$defs/Channel"
+        },
+        "event_count": {
+          "minimum": 1,
+          "title": "Event Count",
+          "type": "integer"
+        },
+        "heat_score": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Heat Score",
+          "type": "integer"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "independent_source_count": {
+          "minimum": 0,
+          "title": "Independent Source Count",
+          "type": "integer"
+        },
+        "latest_activity_at": {
+          "format": "date-time",
+          "title": "Latest Activity At",
+          "type": "string"
+        },
+        "rule_version": {
+          "const": "scoring-v1.0.0",
+          "title": "Rule Version",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "domain",
+        "heat_score",
+        "event_count",
+        "independent_source_count",
+        "latest_activity_at",
+        "rule_version"
+      ],
+      "title": "HotTopicSummary",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "auto_merge_enabled": {
+      "const": false,
+      "default": false,
+      "title": "Auto Merge Enabled",
+      "type": "boolean"
+    },
+    "evaluation_tier": {
+      "enum": [
+        "INTERNAL_TEST_FIXTURE",
+        "HUMAN_GOLD"
+      ],
+      "title": "Evaluation Tier",
+      "type": "string"
+    },
+    "generated_at": {
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/HotTopicSummary"
+      },
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Next Cursor"
+    }
+  },
+  "required": [
+    "items",
+    "generated_at",
+    "evaluation_tier"
+  ],
+  "title": "HotTopicPage",
+  "type": "object"
+}

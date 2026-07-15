@@ -867,10 +867,7 @@ class ProductCapability(ContractModel):
             and not self.independent_evidence_ids
         ):
             raise ValueError("verified product capabilities require independent evidence")
-        if (
-            self.kind is ProductCapabilityKind.PROMOTIONAL_CLAIM
-            and self.independent_evidence_ids
-        ):
+        if self.kind is ProductCapabilityKind.PROMOTIONAL_CLAIM and self.independent_evidence_ids:
             raise ValueError("promotional claims cannot carry independent verification")
         return self
 
@@ -903,9 +900,7 @@ class TechnologyProductDetail(ContractModel):
     permit_status: ProductPermitStatus
     limitations: list[str] = Field(max_length=50)
     procurement_notice: Literal["仅供技术调研，不构成采购建议"]  # noqa: RUF001
-    low_altitude_notice: Literal[
-        "产品发布不代表空域、适航、飞手和项目许可。"
-    ] | None = None
+    low_altitude_notice: Literal["产品发布不代表空域、适航、飞手和项目许可。"] | None = None
 
     @model_validator(mode="after")
     def keep_capability_groups_separate(self) -> "TechnologyProductDetail":
@@ -935,6 +930,163 @@ class ProductNormalizationCandidateView(ContractModel):
 
 class ProductNormalizationDecisionRequest(ContractModel):
     action: Literal["MERGE_ALIAS", "LINK_AS_NEW_VERSION", "KEEP_DISTINCT"]
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class ScoreDimension(StrEnum):
+    RELEVANCE = "RELEVANCE"
+    AUTHORITY = "AUTHORITY"
+    IMPACT = "IMPACT"
+    NOVELTY = "NOVELTY"
+    TIMELINESS = "TIMELINESS"
+    EVIDENCE = "EVIDENCE"
+    CONFIDENCE = "CONFIDENCE"
+    HEAT = "HEAT"
+
+
+class ScoreFeature(ContractModel):
+    code: str = Field(pattern=r"^[A-Z][A-Z0-9_]{1,79}$")
+    label: str = Field(min_length=1, max_length=100)
+    points: int = Field(ge=-100, le=100)
+    explanation: str = Field(min_length=1, max_length=500)
+
+
+class ScoreDimensionSummary(ContractModel):
+    dimension: ScoreDimension
+    raw_score: int = Field(ge=0, le=100)
+    score: int = Field(ge=0, le=100)
+    features: list[ScoreFeature] = Field(max_length=20)
+    rule_version: Literal["scoring-v1.0.0"]
+    calculated_at: datetime
+    overridden: bool = False
+    override_reason: str | None = Field(default=None, min_length=1, max_length=1000)
+
+    @model_validator(mode="after")
+    def require_override_audit(self) -> "ScoreDimensionSummary":
+        if self.overridden and not self.override_reason:
+            raise ValueError("overridden scores require an override reason")
+        if not self.overridden and self.override_reason is not None:
+            raise ValueError("override reason requires overridden=true")
+        if not self.overridden and self.score != self.raw_score:
+            raise ValueError("effective score can differ only through an audited override")
+        return self
+
+
+class ScoreSummary(ContractModel):
+    relevance: ScoreDimensionSummary | None = None
+    authority: ScoreDimensionSummary | None = None
+    impact: ScoreDimensionSummary | None = None
+    novelty: ScoreDimensionSummary | None = None
+    timeliness: ScoreDimensionSummary | None = None
+    evidence: ScoreDimensionSummary | None = None
+    confidence: ScoreDimensionSummary | None = None
+    heat: ScoreDimensionSummary | None = None
+
+    @model_validator(mode="after")
+    def validate_named_dimensions(self) -> "ScoreSummary":
+        values = {
+            "relevance": ScoreDimension.RELEVANCE,
+            "authority": ScoreDimension.AUTHORITY,
+            "impact": ScoreDimension.IMPACT,
+            "novelty": ScoreDimension.NOVELTY,
+            "timeliness": ScoreDimension.TIMELINESS,
+            "evidence": ScoreDimension.EVIDENCE,
+            "confidence": ScoreDimension.CONFIDENCE,
+            "heat": ScoreDimension.HEAT,
+        }
+        if not any(getattr(self, field) is not None for field in values):
+            raise ValueError("a score summary requires at least one named dimension")
+        for field, expected in values.items():
+            value = getattr(self, field)
+            if value is not None and value.dimension is not expected:
+                raise ValueError(f"{field} must contain the {expected.value} dimension")
+        return self
+
+
+class EventType(StrEnum):
+    SAFETY_INCIDENT = "SAFETY_INCIDENT"
+    REGULATION_CHANGE = "REGULATION_CHANGE"
+    DIGITAL_PROJECT = "DIGITAL_PROJECT"
+    RESEARCH_RESULT = "RESEARCH_RESULT"
+    PRODUCT_RELEASE = "PRODUCT_RELEASE"
+
+
+class SourceLineageRole(StrEnum):
+    ORIGINAL = "ORIGINAL"
+    REPRINT = "REPRINT"
+    MIRROR = "MIRROR"
+    INDEPENDENT_REPORT = "INDEPENDENT_REPORT"
+
+
+class HotTopicSummary(ContractModel):
+    id: UUID
+    title: str = Field(min_length=1, max_length=500)
+    domain: Channel
+    heat_score: int = Field(ge=0, le=100)
+    event_count: int = Field(ge=1)
+    independent_source_count: int = Field(ge=0)
+    latest_activity_at: datetime
+    rule_version: Literal["scoring-v1.0.0"]
+
+
+class HotTopicPage(ContractModel):
+    items: list[HotTopicSummary]
+    next_cursor: str | None = None
+    generated_at: datetime
+    evaluation_tier: Literal["INTERNAL_TEST_FIXTURE", "HUMAN_GOLD"]
+    auto_merge_enabled: Literal[False] = False
+
+
+class SourceComparisonEntry(ContractModel):
+    item_id: UUID
+    source_name: str = Field(min_length=1, max_length=200)
+    organization_key: str = Field(min_length=1, max_length=200)
+    lineage_root: str = Field(min_length=1, max_length=200)
+    role: SourceLineageRole
+    source_published_at: datetime | None = None
+    original_url: HttpUrlString = Field(pattern=r"^https?://[^\s]+$", max_length=2048)
+    accepted_claim_count: int = Field(ge=0)
+    evidence_count: int = Field(ge=0)
+
+
+class SourceComparison(ContractModel):
+    event_id: UUID
+    independent_source_count: int = Field(ge=0)
+    sources: list[SourceComparisonEntry]
+
+
+class ClusterCandidateView(ContractModel):
+    id: UUID
+    kind: Literal["DUPLICATE", "EVENT", "TOPIC", "RELATION"]
+    status: Literal["PENDING_REVIEW", "ACCEPTED", "REJECTED"]
+    member_ids: list[UUID] = Field(min_length=2, max_length=1000)
+    score_bps: int | None = Field(default=None, ge=0, le=10000)
+    relation_type: str | None = Field(default=None, min_length=1, max_length=50)
+    feature_explanations: list[str] = Field(max_length=30)
+    hard_conflicts: list[str] = Field(max_length=10)
+    created_at: datetime
+
+
+class ClusterDecisionRequest(ContractModel):
+    action: Literal["MERGE", "SPLIT", "KEEP_DISTINCT", "LINK_RELATION"]
+    member_ids: list[UUID] = Field(min_length=2, max_length=1000)
+    reason: str = Field(min_length=1, max_length=1000)
+    relation_type: str | None = Field(default=None, min_length=1, max_length=50)
+
+    @model_validator(mode="after")
+    def require_relation_type(self) -> "ClusterDecisionRequest":
+        if self.action == "LINK_RELATION" and self.relation_type is None:
+            raise ValueError("relation_type is required for LINK_RELATION")
+        if self.action != "LINK_RELATION" and self.relation_type is not None:
+            raise ValueError("relation_type is only accepted for LINK_RELATION")
+        if len(set(self.member_ids)) != len(self.member_ids):
+            raise ValueError("member_ids must be unique")
+        return self
+
+
+class ScoreOverrideRequest(ContractModel):
+    dimension: ScoreDimension
+    score: int = Field(ge=0, le=100)
     reason: str = Field(min_length=1, max_length=1000)
 
 
@@ -980,6 +1132,7 @@ class ItemSummary(ContractModel):
     detail_available: bool | None = None
     document_states: list[DocumentState] | None = None
     has_version_history: bool | None = None
+    scores: ScoreSummary | None = None
 
 
 class FeedPage(ContractModel):
@@ -1039,8 +1192,8 @@ class UnverifiedFact(ContractModel):
 class EventItem(ContractModel):
     item_id: UUID
     title: str = Field(min_length=1, max_length=500)
-    report_stage: SafetyCaseReportStage
-    incident_status: IncidentStatus
+    report_stage: SafetyCaseReportStage | None = None
+    incident_status: IncidentStatus | None = None
     source_name: str = Field(min_length=1, max_length=200)
     source_published_at: datetime | None
     original_url: HttpUrlString = Field(pattern=r"^https?://[^\s]+$", max_length=2048)
@@ -1075,12 +1228,13 @@ class EventRelationView(ContractModel):
 class EventDetail(ContractModel):
     id: UUID
     title: str = Field(min_length=1, max_length=500)
+    event_type: EventType = EventType.SAFETY_INCIDENT
     project_name: str | None = Field(default=None, min_length=1, max_length=300)
     occurred_at: datetime | None = None
     region: str | None = Field(default=None, min_length=1, max_length=200)
     hazard_type: str | None = Field(default=None, min_length=1, max_length=100)
     engineering_type: str | None = Field(default=None, min_length=1, max_length=100)
-    incident_status: IncidentStatus
+    incident_status: IncidentStatus | None = None
     rectification_has_open_issues: bool | None = None
     confirmed_facts: list[ConfirmedFact]
     unverified_facts: list[UnverifiedFact]
@@ -1088,6 +1242,9 @@ class EventDetail(ContractModel):
     relations: list[EventRelationView]
     similar_scenario_tags: list[SimilarScenarioTag]
     prevention_measure_tags: list[PreventionMeasureTag]
+    topic_ids: list[UUID] = Field(default_factory=list)
+    independent_source_count: int = Field(default=0, ge=0)
+    scores: ScoreSummary | None = None
 
 
 class ClaimConflictStatus(StrEnum):

@@ -1,0 +1,17 @@
+{
+  "auto_merge_enabled": false,
+  "dedup_pair_count": 300,
+  "evaluation_tier": "INTERNAL_TEST_FIXTURE",
+  "event_cluster_count": 100,
+  "files": {
+    "dedup_pairs.v1.jsonl": {
+      "sha256": "466029db849e90189e3a290c1c5de477bf20b5d7f8a8b013edd33334abe0632f"
+    },
+    "event_clusters.v1.jsonl": {
+      "sha256": "27287d5ba3c9fc58256bd67166271f2dcfca061336ecb897c3f31554f5c4b06a"
+    }
+  },
+  "human_adjudicated": false,
+  "notice": "仅含合成元数据；指标不代表生产人工金标效果。",
+  "version": "round08-internal-v1"
+}

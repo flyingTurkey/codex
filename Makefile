@@ -46,7 +46,8 @@ export PLAYWRIGHT_BROWSERS_PATH
 
 .PHONY: setup dev runtime-ready down lint typecheck test contract-test security-check smoke \
 	resilience-test fixture-replay quality-gate web-e2e web-a11y source-fixture-test \
-	safety-regulation-test pdf-ocr-test safety-case-test digital-case-test paper-test product-test
+	safety-regulation-test pdf-ocr-test safety-case-test digital-case-test paper-test product-test \
+	round08-test round08-eval
 
 setup:
 	$(UV) sync --frozen --all-packages
@@ -125,6 +126,8 @@ fixture-replay:
 		apps/api/tests/test_round07_fixtures.py \
 		apps/api/tests/test_technology_product_domain.py \
 		apps/api/tests/test_technology_product_source.py \
+		apps/api/tests/test_round08_resolution_domain.py \
+		apps/api/tests/test_round08_evaluation.py \
 		apps/api/tests/test_publication_service.py -q
 
 quality-gate: lint typecheck test contract-test security-check
@@ -188,6 +191,18 @@ product-test:
 		apps/api/tests/test_publication_gate_v7.py \
 		apps/api/tests/test_publication_repository_round07.py \
 		packages/contracts/tests/test_technology_product_contracts.py -q
+
+round08-test:
+	$(COMPOSE) up --detach --wait postgres minio
+	$(UV) run python scripts/run_isolated_integration.py -- \
+		apps/api/tests/test_round08_migration.py \
+		apps/api/tests/test_round08_resolution_domain.py \
+		apps/api/tests/test_round08_evaluation.py \
+		apps/api/tests/test_round08_integration.py \
+		packages/contracts/tests/test_round08_contracts.py -q
+
+round08-eval:
+	$(UV) run python scripts/evaluate_round08.py
 
 web-e2e: runtime-ready
 	$(PNPM) --filter @srbg/web e2e

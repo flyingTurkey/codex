@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { EventDetail, ItemDetail, ProblemDetails } from '@srbg/contracts'
+import type { EventDetail, ItemDetail, ProblemDetails, SourceComparison as SourceComparisonContract } from '@srbg/contracts'
 import type { StatusBadgeTone } from '@srbg/ui'
 import { EmptyState, PageHeader, ProblemNotice, Skeleton, StatusBadge } from '@srbg/ui'
 import { computed, ref } from 'vue'
@@ -8,6 +8,7 @@ import EventTimeline from '../../components/EventTimeline.vue'
 import EventRelations from '../../components/EventRelations.vue'
 import EvidenceDrawer from '../../components/EvidenceDrawer.vue'
 import FactList from '../../components/FactList.vue'
+import SourceComparison from '../../components/SourceComparison.vue'
 import { safetyEngineeringLabel, safetyHazardLabel } from '../../utils/safety-case-labels'
 import { createUuidV7 } from '../../utils/uuid-v7'
 
@@ -22,6 +23,10 @@ const { data: detail, error, refresh, status } = await useFetch<EventDetail>(
     server: false,
     timeout: 5_000,
   },
+)
+const { data: sourceComparison } = await useFetch<SourceComparisonContract>(
+  `/api/v1/events/${eventId}/source-comparison`,
+  { key: `event-sources:${eventId}`, retry: 0, server: false, timeout: 5_000 },
 )
 
 const evidenceDetail = ref<ItemDetail | null>(null)
@@ -40,7 +45,7 @@ const eventStatusMap = {
   UNVERIFIED_LEAD: { label: '线索待核实', tone: 'conflict' },
   WITHDRAWN: { label: '已撤回', tone: 'withdrawn' },
 } as const satisfies Record<
-  EventDetail['incident_status'],
+  NonNullable<EventDetail['incident_status']>,
   { label: string; tone: StatusBadgeTone }
 >
 
@@ -71,7 +76,7 @@ const problem = computed<ProblemDetails | null>(() => {
 
 const statusPresentation = computed<{ label: string; tone: StatusBadgeTone } | null>(() => {
   const event = detail.value
-  if (!event) return null
+  if (!event?.incident_status) return null
   if (event.incident_status === 'RECTIFICATION_FOLLOW_UP' && event.rectification_has_open_issues) {
     return { label: '整改评估完成但仍有问题', tone: 'conflict' }
   }
@@ -221,6 +226,8 @@ async function openEvidence(itemId: string): Promise<void> {
       </p>
 
       <EventTimeline :items="detail.timeline.items" />
+
+      <SourceComparison v-if="sourceComparison" :comparison="sourceComparison" />
 
       <EventRelations :items="detail.timeline.items" :relations="detail.relations" />
 

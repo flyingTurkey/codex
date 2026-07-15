@@ -123,6 +123,22 @@ export type PublicationRevisionId = string | null
 export type PublicationStatus = 'PENDING_REVIEW' | 'PUBLISHED' | 'WITHDRAWN'
 export type RelevanceReason = string | null
 export type ReviewStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
+export type CalculatedAt = string
+export type ScoreDimension =
+  'RELEVANCE' | 'AUTHORITY' | 'IMPACT' | 'NOVELTY' | 'TIMELINESS' | 'EVIDENCE' | 'CONFIDENCE' | 'HEAT'
+export type Code = string
+export type Explanation = string
+export type Label1 = string
+export type Points = number
+/**
+ * @maxItems 20
+ */
+export type Features = ScoreFeature[]
+export type Overridden = boolean
+export type OverrideReason = string | null
+export type RawScore = number
+export type RuleVersion = 'scoring-v1.0.0'
+export type Score = number
 export type SourceName = string
 export type SourcePublishedAt = string | null
 export type SourceRole = string | null
@@ -210,16 +226,16 @@ export type ApplicationScenarios1 = string[]
 export type DeploymentScale1 = string | null
 export type Kind2 = 'DIGITAL_CASE'
 export type PublisherClaimLabel = string | null
-export type Code = 'ENGINEERING_DOMAIN' | 'SICHUAN' | 'SRBG_DIRECT'
-export type Label1 = string
-export type Points = number
+export type Code1 = 'ENGINEERING_DOMAIN' | 'SICHUAN' | 'SRBG_DIRECT'
+export type Label2 = string
+export type Points1 = number
 /**
  * @minItems 1
  * @maxItems 3
  */
 export type Factors = RelevanceFactor[]
-export type RuleVersion = 'relevance-v1.0.0'
-export type Score = number
+export type RuleVersion1 = 'relevance-v1.0.0'
+export type Score1 = number
 export type DigitalCaseSourceNature = 'GOVERNMENT_CASE_COLLECTION' | 'ENTERPRISE_SELF_REPORT'
 export type SrbgRelationship = string
 export type PaperAccessLevel = 'METADATA_ONLY' | 'ABSTRACT_ALLOWED' | 'OPEN_FULLTEXT'
@@ -302,7 +318,7 @@ export type PromotionalClaimCount3 = number
 export type VendorName3 = string
 export type VerifiedCapabilityCount3 = number
 export type Version3 = string | null
-export type Code1 = string
+export type Code2 = string
 export type Level = 'info' | 'warning' | 'error'
 export type Message = string
 export type Abstract = string | null
@@ -543,12 +559,39 @@ export interface ItemSummary {
   publication_status?: PublicationStatus | null
   relevance_reason?: RelevanceReason
   review_status: ReviewStatus
+  scores?: ScoreSummary | null
   source_name: SourceName
   source_published_at: SourcePublishedAt
   source_role?: SourceRole
   tags?: Tags
   title: Title
   type_summary?: TypeSummary
+}
+export interface ScoreSummary {
+  authority?: ScoreDimensionSummary | null
+  confidence?: ScoreDimensionSummary | null
+  evidence?: ScoreDimensionSummary | null
+  heat?: ScoreDimensionSummary | null
+  impact?: ScoreDimensionSummary | null
+  novelty?: ScoreDimensionSummary | null
+  relevance?: ScoreDimensionSummary | null
+  timeliness?: ScoreDimensionSummary | null
+}
+export interface ScoreDimensionSummary {
+  calculated_at: CalculatedAt
+  dimension: ScoreDimension
+  features: Features
+  overridden?: Overridden
+  override_reason?: OverrideReason
+  raw_score: RawScore
+  rule_version: RuleVersion
+  score: Score
+}
+export interface ScoreFeature {
+  code: Code
+  explanation: Explanation
+  label: Label1
+  points: Points
 }
 export interface SafetyRegulationTypeSummary {
   classification: RegulationClassification
@@ -593,13 +636,13 @@ export interface DigitalCaseTypeSummary {
 }
 export interface RelevanceSummary {
   factors: Factors
-  rule_version: RuleVersion
-  score: Score
+  rule_version: RuleVersion1
+  score: Score1
 }
 export interface RelevanceFactor {
-  code: Code
-  label: Label1
-  points: Points
+  code: Code1
+  label: Label2
+  points: Points1
 }
 export interface PaperTypeSummary {
   access_level: PaperAccessLevel
@@ -671,7 +714,7 @@ export interface AiEquipmentTypeSummary {
   version?: Version3
 }
 export interface FeedNotice {
-  code: Code1
+  code: Code2
   level: Level
   message: Message
 }

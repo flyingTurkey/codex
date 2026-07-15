@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from difflib import SequenceMatcher
 from hashlib import sha256
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, cast
 from uuid import UUID
 
 from sqlalchemy import text
@@ -18,6 +18,7 @@ from srbg_contracts import (
     AiEquipmentTypeSummary,
     Channel,
     ClaimView,
+    ClusterCandidateView,
     ConfirmedFact,
     CriticalFieldDiff,
     CriticalSafetyField,
@@ -37,6 +38,8 @@ from srbg_contracts import (
     EvidenceView,
     FeedNotice,
     FeedPage,
+    HotTopicPage,
+    HotTopicSummary,
     IotProductTypeSummary,
     ItemDetail,
     ItemSummary,
@@ -74,8 +77,14 @@ from srbg_contracts import (
     SafetyCaseFactField,
     SafetyCaseTypeSummary,
     SafetyRegulationTypeSummary,
+    ScoreDimension,
+    ScoreDimensionSummary,
+    ScoreFeature,
+    ScoreSummary,
     SimilarPaper,
     SoftwareProductTypeSummary,
+    SourceComparison,
+    SourceComparisonEntry,
     TechnologyProductDetail,
     UnverifiedFact,
     VersionDiffResponse,
@@ -94,6 +103,14 @@ class InvalidFeedCursor(ValueError):
     pass
 
 
+def _feature_explanations(value: object) -> list[str]:
+    if isinstance(value, dict):
+        return [f"{key}：{item}" for key, item in sorted(value.items())][:30]
+    if isinstance(value, list):
+        return [str(item) for item in value[:30]]
+    return []
+
+
 class PreviewObjectReader(Protocol):
     async def get_bytes(self, key: str) -> bytes: ...
 
@@ -110,6 +127,78 @@ class PostgresIntelligenceQueryService:
 
     async def close(self) -> None:
         await self._engine.dispose()
+
+    async def _with_scores(self, items: list[ItemSummary]) -> list[ItemSummary]:
+        visible_ids = [
+            item.id
+            for item in items
+            if item.review_status is ReviewStatus.APPROVED and item.publication_revision_id
+        ]
+        if not visible_ids:
+            return items
+        async with self._engine.connect() as connection:
+            rows = list(
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT score_set.item_id, score_set.rule_version,
+                                   score_set.calculated_at, dimension.dimension,
+                                   dimension.raw_score, dimension.features,
+                                   override.score AS override_score,
+                                   override.reason AS override_reason
+                            FROM score_set
+                            JOIN score_dimension dimension
+                              ON dimension.score_set_id = score_set.id
+                            LEFT JOIN LATERAL (
+                              SELECT candidate.score, candidate.reason
+                              FROM score_override candidate
+                              WHERE candidate.score_dimension_id = dimension.id
+                              ORDER BY candidate.reviewed_at DESC, candidate.id DESC
+                              LIMIT 1
+                            ) override ON true
+                            WHERE score_set.item_id = ANY(CAST(:item_ids AS uuid[]))
+                              AND score_set.is_current
+                            ORDER BY score_set.calculated_at DESC, score_set.id DESC
+                            """
+                        ),
+                        {"item_ids": visible_ids},
+                    )
+                ).mappings()
+            )
+        grouped: dict[UUID, dict[str, ScoreDimensionSummary]] = {}
+        for row in rows:
+            item_scores = grouped.setdefault(row["item_id"], {})
+            name = str(row["dimension"])
+            if name.casefold() in item_scores:
+                continue
+            raw_features = row["features"] if isinstance(row["features"], list) else []
+            features = [
+                ScoreFeature(
+                    code=str(feature.get("code", "UNKNOWN")),
+                    label=str(feature.get("label", "评分特征")),
+                    points=int(feature.get("points", 0)),
+                    explanation=str(feature.get("explanation", "规则未提供附加说明")),
+                )
+                for feature in raw_features
+            ]
+            override_score = row["override_score"]
+            item_scores[name.casefold()] = ScoreDimensionSummary(
+                dimension=ScoreDimension(name),
+                raw_score=row["raw_score"],
+                score=override_score if override_score is not None else row["raw_score"],
+                features=features,
+                rule_version=row["rule_version"],
+                calculated_at=row["calculated_at"],
+                overridden=override_score is not None,
+                override_reason=row["override_reason"],
+            )
+        return [
+            item.model_copy(update={"scores": ScoreSummary(**grouped[item.id])})
+            if item.id in grouped
+            else item
+            for item in items
+        ]
 
     async def render_processing_metrics(self) -> str:
         async with self._engine.connect() as connection:
@@ -313,7 +402,9 @@ class PostgresIntelligenceQueryService:
                             """
                         )
                     )
-                ).mappings().one()
+                )
+                .mappings()
+                .one()
             )
             product_profiles = list(
                 (
@@ -352,6 +443,32 @@ class PostgresIntelligenceQueryService:
                     )
                 )
                 or 0
+            )
+            resolution_metrics = (
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT
+                              (SELECT count(*) FROM duplicate_candidate
+                               WHERE status = 'PENDING_REVIEW') AS duplicate_pending,
+                              (SELECT count(*) FROM duplicate_candidate
+                               WHERE cardinality(hard_conflicts) > 0) AS hard_constraint_blocks,
+                              (SELECT count(*) FROM duplicate_candidate
+                               WHERE 'PGVECTOR' = ANY(recall_methods)) AS vector_recall_candidates,
+                              (SELECT count(*) FROM topic_cluster
+                               WHERE status = 'PENDING_REVIEW') AS topic_pending,
+                              (SELECT count(*) FROM score_set
+                               WHERE is_current) AS scored_items,
+                              (SELECT count(*) FROM score_override) AS score_overrides,
+                              (SELECT count(*) FROM cluster_decision
+                               WHERE action = 'SPLIT') AS cluster_splits,
+                              (SELECT count(*) FROM cluster_decision
+                               WHERE action = 'MERGE') AS cluster_merges
+                            """
+                        )
+                    )
+                ).mappings().one()
             )
         pdf_total = int(row["pdf_total"])
         ocr_pages = int(row["ocr_pages"])
@@ -406,6 +523,7 @@ class PostgresIntelligenceQueryService:
             capabilities={str(key): int(value) for key, value in product_capabilities.items()},
             pending_normalization=pending_product_normalization,
         )
+        rendered += _render_resolution_metrics(dict(resolution_metrics))
         return rendered
 
     async def get_feed(
@@ -614,7 +732,7 @@ class PostgresIntelligenceQueryService:
             )
         has_more = len(rows) > limit
         visible = rows[:limit]
-        items = [_item_summary(row) for row in visible]
+        items = await self._with_scores([_item_summary(row) for row in visible])
         next_cursor = None
         if has_more and visible:
             next_cursor = _encode_cursor(visible[-1]["activity_at"], visible[-1]["id"])
@@ -743,7 +861,7 @@ class PostgresIntelligenceQueryService:
             )
         has_more = len(rows) > limit
         visible = rows[:limit]
-        items = [_item_summary(row) for row in visible]
+        items = await self._with_scores([_item_summary(row) for row in visible])
         next_cursor = None
         if has_more and visible and sort == "latest":
             next_cursor = _encode_cursor(visible[-1]["activity_at"], visible[-1]["id"])
@@ -859,8 +977,9 @@ class PostgresIntelligenceQueryService:
             if len(rows) > limit and visible
             else None
         )
+        items = await self._with_scores([_item_summary(row) for row in visible])
         return _feed_page(
-            [_item_summary(row) for row in visible],
+            items,
             now=datetime.now(UTC),
             mode=mode,
             domain="digital",
@@ -987,8 +1106,9 @@ class PostgresIntelligenceQueryService:
             if len(rows) > limit and visible
             else None
         )
+        items = await self._with_scores([_item_summary(row) for row in visible])
         return _feed_page(
-            [_item_summary(row) for row in visible],
+            items,
             now=datetime.now(UTC),
             mode=mode,
             domain="digital",
@@ -1000,16 +1120,15 @@ class PostgresIntelligenceQueryService:
             row = await _item_row(connection, item_id, include_unpublished=False)
             if row is None:
                 raise IntelligenceNotFound("intelligence item does not exist")
-            item = _item_summary(row)
+            item = (await self._with_scores([_item_summary(row)]))[0]
             product_types = {
                 "SOFTWARE_PRODUCT",
                 "IOT_PRODUCT",
                 "LOW_ALTITUDE_EQUIPMENT",
                 "AI_EQUIPMENT",
             }
-            if (
-                row["item_type"] not in product_types
-                and (row["publication_status"] != "PUBLISHED" or row["review_status"] != "APPROVED")
+            if row["item_type"] not in product_types and (
+                row["publication_status"] != "PUBLISHED" or row["review_status"] != "APPROVED"
             ):
                 return ItemDetail(item=item, notice=_restricted_notice())
             claims, evidence = await _claims_and_evidence(connection, item_id)
@@ -1138,6 +1257,13 @@ class PostgresIntelligenceQueryService:
         return formatter(metadata), media_type
 
     async def get_event(self, event_id: UUID) -> EventDetail:
+        async with self._engine.connect() as connection:
+            event_type = await connection.scalar(
+                text("SELECT event_type FROM event WHERE id = :event_id"),
+                {"event_id": event_id},
+            )
+        if event_type is not None and event_type != "SAFETY_INCIDENT":
+            return await self._get_generic_event(event_id)
         async with self._engine.connect() as connection:
             event = (
                 (
@@ -1464,6 +1590,316 @@ class PostgresIntelligenceQueryService:
             similar_scenario_tags=list(event["similar_scenario_tags"] or []),
             prevention_measure_tags=list(event["prevention_measure_tags"] or []),
         )
+
+    async def _get_generic_event(self, event_id: UUID) -> EventDetail:
+        async with self._engine.connect() as connection:
+            event = (
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT id, event_type, title, occurred_at, region_name, project_name
+                            FROM event
+                            WHERE id = :event_id AND confirmation_status = 'CONFIRMED'
+                            """
+                        ),
+                        {"event_id": event_id},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            if event is None:
+                raise IntelligenceNotFound("confirmed event does not exist")
+            rows = list(
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT item.id AS item_id, item.title,
+                                   source.name AS source_name, item.source_published_at,
+                                   item.original_url, item.review_status,
+                                   publication.current_revision_id AS publication_revision_id,
+                                   (SELECT count(*) FROM claim_evidence evidence
+                                    JOIN claim ON claim.id = evidence.claim_id
+                                    WHERE claim.item_id = item.id
+                                      AND claim.verification_status = 'ACCEPTED') AS evidence_count
+                            FROM event_item membership
+                            JOIN intelligence_item item ON item.id = membership.item_id
+                            JOIN source ON source.id = item.source_id
+                            JOIN publication ON publication.item_id = item.id
+                              AND publication.status = 'PUBLISHED'
+                            WHERE membership.event_id = :event_id
+                              AND item.review_status = 'APPROVED'
+                            ORDER BY item.source_published_at, item.id
+                            """
+                        ),
+                        {"event_id": event_id},
+                    )
+                ).mappings()
+            )
+            topic_ids = list(
+                (
+                    await connection.scalars(
+                        text("SELECT topic_id FROM topic_cluster_event WHERE event_id = :event_id"),
+                        {"event_id": event_id},
+                    )
+                ).all()
+            )
+        comparison = await self.get_source_comparison(event_id)
+        return EventDetail(
+            id=event["id"],
+            title=event["title"],
+            event_type=event["event_type"],
+            project_name=event["project_name"],
+            occurred_at=event["occurred_at"],
+            region=event["region_name"],
+            incident_status=None,
+            confirmed_facts=[],
+            unverified_facts=[],
+            timeline=EventTimeline(
+                event_id=event_id,
+                items=[
+                    EventItem(
+                        item_id=row["item_id"],
+                        title=row["title"],
+                        report_stage=None,
+                        incident_status=None,
+                        source_name=row["source_name"],
+                        source_published_at=row["source_published_at"],
+                        original_url=row["original_url"],
+                        review_status=row["review_status"],
+                        publication_revision_id=row["publication_revision_id"],
+                        evidence_count=row["evidence_count"],
+                    )
+                    for row in rows
+                ],
+            ),
+            relations=[],
+            similar_scenario_tags=[],
+            prevention_measure_tags=[],
+            topic_ids=topic_ids,
+            independent_source_count=comparison.independent_source_count,
+        )
+
+    async def list_hot_topics(
+        self,
+        *,
+        domain: str | None,
+        window_days: int,
+        cursor: str | None,
+        limit: int,
+    ) -> HotTopicPage:
+        del cursor
+        async with self._engine.connect() as connection:
+            rows = list(
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT topic.id, topic.title, topic.domain,
+                                   count(DISTINCT membership.event_id) AS event_count,
+                                   count(DISTINCT (
+                                     COALESCE(lineage.lineage_root, item.source_id::text),
+                                     COALESCE(affiliation.organization_key, item.source_id::text)
+                                   )) FILTER (
+                                     WHERE lineage.role IS NULL
+                                        OR lineage.role IN ('ORIGINAL','INDEPENDENT_REPORT')
+                                   ) AS independent_source_count,
+                                   max(item.activity_at) AS latest_activity_at,
+                                   COALESCE(max(CASE WHEN dimension.dimension = 'HEAT'
+                                     THEN COALESCE(override.score, dimension.raw_score) END), 0)
+                                     AS heat_score
+                            FROM topic_cluster topic
+                            JOIN topic_cluster_event membership ON membership.topic_id = topic.id
+                            JOIN event_item event_member
+                              ON event_member.event_id = membership.event_id
+                            JOIN intelligence_item item ON item.id = event_member.item_id
+                            JOIN publication ON publication.item_id = item.id
+                              AND publication.status = 'PUBLISHED'
+                            LEFT JOIN source_lineage lineage ON lineage.item_id = item.id
+                            LEFT JOIN source_affiliation affiliation
+                              ON affiliation.source_id = item.source_id
+                            LEFT JOIN score_set score_set
+                              ON score_set.item_id = item.id AND score_set.is_current
+                            LEFT JOIN score_dimension dimension
+                              ON dimension.score_set_id = score_set.id
+                            LEFT JOIN LATERAL (
+                              SELECT candidate.score FROM score_override candidate
+                              WHERE candidate.score_dimension_id = dimension.id
+                              ORDER BY candidate.reviewed_at DESC, candidate.id DESC LIMIT 1
+                            ) override ON true
+                            WHERE topic.status = 'CONFIRMED'
+                              AND (
+                                CAST(:domain AS text) IS NULL
+                                OR topic.domain = CAST(:domain AS text)
+                              )
+                              AND item.activity_at >= now() - make_interval(days => :window_days)
+                            GROUP BY topic.id, topic.title, topic.domain
+                            ORDER BY heat_score DESC, latest_activity_at DESC, topic.id
+                            LIMIT :limit
+                            """
+                        ),
+                        {"domain": domain, "window_days": window_days, "limit": limit},
+                    )
+                ).mappings()
+            )
+        return HotTopicPage(
+            items=[
+                HotTopicSummary(
+                    id=row["id"],
+                    title=row["title"],
+                    domain=row["domain"],
+                    heat_score=row["heat_score"],
+                    event_count=row["event_count"],
+                    independent_source_count=row["independent_source_count"],
+                    latest_activity_at=row["latest_activity_at"],
+                    rule_version="scoring-v1.0.0",
+                )
+                for row in rows
+            ],
+            generated_at=datetime.now(UTC),
+            evaluation_tier="INTERNAL_TEST_FIXTURE",
+            auto_merge_enabled=False,
+        )
+
+    async def get_source_comparison(self, event_id: UUID) -> SourceComparison:
+        async with self._engine.connect() as connection:
+            rows = list(
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT item.id AS item_id, source.name AS source_name,
+                                   COALESCE(affiliation.organization_key, source.id::text)
+                                     AS organization_key,
+                                   COALESCE(lineage.lineage_root, source.id::text)
+                                     AS lineage_root,
+                                   COALESCE(lineage.role, 'INDEPENDENT_REPORT') AS role,
+                                   item.source_published_at, item.original_url,
+                                   (SELECT count(*) FROM claim
+                                    WHERE claim.item_id = item.id
+                                      AND claim.verification_status = 'ACCEPTED')
+                                     AS accepted_claim_count,
+                                   (SELECT count(*) FROM claim_evidence evidence
+                                    JOIN claim ON claim.id = evidence.claim_id
+                                    WHERE claim.item_id = item.id
+                                      AND claim.verification_status = 'ACCEPTED')
+                                     AS evidence_count
+                            FROM event_item membership
+                            JOIN intelligence_item item ON item.id = membership.item_id
+                            JOIN source ON source.id = item.source_id
+                            JOIN publication ON publication.item_id = item.id
+                              AND publication.status = 'PUBLISHED'
+                            LEFT JOIN source_affiliation affiliation
+                              ON affiliation.source_id = source.id
+                            LEFT JOIN source_lineage lineage ON lineage.item_id = item.id
+                            WHERE membership.event_id = :event_id
+                              AND item.review_status = 'APPROVED'
+                            ORDER BY lineage_root, item.source_published_at, item.id
+                            """
+                        ),
+                        {"event_id": event_id},
+                    )
+                ).mappings()
+            )
+        sources = [SourceComparisonEntry(**dict(row)) for row in rows]
+        independent = {
+            (entry.lineage_root, entry.organization_key)
+            for entry in sources
+            if entry.role.value in {"ORIGINAL", "INDEPENDENT_REPORT"}
+        }
+        return SourceComparison(
+            event_id=event_id,
+            independent_source_count=len(independent),
+            sources=sources,
+        )
+
+    async def list_cluster_candidates(
+        self, *, kind: str, status: str
+    ) -> list[ClusterCandidateView]:
+        async with self._engine.connect() as connection:
+            if kind == "DUPLICATE":
+                statement = """
+                    SELECT id, 'DUPLICATE' AS kind, status,
+                           ARRAY[left_item_id, right_item_id] AS member_ids,
+                           score_bps, NULL::text AS relation_type,
+                           features, hard_conflicts, created_at
+                    FROM duplicate_candidate WHERE status = :status
+                    ORDER BY score_bps DESC, created_at, id LIMIT 200
+                """
+            elif kind == "EVENT":
+                statement = """
+                    SELECT candidate.id, 'EVENT' AS kind,
+                           CASE WHEN decision.id IS NULL THEN 'PENDING_REVIEW'
+                                WHEN decision.action = 'ACCEPT' THEN 'ACCEPTED'
+                                ELSE 'REJECTED' END AS status,
+                           ARRAY[candidate.event_id, candidate.item_id] AS member_ids,
+                           candidate.score * 100 AS score_bps,
+                           NULL::text AS relation_type,
+                           candidate.matched_dimensions AS features,
+                           ARRAY[]::text[] AS hard_conflicts, candidate.created_at
+                    FROM event_item_candidate candidate
+                    LEFT JOIN event_item_decision decision
+                      ON decision.candidate_id = candidate.id
+                    WHERE (CASE WHEN decision.id IS NULL THEN 'PENDING_REVIEW'
+                                WHEN decision.action = 'ACCEPT' THEN 'ACCEPTED'
+                                ELSE 'REJECTED' END) = :status
+                    ORDER BY candidate.score DESC, candidate.created_at LIMIT 200
+                """
+            elif kind == "RELATION":
+                statement = """
+                    SELECT candidate.id, 'RELATION' AS kind,
+                           CASE WHEN decision.id IS NULL THEN 'PENDING_REVIEW'
+                                WHEN decision.action = 'ACCEPT' THEN 'ACCEPTED'
+                                ELSE 'REJECTED' END AS status,
+                           ARRAY[candidate.source_item_id, candidate.target_item_id] AS member_ids,
+                           NULL::integer AS score_bps,
+                           candidate.relation_type::text AS relation_type,
+                           jsonb_build_object('relation_type', candidate.relation_type) AS features,
+                           ARRAY[]::text[] AS hard_conflicts, candidate.created_at
+                    FROM event_relation_candidate candidate
+                    LEFT JOIN event_relation_decision decision
+                      ON decision.candidate_id = candidate.id
+                    WHERE (CASE WHEN decision.id IS NULL THEN 'PENDING_REVIEW'
+                                WHEN decision.action = 'ACCEPT' THEN 'ACCEPTED'
+                                ELSE 'REJECTED' END) = :status
+                    ORDER BY candidate.created_at LIMIT 200
+                """
+            else:
+                statement = """
+                    SELECT topic.id, 'TOPIC' AS kind,
+                           CASE topic.status WHEN 'CONFIRMED' THEN 'ACCEPTED'
+                                WHEN 'REJECTED' THEN 'REJECTED'
+                                ELSE 'PENDING_REVIEW' END AS status,
+                           array_agg(member.event_id ORDER BY member.event_id) AS member_ids,
+                           NULL::integer AS score_bps,
+                           NULL::text AS relation_type,
+                           jsonb_build_object('title', topic.title) AS features,
+                           ARRAY[]::text[] AS hard_conflicts, topic.created_at
+                    FROM topic_cluster topic
+                    JOIN topic_cluster_event member ON member.topic_id = topic.id
+                    WHERE (CASE topic.status WHEN 'CONFIRMED' THEN 'ACCEPTED'
+                                WHEN 'REJECTED' THEN 'REJECTED'
+                                ELSE 'PENDING_REVIEW' END) = :status
+                    GROUP BY topic.id HAVING count(*) >= 2
+                    ORDER BY topic.created_at LIMIT 200
+                """
+            rows = list((await connection.execute(text(statement), {"status": status})).mappings())
+        return [
+            ClusterCandidateView(
+                id=row["id"],
+                kind=row["kind"],
+                status=row["status"],
+                member_ids=row["member_ids"],
+                score_bps=row["score_bps"],
+                relation_type=row["relation_type"],
+                feature_explanations=_feature_explanations(row["features"]),
+                hard_conflicts=row["hard_conflicts"] or [],
+                created_at=row["created_at"],
+            )
+            for row in rows
+        ]
 
     async def list_review_tasks(self) -> list[ReviewTaskSummary]:
         async with self._engine.connect() as connection:
@@ -2399,8 +2835,7 @@ def _item_summary(row: RowMapping, *, reviewer_projection: bool = False) -> Item
                 ItemType.AI_EQUIPMENT: "AI设备与机器人",
             }[item_type],
             *list(
-                row.get("product_application_scenarios", row.get("application_scenarios", []))
-                or []
+                row.get("product_application_scenarios", row.get("application_scenarios", [])) or []
             )[:2],
         ]
     elif item_type is ItemType.SAFETY_CASE:
@@ -3057,7 +3492,7 @@ def _render_paper_metrics(
             "srbg_papers_total{"
             f'access_level="{profile["access_level"]}",'
             f'relation_status="{profile["relation_status"]}"'
-            f'}} {profile["count"]}\n'
+            f"}} {profile['count']}\n"
         )
     rendered += (
         "# TYPE srbg_paper_duplicate_candidates gauge\n"
@@ -3085,16 +3520,29 @@ def _render_technology_product_metrics(
         )
     rendered += "# TYPE srbg_product_capabilities gauge\n"
     for kind in ("PROMOTIONAL_CLAIM", "VERIFIED_CAPABILITY"):
-        rendered += (
-            "srbg_product_capabilities{"
-            f'kind="{kind}"'
-            f"}} {int(capabilities.get(kind, 0))}\n"
-        )
+        rendered += f'srbg_product_capabilities{{kind="{kind}"}} {int(capabilities.get(kind, 0))}\n'
     rendered += (
         "# TYPE srbg_product_normalization_pending gauge\n"
         f"srbg_product_normalization_pending {pending_normalization}\n"
     )
     return rendered
+
+
+def _render_resolution_metrics(metrics: dict[str, object]) -> str:
+    names = {
+        "duplicate_pending": "srbg_resolution_duplicate_candidates_pending",
+        "hard_constraint_blocks": "srbg_resolution_hard_constraint_blocks_total",
+        "vector_recall_candidates": "srbg_resolution_vector_recall_candidates_total",
+        "topic_pending": "srbg_resolution_topic_candidates_pending",
+        "scored_items": "srbg_resolution_scored_items",
+        "score_overrides": "srbg_resolution_score_overrides_total",
+        "cluster_splits": "srbg_resolution_cluster_splits_total",
+        "cluster_merges": "srbg_resolution_cluster_merges_total",
+    }
+    return "".join(
+        f"# TYPE {metric_name} gauge\n{metric_name} {cast(int, metrics[key])}\n"
+        for key, metric_name in names.items()
+    )
 
 
 def _evidence_locator(

@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     external_io_timeout_seconds: float = Field(default=2.0, gt=0, le=30)
     openalex_api_key: SecretStr | None = None
     academic_contact: str = Field(default="data-platform@srbg.local", min_length=3, max_length=320)
+    pgvector_recall_enabled: bool = False
 
 
 @lru_cache

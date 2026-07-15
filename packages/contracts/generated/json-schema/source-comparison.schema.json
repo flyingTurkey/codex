@@ -1,0 +1,113 @@
+{
+  "$defs": {
+    "SourceComparisonEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "accepted_claim_count": {
+          "minimum": 0,
+          "title": "Accepted Claim Count",
+          "type": "integer"
+        },
+        "evidence_count": {
+          "minimum": 0,
+          "title": "Evidence Count",
+          "type": "integer"
+        },
+        "item_id": {
+          "format": "uuid",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "lineage_root": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Lineage Root",
+          "type": "string"
+        },
+        "organization_key": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Organization Key",
+          "type": "string"
+        },
+        "original_url": {
+          "maxLength": 2048,
+          "pattern": "^https?://[^\\s]+$",
+          "title": "Original Url",
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/SourceLineageRole"
+        },
+        "source_name": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Source Name",
+          "type": "string"
+        },
+        "source_published_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Published At"
+        }
+      },
+      "required": [
+        "item_id",
+        "source_name",
+        "organization_key",
+        "lineage_root",
+        "role",
+        "original_url",
+        "accepted_claim_count",
+        "evidence_count"
+      ],
+      "title": "SourceComparisonEntry",
+      "type": "object"
+    },
+    "SourceLineageRole": {
+      "enum": [
+        "ORIGINAL",
+        "REPRINT",
+        "MIRROR",
+        "INDEPENDENT_REPORT"
+      ],
+      "title": "SourceLineageRole",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "event_id": {
+      "format": "uuid",
+      "title": "Event Id",
+      "type": "string"
+    },
+    "independent_source_count": {
+      "minimum": 0,
+      "title": "Independent Source Count",
+      "type": "integer"
+    },
+    "sources": {
+      "items": {
+        "$ref": "#/$defs/SourceComparisonEntry"
+      },
+      "title": "Sources",
+      "type": "array"
+    }
+  },
+  "required": [
+    "event_id",
+    "independent_source_count",
+    "sources"
+  ],
+  "title": "SourceComparison",
+  "type": "object"
+}

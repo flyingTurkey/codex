@@ -24,6 +24,21 @@ const digitalItem = {
   source_name: '蜀道集团',
   source_published_at: '2022-03-10T00:00:00Z',
   source_role: '企业自述',
+  scores: {
+    relevance: {
+      calculated_at: '2026-07-14T04:05:00Z',
+      dimension: 'RELEVANCE',
+      features: [
+        { code: 'ENGINEERING_DOMAIN', explanation: '工程专业匹配', label: '工程专业匹配', points: 70 },
+        { code: 'SICHUAN', explanation: '四川实施', label: '四川实施', points: 20 },
+        { code: 'SRBG_DIRECT', explanation: '四川路桥直接关系', label: '四川路桥直接关系', points: 10 },
+      ],
+      overridden: false,
+      raw_score: 100,
+      rule_version: 'scoring-v1.0.0',
+      score: 100,
+    },
+  },
   title: '智慧梁厂2.0',
   type_summary: {
     ai_short_comment: null,
@@ -47,7 +62,7 @@ const digitalItem = {
 } as unknown as ItemSummary
 
 describe('round 05 digital case UI', () => {
-  it('extends the shared IntelligenceCard with attributed outcomes and explainable relevance', () => {
+  it('extends the shared IntelligenceCard with attributed outcomes and explainable relevance', async () => {
     const IntelligenceCard = componentModules['../app/components/IntelligenceCard.vue']?.default
     expect(IntelligenceCard).toBeDefined()
     if (!IntelligenceCard) return
@@ -59,8 +74,9 @@ describe('round 05 digital case UI', () => {
     expect(wrapper.text()).toContain('企业自述')
     expect(wrapper.text()).toContain('发布方声明/未独立验证')
     expect(wrapper.text()).toContain('四川路桥所属单位实施项目')
-    expect(wrapper.get('[data-testid="relevance-summary"]').text()).toContain('相关性 100')
-    expect(wrapper.get('[data-testid="relevance-breakdown"]').text()).toContain('relevance-v1.0.0')
+    expect(wrapper.get('[data-testid="score-summary"]').text()).toContain('相关度 100')
+    await wrapper.get('[data-testid="score-summary"]').trigger('click')
+    expect(wrapper.get('[data-testid="score-breakdown"]').text()).toContain('scoring-v1.0.0')
     expect(wrapper.text()).not.toContain('可信度')
     expect(wrapper.text()).not.toContain('官方已核验')
     expect(wrapper.text()).not.toContain('AI短评')

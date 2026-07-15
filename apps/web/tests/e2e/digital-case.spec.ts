@@ -20,6 +20,28 @@ const item = {
   publication_revision_id: '019b0000-0000-7000-8000-000000005207',
   publication_status: 'PUBLISHED',
   review_status: 'APPROVED',
+  scores: {
+    authority: null,
+    confidence: null,
+    evidence: null,
+    heat: null,
+    impact: null,
+    novelty: null,
+    relevance: {
+      calculated_at: '2026-07-14T04:10:00Z',
+      dimension: 'RELEVANCE',
+      features: [
+        { code: 'ENGINEERING_DOMAIN', explanation: '桥梁工程领域匹配', label: '工程专业匹配', points: 70 },
+        { code: 'SICHUAN', explanation: '案例在四川实施', label: '四川实施', points: 20 },
+        { code: 'SRBG_DIRECT', explanation: '四川路桥所属单位实施', label: '直接关系', points: 10 },
+      ],
+      overridden: false,
+      raw_score: 100,
+      rule_version: 'relevance-v1.0.0',
+      score: 100,
+    },
+    timeliness: null,
+  },
   source_name: '蜀道集团',
   source_published_at: '2022-03-10T00:00:00Z',
   source_role: '企业自述',
@@ -122,12 +144,15 @@ async function openDigital(page: Page): Promise<void> {
 }
 
 test('digital feed filters shared cards and explains relevance without confidence wording', async ({ page }) => {
+  const pageErrors: string[] = []
+  page.on('pageerror', error => pageErrors.push(error.message))
   await mockDigital(page)
   await openDigital(page)
 
   await expect(page.getByRole('heading', { level: 1, name: '数字化案例' })).toBeVisible()
   await expect(page.getByText('厂商声明，未经独立验证')).toBeVisible()
-  await page.getByTestId('relevance-summary').click()
+  expect(pageErrors).toEqual([])
+  await page.getByTestId('score-summary').click()
   await expect(page.getByText('relevance-v1.0.0')).toBeVisible()
   await expect(page.getByText('可信度')).toHaveCount(0)
   await page.getByLabel('工程专业').selectOption('BRIDGE')

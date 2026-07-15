@@ -12,9 +12,10 @@ import type {
 } from '@srbg/contracts'
 import type { StatusBadgeTone } from '@srbg/ui'
 import { StatusBadge } from '@srbg/ui'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
 import { safetyEngineeringLabel, safetyHazardLabel } from '../utils/safety-case-labels'
+import ScoreBreakdownDrawer from './ScoreBreakdownDrawer.vue'
 
 const props = withDefaults(defineProps<{ item: ItemSummary, headingLevel?: 2 | 3 }>(), {
   headingLevel: 3,
@@ -23,6 +24,7 @@ const props = withDefaults(defineProps<{ item: ItemSummary, headingLevel?: 2 | 3
 const emit = defineEmits<{
   evidence: [itemId: string]
 }>()
+const scoreOpen = ref(false)
 
 const shanghaiDateTime = new Intl.DateTimeFormat('zh-CN', {
   dateStyle: 'medium',
@@ -343,19 +345,19 @@ function formatLoss(amountMinor: number, currency: string): string {
         <p class="intelligence-card__relationship">
           <strong>与四川路桥的关系：</strong>{{ digitalSummary.srbg_relationship }}
         </p>
-        <details class="intelligence-card__relevance" data-testid="relevance-breakdown">
-          <summary data-testid="relevance-summary">
-            相关性 {{ digitalSummary.relevance.score }}
-          </summary>
-          <p>{{ digitalSummary.relevance.rule_version }}</p>
-          <ul>
-            <li v-for="factor in digitalSummary.relevance.factors" :key="factor.code">
-              {{ factor.label }}：+{{ factor.points }}
-            </li>
-          </ul>
-        </details>
       </section>
     </template>
+
+    <button
+      v-if="item.scores?.relevance"
+      type="button"
+      class="intelligence-card__score"
+      data-testid="score-summary"
+      aria-haspopup="dialog"
+      @click="scoreOpen = true"
+    >
+      相关度 {{ item.scores.relevance.score }}
+    </button>
 
     <template v-else-if="!isWithdrawn && item.publication_revision_id && safetyCaseSummary">
       <dl class="intelligence-card__facts is-safety-case">
@@ -424,6 +426,12 @@ function formatLoss(amountMinor: number, currency: string): string {
         {{ isWithdrawn ? '查看历史证据' : '查看证据' }}（{{ item.evidence_count ?? 0 }}）
       </button>
     </footer>
+    <ScoreBreakdownDrawer
+      v-if="item.scores"
+      :open="scoreOpen"
+      :scores="item.scores"
+      @close="scoreOpen = false"
+    />
   </article>
 </template>
 
@@ -593,9 +601,7 @@ function formatLoss(amountMinor: number, currency: string): string {
 }
 
 .intelligence-card__publisher-claim,
-.intelligence-card__relationship,
-.intelligence-card__relevance p,
-.intelligence-card__relevance ul {
+.intelligence-card__relationship {
   margin: 0;
 }
 
@@ -617,23 +623,15 @@ function formatLoss(amountMinor: number, currency: string): string {
   color: var(--color-digital-700);
 }
 
-.intelligence-card__relevance {
+.intelligence-card__score {
+  justify-self: start;
   padding: var(--spacing-3);
-  border: 1px solid var(--color-digital-500);
-  border-radius: var(--radius-sm);
-}
-
-.intelligence-card__relevance summary {
   color: var(--color-digital-700);
   font-weight: var(--font-weight-bold);
+  background: var(--color-digital-50);
+  border: 1px solid var(--color-digital-500);
+  border-radius: var(--radius-sm);
   cursor: pointer;
-}
-
-.intelligence-card__relevance p,
-.intelligence-card__relevance ul {
-  margin-top: var(--spacing-2);
-  color: var(--color-ink-600);
-  font-size: var(--text-xs);
 }
 
 .intelligence-card dl div {

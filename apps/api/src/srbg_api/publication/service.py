@@ -13,6 +13,7 @@ from srbg_contracts import (
     ClaimConflictDecisionResponse,
     DigitalCaseReviewPatch,
     ReviewDecisionResponse,
+    ScoreDimension,
 )
 
 from srbg_api.identifiers import uuid7
@@ -133,6 +134,30 @@ class PublicationRepository(Protocol):
         decided_at: datetime,
     ) -> ClaimConflictDecisionResponse: ...
 
+    async def decide_cluster(
+        self,
+        *,
+        candidate_id: UUID,
+        candidate_kind: Literal["DUPLICATE", "EVENT", "TOPIC", "RELATION"],
+        action: Literal["MERGE", "SPLIT", "KEEP_DISTINCT", "LINK_RELATION"],
+        member_ids: list[UUID],
+        relation_type: str | None,
+        reviewer_id: UUID,
+        reason: str,
+        decided_at: datetime,
+    ) -> None: ...
+
+    async def override_score(
+        self,
+        *,
+        item_id: UUID,
+        dimension: ScoreDimension,
+        score: int,
+        reviewer_id: UUID,
+        reason: str,
+        decided_at: datetime,
+    ) -> None: ...
+
 
 class PublicationService:
     """Reviewers and lifecycle callers cannot write publication tables directly."""
@@ -153,6 +178,58 @@ class PublicationService:
 
     async def list_claim_conflicts(self) -> list[ClaimConflict]:
         return await self._repository.list_claim_conflicts()
+
+    async def decide_cluster(
+        self,
+        candidate_id: UUID,
+        *,
+        candidate_kind: Literal["DUPLICATE", "EVENT", "TOPIC", "RELATION"],
+        action: Literal["MERGE", "SPLIT", "KEEP_DISTINCT", "LINK_RELATION"],
+        member_ids: list[UUID],
+        relation_type: str | None,
+        reviewer_id: UUID,
+        reason: str,
+    ) -> None:
+        if len(set(member_ids)) < 2:
+            raise PublicationDenied(("CLUSTER_MEMBERS_INVALID",))
+        allowed_actions = {
+            "DUPLICATE": {"MERGE", "KEEP_DISTINCT"},
+            "EVENT": {"MERGE", "SPLIT", "KEEP_DISTINCT"},
+            "TOPIC": {"MERGE", "SPLIT", "KEEP_DISTINCT"},
+            "RELATION": {"LINK_RELATION", "KEEP_DISTINCT"},
+        }
+        if action not in allowed_actions[candidate_kind]:
+            raise PublicationDenied(("CLUSTER_ACTION_KIND_MISMATCH",))
+        if action == "LINK_RELATION" and not relation_type:
+            raise PublicationDenied(("RELATION_TYPE_REQUIRED",))
+        await self._repository.decide_cluster(
+            candidate_id=candidate_id,
+            candidate_kind=candidate_kind,
+            action=action,
+            member_ids=member_ids,
+            relation_type=relation_type,
+            reviewer_id=reviewer_id,
+            reason=reason,
+            decided_at=self._now(),
+        )
+
+    async def override_score(
+        self,
+        item_id: UUID,
+        *,
+        dimension: ScoreDimension,
+        score: int,
+        reviewer_id: UUID,
+        reason: str,
+    ) -> None:
+        await self._repository.override_score(
+            item_id=item_id,
+            dimension=dimension,
+            score=score,
+            reviewer_id=reviewer_id,
+            reason=reason,
+            decided_at=self._now(),
+        )
 
     async def decide_review(
         self,

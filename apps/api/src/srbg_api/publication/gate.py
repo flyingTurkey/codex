@@ -21,8 +21,7 @@ class GateResult:
 class PublicationGate:
     def __init__(self, policy: dict[str, Any], schema: dict[str, Any], policy_sha256: str) -> None:
         if (
-            policy.get("version")
-            not in {"2.0.0", "3.0.0", "4.0.0", "5.0.0", "6.0.0", "7.0.0"}
+            policy.get("version") not in {"2.0.0", "3.0.0", "4.0.0", "5.0.0", "6.0.0", "7.0.0"}
             or policy.get("default_decision") != "DENY"
         ):
             raise ValueError("publication gate must be a supported default-deny policy")
@@ -186,10 +185,7 @@ class PublicationGate:
             if round04.get("controlled_prevention_tags_only") is not True:
                 reasons.append("SAFETY_CASE_UNCONTROLLED_PREVENTION_CONTENT")
             operational_instructions = round04.get("operational_instruction_count")
-            if (
-                not _is_nonnegative_count(operational_instructions)
-                or operational_instructions > 0
-            ):
+            if not _is_nonnegative_count(operational_instructions) or operational_instructions > 0:
                 reasons.append("SAFETY_CASE_OPERATIONAL_INSTRUCTION_FORBIDDEN")
 
         if (
@@ -232,22 +228,22 @@ class PublicationGate:
             if round06.get("identity_resolved") is not True:
                 reasons.append("PAPER_IDENTITY_UNRESOLVED")
             access_level = round06.get("access_level")
-            if access_level not in {
-                "METADATA_ONLY",
-                "ABSTRACT_ALLOWED",
-                "OPEN_FULLTEXT",
-            } or round06.get("access_policy_valid") is not True:
+            if (
+                access_level
+                not in {
+                    "METADATA_ONLY",
+                    "ABSTRACT_ALLOWED",
+                    "OPEN_FULLTEXT",
+                }
+                or round06.get("access_policy_valid") is not True
+            ):
                 reasons.append("PAPER_ACCESS_POLICY_INVALID")
             if round06.get("abstract_present") is True and (
-                round06.get("abstract_permitted") is not True
-                or access_level == "METADATA_ONLY"
+                round06.get("abstract_permitted") is not True or access_level == "METADATA_ONLY"
             ):
                 reasons.append("PAPER_ABSTRACT_LICENCE_REQUIRED")
             fulltext_storage_count = round06.get("fulltext_storage_count")
-            if (
-                not _is_nonnegative_count(fulltext_storage_count)
-                or fulltext_storage_count > 0
-            ):
+            if not _is_nonnegative_count(fulltext_storage_count) or fulltext_storage_count > 0:
                 reasons.append("PAPER_FULLTEXT_STORAGE_FORBIDDEN")
             if (
                 access_level == "OPEN_FULLTEXT"
@@ -315,8 +311,7 @@ class PublicationGate:
                 else:
                     minimums = self._policy["selected_feed_rules"]["minimum_server_scores"]
                     if any(
-                        _number(scores.get(name)) < minimum
-                        for name, minimum in minimums.items()
+                        _number(scores.get(name)) < minimum for name, minimum in minimums.items()
                     ):
                         reasons.append("SELECTED_SCORE_THRESHOLD_FAILED")
 
