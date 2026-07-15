@@ -39,6 +39,18 @@ INTERNAL_PROJECTION_RECORDS = Counter(
     "Internal shadow projection records by policy level.",
     ("level",),
 )
+INTERNAL_PROJECTION_RECONCILIATION_DIFFERENCES = Gauge(
+    "srbg_internal_projection_reconciliation_differences",
+    "Differences in the latest completed internal shadow projection generation.",
+)
+INTERNAL_PROJECTION_LAST_SUCCESS = Gauge(
+    "srbg_internal_projection_last_success_timestamp_seconds",
+    "Unix timestamp of the latest completed internal shadow projection generation.",
+)
+AUDIT_CHAIN_ANCHOR_LAST_SUCCESS = Gauge(
+    "srbg_audit_chain_anchor_last_success_timestamp_seconds",
+    "Unix timestamp of the latest independently persisted audit chain anchor.",
+)
 AUTHORIZATION_DENIALS = Counter(
     "srbg_authorization_denials_total",
     "Authorization denials by bounded policy reason.",
@@ -69,3 +81,11 @@ def set_operations_metrics(metrics: list[MetricSample]) -> None:
         status = metric.status
         value = float(metric.value)
         OPERATIONS_METRIC.labels(code, unit, status).set(value)
+
+
+def set_internal_projection_metrics(metrics: dict[str, float]) -> None:
+    INTERNAL_PROJECTION_RECONCILIATION_DIFFERENCES.set(
+        metrics["reconciliation_differences"]
+    )
+    INTERNAL_PROJECTION_LAST_SUCCESS.set(metrics["last_projection_success_timestamp"])
+    AUDIT_CHAIN_ANCHOR_LAST_SUCCESS.set(metrics["last_anchor_success_timestamp"])

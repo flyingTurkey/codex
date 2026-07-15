@@ -13,6 +13,7 @@
 - 收紧 OIDC/RBAC：非开发环境拒绝本地身份头，验证 issuer/audience/RS256/kid/exp/nbf/iat/角色和 JWKS 默认拒绝；来源启停与发布职责分离，高权限写操作要求短时 MFA step-up，CORS 使用精确 allowlist，Nuxt 代理不转发客户端伪造身份头。
 - 撤销运行角色对 `audit_log` 的直接写权限，通过受控数据库函数计算链值，并把链根锚定至独立对象存储；该能力仅称 append-only/tamper-evident，不宣称对数据库管理员绝对不可篡改。
 - 新增投影生成/失效、权限拒绝、R3 降级和对账差异的结构化日志及低基数指标，新增 `make phase2-round13-test`、迁移正反向回放、发布路径审计、Web E2E/a11y 无破坏回归，并更新 README 与本轮验收记录。
+- 独立复验修复回填 CLI 绕过 `PublicationService`、accepted claim 字符串二次 JSON 编码、运行时投影/锚定健康指标缺失和审计锚定未定期调度的问题；新增 PostgreSQL 权威指标、每日锚定、Prometheus 差异/陈旧告警、fail-closed Runbook，以及真实 reader/runtime 权限与结构化拒绝日志负向测试。
 
 ### Round 12 — 真实能力审计与二阶段基线
 

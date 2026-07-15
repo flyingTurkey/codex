@@ -49,6 +49,7 @@ from srbg_api.observability import (
     API_REQUESTS,
     configure_observability,
     render_metrics,
+    set_internal_projection_metrics,
     set_operations_metrics,
 )
 from srbg_api.operations.api import OperationsService
@@ -496,6 +497,10 @@ def create_app(
         if operations is not None:
             overview = await operations.overview()
             set_operations_metrics(overview.metrics)
+        publication = app.state.publication_service
+        if publication is not None and hasattr(publication, "internal_projection_metrics"):
+            projection_metrics = await publication.internal_projection_metrics()
+            set_internal_projection_metrics(projection_metrics)
         standard, media_type = render_metrics()
         content = standard.decode() + source_metrics + str(processing_metrics) + gate_metrics
         return PlainTextResponse(content, media_type=media_type)

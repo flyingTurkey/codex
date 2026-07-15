@@ -1,6 +1,7 @@
 """Fail-closed local and OIDC request identity with role authorization."""
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -18,6 +19,12 @@ from srbg_api.observability import AUTHORIZATION_DENIALS
 
 LOCAL_USER_ID = UUID("019b0000-0000-7000-8000-000000009001")
 LOCAL_ENVIRONMENTS = frozenset({"demo", "development", "test"})
+LOGGER = logging.getLogger("srbg.auth")
+
+
+def _record_authorization_denial(reason: str) -> None:
+    AUTHORIZATION_DENIALS.labels(reason).inc()
+    LOGGER.warning("authorization_denied", extra={"reason": reason})
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,7 +193,7 @@ def require_step_up(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> Principal:
     if not principal_has_step_up(principal, settings):
-        AUTHORIZATION_DENIALS.labels("step_up").inc()
+        _record_authorization_denial("step_up")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Recent multi-factor authentication is required",
@@ -201,7 +208,7 @@ def require_roles(*allowed: UserRole) -> Callable[[Principal], Awaitable[Princip
         principal: Annotated[Principal, Depends(get_current_principal)],
     ) -> Principal:
         if principal.roles.isdisjoint(allowed_roles):
-            AUTHORIZATION_DENIALS.labels("role").inc()
+            _record_authorization_denial("role")
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="This role is not permitted to perform the operation",
@@ -221,13 +228,13 @@ def require_roles_with_step_up(
         settings: Annotated[Settings, Depends(get_settings)],
     ) -> Principal:
         if principal.roles.isdisjoint(allowed_roles):
-            AUTHORIZATION_DENIALS.labels("role").inc()
+            _record_authorization_denial("role")
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="This role is not permitted to perform the operation",
             )
         if not principal_has_step_up(principal, settings):
-            AUTHORIZATION_DENIALS.labels("step_up").inc()
+            _record_authorization_denial("step_up")
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Recent multi-factor authentication is required",

@@ -26,3 +26,18 @@ groups:
         for: 1m
         labels: {severity: p0}
         annotations: {summary: "自动备份验证失败"}
+      - alert: InternalProjectionReconciliationMismatch
+        expr: srbg_internal_projection_reconciliation_differences > 0
+        for: 1m
+        labels: {severity: p0}
+        annotations: {summary: "内部发布影子投影存在对账差异"}
+      - alert: InternalProjectionStale
+        expr: absent(srbg_internal_projection_last_success_timestamp_seconds) or (time() - srbg_internal_projection_last_success_timestamp_seconds > 90000)
+        for: 5m
+        labels: {severity: p1}
+        annotations: {summary: "内部发布影子投影超过25小时未成功生成"}
+      - alert: AuditChainAnchorStale
+        expr: absent(srbg_audit_chain_anchor_last_success_timestamp_seconds) or (time() - srbg_audit_chain_anchor_last_success_timestamp_seconds > 90000)
+        for: 5m
+        labels: {severity: p0}
+        annotations: {summary: "审计hash链根超过25小时未独立锚定"}

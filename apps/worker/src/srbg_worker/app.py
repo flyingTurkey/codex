@@ -11,6 +11,7 @@ from redis.asyncio import Redis, from_url
 from srbg_api.config import get_settings
 from srbg_api.database import create_database_engine, create_publication_engine
 from srbg_api.discovery.projections import PostgresDiscoveryProjectionWriter
+from srbg_api.internal_projection.audit_anchor import anchor_latest_audit_root
 from srbg_api.logging import configure_logging
 from srbg_api.operations.failures import FailureRecord, failure_record, persist_failure
 from srbg_api.operations.replays import ClaimedReplay, claim_replay, finish_replay
@@ -54,12 +55,18 @@ celery_app.conf.update(
             "schedule": 5.0,
             "options": {"queue": "publisher", "priority": 9},
         },
+        "anchor-audit-chain": {
+            "task": "srbg.audit.anchor",
+            "schedule": 86400.0,
+            "options": {"queue": "publisher"},
+        },
     },
     task_routes={
         "srbg.safety_regulations.discover": {"queue": "parser"},
         "srbg.publication.outbox": {"queue": "publisher"},
         "srbg.publication.projections": {"queue": "publisher"},
         "srbg.operations.replay": {"queue": "publisher"},
+        "srbg.audit.anchor": {"queue": "publisher"},
     },
 )
 
@@ -121,6 +128,23 @@ def apply_publication_projections() -> dict[str, int]:
 @celery_app.task(name="srbg.operations.replay")  # type: ignore[untyped-decorator]
 def execute_priority_replay() -> dict[str, object]:
     return asyncio.run(_execute_priority_replay())
+
+
+@celery_app.task(name="srbg.audit.anchor")  # type: ignore[untyped-decorator]
+def anchor_audit_chain() -> dict[str, object]:
+    return asyncio.run(_anchor_audit_chain())
+
+
+async def _anchor_audit_chain() -> dict[str, object]:
+    engine = create_publication_engine(settings)
+    try:
+        result = await anchor_latest_audit_root(engine, settings)
+        return {
+            "anchored": 0 if result.already_anchored else 1,
+            "already_anchored": result.already_anchored,
+        }
+    finally:
+        await engine.dispose()
 
 
 async def _execute_priority_replay() -> dict[str, object]:

@@ -17,7 +17,7 @@
 - PostgreSQL 业务表、原始对象、accepted claims、审核记录和风险判断属于写侧权威区。
 - 唯一 `PublicationService` 及受控 publisher writer 可以生成或失效投影；客户端、普通 reader、模型和后台按钮不能直写发布状态或投影。
 - `published_v1` 是读侧发布区；`srbg_projection_reader` 只读版本化视图，不依赖业务表 `WHERE` 过滤实现隔离。
-- 企业 OIDC/JWKS 是非开发环境身份边界；本地身份头只在 development/test 生效。
+- 企业 OIDC/JWKS 是 staging/preproduction/production 身份边界；本地身份头只在 development/demo/test 生效。
 - 审计日志是 append-only/tamper-evident 边界，链根写入独立对象存储；不宣称能抵抗拥有完整数据库管理权限的管理员。
 
 ### 复用对象
@@ -143,8 +143,8 @@ R3 题录样例（关键事实必须不存在或为 `null`）：
 
 - staging/preproduction/production 只接受 OIDC，校验 issuer、audience、RS256 algorithm、kid、exp、nbf、iat、角色和 JWKS；失败默认 401/403。
 - 非开发环境忽略 `X-SRBG-*` 本地身份头。viewer、editor、reviewer、source_admin、platform_admin 在服务端映射；source_admin 不能发布，reviewer 不能启停来源，提交人与 R3 reviewer 必须分离。
-- 高权限发布/审核/来源写操作要求 allowlisted `acr`、MFA `amr` 和 15 分钟内 `auth_time`；development/test 有显式标记的本地等价 step-up。
-- CORS 只接受精确 allowlist，拒绝 `*`。Nuxt 服务端代理剥离客户端身份头，只在开发/测试注入短时本地身份；浏览器代码不保存长期 token 到 localStorage 或日志。
+- 高权限发布/审核/来源写操作要求 allowlisted `acr`、MFA `amr` 和 15 分钟内 `auth_time`；development/demo/test 有显式标记的本地等价 step-up。
+- CORS 只接受精确 allowlist，拒绝 `*`。Nuxt 服务端代理剥离客户端身份头，只在 development/demo/test 注入短时本地身份；浏览器代码不保存长期 token 到 localStorage 或日志。
 - 当前没有新增 Cookie/BFF 会话；若后续引入，必须使用 `Secure`、`HttpOnly`、`SameSite` 并为状态变更实现 CSRF 防护。
 
 ## 影子回填与对账证据
@@ -153,6 +153,7 @@ R3 题录样例（关键事实必须不存在或为 `null`）：
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | 1 | 32 | 32 | 23 | 9 | 0 | 0 | SUCCEEDED |
 | 2 | 32 | 32 | 23 | 9 | 0 | 0 | SUCCEEDED |
+| 3 | 32 | 32 | 23 | 9 | 0 | 0 | SUCCEEDED（独立复验） |
 
 两代回填后 `event_identity_binding=32` 且稳定 Event 数仍为 32，证明幂等重跑未建立第二套身份。每条 FULL 投影都指向有效 publication revision，只读取 accepted claims/evidence；每条 metadata-only 投影都满足官方 R3 待审核白名单。
 
@@ -161,22 +162,41 @@ R3 题录样例（关键事实必须不存在或为 `null`）：
 - 隔离 PostgreSQL 完成 `0012 -> 0013 -> 0012 -> 0013`；最终 head 为 `0013_internal_projection`。
 - 发布、撤回、来源启停、权限和 Prompt 变更保持审计；运行角色的无意义 UPDATE/DELETE 和直接 INSERT 均被撤销。
 - 结构化日志只记录 generation、event ID、策略原因、差异类型和结果，不记录正文、token、Cookie 或个人信息。
-- 低基数指标：`srbg_internal_projection_runs_total{outcome}`、`srbg_internal_projection_records_total{level}`、`srbg_authorization_denials_total{reason}`。
+- 低基数指标：`srbg_internal_projection_runs_total{outcome}`、`srbg_internal_projection_records_total{level}`、`srbg_authorization_denials_total{reason}`、`srbg_internal_projection_reconciliation_differences`、`srbg_internal_projection_last_success_timestamp_seconds`、`srbg_audit_chain_anchor_last_success_timestamp_seconds`。
+- publisher 每日执行 `srbg.audit.anchor`；Prometheus 对投影差异、投影陈旧和审计锚定陈旧提供 fail-closed 告警，处置步骤记录在 `docs/operations/runbooks.md`。
+
+## 2026-07-15 独立复验与修复
+
+复验基于分支 `codex/round-10-feed-search-daily`、基线提交 `fa8972f80b6388ae9275ed3ef3367a0de50e06de` 和开始时 clean 工作树执行。环境为 Windows/PowerShell、Docker Compose 5.3.0、Docker Server 29.6.1、uv 0.11.28、pnpm 11.12.0、GNU Make 4.4.1；核心代码修复差异快照 Git blob hash 为 `69ab2cda3855b704b658fa006a5658f4ca9d823d`（最终提交 hash 在提交完成后由验收交付记录给出）。
+
+先写失败测试并真实得到红灯：
+
+| 命令 | 失败证据 |
+| --- | --- |
+| `pytest apps/api/tests/test_round13_projection_policy.py tests/infrastructure/test_round13_observability.py -q` | exit 1；5 failed/3 passed，暴露 PublicationService 回填边界、CLI 旁路和指标/告警/Runbook 缺口 |
+| `make phase2-round13-test` | exit 1；3 failed/23 passed，额外复现 accepted claim 字符串被二次 JSON 编码 |
+| 授权拒绝结构化日志定向测试 | exit 1；缺少 `authorization_denied` 事件 |
+
+最小修复后，影子回填 CLI 只调用 `PublicationService.build_internal_projection`；字符串 claim 保留原值，非字符串才 JSON 序列化；运行时从 PostgreSQL 提供对账/最近成功/锚定时刻指标；补齐投影失效、权限拒绝和锚定结构化日志、每日锚定任务、三条告警及 fail-closed Runbook。没有修改页面、Feed/Card 或切换任何用户消费者。
+
+真实运行证据：publisher 容器回填返回 generation 3、source/projected 32/32、FULL 23、METADATA_ONLY 9、R4 0、difference 0；独立锚定返回既有有效 anchor。`srbg_projection_reader_login` 登录读取两个 current 视图成功，`public.intelligence_item` 查询以 `permission denied for schema public` 失败；32 条 title 的首字符为双引号的计数为 0。受保护 `/metrics` 返回对账差异 0 和两个成功时刻指标；`promtool check rules` 返回 8 rules、SUCCESS。
 
 ## 最终门禁
 
 最终工作树（包括运行时 demo 身份边界修复）完成以下门禁，不以早期局部通过替代：
 
+下表命令均为本次复验实际执行且最终退出码为 0；失败测试的非零退出结果单独保留在上节。
+
 | 门禁 | 最终结果 |
 | --- | --- |
 | `make lint` | PASS |
 | `make typecheck` | PASS；mypy 95 source files，无问题，Vue/Nuxt/生成 TS strict 通过 |
-| `make test` | PASS；Python 495 passed/22 skipped，UI 53 passed，Web unit 69 passed |
+| `make test` | PASS；Python 502 passed/24 skipped，UI 53 passed，Web unit 69 passed |
 | `make contract-test` | PASS；生成可复现，58 passed |
 | `make security-check` | PASS；无 HIGH/CRITICAL，pnpm 仅 1 个已知 low |
 | `make fixture-replay` | PASS；164 passed，Round 09 对抗评估通过 |
 | `make quality-gate` | PASS；在最后代码变更后再次全量通过 |
-| `make phase2-round13-test` | PASS；真实临时 reader 登录，23 passed |
+| `make phase2-round13-test` | PASS；真实临时 reader/runtime/publisher 登录，32 passed |
 | `make web-e2e` | PASS；42 passed |
 | `make web-a11y` | PASS；13 passed，axe 违规为 0 |
 | Alembic 正向/回滚/再正向 | PASS；`0012 -> 0013 -> 0012 -> 0013` |
@@ -191,4 +211,4 @@ R3 题录样例（关键事实必须不存在或为 `null`）：
 - 审计锚定提高事后发现篡改的能力，但不提供对数据库管理员的绝对不可篡改保证。
 - 第 11 轮真实金标、连续运行、PITR 和真实告警路由阻断项仍然存在。
 
-第13轮验收通过，event-keyed内部发布投影影子基线和权限隔离成立，尚未切换用户消费者，可以进入第14轮单次切换。
+当前轮验收通过，可以进入下一轮。尚未启动第14轮，也尚未切换任何用户消费者。

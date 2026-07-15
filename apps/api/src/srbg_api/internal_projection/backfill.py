@@ -47,6 +47,25 @@ async def backfill_internal_projection(
 ) -> BackfillReport:
     """Build one complete shadow generation without switching any consumer."""
 
+    try:
+        return await _build_internal_projection(
+            engine,
+            actor_id=actor_id,
+            now=now,
+        )
+    except Exception:
+        INTERNAL_PROJECTION_RUNS.labels("failed").inc()
+        LOGGER.exception("internal_projection_backfill_failed")
+        raise
+
+
+async def _build_internal_projection(
+    engine: AsyncEngine,
+    *,
+    actor_id: UUID,
+    now: datetime | None,
+) -> BackfillReport:
+
     generated_at = now or datetime.now(UTC)
     async with engine.begin() as connection:
         await connection.execute(text("SELECT pg_advisory_xact_lock(hashtext('round13_backfill'))"))
@@ -204,6 +223,7 @@ async def backfill_internal_projection(
             "metadata_only_count": metadata_only_count,
             "full_count": full_count,
             "r4_count": r4_count,
+            "invalidated_count": invalidated_count,
             "difference_count": differences,
         },
     )
@@ -341,7 +361,11 @@ async def _accepted_claims(connection: Any, item_id: UUID) -> list[dict[str, Any
             {
                 "claim_id": str(row["id"]),
                 "field_name": row["claim_type"],
-                "value": _json(row["literal_value"]),
+                "value": (
+                    row["literal_value"]
+                    if isinstance(row["literal_value"], str)
+                    else _json(row["literal_value"])
+                ),
                 "evidence_ids": [],
                 "_sources": [],
             },

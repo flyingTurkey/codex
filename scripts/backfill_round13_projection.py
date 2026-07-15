@@ -5,19 +5,30 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import asdict
+from pathlib import Path
 
 from srbg_api.config import get_settings
 from srbg_api.database import create_publication_engine
-from srbg_api.internal_projection.backfill import backfill_internal_projection
+from srbg_api.internal_projection.backfill import SYSTEM_ACTOR
+from srbg_api.publication.gate import PublicationGate
+from srbg_api.publication.repository import PostgresPublicationRepository
+from srbg_api.publication.service import PublicationService
 
 
 async def _run() -> None:
-    engine = create_publication_engine(get_settings())
+    policy_root = Path("docs/codex-kit/assets/validation")
+    service = PublicationService(
+        repository=PostgresPublicationRepository(create_publication_engine(get_settings())),
+        gate=PublicationGate.from_files(
+            policy_root / "publication_gate.json",
+            policy_root / "publication_evaluation.schema.json",
+        ),
+    )
     try:
-        report = await backfill_internal_projection(engine)
+        report = await service.build_internal_projection(actor_id=SYSTEM_ACTOR)
         print(json.dumps(asdict(report), default=str, sort_keys=True))
     finally:
-        await engine.dispose()
+        await service.close()
 
 
 def main() -> None:

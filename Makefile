@@ -282,6 +282,7 @@ phase2-round13-test:
 		apps/api/tests/test_round13_migration.py \
 		apps/api/tests/test_round13_projection_policy.py \
 		apps/api/tests/test_round13_projection_permissions.py \
+		tests/infrastructure/test_round13_observability.py \
 		packages/contracts/tests/test_round13_contracts.py -q
 	$(UV) run python scripts/audit_publication_paths.py
 

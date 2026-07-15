@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -14,6 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from srbg_api.config import Settings
 from srbg_api.identifiers import uuid7
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +59,10 @@ async def anchor_latest_audit_root(
             {"id": row["id"]},
         )
         if existing is not None:
+            LOGGER.info(
+                "audit_chain_anchor_verified",
+                extra={"audit_log_id": str(row["id"]), "already_anchored": True},
+            )
             return AuditAnchorResult(str(row["id"]), row["entry_hash"], existing, True)
         object_key = (
             f"audit-chain-anchors/{anchored_at:%Y/%m/%d}/"
@@ -116,4 +123,8 @@ async def anchor_latest_audit_root(
                 "now": anchored_at,
             },
         )
+    LOGGER.info(
+        "audit_chain_anchor_persisted",
+        extra={"audit_log_id": str(row["id"]), "already_anchored": False},
+    )
     return AuditAnchorResult(str(row["id"]), row["entry_hash"], object_key, False)

@@ -174,6 +174,53 @@ class PostgresPublicationRepository:
     async def close(self) -> None:
         await self._engine.dispose()
 
+    async def build_internal_projection(
+        self, *, actor_id: UUID, generated_at: datetime
+    ) -> Any:
+        from srbg_api.internal_projection.backfill import backfill_internal_projection
+
+        return await backfill_internal_projection(
+            self._engine,
+            actor_id=actor_id,
+            now=generated_at,
+        )
+
+    async def internal_projection_metrics(self) -> dict[str, float]:
+        async with self._engine.connect() as connection:
+            row = (
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT
+                              COALESCE((
+                                SELECT difference_count
+                                  FROM published_v1.projection_build_run
+                                 WHERE status = 'SUCCEEDED'
+                                 ORDER BY generation DESC LIMIT 1
+                              ), 0) AS differences,
+                              COALESCE(EXTRACT(EPOCH FROM (
+                                SELECT completed_at
+                                  FROM published_v1.projection_build_run
+                                 WHERE status = 'SUCCEEDED'
+                                 ORDER BY generation DESC LIMIT 1
+                              )), 0) AS projection_timestamp,
+                              COALESCE(EXTRACT(EPOCH FROM (
+                                SELECT max(anchored_at) FROM audit_chain_anchor
+                              )), 0) AS anchor_timestamp
+                            """
+                        )
+                    )
+                )
+                .mappings()
+                .one()
+            )
+        return {
+            "reconciliation_differences": float(row["differences"]),
+            "last_projection_success_timestamp": float(row["projection_timestamp"]),
+            "last_anchor_success_timestamp": float(row["anchor_timestamp"]),
+        }
+
     async def create_daily_draft(
         self,
         *,
@@ -2532,7 +2579,7 @@ async def _enqueue_projection_invalidations(
     action: str,
     created_at: datetime,
 ) -> None:
-    await connection.execute(
+    result = await connection.execute(
         text(
             """
             UPDATE published_v1.event_projection_revision projection
@@ -2548,6 +2595,14 @@ async def _enqueue_projection_invalidations(
             "publication_id": publication_id,
             "created_at": created_at,
             "reason": f"PUBLICATION_{action}",
+        },
+    )
+    logger.info(
+        "internal_projection_invalidated",
+        extra={
+            "action": action,
+            "invalidation_reason": f"PUBLICATION_{action}",
+            "invalidated_count": int(result.rowcount or 0),
         },
     )
     generation = int(

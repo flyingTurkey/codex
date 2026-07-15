@@ -9,6 +9,7 @@ from srbg_api.config import get_settings
 from srbg_api.identifiers import uuid7
 from srbg_api.internal_projection.audit_anchor import anchor_latest_audit_root
 from srbg_api.internal_projection.backfill import backfill_internal_projection
+from srbg_api.publication.repository import PostgresPublicationRepository
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -142,6 +143,21 @@ async def test_metadata_only_is_excluded_from_distribution_detail_and_export() -
                 await connection.scalars(text("SELECT event_id FROM published_v1.fulltext_export"))
             )
             assert metadata_ids.isdisjoint(distributed | detailed | exported)
+
+            claim_values = list(
+                await connection.scalars(
+                    text(
+                        "SELECT claim->>'value' "
+                        "FROM published_v1.current_event_detail, "
+                        "LATERAL jsonb_array_elements(detail_payload->'claims') claim"
+                    )
+                )
+            )
+            assert claim_values
+            assert all(
+                not (value.startswith('"') and value.endswith('"'))
+                for value in claim_values
+            )
     finally:
         await engine.dispose()
 
@@ -178,6 +194,21 @@ async def test_publication_writer_cannot_forge_audit_rows_but_can_use_chain_func
                 },
             )
             assert created == audit_id
+    finally:
+        await engine.dispose()
+
+
+async def test_runtime_role_cannot_insert_audit_rows_directly() -> None:
+    engine = create_async_engine(os.environ["SRBG_DATABASE_URL"])
+    try:
+        async with engine.connect() as connection:
+            assert not await connection.scalar(
+                text("SELECT has_table_privilege(current_user, 'public.audit_log', 'INSERT')")
+            )
+            with pytest.raises(DBAPIError):
+                await connection.execute(
+                    text("INSERT INTO audit_log (id) VALUES (:id)"), {"id": uuid7()}
+                )
     finally:
         await engine.dispose()
 
@@ -232,3 +263,16 @@ async def test_backfill_is_idempotent_and_old_generation_cannot_remain_active() 
             ) == 0
     finally:
         await engine.dispose()
+
+
+async def test_projection_metrics_are_read_from_postgresql_authority() -> None:
+    repository = PostgresPublicationRepository(
+        create_async_engine(os.environ["SRBG_PUBLICATION_DATABASE_URL"])
+    )
+    try:
+        metrics = await repository.internal_projection_metrics()
+        assert metrics["reconciliation_differences"] == 0
+        assert metrics["last_projection_success_timestamp"] > 0
+        assert metrics["last_anchor_success_timestamp"] > 0
+    finally:
+        await repository.close()

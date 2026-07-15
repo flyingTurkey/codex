@@ -19,6 +19,7 @@
 - `publication_risk_tier`、`content_severity` 和 `projection_level` 是相互独立的权威轴。R3 待审核只产生官方题录 `METADATA_ONLY`，且不进入精选、日报、推荐、通知或全文导出；R4 零投影。
 - 投影只保存发布题录、accepted claims 和证据定位，不复制原始全文。撤回、纠正及法律下架会使当前投影失效。
 - 审计边界为 append-only/tamper-evident：运行角色不能直接写 `audit_log`，链值由受控数据库函数生成，链根锚定到独立对象存储；这不等于数据库管理员绝对不可篡改。
+- publisher 每日锚定审计链根；`/metrics` 暴露由 PostgreSQL 计算的投影对账差异、最近成功回填和最近成功锚定时刻，Prometheus 对差异或陈旧状态告警，处置流程保持不切换消费者且不回退读取业务表。
 - 首期仍仅允许企业内部 OIDC/SSO，非开发环境不接受本地身份头，不开放匿名互联网访问。
 
 本地验收影子数据为 32 个稳定 Event：23 条 `FULL`、9 条 R3 `METADATA_ONLY`、0 条 R4 投影，连续两代对账差异均为 0。该数量是固定验收数据证据，不代表生产内容规模。完整证据见[第 13 轮验收记录](docs/acceptance/phase-2/round-13-internal-projection-event-identity.md)。

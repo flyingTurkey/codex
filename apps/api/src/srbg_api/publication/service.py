@@ -55,6 +55,12 @@ class PublicationTransaction(Protocol):
 class PublicationRepository(Protocol):
     async def close(self) -> None: ...
 
+    async def build_internal_projection(
+        self, *, actor_id: UUID, generated_at: datetime
+    ) -> Any: ...
+
+    async def internal_projection_metrics(self) -> dict[str, float]: ...
+
     async def create_daily_draft(
         self,
         *,
@@ -203,6 +209,17 @@ class PublicationService:
 
     async def close(self) -> None:
         await self._repository.close()
+
+    async def build_internal_projection(self, *, actor_id: UUID) -> Any:
+        """Build the shadow projection only through the sole publication boundary."""
+
+        return await self._repository.build_internal_projection(
+            actor_id=actor_id,
+            generated_at=self._now(),
+        )
+
+    async def internal_projection_metrics(self) -> dict[str, float]:
+        return await self._repository.internal_projection_metrics()
 
     async def create_daily_draft(
         self,

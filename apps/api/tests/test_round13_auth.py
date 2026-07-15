@@ -1,12 +1,20 @@
+import logging
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
+from fastapi import HTTPException
 from jwt.algorithms import RSAAlgorithm
-from srbg_api.auth import decode_oidc_token, principal_has_step_up
+from srbg_api.auth import (
+    Principal,
+    decode_oidc_token,
+    principal_has_step_up,
+    require_roles,
+)
 from srbg_api.config import Settings
+from srbg_contracts import UserRole
 
 
 def _identity(
@@ -57,3 +65,23 @@ def test_oidc_requires_nbf_and_rejects_future_tokens() -> None:
     token, jwks, settings = _identity(nbf=now + timedelta(minutes=2), auth_time=now, amr=["mfa"])
     with pytest.raises(jwt.PyJWTError):
         decode_oidc_token(token, jwks, settings)
+
+
+@pytest.mark.asyncio
+async def test_role_denial_emits_privacy_safe_structured_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    principal = Principal(
+        user_id=UUID("019b0000-0000-7000-8000-000000001399"),
+        display_name="viewer",
+        roles=frozenset({UserRole.VIEWER}),
+        local_identity=False,
+    )
+    authorize = require_roles(UserRole.REVIEWER)
+
+    with caplog.at_level(logging.WARNING, logger="srbg.auth"), pytest.raises(HTTPException):
+        await authorize(principal)
+
+    record = next(record for record in caplog.records if record.message == "authorization_denied")
+    assert record.reason == "role"
+    assert not hasattr(record, "user_id")
