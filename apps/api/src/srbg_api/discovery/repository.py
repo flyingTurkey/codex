@@ -281,27 +281,21 @@ class PostgresPortalRepository:
                     await connection.execute(
                         text(
                             """
-                            SELECT si.item_id, si.saved_at
+                            SELECT si.event_id, si.saved_at
                             FROM saved_item si
-                            JOIN intelligence_item ii ON ii.id = si.item_id
-                            LEFT JOIN publication p ON p.item_id = si.item_id
-                            LEFT JOIN search_projection sp ON sp.item_id = si.item_id
                             WHERE si.owner_id = :owner_id
-                              AND (
-                                (sp.visible AND sp.risk_level <> 'R4')
-                                OR p.status = 'WITHDRAWN'
-                              )
+                              AND si.event_id IS NOT NULL
                               AND (
                                 CAST(:collection_id AS uuid) IS NULL OR EXISTS (
                                   SELECT 1 FROM collection_item ci
                                   WHERE ci.collection_id = CAST(:collection_id AS uuid)
-                                    AND ci.owner_id = :owner_id AND ci.item_id = si.item_id
+                                    AND ci.owner_id = :owner_id AND ci.event_id = si.event_id
                                 )
                               )
                               AND (CAST(:cursor_time AS timestamptz) IS NULL OR
-                                (si.saved_at, si.item_id) <
+                                (si.saved_at, si.event_id) <
                                 (CAST(:cursor_time AS timestamptz), CAST(:cursor_id AS uuid)))
-                            ORDER BY si.saved_at DESC, si.item_id DESC
+                            ORDER BY si.saved_at DESC, si.event_id DESC
                             LIMIT :fetch_limit
                             """
                         ),
@@ -329,9 +323,9 @@ class PostgresPortalRepository:
         if len(rows) > limit and visible:
             next_values = (
                 cast(datetime, visible[-1]["saved_at"]).isoformat(),
-                str(visible[-1]["item_id"]),
+                str(visible[-1]["event_id"]),
             )
-        return [cast(UUID, row["item_id"]) for row in visible], next_values, generation
+        return [cast(UUID, row["event_id"]) for row in visible], next_values, generation
 
     async def save_item(
         self,
@@ -409,20 +403,6 @@ class PostgresPortalRepository:
             {"event_id": str(event_id), "collection_id": str(collection_id)}
         )
         async with self._engine.begin() as connection:
-            item_id = await connection.scalar(
-                text(
-                    """
-                    SELECT projection.item_id
-                      FROM search_projection projection
-                     WHERE projection.event_id=:event_id
-                       AND projection.visible AND projection.risk_level <> 'R4'
-                     ORDER BY projection.activity_at DESC, projection.item_id DESC LIMIT 1
-                    """
-                ),
-                {"event_id": event_id},
-            )
-            if item_id is None:
-                raise PortalRepositoryNotFound("event is not available to save")
             replay = await self._claim_idempotency(
                 connection,
                 owner_id=owner_id,
@@ -434,14 +414,28 @@ class PostgresPortalRepository:
             )
             if replay:
                 return
+            switch = await connection.scalar(
+                text("SELECT status FROM event_consumer_switch WHERE singleton")
+            )
+            if switch != "EVENT":
+                raise PortalRepositoryConflict("event consumer writes are read-only")
+            if collection_id is not None:
+                owns_collection = await connection.scalar(
+                    text(
+                        "SELECT EXISTS (SELECT 1 FROM user_collection WHERE id=:collection_id "
+                        "AND owner_id=:owner_id AND NOT archived)"
+                    ),
+                    {"collection_id": collection_id, "owner_id": owner_id},
+                )
+                if not owns_collection:
+                    raise PortalRepositoryNotFound("collection was not found")
             await connection.execute(
                 text(
-                    "INSERT INTO saved_item (owner_id,item_id,event_id,saved_at) "
-                    "VALUES (:owner_id,:item_id,:event_id,:saved_at) ON CONFLICT DO NOTHING"
+                    "INSERT INTO saved_item (owner_id,event_id,saved_at) "
+                    "VALUES (:owner_id,:event_id,:saved_at) ON CONFLICT DO NOTHING"
                 ),
                 {
                     "owner_id": owner_id,
-                    "item_id": item_id,
                     "event_id": event_id,
                     "saved_at": saved_at,
                 },
@@ -450,14 +444,13 @@ class PostgresPortalRepository:
                 await connection.execute(
                     text(
                         "INSERT INTO collection_item "
-                        "(collection_id,owner_id,item_id,event_id,added_at) "
-                        "VALUES (:collection_id,:owner_id,:item_id,:event_id,:saved_at) "
+                        "(collection_id,owner_id,event_id,added_at) "
+                        "VALUES (:collection_id,:owner_id,:event_id,:saved_at) "
                         "ON CONFLICT DO NOTHING"
                     ),
                     {
                         "collection_id": collection_id,
                         "owner_id": owner_id,
-                        "item_id": item_id,
                         "event_id": event_id,
                         "saved_at": saved_at,
                     },
@@ -515,7 +508,7 @@ class PostgresPortalRepository:
                     await connection.execute(
                         text(
                             """
-                            SELECT c.*, count(ci.item_id) AS item_count
+                            SELECT c.*, count(ci.event_id) AS item_count
                             FROM user_collection c
                             LEFT JOIN collection_item ci ON ci.collection_id = c.id
                               AND ci.owner_id = c.owner_id

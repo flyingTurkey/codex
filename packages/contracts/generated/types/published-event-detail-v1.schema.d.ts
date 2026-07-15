@@ -10,6 +10,19 @@ export type Value = string
  * @maxItems 500
  */
 export type Claims = PublishedClaimV1[]
+export type DocumentId = string
+export type OriginalUrl = string
+/**
+ * @maxItems 1000
+ */
+export type PublicationRevisionIds = string[]
+export type SourceName = string
+export type SourceLineageRole = 'ORIGINAL' | 'REPRINT' | 'MIRROR' | 'INDEPENDENT_REPORT'
+export type SourceRolePending = boolean
+/**
+ * @maxItems 500
+ */
+export type Documents = PublishedDocumentReferenceV1[]
 export type ContentSha256 = string
 export type EvidenceId = string
 export type Locator = string
@@ -17,6 +30,11 @@ export type Locator = string
  * @maxItems 500
  */
 export type Evidence = PublishedEvidenceReferenceV1[]
+/**
+ * @maxItems 500
+ */
+export type SourceComparison = PublishedDocumentReferenceV1[]
+export type CanonicalEventId = string | null
 /**
  * Subject-matter severity, independent from publication handling risk.
  */
@@ -32,24 +50,33 @@ export type ItemType =
   | 'SAFETY_CASE'
 export type DiscoveryStatus = 'MACHINE_DISCOVERED' | 'HUMAN_CURATED'
 export type Channel = 'DIGITAL' | 'SAFETY'
+export type EventRevisionId = string | null
+export type EventStatus = 'ACTIVE' | 'MERGED' | 'SPLIT' | 'WITHDRAWN'
+export type EventType =
+  'SAFETY_INCIDENT' | 'REGULATION_CHANGE' | 'DIGITAL_PROJECT' | 'RESEARCH_RESULT' | 'PRODUCT_RELEASE'
+export type EventVersion = number
 export type FactReviewStatus = 'PENDING_HUMAN_REVIEW' | 'HUMAN_REVIEWED'
 export type FirstDiscoveredAt = string
 export type Generation = number
 export type Id = string
 export type OneSentenceFact = string | null
-export type OriginalUrl = string
+export type OriginalUrl1 = string
 /**
  * Maximum content projection level decided by server-side policy.
  */
 export type ProjectionLevel = 'NONE' | 'METADATA_ONLY' | 'FULL'
-export type ProjectionVersion = '1.0.0'
+export type ProjectionVersion = '1.0.0' | '1.1.0'
 export type PublicationRevisionId = string | null
+/**
+ * @maxItems 1000
+ */
+export type PublicationRevisionIds1 = string[]
 /**
  * Publication handling risk; it never grants content visibility.
  */
 export type PublicationRiskTier = 'R1' | 'R2' | 'R3' | 'R4'
 export type ReviewStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
-export type SourceName = string
+export type SourceName1 = string
 export type SourcePublishedAt = string | null
 export type Title = string
 export type TypeSummary =
@@ -235,17 +262,40 @@ export type PromotionalClaimCount3 = number
 export type VendorName3 = string
 export type VerifiedCapabilityCount3 = number
 export type Version3 = string | null
+export type TypeDetail =
+  | (
+      | SafetyRegulationTypeSummary
+      | SafetyCaseTypeSummary
+      | DigitalCaseTypeSummary
+      | PaperTypeSummary
+      | SoftwareProductTypeSummary
+      | IotProductTypeSummary
+      | LowAltitudeEquipmentTypeSummary
+      | AiEquipmentTypeSummary
+    )
+  | null
 
 export interface PublishedEventDetailV1 {
   claims: Claims
+  documents?: Documents
   evidence: Evidence
+  source_comparison?: SourceComparison
   summary: PublishedEventSummaryV1
+  type_detail?: TypeDetail
 }
 export interface PublishedClaimV1 {
   claim_id: ClaimId
   evidence_ids: EvidenceIds
   field_name: FieldName
   value: Value
+}
+export interface PublishedDocumentReferenceV1 {
+  document_id: DocumentId
+  original_url: OriginalUrl
+  publication_revision_ids?: PublicationRevisionIds
+  source_name: SourceName
+  source_role?: SourceLineageRole | null
+  source_role_pending?: SourceRolePending
 }
 export interface PublishedEvidenceReferenceV1 {
   content_sha256: ContentSha256
@@ -256,22 +306,28 @@ export interface PublishedEvidenceReferenceV1 {
  * Versioned, event-keyed content projection for internal readers.
  */
 export interface PublishedEventSummaryV1 {
+  canonical_event_id?: CanonicalEventId
   content_severity: ContentSeverity
   content_type: ItemType
   discovery_status: DiscoveryStatus
   domain: Channel
+  event_revision_id?: EventRevisionId
+  event_status?: EventStatus
+  event_type?: EventType | null
+  event_version?: EventVersion
   fact_review_status: FactReviewStatus
   first_discovered_at: FirstDiscoveredAt
   generation: Generation
   id: Id
   one_sentence_fact?: OneSentenceFact
-  original_url: OriginalUrl
+  original_url: OriginalUrl1
   projection_level: ProjectionLevel
   projection_version: ProjectionVersion
   publication_revision_id: PublicationRevisionId
+  publication_revision_ids?: PublicationRevisionIds1
   publication_risk_tier: PublicationRiskTier
   review_status: ReviewStatus
-  source_name: SourceName
+  source_name: SourceName1
   source_published_at: SourcePublishedAt
   title: Title
   type_summary?: TypeSummary

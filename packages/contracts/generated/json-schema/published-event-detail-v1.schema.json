@@ -222,6 +222,27 @@
       "title": "DigitalCaseTypeSummary",
       "type": "object"
     },
+    "EventStatus": {
+      "enum": [
+        "ACTIVE",
+        "MERGED",
+        "SPLIT",
+        "WITHDRAWN"
+      ],
+      "title": "EventStatus",
+      "type": "string"
+    },
+    "EventType": {
+      "enum": [
+        "SAFETY_INCIDENT",
+        "REGULATION_CHANGE",
+        "DIGITAL_PROJECT",
+        "RESEARCH_RESULT",
+        "PRODUCT_RELEASE"
+      ],
+      "title": "EventType",
+      "type": "string"
+    },
     "IncidentStatus": {
       "enum": [
         "UNVERIFIED_LEAD",
@@ -695,10 +716,77 @@
       "title": "PublishedClaimV1",
       "type": "object"
     },
+    "PublishedDocumentReferenceV1": {
+      "additionalProperties": false,
+      "properties": {
+        "document_id": {
+          "format": "uuid",
+          "title": "Document Id",
+          "type": "string"
+        },
+        "original_url": {
+          "maxLength": 2048,
+          "pattern": "^https?://[^\\s]+$",
+          "title": "Original Url",
+          "type": "string"
+        },
+        "publication_revision_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 1000,
+          "title": "Publication Revision Ids",
+          "type": "array"
+        },
+        "source_name": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Source Name",
+          "type": "string"
+        },
+        "source_role": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceLineageRole"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "source_role_pending": {
+          "default": false,
+          "title": "Source Role Pending",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "document_id",
+        "source_name",
+        "original_url"
+      ],
+      "title": "PublishedDocumentReferenceV1",
+      "type": "object"
+    },
     "PublishedEventSummaryV1": {
       "additionalProperties": false,
       "description": "Versioned, event-keyed content projection for internal readers.",
       "properties": {
+        "canonical_event_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Canonical Event Id"
+        },
         "content_severity": {
           "$ref": "#/$defs/ContentSeverity"
         },
@@ -715,6 +803,40 @@
         },
         "domain": {
           "$ref": "#/$defs/Channel"
+        },
+        "event_revision_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Event Revision Id"
+        },
+        "event_status": {
+          "$ref": "#/$defs/EventStatus",
+          "default": "ACTIVE"
+        },
+        "event_type": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EventType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "event_version": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Event Version",
+          "type": "integer"
         },
         "fact_review_status": {
           "enum": [
@@ -762,7 +884,10 @@
           "$ref": "#/$defs/ProjectionLevel"
         },
         "projection_version": {
-          "const": "1.0.0",
+          "enum": [
+            "1.0.0",
+            "1.1.0"
+          ],
           "title": "Projection Version",
           "type": "string"
         },
@@ -777,6 +902,15 @@
             }
           ],
           "title": "Publication Revision Id"
+        },
+        "publication_revision_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 1000,
+          "title": "Publication Revision Ids",
+          "type": "array"
         },
         "publication_risk_tier": {
           "$ref": "#/$defs/PublicationRiskTier"
@@ -1411,6 +1545,16 @@
       ],
       "title": "SoftwareProductTypeSummary",
       "type": "object"
+    },
+    "SourceLineageRole": {
+      "enum": [
+        "ORIGINAL",
+        "REPRINT",
+        "MIRROR",
+        "INDEPENDENT_REPORT"
+      ],
+      "title": "SourceLineageRole",
+      "type": "string"
     }
   },
   "additionalProperties": false,
@@ -1423,6 +1567,14 @@
       "title": "Claims",
       "type": "array"
     },
+    "documents": {
+      "items": {
+        "$ref": "#/$defs/PublishedDocumentReferenceV1"
+      },
+      "maxItems": 500,
+      "title": "Documents",
+      "type": "array"
+    },
     "evidence": {
       "items": {
         "$ref": "#/$defs/PublishedEvidenceReferenceV1"
@@ -1431,8 +1583,66 @@
       "title": "Evidence",
       "type": "array"
     },
+    "source_comparison": {
+      "items": {
+        "$ref": "#/$defs/PublishedDocumentReferenceV1"
+      },
+      "maxItems": 500,
+      "title": "Source Comparison",
+      "type": "array"
+    },
     "summary": {
       "$ref": "#/$defs/PublishedEventSummaryV1"
+    },
+    "type_detail": {
+      "anyOf": [
+        {
+          "discriminator": {
+            "mapping": {
+              "AI_EQUIPMENT": "#/$defs/AiEquipmentTypeSummary",
+              "DIGITAL_CASE": "#/$defs/DigitalCaseTypeSummary",
+              "IOT_PRODUCT": "#/$defs/IotProductTypeSummary",
+              "JOURNAL_PAPER": "#/$defs/PaperTypeSummary",
+              "LOW_ALTITUDE_EQUIPMENT": "#/$defs/LowAltitudeEquipmentTypeSummary",
+              "SAFETY_CASE": "#/$defs/SafetyCaseTypeSummary",
+              "SAFETY_REGULATION": "#/$defs/SafetyRegulationTypeSummary",
+              "SOFTWARE_PRODUCT": "#/$defs/SoftwareProductTypeSummary"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/SafetyRegulationTypeSummary"
+            },
+            {
+              "$ref": "#/$defs/SafetyCaseTypeSummary"
+            },
+            {
+              "$ref": "#/$defs/DigitalCaseTypeSummary"
+            },
+            {
+              "$ref": "#/$defs/PaperTypeSummary"
+            },
+            {
+              "$ref": "#/$defs/SoftwareProductTypeSummary"
+            },
+            {
+              "$ref": "#/$defs/IotProductTypeSummary"
+            },
+            {
+              "$ref": "#/$defs/LowAltitudeEquipmentTypeSummary"
+            },
+            {
+              "$ref": "#/$defs/AiEquipmentTypeSummary"
+            }
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Type Detail"
     }
   },
   "required": [

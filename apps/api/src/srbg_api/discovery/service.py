@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Sequence
 from datetime import UTC, date, datetime
-from typing import Literal, Protocol
+from typing import Literal, Protocol, cast
 from uuid import UUID
 
 from srbg_contracts import (
@@ -30,6 +30,10 @@ class IntelligenceReader(Protocol):
     async def get_item(self, item_id: UUID) -> ItemDetail: ...
 
     async def get_event_summary_for_item(self, item_id: UUID) -> EventSummary: ...
+
+    async def get_event_summary(self, event_id: UUID) -> EventSummary: ...
+
+    async def search_events(self, query: str, *, limit: int) -> list[EventSummary]: ...
 
 
 class EmbeddingProvider(Protocol):
@@ -98,6 +102,17 @@ class PortalApplicationService:
                     semantic_status = "ENABLED"
                 except (TimeoutError, ValueError):
                     embedding = None
+        projection_search = getattr(self._intelligence, "search_events", None)
+        if projection_search is not None:
+            items = await projection_search(query, limit=limit)
+            return FeedPage(
+                items=items,
+                next_cursor=None,
+                fingerprint="search:published-v1:event",
+                generated_at=datetime.now(UTC),
+                freshness="fresh",
+                notices=[],
+            )
         hits, next_values, generation = await self._repository.search(
             query=query,
             tokens=tokens,
@@ -180,8 +195,8 @@ class PortalApplicationService:
             limit=limit,
         )
         items: list[EventSummary] = []
-        for item_id in item_ids:
-            summary = await self._intelligence.get_event_summary_for_item(item_id)
+        for event_id in item_ids:
+            summary = await self._intelligence.get_event_summary(event_id)
             items.append(summary.model_copy(update={"is_saved": True}))
         return FeedPage(
             items=items,
@@ -229,6 +244,7 @@ class PortalApplicationService:
         collection_id: UUID | None,
         idempotency_key: str,
     ) -> None:
+        await self._intelligence.get_event_summary(event_id)
         await self._repository.save_event(
             owner_id=owner_id,
             event_id=event_id,
@@ -287,11 +303,17 @@ class PortalApplicationService:
         )
 
     async def get_daily(self, *, report_date: date | None, principal: Principal) -> DailyReport:
+        projection_daily = getattr(self._intelligence, "get_daily_report", None)
+        if projection_daily is not None and not self._include_draft(principal):
+            return cast(DailyReport, await projection_daily(report_date=report_date))
         return await self._repository.get_daily(
             report_date=report_date, include_draft=self._include_draft(principal)
         )
 
     async def get_report(self, *, report_id: UUID, principal: Principal) -> DailyReport:
+        projection_daily = getattr(self._intelligence, "get_daily_report", None)
+        if projection_daily is not None and not self._include_draft(principal):
+            return cast(DailyReport, await projection_daily(report_id=report_id))
         return await self._repository.get_report(
             report_id=report_id, include_draft=self._include_draft(principal)
         )

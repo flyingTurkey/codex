@@ -1210,7 +1210,9 @@ class PublishedEventSummaryV1(ContractModel):
 
     id: UUID
     publication_revision_id: UUID | None
-    projection_version: Literal["1.0.0"]
+    event_revision_id: UUID | None = None
+    publication_revision_ids: list[UUID] = Field(default_factory=list, max_length=1000)
+    projection_version: Literal["1.0.0", "1.1.0"]
     generation: int = Field(ge=1)
     domain: Channel
     content_type: ItemType
@@ -1227,6 +1229,10 @@ class PublishedEventSummaryV1(ContractModel):
     projection_level: ProjectionLevel
     one_sentence_fact: str | None = Field(default=None, max_length=500)
     type_summary: TypeSummaryValue | None = None
+    event_type: EventType | None = None
+    event_status: EventStatus = EventStatus.ACTIVE
+    canonical_event_id: UUID | None = None
+    event_version: int = Field(default=1, ge=1)
 
     @model_validator(mode="after")
     def enforce_projection_level(self) -> "PublishedEventSummaryV1":
@@ -1239,10 +1245,24 @@ class PublishedEventSummaryV1(ContractModel):
         return self
 
 
+class PublishedDocumentReferenceV1(ContractModel):
+    document_id: UUID
+    source_role: SourceLineageRole | None = None
+    source_role_pending: bool = False
+    source_name: str = Field(min_length=1, max_length=200)
+    original_url: HttpUrlString = Field(pattern=r"^https?://[^\s]+$", max_length=2048)
+    publication_revision_ids: list[UUID] = Field(default_factory=list, max_length=1000)
+
+
 class PublishedEventDetailV1(ContractModel):
     summary: PublishedEventSummaryV1
     claims: list[PublishedClaimV1] = Field(max_length=500)
     evidence: list[PublishedEvidenceReferenceV1] = Field(max_length=500)
+    documents: list[PublishedDocumentReferenceV1] = Field(default_factory=list, max_length=500)
+    source_comparison: list[PublishedDocumentReferenceV1] = Field(
+        default_factory=list, max_length=500
+    )
+    type_detail: TypeSummaryValue | None = None
 
     @model_validator(mode="after")
     def enforce_metadata_only_detail(self) -> "PublishedEventDetailV1":
@@ -1367,8 +1387,9 @@ class CollectionSummary(ContractModel):
 
 
 class DailyReportItem(ContractModel):
-    item_id: UUID
+    item_id: UUID | None = None
     event_id: UUID | None = None
+    event_revision_id: UUID | None = None
     publication_revision_id: UUID
     position: int = Field(ge=1)
     title: str = Field(min_length=1, max_length=500)
@@ -1517,6 +1538,14 @@ class EventDetail(ContractModel):
     topic_ids: list[UUID] = Field(default_factory=list)
     independent_source_count: int = Field(default=0, ge=0)
     scores: ScoreSummary | None = None
+    summary: PublishedEventSummaryV1 | None = None
+    claims: list[PublishedClaimV1] = Field(default_factory=list, max_length=500)
+    evidence: list[PublishedEvidenceReferenceV1] = Field(default_factory=list, max_length=500)
+    documents: list[PublishedDocumentReferenceV1] = Field(default_factory=list, max_length=500)
+    source_comparison: list[PublishedDocumentReferenceV1] = Field(
+        default_factory=list, max_length=500
+    )
+    type_detail: TypeSummaryValue | None = None
 
 
 class ClaimConflictStatus(StrEnum):

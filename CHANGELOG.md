@@ -6,6 +6,7 @@
 
 ### Round 14 — Event 统一身份、关系拆分与 Item 兼容迁移
 
+- 完成独立验收指出的收口项：`published_v1` 升级为 1.1.0 Event 修订投影，默认普通 Feed/Event/搜索/已发布日报/收藏读取装配到 `srbg_projection_reader_login`；搜索投影、日报快照、收藏、专题和反馈的新事实均携带或仅写入 `event_id`，Event 详情页由单一接口返回 claims、evidence、documents、来源对比与类型详情。新增 `0014b_event_consumer_switch` 的 `SHADOW/EVENT/ROLLBACK_READ_ONLY` 权威开关和只读回滚保护，并以非空 TEST PostgreSQL 数据对旧收藏、专题、日报、反馈、搜索、publication revision、event revision 与 R3 ACL 完成 1:1 对账。
 - 独立验收修复了应用回退到 0013 时读取 0014 Event 列及 alias 权限导致的失败，并补齐五类身份迁移告警和 Runbook。复验同时确认本轮仍未完成：默认普通读取装配和多个 consumer 查询仍走业务表/`item_id`，与专用 `published_v1` 和单次 Event consumer switch 约束不符；README 与验收结论已改为 `NOT_COMPLETED`，没有以现有绿测掩盖该架构差异。
 - 扩展现有 Event 为显式通用事件模型，增加稳定 canonical identity、版本、合并/拆分/回滚工作流和不可变 Item alias；没有创建平行事件服务或 `PROVISIONAL_EVENT`。
 - 分离 Document 来源角色、Event 生命周期、Event-Entity、Topic-Event 和受控分类关系；八类 Item 显式映射 Event 类型，模糊匹配只生成候选且 `auto_merge` 保持关闭。

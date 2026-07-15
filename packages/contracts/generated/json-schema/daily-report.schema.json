@@ -25,10 +25,31 @@
           "default": null,
           "title": "Event Id"
         },
+        "event_revision_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Event Revision Id"
+        },
         "item_id": {
-          "format": "uuid",
-          "title": "Item Id",
-          "type": "string"
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Item Id"
         },
         "original_url": {
           "maxLength": 2048,
@@ -67,7 +88,6 @@
         }
       },
       "required": [
-        "item_id",
         "publication_revision_id",
         "position",
         "title",

@@ -416,24 +416,22 @@ class PostgresPublicationRepository:
                     await connection.execute(
                         text(
                             """
-                            SELECT sp.item_id, sp.event_id, sp.publication_revision_id, sp.domain,
-                              sp.title, ii.original_url,
-                              COALESCE(pr.snapshot->>'one_sentence_fact',
-                                       pr.snapshot->>'summary') AS summary
-                            FROM search_projection sp
-                            JOIN publication p ON p.item_id = sp.item_id
-                              AND p.current_revision_id = sp.publication_revision_id
-                              AND p.status = 'PUBLISHED'
-                            JOIN publication_revision pr ON pr.id = sp.publication_revision_id
-                              AND pr.valid
-                            JOIN intelligence_item ii ON ii.id = sp.item_id
-                            WHERE sp.visible AND sp.risk_level <> 'R4'
-                              AND NOT EXISTS (
-                                SELECT 1 FROM publication_projection_invalidation pi
-                                WHERE pi.revision_id = sp.publication_revision_id
-                                  AND pi.status = 'PENDING'
+                            SELECT projection.event_id, projection.event_revision_id,
+                              projection.publication_revision_id,
+                              projection.summary_payload->>'domain' AS domain,
+                              projection.summary_payload->>'title' AS title,
+                              projection.summary_payload->>'original_url' AS original_url,
+                              projection.summary_payload->>'one_sentence_fact' AS summary
+                            FROM published_v1.event_projection_revision projection
+                            WHERE projection.state='ACTIVE'
+                              AND projection.projection_level='FULL'
+                              AND projection.generation=(
+                                SELECT max(current_projection.generation)
+                                FROM published_v1.event_projection_revision current_projection
+                                WHERE current_projection.event_id=projection.event_id
+                                  AND current_projection.state='ACTIVE'
                               )
-                            ORDER BY sp.activity_at DESC, sp.item_id DESC
+                            ORDER BY projection.generated_at DESC, projection.event_id DESC
                             LIMIT 30
                             """
                         )
@@ -447,10 +445,10 @@ class PostgresPublicationRepository:
 
             def add(section: str, rows: list[RowMapping], count: int) -> None:
                 for row in rows:
-                    item_id = cast(UUID, row["item_id"])
-                    if item_id in used:
+                    event_id = cast(UUID, row["event_id"])
+                    if event_id in used:
                         continue
-                    used.add(item_id)
+                    used.add(event_id)
                     sections.append((section, row))
                     if sum(1 for name, _ in sections if name == section) >= count:
                         break
@@ -466,12 +464,12 @@ class PostgresPublicationRepository:
                     text(
                         """
                         INSERT INTO daily_report_item (
-                          report_id, section, position, item_id, event_id,
-                          publication_revision_id,
+                          report_id, section, position, event_id,
+                          publication_revision_id, event_revision_id,
                           title, summary, original_url
                         ) VALUES (
-                          :report_id, :section, :position, :item_id, :event_id,
-                          :revision_id,
+                          :report_id, :section, :position, :event_id,
+                          :revision_id, :event_revision_id,
                           :title, :summary, :original_url
                         )
                         """
@@ -480,9 +478,9 @@ class PostgresPublicationRepository:
                         "report_id": report_id,
                         "section": section,
                         "position": positions[section],
-                        "item_id": row["item_id"],
                         "event_id": row["event_id"],
                         "revision_id": row["publication_revision_id"],
+                        "event_revision_id": row["event_revision_id"],
                         "title": row["title"],
                         "summary": row["summary"],
                         "original_url": row["original_url"],

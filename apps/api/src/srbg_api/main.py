@@ -29,7 +29,11 @@ from starlette.middleware.cors import CORSMiddleware
 
 from srbg_api.auth import Principal
 from srbg_api.config import get_settings
-from srbg_api.database import create_database_engine, create_publication_engine
+from srbg_api.database import (
+    create_database_engine,
+    create_projection_reader_engine,
+    create_publication_engine,
+)
 from srbg_api.discovery.api import PortalService
 from srbg_api.discovery.api import router as portal_router
 from srbg_api.discovery.domain import CursorBindingError
@@ -43,6 +47,8 @@ from srbg_api.document_vault.security import UploadRejected
 from srbg_api.document_vault.storage import S3ObjectStore
 from srbg_api.health import HealthChecker, build_default_checkers, run_check
 from srbg_api.identifiers import uuid7
+from srbg_api.internal_projection.reader import PublishedProjectionReader
+from srbg_api.internal_projection.service import PublishedIntelligenceQueryService
 from srbg_api.logging import configure_logging
 from srbg_api.observability import (
     API_DURATION,
@@ -87,6 +93,7 @@ def create_app(
     checkers: Mapping[str, HealthChecker] | None = None,
     source_service: AdminSourceService | None = None,
     intelligence_service: IntelligenceQueryService | None = None,
+    public_intelligence_service: Any | None = None,
     publication_service: ReviewPublicationService | None = None,
     safety_event_candidate_service: EventCandidateGenerationService | None = None,
     portal_service: PortalService | None = None,
@@ -105,6 +112,7 @@ def create_app(
         for service in (
             source_service,
             intelligence_service,
+            public_intelligence_service,
             publication_service,
             safety_event_candidate_service,
             portal_service,
@@ -125,6 +133,7 @@ def create_app(
         )
     app.state.source_service = source_service
     app.state.intelligence_service = intelligence_service
+    app.state.public_intelligence_service = public_intelligence_service
     app.state.publication_service = publication_service
     app.state.safety_event_candidate_service = safety_event_candidate_service
     app.state.portal_service = portal_service
@@ -559,9 +568,13 @@ def build_default_app() -> FastAPI:
         create_database_engine(settings),
         preview_object_reader=S3ObjectStore(settings),
     )
+    published_reader = PublishedIntelligenceQueryService(
+        PublishedProjectionReader(create_projection_reader_engine(settings))
+    )
     return create_app(
         source_service=build_default_source_service(settings),
         intelligence_service=intelligence_service,
+        public_intelligence_service=published_reader,
         publication_service=PublicationService(
             repository=PostgresPublicationRepository(create_publication_engine(settings)),
             gate=publication_gate,
@@ -571,12 +584,15 @@ def build_default_app() -> FastAPI:
         ),
         portal_service=PortalApplicationService(
             repository=PostgresPortalRepository(create_database_engine(settings)),
-            intelligence=intelligence_service,
+            intelligence=published_reader,
             cursor_signing_key=settings.cursor_signing_key.get_secret_value().encode(),
             semantic_enabled=settings.semantic_search_enabled,
             semantic_timeout_seconds=settings.semantic_search_timeout_seconds,
         ),
-        operations_service=PostgresOperationsService(create_database_engine(settings)),
+        operations_service=PostgresOperationsService(
+            create_database_engine(settings),
+            projection_engine=create_projection_reader_engine(settings),
+        ),
     )
 
 

@@ -4,7 +4,8 @@ export type ReportDate = string
 export type RequiresRegeneration = boolean
 export type CurrentState = 'PUBLISHED' | 'WITHDRAWN' | 'SOURCE_UNAVAILABLE'
 export type EventId = string | null
-export type ItemId = string
+export type EventRevisionId = string | null
+export type ItemId = string | null
 export type OriginalUrl = string
 export type Position = number
 export type PublicationRevisionId = string
@@ -34,7 +35,8 @@ export interface DailyReportSection {
 export interface DailyReportItem {
   current_state: CurrentState
   event_id?: EventId
-  item_id: ItemId
+  event_revision_id?: EventRevisionId
+  item_id?: ItemId
   original_url: OriginalUrl
   position: Position
   publication_revision_id: PublicationRevisionId

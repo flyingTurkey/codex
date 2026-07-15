@@ -164,3 +164,33 @@ Location: /events/019f65e9-53db-7e8d-adf6-d827b254fd06
 本次有效命令与结果：`phase2-round13-test` 32 passed；`phase2-round14-test` 23 passed，含 `0013 -> 0014 -> 0013 -> 0014`；`lint`、`typecheck`、`contract-test`、`security-check`、`quality-gate` 均退出 0；`test` 为 Python 516 passed / 25 skipped、UI 53 passed、Web 71 passed；`fixture-replay` 164 passed且 mock provider 评估通过；`web-e2e` 42 passed；`web-a11y` 13 passed；API/Web 镜像构建退出 0。`quality-gate` 有一次被 64 秒执行器时限终止，不计结果，随后从头重跑 61.5 秒退出 0。
 
 本次独立复验修复提交为 `1f4712aa774792bddd1c7b21d653513ae9fb7d80`。回滚仍采用应用版本回退，保留 0014 Event、alias、发布修订和审计事实；有 event-keyed 事实的数据库不得破坏性 downgrade。完成验收前必须把普通内容读取装配到专用投影角色，扩展投影以承载统一 EventSummary/EventDetail，并将所有 consumer 查询/新写入真正切为 event_id，再用含真实旧引用的 PostgreSQL 数据对账。
+
+## 2026-07-16 收口复验（取代上述 `NOT_COMPLETED` 结论）
+
+本次从干净基线 `381059ccdeac7c7c318ef66b5726ed425f6d7d54` 开始，先写 4 个失败测试，再完成以下闭环：
+
+- `PublishedEventSummaryV1/PublishedEventDetailV1` 加法升级到投影版本 1.1.0，增加公开 `event_revision_id`、全部 `publication_revision_ids`、显式 Event 身份、claims、evidence、documents、来源对比和受判别类型详情；Event 页面只请求一次 `/api/v1/events/{event_id}`。
+- 默认普通 Feed、Event 详情、搜索、已发布日报和收藏内容装配到 `PublishedProjectionReader(create_projection_reader_engine(settings))`；管理/审核继续使用业务查询服务。投影读取登录只读取 `published_v1` 视图。
+- 新 Event 收藏、专题和反馈不再查找或写入代表 `item_id`；旧 `item_id` 为 nullable 兼容溯源。搜索投影携带 canonical `event_id`，日报草稿从 Event 投影生成并固定 `event_revision_id` 与 publication revision。
+- `0014b_event_consumer_switch` 增加数据库权威 `SHADOW/EVENT/ROLLBACK_READ_ONLY` 状态；非 `EVENT` 状态冻结用户 Event 写入，应用失败时可回退到只读版本，新增 Event、alias、revision 和审计事实不删除。
+
+非空对账使用隔离、确定性并明确标记为 TEST 的 PostgreSQL 数据，不宣称是真实用户数据。夹具同时包含旧 `item_id` 和新 `event_id` 的收藏、专题、日报、反馈和搜索引用，含 R3 ACL、publication revision 与 event revision；结果为 saved=1、collection=1、daily=1、feedback=1、search=1，全部一一保留，差异为 0。来源角色缺失仍显示待人工确认，不猜测；语义搜索和模糊自动合并仍关闭。
+
+### 本次真实命令与退出结果
+
+| 命令 | 结果 |
+| --- | --- |
+| `make phase2-round14-test` | exit 0；27 passed；真实 PostgreSQL `0013 -> 0014b -> 0014 -> 0014b -> 0013 -> 0014b`；非空对账 5/5 |
+| `make lint` | exit 0 |
+| `make typecheck` | exit 0；mypy 100 files；Nuxt/vue-tsc/contract tsc 通过 |
+| `make test` | exit 0；Python 520 passed / 25 skipped；UI 53；Web 72 |
+| `make contract-test` | exit 0；60 passed；生成物可复现 |
+| `make security-check` | exit 0；无 high/critical；pnpm 仅 1 个 low |
+| `make fixture-replay` | exit 0；164 passed；mock provider 离线评估通过 |
+| `make quality-gate` | exit 0 |
+| `make web-e2e` | exit 0；42 passed |
+| `make web-a11y` | exit 0；13 passed |
+
+限制：这是工程与隔离数据验收，不补齐第11轮真实业务金标、生产凭据、连续运行、费用、生产 PITR 或真实告警路由证据；因此不能据此宣称生产就绪。未设置生产 Sunset 日期，也未删除 Item 表或兼容 API。
+
+第14轮验收通过，Event已成为唯一用户身份，Item兼容迁移成立，可以进入第15轮。

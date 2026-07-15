@@ -27,13 +27,17 @@ class PostgresOperationsService:
     def __init__(
         self,
         engine: AsyncEngine,
+        projection_engine: AsyncEngine | None = None,
         now: Callable[[], datetime] | None = None,
     ) -> None:
         self._engine = engine
+        self._projection_engine = projection_engine
         self._now = now or (lambda: datetime.now(UTC))
 
     async def close(self) -> None:
         await self._engine.dispose()
+        if self._projection_engine is not None:
+            await self._projection_engine.dispose()
 
     async def overview(self) -> OperationsOverview:
         async with self._engine.connect() as connection:
@@ -210,45 +214,52 @@ class PostgresOperationsService:
         actor_id: UUID,
     ) -> None:
         now = self._now()
-        async with self._engine.begin() as connection:
-            if event_id is not None:
-                item_id = await connection.scalar(
+        if event_id is not None:
+            if self._projection_engine is None:
+                raise OperationsRejected("published Event projection is unavailable")
+            async with self._projection_engine.connect() as projection_connection:
+                visible = await projection_connection.scalar(
                     text(
-                        """
-                        SELECT binding.item_id FROM event_identity_binding binding
-                        JOIN publication ON publication.item_id=binding.item_id
-                          AND publication.status='PUBLISHED'
-                        WHERE binding.event_id=:event_id
-                        ORDER BY binding.item_id DESC LIMIT 1
-                        """
+                        "SELECT 1 FROM published_v1.current_event_summary "
+                        "WHERE event_id=:event_id"
                     ),
                     {"event_id": event_id},
                 )
-            if item_id is None:
-                raise OperationsRejected("feedback target is not visible")
-            visible = (
-                await connection.execute(
-                    text(
-                        """SELECT 1 FROM publication
-                            WHERE item_id = :item_id AND status = 'PUBLISHED'"""
-                    ),
-                    {"item_id": item_id},
-                )
-            ).scalar_one_or_none()
             if visible is None:
                 raise OperationsRejected("feedback target is not visible")
+        async with self._engine.begin() as connection:
+            if event_id is not None:
+                switch = await connection.scalar(
+                    text("SELECT status FROM event_consumer_switch WHERE singleton")
+                )
+                if switch != "EVENT":
+                    raise OperationsRejected("event consumer writes are read-only")
+            elif item_id is None:
+                raise OperationsRejected("feedback target is not visible")
+            else:
+                visible = (
+                    await connection.execute(
+                        text(
+                            """SELECT 1 FROM publication
+                                WHERE item_id = :item_id AND status = 'PUBLISHED'"""
+                        ),
+                        {"item_id": item_id},
+                    )
+                ).scalar_one_or_none()
+                if visible is None:
+                    raise OperationsRejected("feedback target is not visible")
             await connection.execute(
                 text(
                     """INSERT INTO item_feedback
                          (id, actor_id, item_id, event_id, value, recorded_at)
                        VALUES (:id, :actor, :item, :event, :value, :now)
-                       ON CONFLICT (actor_id, item_id) DO UPDATE
+                       ON CONFLICT (actor_id, event_id) DO UPDATE
                        SET value = EXCLUDED.value, recorded_at = EXCLUDED.recorded_at"""
                 ),
                 {
                     "id": uuid7(),
                     "actor": actor_id,
-                    "item": item_id,
+                    "item": None if event_id is not None else item_id,
                     "event": event_id,
                     "value": value,
                     "now": now,

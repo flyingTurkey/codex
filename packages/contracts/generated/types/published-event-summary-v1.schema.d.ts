@@ -1,3 +1,4 @@
+export type CanonicalEventId = string | null
 /**
  * Subject-matter severity, independent from publication handling risk.
  */
@@ -13,6 +14,11 @@ export type ItemType =
   | 'SAFETY_CASE'
 export type DiscoveryStatus = 'MACHINE_DISCOVERED' | 'HUMAN_CURATED'
 export type Channel = 'DIGITAL' | 'SAFETY'
+export type EventRevisionId = string | null
+export type EventStatus = 'ACTIVE' | 'MERGED' | 'SPLIT' | 'WITHDRAWN'
+export type EventType =
+  'SAFETY_INCIDENT' | 'REGULATION_CHANGE' | 'DIGITAL_PROJECT' | 'RESEARCH_RESULT' | 'PRODUCT_RELEASE'
+export type EventVersion = number
 export type FactReviewStatus = 'PENDING_HUMAN_REVIEW' | 'HUMAN_REVIEWED'
 export type FirstDiscoveredAt = string
 export type Generation = number
@@ -23,8 +29,12 @@ export type OriginalUrl = string
  * Maximum content projection level decided by server-side policy.
  */
 export type ProjectionLevel = 'NONE' | 'METADATA_ONLY' | 'FULL'
-export type ProjectionVersion = '1.0.0'
+export type ProjectionVersion = '1.0.0' | '1.1.0'
 export type PublicationRevisionId = string | null
+/**
+ * @maxItems 1000
+ */
+export type PublicationRevisionIds = string[]
 /**
  * Publication handling risk; it never grants content visibility.
  */
@@ -221,10 +231,15 @@ export type Version3 = string | null
  * Versioned, event-keyed content projection for internal readers.
  */
 export interface PublishedEventSummaryV1 {
+  canonical_event_id?: CanonicalEventId
   content_severity: ContentSeverity
   content_type: ItemType
   discovery_status: DiscoveryStatus
   domain: Channel
+  event_revision_id?: EventRevisionId
+  event_status?: EventStatus
+  event_type?: EventType | null
+  event_version?: EventVersion
   fact_review_status: FactReviewStatus
   first_discovered_at: FirstDiscoveredAt
   generation: Generation
@@ -234,6 +249,7 @@ export interface PublishedEventSummaryV1 {
   projection_level: ProjectionLevel
   projection_version: ProjectionVersion
   publication_revision_id: PublicationRevisionId
+  publication_revision_ids?: PublicationRevisionIds
   publication_risk_tier: PublicationRiskTier
   review_status: ReviewStatus
   source_name: SourceName

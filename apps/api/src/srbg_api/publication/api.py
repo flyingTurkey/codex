@@ -285,6 +285,13 @@ def _query_service(request: Request) -> IntelligenceQueryService:
     return cast(IntelligenceQueryService, service)
 
 
+def _public_query_service(request: Request) -> IntelligenceQueryService:
+    service = getattr(request.app.state, "public_intelligence_service", None)
+    return (
+        cast(IntelligenceQueryService, service) if service is not None else _query_service(request)
+    )
+
+
 async def _item_compatibility_headers(
     service: IntelligenceQueryService, item_id: UUID
 ) -> dict[str, str]:
@@ -353,7 +360,7 @@ async def get_feed(
 ) -> Response:
     if published_from and published_to and published_from > published_to:
         raise HTTPException(status_code=422, detail="published_from must not exceed published_to")
-    page = await _query_service(request).get_feed(
+    page = await _public_query_service(request).get_feed(
         mode=mode,
         domain=domain,
         content_type=content_type,
@@ -487,7 +494,7 @@ async def get_event(
     request: Request,
     _: CurrentPrincipal,
 ) -> Response:
-    service = _query_service(request)
+    service = _public_query_service(request)
     resolver = getattr(service, "resolve_event_redirect", None)
     canonical_id = await resolver(event_id) if resolver is not None else None
     if canonical_id is not None and canonical_id != event_id:
@@ -524,12 +531,8 @@ async def get_event_citation(
 ) -> Response:
     service = _query_service(request)
     content_projection = await service.get_event_item_projection(event_id)
-    content, media_type = await service.get_citation(
-        content_projection.item.id, citation_format
-    )
-    extension = {"ris": "ris", "bibtex": "bib", "gb-t-7714": "txt"}[
-        citation_format
-    ]
+    content, media_type = await service.get_citation(content_projection.item.id, citation_format)
+    extension = {"ris": "ris", "bibtex": "bib", "gb-t-7714": "txt"}[citation_format]
     return Response(
         content=content.encode("utf-8"),
         media_type=media_type,

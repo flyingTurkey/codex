@@ -23,7 +23,7 @@ defineProps<{ report: DailyReport }>()
     <section v-for="section in report.sections" :key="section.kind">
       <h3>{{ section.title }}</h3>
       <ol v-if="section.items.length">
-        <li v-for="item in section.items" :key="item.item_id">
+        <li v-for="item in section.items" :key="item.event_id ?? item.item_id ?? item.position">
           <div>
             <a :href="`/events/${item.event_id ?? item.item_id}`">{{ item.title }}</a>
             <strong v-if="item.current_state === 'WITHDRAWN'">已撤回</strong>

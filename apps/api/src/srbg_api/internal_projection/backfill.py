@@ -18,7 +18,7 @@ from srbg_api.internal_projection.domain import ProjectionInput, decide_projecti
 from srbg_api.observability import INTERNAL_PROJECTION_RECORDS, INTERNAL_PROJECTION_RUNS
 
 LOGGER = logging.getLogger(__name__)
-PROJECTION_VERSION = "1.0.0"
+PROJECTION_VERSION = "1.1.0"
 SYSTEM_ACTOR = UUID("019b0000-0000-7000-8000-000000001300")
 
 
@@ -114,7 +114,10 @@ async def _build_internal_projection(
             if event_id in projected_event_ids:
                 continue
             projected_event_ids.add(event_id)
-            summary = _summary_payload(row, event_id, generation, decision.level)
+            projection_revision_id = uuid7()
+            summary = _summary_payload(
+                row, event_id, projection_revision_id, generation, decision.level
+            )
             detail: dict[str, Any] | None = None
             claims: list[dict[str, Any]] = []
             if decision.level == "FULL":
@@ -136,6 +139,18 @@ async def _build_internal_projection(
                     "summary": summary,
                     "claims": projected_claims,
                     "evidence": list(evidence.values()),
+                    "documents": [
+                        {
+                            "document_id": str(row["primary_document_id"]),
+                            "source_role": None,
+                            "source_role_pending": True,
+                            "source_name": row["source_name"],
+                            "original_url": row["original_url"],
+                            "publication_revision_ids": summary["publication_revision_ids"],
+                        }
+                    ],
+                    "source_comparison": [],
+                    "type_detail": summary["type_summary"],
                 }
                 full_count += 1
             else:
@@ -163,7 +178,6 @@ async def _build_internal_projection(
                     "now": generated_at,
                 },
             )
-            projection_revision_id = uuid7()
             await connection.execute(
                 text(_INSERT_PROJECTION),
                 {
@@ -303,12 +317,22 @@ async def _stable_event_id(connection: Any, row: Any, actor_id: UUID, now: datet
     return event_id
 
 
-def _summary_payload(row: Any, event_id: UUID, generation: int, level: str) -> dict[str, Any]:
+def _summary_payload(
+    row: Any,
+    event_id: UUID,
+    event_revision_id: UUID,
+    generation: int,
+    level: str,
+) -> dict[str, Any]:
     summary: dict[str, Any] = {
         "id": str(event_id),
         "publication_revision_id": str(row["publication_revision_id"])
         if row["publication_revision_id"]
         else None,
+        "event_revision_id": str(event_revision_id),
+        "publication_revision_ids": (
+            [str(row["publication_revision_id"])] if row["publication_revision_id"] else []
+        ),
         "projection_version": PROJECTION_VERSION,
         "generation": generation,
         "domain": row["channel"],
@@ -326,6 +350,19 @@ def _summary_payload(row: Any, event_id: UUID, generation: int, level: str) -> d
         "projection_level": level,
         "one_sentence_fact": None,
         "type_summary": None,
+        "event_type": {
+            "DIGITAL_CASE": "DIGITAL_PROJECT",
+            "JOURNAL_PAPER": "RESEARCH_RESULT",
+            "SOFTWARE_PRODUCT": "PRODUCT_RELEASE",
+            "IOT_PRODUCT": "PRODUCT_RELEASE",
+            "LOW_ALTITUDE_EQUIPMENT": "PRODUCT_RELEASE",
+            "AI_EQUIPMENT": "PRODUCT_RELEASE",
+            "SAFETY_REGULATION": "REGULATION_CHANGE",
+            "SAFETY_CASE": "SAFETY_INCIDENT",
+        }[row["item_type"]],
+        "event_status": "ACTIVE",
+        "canonical_event_id": str(event_id),
+        "event_version": 1,
     }
     if level == "FULL" and row["snapshot"]:
         snapshot = dict(row["snapshot"])
@@ -484,7 +521,8 @@ def _json(value: object) -> str:
 
 
 _SOURCE_QUERY = """
-SELECT item.id AS item_id, item.item_type, item.channel, item.title, item.original_url,
+SELECT item.id AS item_id, item.primary_document_id, item.item_type, item.channel,
+       item.title, item.original_url,
        item.source_published_at, item.first_discovered_at, item.review_status,
        item.publication_risk_tier, item.content_severity,
        item.current_document_version_id, version.content_hash,
@@ -510,11 +548,14 @@ SELECT item.id AS item_id, item.item_type, item.channel, item.title, item.origin
 
 _INSERT_PROJECTION = """
 INSERT INTO published_v1.event_projection_revision
-    (id, event_id, item_id, publication_revision_id, build_run_id, generation,
+    (id, event_revision_id, publication_revision_ids, event_id, item_id,
+     publication_revision_id, build_run_id, generation,
      projection_version, publication_risk_tier, content_severity, projection_level,
      allowed_surfaces, summary_payload, detail_payload, state, generated_at, audit_log_id)
 VALUES
-    (:id, :event_id, :item_id, :publication_revision_id, :build_run_id, :generation,
+    (:id, :id, CASE WHEN :publication_revision_id IS NULL THEN '{}'::uuid[]
+     ELSE ARRAY[CAST(:publication_revision_id AS uuid)] END, :event_id, :item_id,
+     :publication_revision_id, :build_run_id, :generation,
      :version, :risk, :severity, :level, :surfaces, CAST(:summary AS jsonb),
      CAST(:detail AS jsonb), 'ACTIVE', :now, :audit_id)
 """

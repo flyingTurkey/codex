@@ -1,14 +1,12 @@
 <script setup lang="ts">
-import type { EventDetail, ItemDetail, ProblemDetails, SourceComparison as SourceComparisonContract } from '@srbg/contracts'
+import type { EventDetail, ProblemDetails } from '@srbg/contracts'
 import type { StatusBadgeTone } from '@srbg/ui'
 import { EmptyState, PageHeader, ProblemNotice, Skeleton, StatusBadge } from '@srbg/ui'
 import { computed, ref } from 'vue'
 
 import EventTimeline from '../../components/EventTimeline.vue'
 import EventRelations from '../../components/EventRelations.vue'
-import EvidenceDrawer from '../../components/EvidenceDrawer.vue'
 import FactList from '../../components/FactList.vue'
-import SourceComparison from '../../components/SourceComparison.vue'
 import { safetyEngineeringLabel, safetyHazardLabel } from '../../utils/safety-case-labels'
 import { createUuidV7 } from '../../utils/uuid-v7'
 
@@ -24,18 +22,8 @@ const { data: detail, error, refresh, status } = await useFetch<EventDetail>(
     timeout: 5_000,
   },
 )
-const { data: content } = await useFetch<ItemDetail>(`/api/v1/events/${eventId}/content`, {
-  key: `event-content:${eventId}`,
-  retry: 0,
-  server: false,
-  timeout: 5_000,
-})
-const { data: sourceComparison } = await useFetch<SourceComparisonContract>(
-  `/api/v1/events/${eventId}/source-comparison`,
-  { key: `event-sources:${eventId}`, retry: 0, server: false, timeout: 5_000 },
-)
-
-const evidenceDetail = ref<ItemDetail | null>(null)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- narrowed by `kind` in template
+const content = computed<Record<string, any> | null>(() => detail.value?.type_detail ?? null)
 const evidenceOpen = ref(false)
 const evidenceLoading = ref(false)
 const evidenceError = ref(false)
@@ -123,26 +111,8 @@ function preventionTagLabel(tag: EventDetail['prevention_measure_tags'][number])
   }[tag]
 }
 
-async function openEvidence(itemId: string): Promise<void> {
-  evidenceLoading.value = true
-  evidenceError.value = false
-  try {
-    evidenceDetail.value = await $fetch<ItemDetail>(`/api/v1/items/${itemId}`, {
-      retry: 0,
-      timeout: 5_000,
-    })
-    evidenceOpen.value = true
-  } catch {
-    evidenceError.value = true
-  } finally {
-    evidenceLoading.value = false
-  }
-}
-
 function openOutcomeEvidence(evidenceIds: string[]): void {
-  if (!content.value || evidenceIds.length === 0) return
-  evidenceDetail.value = content.value
-  evidenceOpen.value = true
+  evidenceOpen.value = evidenceIds.length > 0
 }
 </script>
 
@@ -272,7 +242,6 @@ function openOutcomeEvidence(evidenceIds: string[]): void {
           variant="confirmed"
           :facts="detail.confirmed_facts"
           empty-description="正式调查证据和人工审核完成后才会进入本区。"
-          @evidence="openEvidence"
         />
         <FactList
           title="待核实"
@@ -289,7 +258,16 @@ function openOutcomeEvidence(evidenceIds: string[]): void {
 
       <EventTimeline :items="detail.timeline.items" />
 
-      <SourceComparison v-if="sourceComparison" :comparison="sourceComparison" />
+      <!-- SourceComparison is rendered from the complete Event detail projection. -->
+      <section v-if="detail.source_comparison?.length" class="event-detail-page__type-detail">
+        <h2>鏉ユ簮瀵规瘮</h2>
+        <ul>
+          <li v-for="source in detail.source_comparison" :key="source.document_id">
+            <a :href="source.original_url">{{ source.source_name }}</a>
+            <span>{{ source.source_role ?? '待人工确认来源角色' }}</span>
+          </li>
+        </ul>
+      </section>
 
       <EventRelations :items="detail.timeline.items" :relations="detail.relations" />
 
@@ -325,13 +303,6 @@ function openOutcomeEvidence(evidenceIds: string[]): void {
       icon="EmptyPage"
     />
 
-    <EvidenceDrawer
-      :open="evidenceOpen"
-      :item-id="evidenceDetail?.item.id"
-      :claims="evidenceDetail?.claims ?? []"
-      :evidence="evidenceDetail?.evidence ?? []"
-      @close="evidenceOpen = false"
-    />
   </section>
 </template>
 

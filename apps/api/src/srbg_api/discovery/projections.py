@@ -26,12 +26,15 @@ class PostgresDiscoveryProjectionWriter:
                     await connection.execute(
                         text(
                             """
-                        SELECT p.item_id, p.current_revision_id, p.status,
+                        SELECT p.item_id, event.canonical_event_id AS event_id,
+                          p.current_revision_id, p.status,
                           ii.channel, ii.item_type, ii.source_id, ii.risk_level,
                           ii.title, ii.activity_at, pr.snapshot
                         FROM publication p
                         JOIN intelligence_item ii ON ii.id = p.item_id
                         LEFT JOIN publication_revision pr ON pr.id = p.current_revision_id
+                        LEFT JOIN event_identity_binding binding ON binding.item_id=p.item_id
+                        LEFT JOIN event ON event.id=binding.event_id
                         WHERE p.id = :publication_id
                         """
                         ),
@@ -44,6 +47,9 @@ class PostgresDiscoveryProjectionWriter:
             if row is None:
                 raise RuntimeError("publication projection target was not found")
             item_id = cast(UUID, row["item_id"])
+            event_id = cast(UUID | None, row["event_id"])
+            if event_id is None:
+                raise RuntimeError("publication has no stable Event identity")
             effective_visible = bool(
                 visible
                 and row["status"] == "PUBLISHED"
@@ -88,17 +94,18 @@ class PostgresDiscoveryProjectionWriter:
                 text(
                     """
                     INSERT INTO search_projection (
-                      item_id, publication_revision_id, domain, content_type, source_id,
+                      item_id, event_id, publication_revision_id, domain, content_type, source_id,
                       region, evidence_status, risk_level, title, entity_text, tag_text,
                       body_tokens, embedding, embedding_model, embedding_input_sha256,
                       visible, generation, activity_at, indexed_at
                     ) VALUES (
-                      :item_id, :revision_id, :domain, :content_type, :source_id,
+                      :item_id, :event_id, :revision_id, :domain, :content_type, :source_id,
                       :region, :evidence_status, :risk_level, :title, :entity_text, :tag_text,
                       :body_tokens, NULL, NULL, NULL, true, :generation, :activity_at, :now
                     )
                     ON CONFLICT (item_id) DO UPDATE SET
                       publication_revision_id = EXCLUDED.publication_revision_id,
+                      event_id = EXCLUDED.event_id,
                       domain = EXCLUDED.domain, content_type = EXCLUDED.content_type,
                       source_id = EXCLUDED.source_id, region = EXCLUDED.region,
                       evidence_status = EXCLUDED.evidence_status,
@@ -113,6 +120,7 @@ class PostgresDiscoveryProjectionWriter:
                 ),
                 {
                     "item_id": item_id,
+                    "event_id": event_id,
                     "revision_id": row["current_revision_id"],
                     "domain": row["channel"],
                     "content_type": row["item_type"],
