@@ -1,0 +1,1 @@
+{"title":"质量与SLO","uid":"srbg-quality-slo","schemaVersion":41,"version":1,"panels":[{"type":"stat","title":"错误率","targets":[{"expr":"sum(rate(srbg_api_requests_total{status=~\"5..\"}[5m]))"}],"gridPos":{"h":8,"w":24,"x":0,"y":0}}]}

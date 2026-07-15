@@ -1,0 +1,9 @@
+route:
+  receiver: unconfigured
+  group_by: [alertname, severity]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+receivers:
+  - name: unconfigured
+# Production overlays must replace this receiver with approved P0/P1 contacts.

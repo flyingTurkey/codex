@@ -14,6 +14,17 @@ def test_production_accepts_an_explicit_high_entropy_cursor_signing_key() -> Non
     settings = Settings(
         environment="production",
         cursor_signing_key=SecretStr("9d4a4b4dafde2f7ab473d7732aa31f796aa76dde95e90f22"),
+        metrics_bearer_token=SecretStr("m" * 32),
+        otel_exporter_otlp_endpoint="https://otel.example.test",
+        sentry_dsn=SecretStr("https://public@example.test/1"),
+        oidc_issuer="https://id.example.test",
+        oidc_audience="srbg-platform",
+        oidc_jwks_url="https://id.example.test/.well-known/jwks.json",
+        alert_webhook_url=SecretStr("https://alerts.example.test/hook"),
+        backup_s3_endpoint_url="https://backup.example.test",
+        backup_s3_bucket="srbg-production-backup",
+        backup_s3_access_key="access-from-secret-manager",
+        backup_s3_secret_key=SecretStr("secret-from-secret-manager"),
     )
 
     assert len(settings.cursor_signing_key.get_secret_value()) >= 48

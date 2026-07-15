@@ -1,0 +1,19 @@
+{
+  "command": "python scripts/recovery_drill.py --isolated-only",
+  "completed_at": "2026-07-15T11:00:59.336631+00:00",
+  "environment": "test",
+  "evidence_sha256": "e12e85ae136cbeca04ea31698d1790d87a4918eedf3e37ae201241bbc9883f30",
+  "executed_by": {
+    "id": "Codex",
+    "kind": "AGENT"
+  },
+  "exercise": "ISOLATED_LOGICAL_DATABASE_OBJECT_AND_REDIS_REBUILD",
+  "object_restored": true,
+  "passed": true,
+  "pitr_production_evidence": false,
+  "postgres_restored": true,
+  "redis_rebuilt": true,
+  "rpo_minutes": 0,
+  "rto_minutes": 0.11,
+  "started_at": "2026-07-15T11:00:52.829307+00:00"
+}

@@ -1,6 +1,7 @@
 """FastAPI application factory and foundational system endpoints."""
 
 import asyncio
+import hmac
 import logging
 from collections import Counter
 from collections.abc import AsyncIterator, Mapping
@@ -8,9 +9,9 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from time import perf_counter
-from typing import Annotated, Any
+from typing import Any
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import FastAPI, Header, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse
 from srbg_contracts import (
@@ -21,12 +22,11 @@ from srbg_contracts import (
     LivenessResponse,
     ProblemDetails,
     ReadinessResponse,
-    UserRole,
     VersionResponse,
 )
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from srbg_api.auth import Principal, require_roles
+from srbg_api.auth import Principal
 from srbg_api.config import get_settings
 from srbg_api.database import create_database_engine, create_publication_engine
 from srbg_api.discovery.api import PortalService
@@ -43,6 +43,16 @@ from srbg_api.document_vault.storage import S3ObjectStore
 from srbg_api.health import HealthChecker, build_default_checkers, run_check
 from srbg_api.identifiers import uuid7
 from srbg_api.logging import configure_logging
+from srbg_api.observability import (
+    API_DURATION,
+    API_REQUESTS,
+    configure_observability,
+    render_metrics,
+    set_operations_metrics,
+)
+from srbg_api.operations.api import OperationsService
+from srbg_api.operations.api import router as operations_router
+from srbg_api.operations.service import OperationsRejected, PostgresOperationsService
 from srbg_api.publication.api import (
     EventCandidateGenerationService,
     IntelligenceQueryService,
@@ -66,11 +76,6 @@ from srbg_api.source_registry.api import router as source_vault_router
 from srbg_api.source_registry.repository import RepositoryConflict, SourceNotFound
 from srbg_api.source_registry.service import SourceServiceRejected, build_default_source_service
 
-MetricsPrincipal = Annotated[
-    Principal,
-    Depends(require_roles(UserRole.PLATFORM_ADMIN, UserRole.AUDITOR)),
-]
-
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
@@ -83,9 +88,11 @@ def create_app(
     publication_service: ReviewPublicationService | None = None,
     safety_event_candidate_service: EventCandidateGenerationService | None = None,
     portal_service: PortalService | None = None,
+    operations_service: OperationsService | None = None,
 ) -> FastAPI:
     configure_logging()
     settings = get_settings()
+    configure_observability(settings)
     dependency_checkers = (
         dict(checkers) if checkers is not None else build_default_checkers(settings)
     )
@@ -99,6 +106,7 @@ def create_app(
             publication_service,
             safety_event_candidate_service,
             portal_service,
+            operations_service,
         ):
             close = getattr(service, "close", None)
             if close is not None:
@@ -110,6 +118,7 @@ def create_app(
     app.state.publication_service = publication_service
     app.state.safety_event_candidate_service = safety_event_candidate_service
     app.state.portal_service = portal_service
+    app.state.operations_service = operations_service
     app.state.publication_gate_denials = Counter()
     logger = logging.getLogger("srbg.api")
 
@@ -120,6 +129,27 @@ def create_app(
         request.state.request_id = request_id
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
+        route = getattr(request.scope.get("route"), "path", "unmatched")
+        duration_seconds = max(0.0, perf_counter() - started)
+        API_REQUESTS.labels(route, request.method, str(response.status_code)).inc()
+        API_DURATION.labels(route, request.method).observe(duration_seconds)
+        principal = getattr(request.state, "principal", None)
+        usage_event = _usage_event(request.method, request.url.path)
+        if (
+            response.status_code < 400
+            and isinstance(principal, Principal)
+            and usage_event is not None
+            and operations_service is not None
+        ):
+            try:
+                await operations_service.record_usage(
+                    event_type=usage_event,
+                )
+            except Exception:
+                logger.warning(
+                    "usage_event_recording_failed",
+                    extra={"request_id": request_id, "event_type": usage_event},
+                )
         logger.info(
             "request_completed",
             extra={
@@ -127,7 +157,7 @@ def create_app(
                 "method": request.method,
                 "path": request.url.path,
                 "status_code": response.status_code,
-                "duration_ms": max(0, round((perf_counter() - started) * 1000)),
+                "duration_ms": max(0, round(duration_seconds * 1000)),
             },
         )
         return response
@@ -351,6 +381,23 @@ def create_app(
             media_type="application/problem+json",
         )
 
+    @app.exception_handler(OperationsRejected)
+    async def operations_rejected_handler(
+        request: Request, exc: OperationsRejected
+    ) -> JSONResponse:
+        problem = ProblemDetails(
+            title="Operational request rejected",
+            status=409,
+            detail=str(exc),
+            instance=str(request.url.path),
+            request_id=request.state.request_id,
+        )
+        return JSONResponse(
+            status_code=409,
+            content=problem.model_dump(mode="json"),
+            media_type="application/problem+json",
+        )
+
     @app.exception_handler(Exception)
     async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResponse:
         logger.exception(
@@ -413,9 +460,18 @@ def create_app(
     app.include_router(source_vault_router)
     app.include_router(intelligence_router)
     app.include_router(portal_router)
+    app.include_router(operations_router)
 
     @app.get("/metrics", response_class=PlainTextResponse, include_in_schema=False)
-    async def metrics(_principal: MetricsPrincipal) -> str:
+    async def metrics(authorization: str | None = Header(default=None)) -> PlainTextResponse:
+        configured = settings.metrics_bearer_token
+        expected = configured.get_secret_value() if configured is not None else None
+        supplied = authorization.removeprefix("Bearer ") if authorization else None
+        if expected is None or supplied is None or not hmac.compare_digest(expected, supplied):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Metrics service authentication required",
+            )
         service = app.state.source_service
         source_metrics = (
             str(service.metrics.render_prometheus())
@@ -429,9 +485,29 @@ def create_app(
             else ""
         )
         gate_metrics = _render_publication_gate_denial_metrics(app.state.publication_gate_denials)
-        return source_metrics + str(processing_metrics) + gate_metrics
+        operations = app.state.operations_service
+        if operations is not None:
+            overview = await operations.overview()
+            set_operations_metrics(overview.metrics)
+        standard, media_type = render_metrics()
+        content = standard.decode() + source_metrics + str(processing_metrics) + gate_metrics
+        return PlainTextResponse(content, media_type=media_type)
 
     return app
+
+
+def _usage_event(method: str, path: str) -> str | None:
+    if method == "GET" and path == "/api/v1/search":
+        return "SEARCH"
+    if method == "GET" and path in {"/api/v1/daily", "/api/v1/daily/reports"}:
+        return "READ_DAILY"
+    if method == "POST" and path == "/api/v1/saved-items":
+        return "SAVE_ITEM"
+    if method == "GET" and "/document-versions/" in path and "/pages/" in path:
+        return "VIEW_EVIDENCE"
+    if method == "GET" and path.endswith(("/bibtex", "/ris", "/gbt7714")):
+        return "EXPORT"
+    return None
 
 
 async def _missing_checker() -> None:
@@ -488,6 +564,7 @@ def build_default_app() -> FastAPI:
             semantic_enabled=settings.semantic_search_enabled,
             semantic_timeout_seconds=settings.semantic_search_timeout_seconds,
         ),
+        operations_service=PostgresOperationsService(create_database_engine(settings)),
     )
 
 

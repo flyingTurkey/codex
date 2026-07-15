@@ -11,9 +11,12 @@ dependencies = [
   "jsonschema==4.26.0",
   "pydantic-settings==2.14.2",
   "pymupdf==1.26.7",
+  "prometheus-client==0.23.1",
+  "pyjwt[crypto]==2.13.0",
   "redis==8.0.1",
   "sqlalchemy==2.0.51",
   "srbg-contracts",
+  "sentry-sdk[fastapi]==2.48.0",
   "uvicorn==0.51.0",
 ]
 

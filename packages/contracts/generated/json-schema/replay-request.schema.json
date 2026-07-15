@@ -1,0 +1,29 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "failed_task_id": {
+      "format": "uuid",
+      "title": "Failed Task Id",
+      "type": "string"
+    },
+    "priority": {
+      "default": 5,
+      "maximum": 9,
+      "minimum": 0,
+      "title": "Priority",
+      "type": "integer"
+    },
+    "reason": {
+      "maxLength": 500,
+      "minLength": 10,
+      "title": "Reason",
+      "type": "string"
+    }
+  },
+  "required": [
+    "failed_task_id",
+    "reason"
+  ],
+  "title": "ReplayRequest",
+  "type": "object"
+}

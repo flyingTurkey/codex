@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import date
+from time import perf_counter
 from typing import Annotated, Any, Literal, Protocol, cast
 from uuid import UUID
 
@@ -23,6 +24,7 @@ from srbg_contracts import (
 from srbg_api.auth import Principal, get_current_principal, require_roles
 from srbg_api.discovery.domain import normalize_search_query
 from srbg_api.http_cache import contract_etag_response
+from srbg_api.observability import SEARCH_DURATION
 
 
 class PortalService(Protocol):
@@ -154,19 +156,23 @@ async def search(
     tokens = normalize_search_query(q)
     if not tokens:
         raise HTTPException(status_code=422, detail="Search query must contain a searchable term")
-    page = await _service(request).search(
-        query=q,
-        tokens=tokens,
-        domain=domain.upper() if domain else None,
-        content_type=content_type,
-        region=region,
-        source_id=source_id,
-        evidence_status=evidence_status,
-        sort=sort,
-        cursor=cursor,
-        limit=limit,
-        principal=principal,
-    )
+    started = perf_counter()
+    try:
+        page = await _service(request).search(
+            query=q,
+            tokens=tokens,
+            domain=domain.upper() if domain else None,
+            content_type=content_type,
+            region=region,
+            source_id=source_id,
+            evidence_status=evidence_status,
+            sort=sort,
+            cursor=cursor,
+            limit=limit,
+            principal=principal,
+        )
+    finally:
+        SEARCH_DURATION.observe(max(0.0, perf_counter() - started))
     return contract_etag_response(request, page, exclude_unset=True)
 
 

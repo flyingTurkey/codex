@@ -46,6 +46,17 @@ class Settings(BaseSettings):
     )
     semantic_search_enabled: bool = False
     semantic_search_timeout_seconds: float = Field(default=0.3, gt=0, le=2)
+    metrics_bearer_token: SecretStr | None = None
+    otel_exporter_otlp_endpoint: str | None = None
+    sentry_dsn: SecretStr | None = None
+    oidc_issuer: str | None = None
+    oidc_audience: str | None = None
+    oidc_jwks_url: str | None = None
+    alert_webhook_url: SecretStr | None = None
+    backup_s3_endpoint_url: str | None = None
+    backup_s3_bucket: str | None = None
+    backup_s3_access_key: str | None = None
+    backup_s3_secret_key: SecretStr | None = None
 
     @model_validator(mode="after")
     def reject_demo_cursor_key_in_production(self) -> Settings:
@@ -56,6 +67,40 @@ class Settings(BaseSettings):
             raise ValueError(
                 "production cursor signing key must be explicit and at least 48 characters"
             )
+        controlled = self.environment.lower() in {"preproduction", "production"}
+        if controlled:
+            oidc_values = (self.oidc_issuer, self.oidc_audience, self.oidc_jwks_url)
+            if any(value is None for value in oidc_values):
+                raise ValueError("controlled environments require complete OIDC configuration")
+            if not str(self.oidc_issuer).startswith("https://") or not str(
+                self.oidc_jwks_url
+            ).startswith("https://"):
+                raise ValueError("controlled environment OIDC endpoints must use HTTPS")
+        if self.environment.lower() == "production":
+            required = {
+                "metrics_bearer_token": self.metrics_bearer_token,
+                "otel_exporter_otlp_endpoint": self.otel_exporter_otlp_endpoint,
+                "sentry_dsn": self.sentry_dsn,
+                "oidc_issuer": self.oidc_issuer,
+                "oidc_audience": self.oidc_audience,
+                "oidc_jwks_url": self.oidc_jwks_url,
+                "alert_webhook_url": self.alert_webhook_url,
+                "backup_s3_endpoint_url": self.backup_s3_endpoint_url,
+                "backup_s3_bucket": self.backup_s3_bucket,
+                "backup_s3_access_key": self.backup_s3_access_key,
+                "backup_s3_secret_key": self.backup_s3_secret_key,
+            }
+            missing = sorted(name for name, value in required.items() if value is None)
+            if missing:
+                raise ValueError(
+                    f"production operations configuration missing: {', '.join(missing)}"
+                )
+            if self.backup_s3_endpoint_url == self.s3_endpoint_url:
+                raise ValueError("production backup storage must use an independent endpoint")
+            metrics_token = self.metrics_bearer_token
+            metrics_value = metrics_token.get_secret_value() if metrics_token is not None else ""
+            if len(metrics_value) < 32 or metrics_value.startswith("demo-only-"):
+                raise ValueError("production metrics bearer token must be at least 32 characters")
         return self
 
 

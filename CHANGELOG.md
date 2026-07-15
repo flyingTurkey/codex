@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+### Round 11 — 质量、运维、安全与上线门禁
+
+- 新增 PostgreSQL 权威的最小失败任务、优先级人工重放、不可回溯个人的聚合运行指标和显式反馈；失败记录不保存正文、令牌、Cookie、模型输入、个人敏感 Payload 或关联哈希，解析/AI 重放在无法安全重建时默认失败。复用唯一 `PublicationService` 及既有 Feed/卡片/AppShell，交付来源健康、运行中心和质量看板。
+- 接入固定版本 Prometheus/Grafana/Alertmanager/OpenTelemetry 与 Sentry 配置，增加来源、队列、解析、AI、审核、API、搜索、成本、SLO/错误预算和备份验证告警基线。
+- 新增隔离恢复演练、负载/成本基线、环境隔离、发布/回滚/撤回/来源故障/模型异常/Redis 重建 Runbook，以及 OIDC RS256/JWKS、依赖/密钥/配置和发布对抗门禁。
+- 新增版本化金标目录、readiness Schema/评测器和 CI required checks；工程 CI 成功校验 Schema、引用完整性及诚实 `BLOCKED`，严格 golden/readiness 保持非零晋级门禁。证据主体区分 AGENT/CI/HUMAN，证据包记录空金标、短实测窗口和未配置生产路由，生产状态保持 `BLOCKED`。
+
 ### Round 10 — 信息流、搜索、专题与日报
 
 - 在既有 `/api/v1/feed?mode=selected|all`、`/items/{id}`、`/events/{id}` 和 `/hot-topics` 上统一补齐签名 Cursor 分页、组合筛选、ACL 投影和稳定 ETag/304；新增 `/search`、`/daily`、`/reports/{id}`、`/fingerprint`、`/saved-items` 与私有专题接口，没有创建平行 `/items` 或 `/events` 列表。

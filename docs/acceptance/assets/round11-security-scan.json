@@ -1,0 +1,31 @@
+{
+  "executed_at": "2026-07-15T10:51:22.192174Z",
+  "executed_by": {"kind": "AGENT", "id": "Codex"},
+  "environment": "TEST",
+  "attempts": [
+    {
+      "started_at": "2026-07-15T10:50:25.088270Z",
+      "ended_at": "2026-07-15T10:50:41.383757Z",
+      "exit": 2,
+      "result": "INCONCLUSIVE_EXTERNAL_NETWORK",
+      "reason": "PyPI TLS handshake/read timeout; no vulnerability decision produced"
+    },
+    {
+      "started_at": "2026-07-15T10:50:49.942036Z",
+      "ended_at": "2026-07-15T10:51:22.192174Z",
+      "exit": 0,
+      "result": "PASSED"
+    }
+  ],
+  "results": {
+    "pip_audit_known_vulnerabilities": 0,
+    "pnpm_high_or_critical_vulnerabilities": 0,
+    "pnpm_low_vulnerabilities": 1,
+    "trivy_high_or_critical_secrets": 0,
+    "trivy_high_or_critical_misconfigurations": 0,
+    "publication_and_input_adversarial_tests": {"passed": 164, "failed": 0},
+    "prompt_injection_samples": {"rejected": 6, "total": 6},
+    "unsupported_high_risk_publication_rate_bps": 0
+  },
+  "high_risk_findings": 0
+}

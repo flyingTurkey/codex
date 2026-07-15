@@ -1,0 +1,56 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "aggregate_effective_actions": {
+      "minimum": 0,
+      "title": "Aggregate Effective Actions",
+      "type": "integer"
+    },
+    "distinct_feedback_users": {
+      "minimum": 0,
+      "title": "Distinct Feedback Users",
+      "type": "integer"
+    },
+    "ended_at": {
+      "format": "date-time",
+      "title": "Ended At",
+      "type": "string"
+    },
+    "identity_metrics_available": {
+      "const": false,
+      "default": false,
+      "title": "Identity Metrics Available",
+      "type": "boolean"
+    },
+    "started_at": {
+      "format": "date-time",
+      "title": "Started At",
+      "type": "string"
+    },
+    "sufficient_window": {
+      "title": "Sufficient Window",
+      "type": "boolean"
+    },
+    "total_votes": {
+      "minimum": 0,
+      "title": "Total Votes",
+      "type": "integer"
+    },
+    "useful_votes": {
+      "minimum": 0,
+      "title": "Useful Votes",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "started_at",
+    "ended_at",
+    "aggregate_effective_actions",
+    "distinct_feedback_users",
+    "useful_votes",
+    "total_votes",
+    "sufficient_window"
+  ],
+  "title": "PilotMetrics",
+  "type": "object"
+}

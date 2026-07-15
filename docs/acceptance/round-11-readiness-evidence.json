@@ -1,0 +1,304 @@
+{
+  "manifest_version": "1.1.0",
+  "baseline_commit": "36c0ec01cbdb9f9ac3b72da1fe3c7b87264b63b9",
+  "branch": "codex/round-10-feed-search-daily",
+  "workspace_snapshot_sha256": "850c6b3142c26fe374af9181ca05b6919cb7b3d2c9b06328e54878e27fc595ba",
+  "environment": "TEST",
+  "window": {
+    "id": "round11-20260715t110136z",
+    "started_at": "2026-07-15T10:51:22.192174Z",
+    "ended_at": "2026-07-15T11:00:59.990891Z",
+    "duration_days": 0.006687
+  },
+  "claims": [
+    {
+      "code": "GOLD_SET_COMPLETENESS",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "executed_at": "2026-07-15T10:54:53.154527Z",
+      "executed_by": {
+        "kind": "AGENT",
+        "id": "Codex"
+      },
+      "policy": {
+        "version": "1.0.0",
+        "sha256": "ff467b7ef313011e93c357da964a377196fde2846bfe6ab42e2c192aeae58fca"
+      },
+      "gold_set": {
+        "version": "1.0.0-seed",
+        "sha256": "9e5cc1ba39e85e48c64d84936e18b405fd7a8087c8cb8caba078e40c32a45433"
+      },
+      "evidence_refs": [
+        {
+          "kind": "CONFIG",
+          "uri": "tests/gold/v1/manifest.json",
+          "sha256": "9e5cc1ba39e85e48c64d84936e18b405fd7a8087c8cb8caba078e40c32a45433",
+          "baseline_commit": "36c0ec01cbdb9f9ac3b72da1fe3c7b87264b63b9",
+          "environment": "TEST",
+          "window_id": "round11-20260715t110136z"
+        }
+      ]
+    },
+    {
+      "code": "ROUND11_MIGRATION_REPLAY",
+      "status": "PASSED",
+      "executed_at": "2026-07-15T10:54:53.154527Z",
+      "executed_by": {
+        "kind": "AGENT",
+        "id": "Codex"
+      },
+      "policy": {
+        "version": "1.0.0",
+        "sha256": "ff467b7ef313011e93c357da964a377196fde2846bfe6ab42e2c192aeae58fca"
+      },
+      "gold_set": {
+        "version": "1.0.0-seed",
+        "sha256": "9e5cc1ba39e85e48c64d84936e18b405fd7a8087c8cb8caba078e40c32a45433"
+      },
+      "evidence_refs": [
+        {
+          "kind": "TEST_LOG",
+          "uri": "docs/acceptance/assets/round11-migration-replay.txt",
+          "sha256": "a21aa64db32ef229b36ee84ca3fa70cb0afe29669e4da28b2a8d5c03b1f1dcc9",
+          "baseline_commit": "36c0ec01cbdb9f9ac3b72da1fe3c7b87264b63b9",
+          "environment": "TEST",
+          "window_id": "round11-20260715t110136z"
+        }
+      ]
+    },
+    {
+      "code": "ISOLATED_RECOVERY_EXERCISE",
+      "status": "PASSED",
+      "executed_at": "2026-07-15T11:00:59.336631Z",
+      "executed_by": {
+        "kind": "AGENT",
+        "id": "Codex"
+      },
+      "policy": {
+        "version": "1.0.0",
+        "sha256": "ff467b7ef313011e93c357da964a377196fde2846bfe6ab42e2c192aeae58fca"
+      },
+      "gold_set": {
+        "version": "1.0.0-seed",
+        "sha256": "9e5cc1ba39e85e48c64d84936e18b405fd7a8087c8cb8caba078e40c32a45433"
+      },
+      "evidence_refs": [
+        {
+          "kind": "DRILL_RECORD",
+          "uri": "docs/acceptance/assets/round11-recovery-drill.json",
+          "sha256": "e8073898d5c007b23bc1bb16a4099e9d61fe33f70fe872177be6beea89659d09",
+          "baseline_commit": "36c0ec01cbdb9f9ac3b72da1fe3c7b87264b63b9",
+          "environment": "TEST",
+          "window_id": "round11-20260715t110136z"
+        }
+      ]
+    },
+    {
+      "code": "PRODUCTION_PITR_RPO_RTO",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "executed_at": "2026-07-15T11:00:59.336631Z",
+      "executed_by": {
+        "kind": "AGENT",
+        "id": "Codex"
+      },
+      "policy": {
+        "version": "1.0.0",
+        "sha256": "ff467b7ef313011e93c357da964a377196fde2846bfe6ab42e2c192aeae58fca"
+      },
+      "gold_set": {
+        "version": "1.0.0-seed",
+        "sha256": "9e5cc1ba39e85e48c64d84936e18b405fd7a8087c8cb8caba078e40c32a45433"
+      },
+      "evidence_refs": [
+        {
+          "kind": "DRILL_RECORD",
+          "uri": "docs/acceptance/assets/round11-recovery-drill.json",
+          "sha256": "e8073898d5c007b23bc1bb16a4099e9d61fe33f70fe872177be6beea89659d09",
+          "baseline_commit": "36c0ec01cbdb9f9ac3b72da1fe3c7b87264b63b9",
+          "environment": "TEST",
+          "window_id": "round11-20260715t110136z"
+        }
+      ]
+    },
+    {
+      "code": "LOCAL_LOAD_BASELINE",
+      "status": "PASSED",
+      "executed_at": "2026-07-15T11:00:52.507752Z",
+      "executed_by": {
+        "kind": "AGENT",
+        "id": "Codex"
+      },
+      "policy": {
+        "version": "1.0.0",
+        "sha256": "ff467b7ef313011e93c357da964a377196fde2846bfe6ab42e2c192aeae58fca"
+      },
+      "gold_set": {
+        "version": "1.0.0-seed",
+        "sha256": "9e5cc1ba39e85e48c64d84936e18b405fd7a8087c8cb8caba078e40c32a45433"
+      },
+      "evidence_refs": [
+        {
+          "kind": "REPORT",
+          "uri": "docs/acceptance/assets/round11-load-baseline.json",
+          "sha256": "20801f14fc3311e8670cefee6dff8352a1e6c3c549f4ce63a8043c853f900626",
+          "baseline_commit": "36c0ec01cbdb9f9ac3b72da1fe3c7b87264b63b9",
+          "environment": "TEST",
+          "window_id": "round11-20260715t110136z"
+        }
+      ]
+    },
+    {
+      "code": "OBSERVABILITY_RUNTIME",
+      "status": "PASSED",
+      "executed_at": "2026-07-15T11:00:59.990891Z",
+      "executed_by": {
+        "kind": "AGENT",
+        "id": "Codex"
+      },
+      "policy": {
+        "version": "1.0.0",
+        "sha256": "ff467b7ef313011e93c357da964a377196fde2846bfe6ab42e2c192aeae58fca"
+      },
+      "gold_set": {
+        "version": "1.0.0-seed",
+        "sha256": "9e5cc1ba39e85e48c64d84936e18b405fd7a8087c8cb8caba078e40c32a45433"
+      },
+      "evidence_refs": [
+        {
+          "kind": "MONITOR_QUERY",
+          "uri": "docs/acceptance/assets/round11-observability-runtime.json",
+          "sha256": "3038ab8c7f0817861af001c4e86801894c9d6ca3da3393776e0574c033e0b0a6",
+          "baseline_commit": "36c0ec01cbdb9f9ac3b72da1fe3c7b87264b63b9",
+          "environment": "TEST",
+          "window_id": "round11-20260715t110136z"
+        }
+      ]
+    },
+    {
+      "code": "SECURITY_HIGH_RISK_GATE",
+      "status": "PASSED",
+      "executed_at": "2026-07-15T10:51:22.192174Z",
+      "executed_by": {
+        "kind": "AGENT",
+        "id": "Codex"
+      },
+      "policy": {
+        "version": "1.0.0",
+        "sha256": "ff467b7ef313011e93c357da964a377196fde2846bfe6ab42e2c192aeae58fca"
+      },
+      "gold_set": {
+        "version": "1.0.0-seed",
+        "sha256": "9e5cc1ba39e85e48c64d84936e18b405fd7a8087c8cb8caba078e40c32a45433"
+      },
+      "evidence_refs": [
+        {
+          "kind": "TEST_LOG",
+          "uri": "docs/acceptance/assets/round11-security-scan.json",
+          "sha256": "2a0564d0288f0541d52fbc76aaa003747410c947c9cac3f6d09e2a295e5c0454",
+          "baseline_commit": "36c0ec01cbdb9f9ac3b72da1fe3c7b87264b63b9",
+          "environment": "TEST",
+          "window_id": "round11-20260715t110136z"
+        }
+      ]
+    },
+    {
+      "code": "UI_REGRESSION_ACCESSIBILITY",
+      "status": "PASSED",
+      "executed_at": "2026-07-15T10:54:53.154527Z",
+      "executed_by": {
+        "kind": "AGENT",
+        "id": "Codex"
+      },
+      "policy": {
+        "version": "1.0.0",
+        "sha256": "ff467b7ef313011e93c357da964a377196fde2846bfe6ab42e2c192aeae58fca"
+      },
+      "gold_set": {
+        "version": "1.0.0-seed",
+        "sha256": "9e5cc1ba39e85e48c64d84936e18b405fd7a8087c8cb8caba078e40c32a45433"
+      },
+      "evidence_refs": [
+        {
+          "kind": "TEST_LOG",
+          "uri": "docs/acceptance/assets/round11-quality-gates.json",
+          "sha256": "d12ed569f48d2ed872d4d7a248aef0a4efd774a8c708ff8bac9767e55d9eba66",
+          "baseline_commit": "36c0ec01cbdb9f9ac3b72da1fe3c7b87264b63b9",
+          "environment": "TEST",
+          "window_id": "round11-20260715t110136z"
+        },
+        {
+          "kind": "REPORT",
+          "uri": "apps/web/tests/e2e/visual-baselines/round11-operations.png",
+          "sha256": "98c3c4fe71d796336c056404b22508097290fd6aedb4cd87edb5f1b150140edc",
+          "baseline_commit": "36c0ec01cbdb9f9ac3b72da1fe3c7b87264b63b9",
+          "environment": "TEST",
+          "window_id": "round11-20260715t110136z"
+        }
+      ]
+    },
+    {
+      "code": "CONTINUOUS_SLO_AND_ALERT_ROUTING",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "executed_at": "2026-07-15T11:00:59.519811Z",
+      "executed_by": {
+        "kind": "AGENT",
+        "id": "Codex"
+      },
+      "policy": {
+        "version": "1.0.0",
+        "sha256": "ff467b7ef313011e93c357da964a377196fde2846bfe6ab42e2c192aeae58fca"
+      },
+      "gold_set": {
+        "version": "1.0.0-seed",
+        "sha256": "9e5cc1ba39e85e48c64d84936e18b405fd7a8087c8cb8caba078e40c32a45433"
+      },
+      "evidence_refs": [
+        {
+          "kind": "MONITOR_QUERY",
+          "uri": "docs/acceptance/assets/round11-slo-current-window.json",
+          "sha256": "50839485339cdb86da5aeea788cb2536825381690316d4d4cba68c56fdc6d25c",
+          "baseline_commit": "36c0ec01cbdb9f9ac3b72da1fe3c7b87264b63b9",
+          "environment": "TEST",
+          "window_id": "round11-20260715t110136z"
+        },
+        {
+          "kind": "MONITOR_QUERY",
+          "uri": "docs/acceptance/assets/round11-observability-runtime.json",
+          "sha256": "3038ab8c7f0817861af001c4e86801894c9d6ca3da3393776e0574c033e0b0a6",
+          "baseline_commit": "36c0ec01cbdb9f9ac3b72da1fe3c7b87264b63b9",
+          "environment": "TEST",
+          "window_id": "round11-20260715t110136z"
+        }
+      ]
+    },
+    {
+      "code": "SEED_USER_14_DAY_ACCEPTANCE",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "executed_at": "2026-07-15T10:54:53.154527Z",
+      "executed_by": {
+        "kind": "AGENT",
+        "id": "Codex"
+      },
+      "policy": {
+        "version": "1.0.0",
+        "sha256": "ff467b7ef313011e93c357da964a377196fde2846bfe6ab42e2c192aeae58fca"
+      },
+      "gold_set": {
+        "version": "1.0.0-seed",
+        "sha256": "9e5cc1ba39e85e48c64d84936e18b405fd7a8087c8cb8caba078e40c32a45433"
+      },
+      "evidence_refs": [
+        {
+          "kind": "TEST_LOG",
+          "uri": "docs/acceptance/assets/round11-quality-gates.json",
+          "sha256": "d12ed569f48d2ed872d4d7a248aef0a4efd774a8c708ff8bac9767e55d9eba66",
+          "baseline_commit": "36c0ec01cbdb9f9ac3b72da1fe3c7b87264b63b9",
+          "environment": "TEST",
+          "window_id": "round11-20260715t110136z"
+        }
+      ]
+    }
+  ],
+  "decision": "BLOCKED",
+  "generated_by_ci": false,
+  "manifest_sha256": "dbe7518b6e171d9faa7b7e584ad5c26be150fc1dc4528116ad1600994268f7e5"
+}

@@ -40,6 +40,9 @@ export const primaryNavigation = [
 ] as const satisfies readonly AppNavigationItem[]
 
 export const adminNavigation = [
+  { id: 'source-health', label: '来源健康', to: '/admin/source-health', icon: 'Database' },
+  { id: 'operations', label: '运行中心', to: '/admin/operations', icon: 'RefreshDouble' },
+  { id: 'quality', label: '质量看板', to: '/admin/quality', icon: 'Reports' },
   { id: 'admin', label: '管理入口', to: '/admin/sources', icon: 'Settings' },
   { id: 'review', label: '审核工作台', to: '/admin/review', icon: 'ShieldCheck' },
   { id: 'clusters', label: '聚类工作台', to: '/admin/clusters', icon: 'List' },

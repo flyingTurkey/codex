@@ -1,0 +1,24 @@
+{
+  "availability_error_budget": {
+    "allowed_unavailability_percent": 0.5,
+    "consumed_unavailability_percent": 0.0,
+    "remaining_percent_of_budget": 100.0
+  },
+  "availability_percent": 100.0,
+  "command": "python scripts/slo_weekly_report.py",
+  "continuous_14_day_claim": false,
+  "environment": "TEST",
+  "executed_at": "2026-07-15T11:00:59.519811Z",
+  "executed_by": {
+    "id": "Codex",
+    "kind": "AGENT"
+  },
+  "sampled_requests": 10221.099731724991,
+  "search_p95_ms": 134.6153846153844,
+  "window": {
+    "continuous_data_coverage_verified": false,
+    "ended_at": "2026-07-15T11:00:59.519811+00:00",
+    "requested_duration_days": 7,
+    "started_at": "2026-07-08T11:00:59.519811+00:00"
+  }
+}

@@ -441,19 +441,21 @@ class PostgresIntelligenceQueryService:
                     )
                 ).mappings()
             )
-            digital_outcomes = dict(
-                (
-                    await connection.execute(
-                        text(
-                            """
-                            SELECT outcome_kind, count(*) AS count
-                            FROM digital_case_outcome
-                            GROUP BY outcome_kind
-                            """
-                        )
+            digital_outcome_rows = (
+                await connection.execute(
+                    text(
+                        """
+                        SELECT outcome_kind, count(*) AS count
+                        FROM digital_case_outcome
+                        GROUP BY outcome_kind
+                        """
                     )
-                ).tuples()
-            )
+                )
+            ).mappings()
+            digital_outcomes = {
+                str(outcome['outcome_kind']): int(outcome['count'])
+                for outcome in digital_outcome_rows
+            }
             pending_enterprise_review = int(
                 await connection.scalar(
                     text(
@@ -516,19 +518,21 @@ class PostgresIntelligenceQueryService:
                     )
                 ).mappings()
             )
-            product_capabilities = dict(
-                (
-                    await connection.execute(
-                        text(
-                            """
-                            SELECT kind, count(*) AS count
-                            FROM technology_product_capability
-                            GROUP BY kind
-                            """
-                        )
+            product_capability_rows = (
+                await connection.execute(
+                    text(
+                        """
+                        SELECT kind, count(*) AS count
+                        FROM technology_product_capability
+                        GROUP BY kind
+                        """
                     )
-                ).tuples()
-            )
+                )
+            ).mappings()
+            product_capabilities = {
+                str(capability['kind']): int(capability['count'])
+                for capability in product_capability_rows
+            }
             pending_product_normalization = int(
                 await connection.scalar(
                     text(

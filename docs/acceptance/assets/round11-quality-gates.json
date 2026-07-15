@@ -1,0 +1,24 @@
+{
+  "executed_at": "2026-07-15T10:54:53.154527Z",
+  "executed_by": {"kind": "AGENT", "id": "Codex"},
+  "environment": "TEST",
+  "engineering_decision": "PASSED",
+  "commands": {
+    "make lint": {"exit": 0},
+    "make typecheck": {"exit": 0, "ended_at": "2026-07-15T10:49:51Z"},
+    "make test": {"exit": 0, "passed": {"python": 477, "ui": 53, "web": 69}, "skipped": 11},
+    "make contract-test": {"exit": 0, "passed": 56},
+    "make security-check": {"exit": 0, "ended_at": "2026-07-15T10:51:22.192174Z"},
+    "make fixture-replay": {"exit": 0, "passed": 164},
+    "make quality-gate": {"exit": 0, "ended_at": "2026-07-15T10:53:40.537958Z"},
+    "make round11-test": {"exit": 0, "passed": 41},
+    "make observability-test": {"exit": 0, "passed": 6},
+    "make load-test": {"exit": 0, "samples": 100},
+    "make recovery-drill": {"exit": 0},
+    "make runbook-test": {"exit": 0, "passed": 2},
+    "make web-e2e": {"exit": 0, "passed": 42},
+    "make web-a11y": {"exit": 0, "passed": 13},
+    "python scripts/audit_publication_paths.py": {"exit": 0}
+  },
+  "production_decision": "BLOCKED"
+}

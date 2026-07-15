@@ -1,0 +1,1 @@
+{"title":"来源健康","uid":"srbg-source-health","schemaVersion":41,"version":1,"panels":[{"type":"timeseries","title":"来源熔断","targets":[{"expr":"srbg_source_circuit_open"}],"gridPos":{"h":8,"w":24,"x":0,"y":0}}]}

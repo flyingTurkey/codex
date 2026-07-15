@@ -63,6 +63,9 @@ describe('application shell contract', () => {
     ])
     expect(primaryNavigation[0]?.activePaths).toEqual(['/selected'])
     expect(adminNavigation.map((item) => item.label)).toEqual([
+      '来源健康',
+      '运行中心',
+      '质量看板',
       '管理入口',
       '审核工作台',
       '聚类工作台',

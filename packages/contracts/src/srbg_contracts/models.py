@@ -404,6 +404,48 @@ class VersionResponse(ContractModel):
     semantic_search_enabled: bool = False
 
 
+class MetricSample(ContractModel):
+    code: str = Field(pattern=r"^[A-Z][A-Z0-9_]+$", max_length=80)
+    value: int | float
+    unit: Literal["count", "percent", "ms", "seconds", "minutes", "microusd"]
+    status: Literal["PASS", "FAIL", "UNKNOWN"]
+
+
+class OperationsOverview(ContractModel):
+    observed_at: datetime
+    metrics: list[MetricSample]
+
+
+class ReplayRequest(ContractModel):
+    failed_task_id: UUID
+    reason: str = Field(min_length=10, max_length=500)
+    priority: int = Field(default=5, ge=0, le=9)
+
+
+class ReplayResult(ContractModel):
+    id: UUID
+    failed_task_id: UUID
+    task_kind: str
+    priority: int = Field(ge=0, le=9)
+    status: Literal["QUEUED", "RUNNING", "SUCCEEDED", "FAILED"]
+
+
+class FeedbackRequest(ContractModel):
+    item_id: UUID
+    value: Literal["USEFUL", "NOT_USEFUL"]
+
+
+class PilotMetrics(ContractModel):
+    started_at: datetime
+    ended_at: datetime
+    aggregate_effective_actions: int = Field(ge=0)
+    distinct_feedback_users: int = Field(ge=0)
+    useful_votes: int = Field(ge=0)
+    total_votes: int = Field(ge=0)
+    identity_metrics_available: Literal[False] = False
+    sufficient_window: bool
+
+
 class ProblemDetails(ContractModel):
     type: str = "about:blank"
     title: str

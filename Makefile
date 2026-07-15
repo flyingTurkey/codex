@@ -47,7 +47,9 @@ export PLAYWRIGHT_BROWSERS_PATH
 .PHONY: setup dev runtime-ready down lint typecheck test contract-test security-check smoke \
 	resilience-test fixture-replay quality-gate web-e2e web-a11y source-fixture-test \
 	safety-regulation-test pdf-ocr-test safety-case-test digital-case-test paper-test product-test \
-	round08-test round08-eval round09-test round09-eval round10-test round10-eval
+	round08-test round08-eval round09-test round09-eval round10-test round10-eval \
+	round11-test observability-test golden-replay load-test recovery-drill runbook-test \
+	round11-evidence-test readiness-evidence slo-weekly-report
 
 setup:
 	$(UV) sync --frozen --all-packages
@@ -250,3 +252,43 @@ web-e2e: runtime-ready
 
 web-a11y: runtime-ready
 	$(PNPM) --filter @srbg/web a11y
+
+round11-test:
+	$(COMPOSE) up --detach --wait postgres minio
+	$(UV) run python scripts/run_isolated_integration.py --migration-verifier verify_round11_migration.py -- \
+		apps/api/tests/test_round11_migration.py \
+		apps/api/tests/test_round11_oidc_auth.py \
+		apps/api/tests/test_round11_operations_api.py \
+		apps/api/tests/test_round11_operations_integration.py \
+		apps/api/tests/test_round09_publication_paths.py \
+		apps/api/tests/test_publication_rbac_integration.py \
+		apps/worker/tests/test_round11_failure_queue.py \
+		tests/infrastructure/test_round11_readiness.py \
+		tests/infrastructure/test_round11_observability.py \
+		tests/infrastructure/test_round11_runbooks.py -q
+	$(UV) run python scripts/audit_publication_paths.py
+
+observability-test:
+	$(UV) run python -m pytest tests/infrastructure/test_round11_observability.py -q
+
+slo-weekly-report:
+	$(UV) run python scripts/slo_weekly_report.py
+
+golden-replay:
+	$(UV) run python scripts/evaluate_readiness.py
+
+load-test: runtime-ready
+	$(UV) run python scripts/load_baseline.py --base-url http://127.0.0.1:$(API_PORT)
+
+recovery-drill:
+	$(UV) run python scripts/recovery_drill.py --isolated-only
+
+runbook-test:
+	$(UV) run python -m pytest tests/infrastructure/test_round11_runbooks.py -q
+
+round11-evidence-test:
+	$(UV) run python scripts/validate_round11_evidence.py
+
+readiness-evidence:
+	$(UV) run python scripts/evaluate_readiness.py \
+		--readiness docs/acceptance/round-11-readiness-evidence.json

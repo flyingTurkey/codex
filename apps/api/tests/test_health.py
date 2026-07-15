@@ -72,22 +72,28 @@ def test_missing_route_uses_problem_details() -> None:
     assert UUID(response.json()["request_id"]).version == 7
 
 
-def test_metrics_rejects_anonymous_default_viewer_and_explicit_viewer() -> None:
-    client = TestClient(_app({"postgresql": _up, "redis": _up, "object_storage": _up}))
+def test_metrics_rejects_anonymous_and_browser_identity(monkeypatch) -> None:
+    monkeypatch.setenv("SRBG_METRICS_BEARER_TOKEN", "m" * 32)
+    main.get_settings.cache_clear()
+    try:
+        client = TestClient(_app({"postgresql": _up, "redis": _up, "object_storage": _up}))
+        assert client.get("/metrics").status_code == 401
+        assert client.get(
+            "/metrics", headers={"X-SRBG-Local-Roles": "platform_admin"}
+        ).status_code == 401
+    finally:
+        main.get_settings.cache_clear()
 
-    assert client.get("/metrics").status_code == 403
-    assert client.get(
-        "/metrics", headers={"X-SRBG-Local-Roles": "viewer"}
-    ).status_code == 403
 
-
-def test_metrics_allows_ops_roles_while_health_probes_remain_anonymous() -> None:
-    client = TestClient(_app({"postgresql": _up, "redis": _up, "object_storage": _up}))
-
-    for role in ("platform_admin", "auditor"):
-        response = client.get("/metrics", headers={"X-SRBG-Local-Roles": role})
+def test_metrics_allows_service_token_while_health_probes_remain_anonymous(monkeypatch) -> None:
+    monkeypatch.setenv("SRBG_METRICS_BEARER_TOKEN", "m" * 32)
+    main.get_settings.cache_clear()
+    try:
+        client = TestClient(_app({"postgresql": _up, "redis": _up, "object_storage": _up}))
+        response = client.get("/metrics", headers={"Authorization": f"Bearer {'m' * 32}"})
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/plain")
-
-    assert client.get("/health/live").status_code == 200
-    assert client.get("/health/ready").status_code == 200
+        assert client.get("/health/live").status_code == 200
+        assert client.get("/health/ready").status_code == 200
+    finally:
+        main.get_settings.cache_clear()

@@ -1,0 +1,24 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "item_id": {
+      "format": "uuid",
+      "title": "Item Id",
+      "type": "string"
+    },
+    "value": {
+      "enum": [
+        "USEFUL",
+        "NOT_USEFUL"
+      ],
+      "title": "Value",
+      "type": "string"
+    }
+  },
+  "required": [
+    "item_id",
+    "value"
+  ],
+  "title": "FeedbackRequest",
+  "type": "object"
+}

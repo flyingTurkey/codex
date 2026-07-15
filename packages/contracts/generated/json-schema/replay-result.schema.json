@@ -1,0 +1,44 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "failed_task_id": {
+      "format": "uuid",
+      "title": "Failed Task Id",
+      "type": "string"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "priority": {
+      "maximum": 9,
+      "minimum": 0,
+      "title": "Priority",
+      "type": "integer"
+    },
+    "status": {
+      "enum": [
+        "QUEUED",
+        "RUNNING",
+        "SUCCEEDED",
+        "FAILED"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "task_kind": {
+      "title": "Task Kind",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "failed_task_id",
+    "task_kind",
+    "priority",
+    "status"
+  ],
+  "title": "ReplayResult",
+  "type": "object"
+}

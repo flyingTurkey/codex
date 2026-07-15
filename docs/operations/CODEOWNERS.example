@@ -1,0 +1,9 @@
+# Copy to .github/CODEOWNERS only after replacing these placeholders with real teams.
+# A placeholder is intentionally not active repository policy.
+/.github/workflows/                 @ORG/platform-owners @ORG/security-owners
+/docs/codex-kit/assets/validation/ @ORG/quality-owners @ORG/security-owners
+/tests/gold/                        @ORG/quality-owners
+/apps/api/src/srbg_api/publication/ @ORG/editorial-owners @ORG/security-owners
+/apps/api/migrations/               @ORG/platform-owners
+/infra/                             @ORG/platform-owners @ORG/security-owners
+/docs/acceptance/                   @ORG/acceptance-owners

@@ -1,0 +1,7 @@
+apiVersion: 1
+providers:
+  - name: SRBG
+    folder: SRBG Insight
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards

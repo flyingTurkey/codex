@@ -29,6 +29,8 @@ const scoreOpen = ref(false)
 const saved = ref(Boolean(props.item.is_saved))
 const saving = ref(false)
 const saveProblem = ref<string | null>(null)
+const feedback = ref<'USEFUL' | 'NOT_USEFUL' | null>(null)
+const feedbackProblem = ref<string | null>(null)
 watch(() => props.item.is_saved, value => { saved.value = Boolean(value) })
 
 async function toggleSaved(): Promise<void> {
@@ -54,6 +56,20 @@ async function toggleSaved(): Promise<void> {
   }
   finally {
     saving.value = false
+  }
+}
+
+async function recordFeedback(value: 'USEFUL' | 'NOT_USEFUL'): Promise<void> {
+  feedbackProblem.value = null
+  try {
+    await $fetch('/api/v1/feedback', {
+      method: 'POST',
+      body: { item_id: props.item.id, value },
+    })
+    feedback.value = value
+  }
+  catch {
+    feedbackProblem.value = '反馈提交失败，请稍后重试。'
   }
 }
 
@@ -496,9 +512,27 @@ function formatLoss(amountMinor: number, currency: string): string {
       >
         {{ saving ? '处理中…' : saved ? '已收藏' : '收藏' }}
       </button>
+      <span v-if="item.publication_revision_id && !isWithdrawn" class="intelligence-card__feedback">
+        <span>这条情报有用吗？</span>
+        <button
+          type="button"
+          data-testid="feedback-useful"
+          :aria-pressed="feedback === 'USEFUL'"
+          @click="recordFeedback('USEFUL')"
+        >有用</button>
+        <button
+          type="button"
+          data-testid="feedback-not-useful"
+          :aria-pressed="feedback === 'NOT_USEFUL'"
+          @click="recordFeedback('NOT_USEFUL')"
+        >需改进</button>
+      </span>
     </footer>
     <p v-if="saveProblem" class="intelligence-card__save-problem" role="alert">
       {{ saveProblem }}
+    </p>
+    <p v-if="feedbackProblem" class="intelligence-card__save-problem" role="alert">
+      {{ feedbackProblem }}
     </p>
     <ScoreBreakdownDrawer
       v-if="item.scores"
@@ -526,6 +560,13 @@ function formatLoss(amountMinor: number, currency: string): string {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--spacing-2);
+}
+
+.intelligence-card__feedback {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+  align-items: center;
 }
 
 .intelligence-card__type,

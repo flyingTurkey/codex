@@ -1,0 +1,60 @@
+{
+  "alertmanager": {
+    "cluster_status": "ready",
+    "production_route_verified": false,
+    "receiver": "unconfigured"
+  },
+  "command": "python scripts/collect_round11_observability.py",
+  "configuration_hashes": {
+    "alertmanager": "7dd7bfb2192606a873ac4bf80d2be65f11325e3c11a77da036370fb7d80044f3",
+    "compose": "60e53115da20bdb2acab1fe5f0001fac9b888e69083f80eaa188a4925afab65a",
+    "prometheus_rules": "2585199642a51b42bd3c91e4dea164bf0db9285849d101c21f23ded60620e805"
+  },
+  "continuous_window_claim": false,
+  "environment": "TEST",
+  "executed_at": "2026-07-15T11:00:59.990891Z",
+  "executed_by": {
+    "id": "Codex",
+    "kind": "AGENT"
+  },
+  "grafana": {
+    "database": "ok",
+    "datasource": {
+      "name": "Prometheus",
+      "type": "prometheus",
+      "url": "http://prometheus:9090"
+    },
+    "version": "12.1.1"
+  },
+  "opentelemetry_collector": {
+    "container_state": "running",
+    "image": "otel/opentelemetry-collector-contrib:0.133.0"
+  },
+  "prometheus": {
+    "health": "up",
+    "last_error": "",
+    "rules": [
+      {
+        "health": "ok",
+        "name": "SourceCircuitOpen"
+      },
+      {
+        "health": "ok",
+        "name": "QueueOldestTaskTooOld"
+      },
+      {
+        "health": "ok",
+        "name": "ApiAvailabilityBudgetBurn"
+      },
+      {
+        "health": "ok",
+        "name": "SearchLatencySloBreach"
+      },
+      {
+        "health": "ok",
+        "name": "BackupVerificationFailed"
+      }
+    ],
+    "target": "http://api:8000/metrics"
+  }
+}

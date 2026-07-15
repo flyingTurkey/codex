@@ -1,0 +1,20 @@
+{
+  "command": "python scripts/load_baseline.py",
+  "concurrency": 10,
+  "environment": "TEST",
+  "errors": 0,
+  "executed_at": "2026-07-15T11:00:52.507752Z",
+  "executed_by": {
+    "id": "Codex",
+    "kind": "AGENT"
+  },
+  "p95_latency_ms": 66.47,
+  "passed": true,
+  "samples": 100,
+  "single_document_cost": {
+    "microusd": 0,
+    "production_baseline": false,
+    "provider": "mock"
+  },
+  "started_at": "2026-07-15T11:00:52.223738Z"
+}

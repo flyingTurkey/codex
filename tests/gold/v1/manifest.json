@@ -1,0 +1,9 @@
+{
+  "version": "1.0.0-seed",
+  "license_policy": "Only approved, traceable fixtures; no unauthorized full text.",
+  "documents": [],
+  "duplicate_pairs": [],
+  "event_clusters": [],
+  "claim_evidence_annotations": [],
+  "search_questions": []
+}

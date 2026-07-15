@@ -28,7 +28,7 @@ CLEANUP_FAILURE_EXIT_CODE = 1
 SETUP_FAILURE_EXIT_CODE = 1
 _DATABASE_NAME = re.compile(r"srbg_it_[0-9a-f]{24}\Z")
 _BUCKET_NAME = re.compile(r"srbg-it-[0-9a-f]{24}\Z")
-_ROLE_NAME = re.compile(r"srbg_it_(?:api|pub)_[0-9a-f]{24}\Z")
+_ROLE_NAME = re.compile(r"srbg_it_(?:api|pub|worker)_[0-9a-f]{24}\Z")
 _BOOTSTRAP_CREDENTIAL_KEYS = frozenset(
     {
         "POSTGRES_PASSWORD",
@@ -133,6 +133,8 @@ class TemporaryResources:
     runtime_password: str = field(repr=False)
     publication_role: str
     publication_password: str = field(repr=False)
+    worker_role: str
+    worker_password: str = field(repr=False)
 
     @classmethod
     def generate(
@@ -148,7 +150,8 @@ class TemporaryResources:
         suffix = token[:24]
         runtime_password = new_password()
         publication_password = new_password()
-        if not runtime_password or not publication_password:
+        worker_password = new_password()
+        if not runtime_password or not publication_password or not worker_password:
             raise ValueError("temporary role passwords must not be empty")
         return cls(
             database=f"srbg_it_{suffix}",
@@ -157,6 +160,8 @@ class TemporaryResources:
             runtime_password=runtime_password,
             publication_role=f"srbg_it_pub_{suffix}",
             publication_password=publication_password,
+            worker_role=f"srbg_it_worker_{suffix}",
+            worker_password=worker_password,
         )
 
 
@@ -195,6 +200,7 @@ class LocalResourceBackend:
     def create_login_roles(self, resources: TemporaryResources) -> None:
         self._require_disposable_role(resources.runtime_role)
         self._require_disposable_role(resources.publication_role)
+        self._require_disposable_role(resources.worker_role)
         asyncio.run(self._create_login_roles(resources))
 
     def empty_and_delete_bucket(self, name: str) -> None:
@@ -208,6 +214,7 @@ class LocalResourceBackend:
     def drop_login_roles(self, resources: TemporaryResources) -> None:
         self._require_disposable_role(resources.runtime_role)
         self._require_disposable_role(resources.publication_role)
+        self._require_disposable_role(resources.worker_role)
         asyncio.run(self._drop_login_roles(resources))
 
     def _require_disposable_database(self, name: str) -> None:
@@ -264,6 +271,12 @@ class LocalResourceBackend:
                     resources.publication_role,
                     resources.publication_password,
                 )
+                worker_create = await connection.fetchval(
+                    "SELECT format("
+                    "'CREATE ROLE %I LOGIN PASSWORD %L', $1::text, $2::text)",
+                    resources.worker_role,
+                    resources.worker_password,
+                )
                 runtime_grant = await connection.fetchval(
                     "SELECT format('GRANT srbg_api_role TO %I', $1::text)",
                     resources.runtime_role,
@@ -272,11 +285,17 @@ class LocalResourceBackend:
                     "SELECT format('GRANT srbg_publication_writer TO %I', $1::text)",
                     resources.publication_role,
                 )
+                worker_grant = await connection.fetchval(
+                    "SELECT format('GRANT srbg_worker_role TO %I', $1::text)",
+                    resources.worker_role,
+                )
                 for statement in (
                     runtime_create,
                     publication_create,
+                    worker_create,
                     runtime_grant,
                     publication_grant,
+                    worker_grant,
                 ):
                     await connection.execute(statement)
         finally:
@@ -286,9 +305,10 @@ class LocalResourceBackend:
         connection = await self._admin_connection()
         try:
             statement = await connection.fetchval(
-                "SELECT format('DROP ROLE IF EXISTS %I, %I', $1::text, $2::text)",
+                "SELECT format('DROP ROLE IF EXISTS %I, %I, %I', $1::text, $2::text, $3::text)",
                 resources.runtime_role,
                 resources.publication_role,
+                resources.worker_role,
             )
             await connection.execute(statement)
         finally:
@@ -424,6 +444,7 @@ def _migration_command(
         "verify_round08_migration.py",
         "verify_round09_migration.py",
         "verify_round10_migration.py",
+        "verify_round11_migration.py",
     }:
         raise ValueError("migration verifier is not approved")
     return (
@@ -459,6 +480,11 @@ def _suite_environment(
             "SRBG_PUBLICATION_DATABASE_URL": config.database_url(
                 resources.publication_role,
                 resources.publication_password,
+                resources.database,
+            ),
+            "SRBG_WORKER_DATABASE_URL": config.database_url(
+                resources.worker_role,
+                resources.worker_password,
                 resources.database,
             ),
             "SRBG_S3_ENDPOINT_URL": config.s3_endpoint_url,
@@ -522,6 +548,7 @@ def _parse_args(arguments: Sequence[str] | None) -> tuple[str, tuple[str, ...]]:
             "verify_round08_migration.py",
             "verify_round09_migration.py",
             "verify_round10_migration.py",
+            "verify_round11_migration.py",
         ),
         default="verify_round08_migration.py",
     )

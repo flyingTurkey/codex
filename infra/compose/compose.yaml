@@ -14,6 +14,9 @@ x-python-environment: &python-environment
   SRBG_CURSOR_SIGNING_KEY: ${SRBG_CURSOR_SIGNING_KEY:-demo-only-round10-cursor-signing-key}
   SRBG_SEMANTIC_SEARCH_ENABLED: ${SRBG_SEMANTIC_SEARCH_ENABLED:-false}
   SRBG_SEMANTIC_SEARCH_TIMEOUT_SECONDS: ${SRBG_SEMANTIC_SEARCH_TIMEOUT_SECONDS:-0.3}
+  SRBG_METRICS_BEARER_TOKEN: ${SRBG_METRICS_BEARER_TOKEN:-demo-only-round11-metrics-token-000000}
+  SRBG_OTEL_EXPORTER_OTLP_ENDPOINT: ${SRBG_OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+  SRBG_SENTRY_DSN: ${SRBG_SENTRY_DSN:-}
   SRBG_OPENALEX_API_KEY: ${SRBG_OPENALEX_API_KEY:-}
   SRBG_ACADEMIC_CONTACT: ${SRBG_ACADEMIC_CONTACT:-data-platform@srbg.local}
 
@@ -29,6 +32,16 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-srbg}
       POSTGRES_USER: ${POSTGRES_USER:-srbg}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-srbg_local_only}
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_timeout=900
+      - -c
+      - archive_command=test ! -f /wal-archive/%f && cp %p /wal-archive/%f
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
@@ -38,6 +51,7 @@ services:
       retries: 20
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      - postgres-wal-archive:/wal-archive
     restart: unless-stopped
 
   redis:
@@ -89,12 +103,17 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-srbg_local}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-srbg_local_storage_only}
       SRBG_S3_BUCKET: ${SRBG_S3_BUCKET:-srbg-raw}
+      SRBG_BACKUP_S3_BUCKET: ${SRBG_BACKUP_S3_BUCKET:-srbg-backup}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >-
         mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
         && mc mb --ignore-existing "local/$${SRBG_S3_BUCKET}"
         && mc anonymous set none "local/$${SRBG_S3_BUCKET}"
+        && mc version enable "local/$${SRBG_S3_BUCKET}"
+        && mc mb --ignore-existing "local/$${SRBG_BACKUP_S3_BUCKET}"
+        && mc anonymous set none "local/$${SRBG_BACKUP_S3_BUCKET}"
+        && mc version enable "local/$${SRBG_BACKUP_S3_BUCKET}"
     restart: "no"
 
   migrate:
@@ -324,8 +343,66 @@ services:
       retries: 20
     restart: unless-stopped
 
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    environment:
+      METRICS_TOKEN: ${SRBG_METRICS_BEARER_TOKEN:-demo-only-round11-metrics-token-000000}
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - >-
+        umask 077; printf %s "$${METRICS_TOKEN}" > /tmp/metrics-token;
+        exec /bin/prometheus --config.file=/etc/prometheus/prometheus.yml
+        --storage.tsdb.path=/prometheus
+    volumes:
+      - ./infra/observability/prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    command: ["--config.file=/etc/alertmanager/alertmanager.yml"]
+    volumes:
+      - ./infra/observability/alertmanager:/etc/alertmanager:ro
+    ports:
+      - "127.0.0.1:${ALERTMANAGER_PORT:-9093}:9093"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:12.1.1
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-demo-only-grafana-password}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - ./infra/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3001}:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.133.0
+    command: ["--config=/etc/otelcol-contrib/config.yml"]
+    volumes:
+      - ./infra/observability/otel-collector.yml:/etc/otelcol-contrib/config.yml:ro
+    expose:
+      - "4317"
+      - "4318"
+    restart: unless-stopped
+
 volumes:
   postgres-data:
+  postgres-wal-archive:
   redis-data:
   minio-data:
   clamav-db:
+  prometheus-data:
+  grafana-data:

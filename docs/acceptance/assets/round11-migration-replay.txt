@@ -1,0 +1,10 @@
+executed_at=2026-07-15T10:54:02.708330Z
+executed_by=AGENT/Codex
+environment=isolated-loopback-postgresql
+command=make round11-test
+migration=0011 -> 0012 -> 0011 -> 0012
+result=PASSED
+tests=41 passed in 2.50s
+publication_path_audit=PASSED
+temporary_database=redacted-disposable-uuid-namespace
+cleanup=completed

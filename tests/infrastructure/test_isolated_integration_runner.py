@@ -94,7 +94,7 @@ def test_suite_uses_only_unique_temporary_database_and_bucket(
         monkeypatch.setenv(name, "shared-bootstrap-secret")
     backend = RecordingBackend()
     processes = RecordingProcessRunner([0, 0])
-    passwords = iter(("runtime-secret", "publication-secret"))
+    passwords = iter(("runtime-secret", "publication-secret", "worker-secret"))
 
     result = run_isolated_integration(
         ("apps/api/tests/test_safety_regulation_integration.py", "-q"),
@@ -154,7 +154,7 @@ def test_suite_failure_keeps_exit_code_and_still_cleans_every_resource(
 ) -> None:
     backend = RecordingBackend()
     processes = RecordingProcessRunner([0, 23])
-    passwords = iter(("runtime-secret", "publication-secret"))
+    passwords = iter(("runtime-secret", "publication-secret", "worker-secret"))
 
     result = run_isolated_integration(
         ("test_failure.py",),
@@ -240,7 +240,7 @@ def test_cleanup_failure_fails_a_green_suite_without_logging_credentials(
         }
     )
     processes = RecordingProcessRunner([0, 0])
-    passwords = iter(("runtime-secret", "publication-secret"))
+    passwords = iter(("runtime-secret", "publication-secret", "worker-secret"))
 
     result = run_isolated_integration(
         ("test_success.py",),
@@ -363,8 +363,10 @@ def test_temporary_resource_names_never_target_shared_resources() -> None:
     assert first.bucket != "srbg-raw"
     assert first.runtime_role.startswith("srbg_it_api_")
     assert first.publication_role.startswith("srbg_it_pub_")
+    assert first.worker_role.startswith("srbg_it_worker_")
     assert first.runtime_role != "srbg_api_login"
     assert first.publication_role != "srbg_publisher_login"
+    assert first.worker_role != "srbg_worker_login"
 
 
 @pytest.mark.parametrize(
