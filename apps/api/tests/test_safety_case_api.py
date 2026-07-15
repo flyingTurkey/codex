@@ -100,7 +100,8 @@ def _client() -> tuple[TestClient, StubSafetyCasePublication]:
                 source_service=None,
                 intelligence_service=StubSafetyCaseQuery(),  # type: ignore[arg-type]
                 publication_service=publication,  # type: ignore[arg-type]
-            )
+            ),
+            headers={"X-SRBG-Local-Step-Up": "true"},
         ),
         publication,
     )

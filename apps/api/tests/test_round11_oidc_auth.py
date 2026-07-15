@@ -21,6 +21,7 @@ def test_oidc_token_requires_approved_audience_issuer_roles_and_uuid7() -> None:
             'iss': 'https://id.example.test',
             'aud': 'srbg-platform',
             'exp': now + timedelta(minutes=5),
+            'nbf': now - timedelta(seconds=1),
             'iat': now,
             'srbg_user_id': str(user_id),
             'name': '内测用户',

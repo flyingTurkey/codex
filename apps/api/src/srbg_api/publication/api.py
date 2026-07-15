@@ -36,7 +36,12 @@ from srbg_contracts import (
     VersionTimelineResponse,
 )
 
-from srbg_api.auth import Principal, get_current_principal, require_roles
+from srbg_api.auth import (
+    Principal,
+    get_current_principal,
+    require_roles,
+    require_roles_with_step_up,
+)
 from srbg_api.http_cache import contract_etag_response
 from srbg_api.safety_cases.candidates import EventCandidateAlreadyDecided
 
@@ -253,7 +258,7 @@ ReviewReadPrincipal = Annotated[
 ]
 ReviewWritePrincipal = Annotated[
     Principal,
-    Depends(require_roles(UserRole.REVIEWER, UserRole.PLATFORM_ADMIN)),
+    Depends(require_roles_with_step_up(UserRole.REVIEWER, UserRole.PLATFORM_ADMIN)),
 ]
 EventCandidateWritePrincipal = Annotated[
     Principal,

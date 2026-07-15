@@ -31,6 +31,33 @@ class Channel(StrEnum):
     SAFETY = "SAFETY"
 
 
+class PublicationRiskTier(StrEnum):
+    """Publication handling risk; it never grants content visibility."""
+
+    R1 = "R1"
+    R2 = "R2"
+    R3 = "R3"
+    R4 = "R4"
+
+
+class ContentSeverity(StrEnum):
+    """Subject-matter severity, independent from publication handling risk."""
+
+    UNASSESSED = "UNASSESSED"
+    LOW = "LOW"
+    MODERATE = "MODERATE"
+    HIGH = "HIGH"
+    CRITICAL = "CRITICAL"
+
+
+class ProjectionLevel(StrEnum):
+    """Maximum content projection level decided by server-side policy."""
+
+    NONE = "NONE"
+    METADATA_ONLY = "METADATA_ONLY"
+    FULL = "FULL"
+
+
 class SourceChannel(StrEnum):
     DIGITAL = "DIGITAL"
     SAFETY = "SAFETY"
@@ -1149,6 +1176,67 @@ TypeSummaryValue = Annotated[
 
 class TypeSummary(RootModel[TypeSummaryValue]):
     """Tagged union exported for TypeScript consumers."""
+
+
+class PublishedEvidenceReferenceV1(ContractModel):
+    evidence_id: UUID
+    locator: str = Field(min_length=1, max_length=1000)
+    content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class PublishedClaimV1(ContractModel):
+    claim_id: UUID
+    field_name: str = Field(min_length=1, max_length=100)
+    value: str = Field(min_length=1, max_length=2000)
+    evidence_ids: list[UUID] = Field(min_length=1, max_length=100)
+
+
+class PublishedEventSummaryV1(ContractModel):
+    """Versioned, event-keyed content projection for internal readers."""
+
+    id: UUID
+    publication_revision_id: UUID | None
+    projection_version: Literal["1.0.0"]
+    generation: int = Field(ge=1)
+    domain: Channel
+    content_type: ItemType
+    title: str = Field(min_length=1, max_length=500)
+    source_name: str = Field(min_length=1, max_length=200)
+    source_published_at: datetime | None
+    first_discovered_at: datetime
+    original_url: HttpUrlString = Field(pattern=r"^https?://[^\s]+$", max_length=2048)
+    review_status: ReviewStatus
+    discovery_status: Literal["MACHINE_DISCOVERED", "HUMAN_CURATED"]
+    fact_review_status: Literal["PENDING_HUMAN_REVIEW", "HUMAN_REVIEWED"]
+    publication_risk_tier: PublicationRiskTier
+    content_severity: ContentSeverity
+    projection_level: ProjectionLevel
+    one_sentence_fact: str | None = Field(default=None, max_length=500)
+    type_summary: TypeSummaryValue | None = None
+
+    @model_validator(mode="after")
+    def enforce_projection_level(self) -> "PublishedEventSummaryV1":
+        if self.projection_level == ProjectionLevel.NONE:
+            raise ValueError("NONE projections must not be serialized")
+        if self.projection_level == ProjectionLevel.METADATA_ONLY and (
+            self.one_sentence_fact is not None or self.type_summary is not None
+        ):
+            raise ValueError("metadata-only projections cannot contain accepted facts")
+        return self
+
+
+class PublishedEventDetailV1(ContractModel):
+    summary: PublishedEventSummaryV1
+    claims: list[PublishedClaimV1] = Field(max_length=500)
+    evidence: list[PublishedEvidenceReferenceV1] = Field(max_length=500)
+
+    @model_validator(mode="after")
+    def enforce_metadata_only_detail(self) -> "PublishedEventDetailV1":
+        if self.summary.projection_level == ProjectionLevel.METADATA_ONLY and (
+            self.claims or self.evidence
+        ):
+            raise ValueError("metadata-only projections cannot contain claims or evidence")
+        return self
 
 
 class AiAssistance(ContractModel):

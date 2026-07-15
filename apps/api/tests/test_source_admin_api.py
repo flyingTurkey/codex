@@ -70,7 +70,10 @@ class StubSourceService:
 
 
 def _client() -> TestClient:
-    return TestClient(create_app(checkers={}, source_service=StubSourceService()))
+    return TestClient(
+        create_app(checkers={}, source_service=StubSourceService()),
+        headers={"X-SRBG-Local-Step-Up": "true"},
+    )
 
 
 def _source_payload() -> dict[str, object]:

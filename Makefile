@@ -8,14 +8,15 @@ PNPM ?= pnpm
 endif
 
 -include .env
-export WEB_PORT API_PORT POSTGRES_PORT MINIO_PORT
+export WEB_PORT API_PORT POSTGRES_PORT MINIO_PORT ANCHOR_MINIO_PORT
 export POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB
 export MINIO_ROOT_USER MINIO_ROOT_PASSWORD
-export SRBG_API_DB_PASSWORD SRBG_PUBLISHER_DB_PASSWORD
+export SRBG_API_DB_PASSWORD SRBG_PUBLISHER_DB_PASSWORD SRBG_PROJECTION_DB_PASSWORD
 export SRBG_S3_BUCKET SRBG_S3_REGION SRBG_EXTERNAL_IO_TIMEOUT_SECONDS
 
 POSTGRES_PORT ?= 5432
 MINIO_PORT ?= 9000
+ANCHOR_MINIO_PORT ?= 9002
 POSTGRES_DB ?= srbg
 POSTGRES_USER ?= srbg
 POSTGRES_PASSWORD ?= srbg_local_only
@@ -23,6 +24,7 @@ MINIO_ROOT_USER ?= srbg_local
 MINIO_ROOT_PASSWORD ?= srbg_local_storage_only
 SRBG_API_DB_PASSWORD ?= srbg_api_local_only
 SRBG_PUBLISHER_DB_PASSWORD ?= srbg_publisher_local_only
+SRBG_PROJECTION_DB_PASSWORD ?= srbg_projection_local_only
 SRBG_S3_BUCKET ?= srbg-raw
 SRBG_S3_REGION ?= us-east-1
 SRBG_EXTERNAL_IO_TIMEOUT_SECONDS ?= 5
@@ -49,7 +51,8 @@ export PLAYWRIGHT_BROWSERS_PATH
 	safety-regulation-test pdf-ocr-test safety-case-test digital-case-test paper-test product-test \
 	round08-test round08-eval round09-test round09-eval round10-test round10-eval \
 	round11-test observability-test golden-replay load-test recovery-drill runbook-test \
-	round11-evidence-test readiness-evidence slo-weekly-report
+	round11-evidence-test readiness-evidence slo-weekly-report \
+	phase2-round13-test
 
 setup:
 	$(UV) sync --frozen --all-packages
@@ -266,6 +269,20 @@ round11-test:
 		tests/infrastructure/test_round11_readiness.py \
 		tests/infrastructure/test_round11_observability.py \
 		tests/infrastructure/test_round11_runbooks.py -q
+	$(UV) run python scripts/audit_publication_paths.py
+
+phase2-round13-test:
+	$(COMPOSE) up --detach --wait postgres minio anchor-minio
+	$(COMPOSE) run --rm anchor-minio-init
+	$(UV) run python scripts/run_isolated_integration.py \
+		--migration-verifier verify_round13_migration.py -- \
+		apps/api/tests/test_safety_case_integration.py \
+		apps/api/tests/test_round13_access_boundary.py \
+		apps/api/tests/test_round13_auth.py \
+		apps/api/tests/test_round13_migration.py \
+		apps/api/tests/test_round13_projection_policy.py \
+		apps/api/tests/test_round13_projection_permissions.py \
+		packages/contracts/tests/test_round13_contracts.py -q
 	$(UV) run python scripts/audit_publication_paths.py
 
 observability-test:

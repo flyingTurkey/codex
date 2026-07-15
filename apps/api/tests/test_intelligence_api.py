@@ -202,7 +202,7 @@ def _client() -> tuple[TestClient, StubPublicationService]:
         intelligence_service=StubQueryService(),
         publication_service=publication,
     )
-    return TestClient(app), publication
+    return TestClient(app, headers={"X-SRBG-Local-Step-Up": "true"}), publication
 
 
 def test_viewer_feed_and_detail_receive_only_r3_whitelist() -> None:

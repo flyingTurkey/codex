@@ -29,6 +29,21 @@ OPERATIONS_METRIC = Gauge(
     "Bounded operational metric values from PostgreSQL authority",
     ["code", "unit", "status"],
 )
+INTERNAL_PROJECTION_RUNS = Counter(
+    "srbg_internal_projection_runs_total",
+    "Internal shadow projection runs by bounded outcome.",
+    ("outcome",),
+)
+INTERNAL_PROJECTION_RECORDS = Counter(
+    "srbg_internal_projection_records_total",
+    "Internal shadow projection records by policy level.",
+    ("level",),
+)
+AUTHORIZATION_DENIALS = Counter(
+    "srbg_authorization_denials_total",
+    "Authorization denials by bounded policy reason.",
+    ("reason",),
+)
 
 
 def configure_observability(settings: Settings) -> None:

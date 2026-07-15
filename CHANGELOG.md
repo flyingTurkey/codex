@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+### Round 13 — 内部发布投影、Event 身份与权限隔离
+
+- 新增 Alembic `0013_internal_projection` 和版本化 `published_v1` schema，以稳定 Event 公开 ID 保存 `PublishedEventSummaryV1`/`PublishedEventDetailV1` 影子投影、字段来源、generation、publication revision、生成时间、失效原因和审计引用；既有 `publication_projection_state` 继续只负责搜索、缓存与日报失效。
+- 拆分并约束 `publication_risk_tier`、`content_severity`、`projection_level`，保留旧 `risk_level` 的精确兼容映射和可回滚路径；R3 待审核仅生成官方题录 `METADATA_ONLY`，服务端排除精选、日报、推荐、通知和全文导出，R4 始终零投影。
+- 新增 PublicationService writer 边界内的幂等影子回填与对账：本地验收数据形成 32 个稳定 Event、23 条 `FULL`、9 条 `METADATA_ONLY`，连续两代 source/projected 均为 32、差异为 0；未切换现有 Feed、搜索、日报、收藏、专题或详情消费者。
+- 新增真实 PostgreSQL 低权限 `srbg_projection_reader` 登录验证，只能读取版本化发布视图，不能获得业务 schema/table、原始对象、审核备注、审计表、R4 数据或投影基表的 `USAGE/SELECT`；查询、游标、旧 generation、搜索和导出绕过均有负向测试。
+- 收紧 OIDC/RBAC：非开发环境拒绝本地身份头，验证 issuer/audience/RS256/kid/exp/nbf/iat/角色和 JWKS 默认拒绝；来源启停与发布职责分离，高权限写操作要求短时 MFA step-up，CORS 使用精确 allowlist，Nuxt 代理不转发客户端伪造身份头。
+- 撤销运行角色对 `audit_log` 的直接写权限，通过受控数据库函数计算链值，并把链根锚定至独立对象存储；该能力仅称 append-only/tamper-evident，不宣称对数据库管理员绝对不可篡改。
+- 新增投影生成/失效、权限拒绝、R3 降级和对账差异的结构化日志及低基数指标，新增 `make phase2-round13-test`、迁移正反向回放、发布路径审计、Web E2E/a11y 无破坏回归，并更新 README 与本轮验收记录。
+
 ### Round 12 — 真实能力审计与二阶段基线
 
 - 新增 `docs/audit/phase-2/` 十二项只读审计产物，以代码、实际数据库登录、运行API、测试和外部证据重新分类来源、连接器、Event/Item、发布投影、R3/R4、审计日志、用户行为、模型、指标和150来源风险；没有把CHANGELOG或方案声明当作实现证据。

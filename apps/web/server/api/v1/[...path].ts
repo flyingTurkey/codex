@@ -10,8 +10,16 @@ export default defineEventHandler(async (event) => {
   headers.delete('x-srbg-local-roles')
   headers.delete('x-srbg-local-user')
   headers.delete('x-srbg-local-user-id')
-  headers.set('x-srbg-local-roles', config.localAppRoles)
-  headers.set('x-srbg-local-user', 'Local Demo Reviewer')
+  headers.delete('x-srbg-local-step-up')
+  const localEnvironment = process.env.SRBG_ENVIRONMENT?.toLowerCase()
+  const localIdentityEnabled = localEnvironment
+    ? ['development', 'test', 'demo'].includes(localEnvironment)
+    : import.meta.dev || process.env.NODE_ENV === 'test'
+  if (localIdentityEnabled) {
+    headers.set('x-srbg-local-roles', config.localAppRoles)
+    headers.set('x-srbg-local-user', 'Local Demo Reviewer')
+    headers.set('x-srbg-local-step-up', 'true')
+  }
 
   const search = getRequestURL(event).search
   return proxyRequest(event, `${config.internalApiBase}/api/v1/${path}${search}`, {

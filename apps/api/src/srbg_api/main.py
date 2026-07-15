@@ -25,6 +25,7 @@ from srbg_contracts import (
     VersionResponse,
 )
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.cors import CORSMiddleware
 
 from srbg_api.auth import Principal
 from srbg_api.config import get_settings
@@ -113,6 +114,14 @@ def create_app(
                 await close()
 
     app = FastAPI(title="SRBG Insight API", version="0.1.0", lifespan=lifespan)
+    if settings.cors_allowed_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.cors_allowed_origins,
+            allow_credentials=False,
+            allow_methods=["GET", "POST", "PATCH", "DELETE"],
+            allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
+        )
     app.state.source_service = source_service
     app.state.intelligence_service = intelligence_service
     app.state.publication_service = publication_service
@@ -313,9 +322,7 @@ def create_app(
         )
 
     @app.exception_handler(CursorBindingError)
-    async def cursor_binding_handler(
-        request: Request, exc: CursorBindingError
-    ) -> JSONResponse:
+    async def cursor_binding_handler(request: Request, exc: CursorBindingError) -> JSONResponse:
         problem = ProblemDetails(
             title="Invalid cursor",
             status=400,

@@ -53,6 +53,8 @@ def test_exported_json_schemas_are_deterministic(tmp_path: Path) -> None:
         "pilot-metrics.schema.json",
         "publication-revision-request.schema.json",
         "publication-withdrawal-request.schema.json",
+        "published-event-summary-v1.schema.json",
+        "published-event-detail-v1.schema.json",
         "readiness-response.schema.json",
         "replay-request.schema.json",
         "replay-result.schema.json",

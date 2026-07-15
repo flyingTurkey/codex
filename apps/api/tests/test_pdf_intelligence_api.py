@@ -101,7 +101,7 @@ def test_version_diff_and_preview_propagate_server_acl_projection() -> None:
         intelligence_service=query,
         publication_service=None,
     )
-    client = TestClient(app)
+    client = TestClient(app, headers={"X-SRBG-Local-Step-Up": "true"})
 
     viewer = client.get(
         f"/api/v1/items/{ITEM_ID}/versions",
@@ -132,7 +132,7 @@ def test_candidate_decisions_and_material_escalation_are_reviewer_only() -> None
         intelligence_service=PdfQueryStub(),
         publication_service=publication,
     )
-    client = TestClient(app)
+    client = TestClient(app, headers={"X-SRBG-Local-Step-Up": "true"})
 
     forbidden = client.post(
         f"/api/v1/admin/review-candidates/RELATION/{CANDIDATE_ID}/decisions",

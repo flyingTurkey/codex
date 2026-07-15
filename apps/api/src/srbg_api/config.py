@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     publication_database_url: str = (
         "postgresql+asyncpg://srbg_publisher_login:development-only@postgres:5432/srbg"
     )
+    projection_database_url: str = (
+        "postgresql+asyncpg://srbg_projection_reader_login:development-only@postgres:5432/srbg"
+    )
     redis_url: str = "redis://redis:6379/0"
     s3_endpoint_url: str = "http://minio:9000"
     s3_access_key: str = "srbg_demo"
@@ -52,6 +55,9 @@ class Settings(BaseSettings):
     oidc_issuer: str | None = None
     oidc_audience: str | None = None
     oidc_jwks_url: str | None = None
+    oidc_step_up_acr_values: list[str] = Field(default_factory=list)
+    oidc_step_up_max_age_seconds: int = Field(default=900, ge=60, le=3600)
+    cors_allowed_origins: list[str] = Field(default_factory=list)
     alert_webhook_url: SecretStr | None = None
     backup_s3_endpoint_url: str | None = None
     backup_s3_bucket: str | None = None
@@ -60,6 +66,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def reject_demo_cursor_key_in_production(self) -> Settings:
+        if any("*" in origin for origin in self.cors_allowed_origins):
+            raise ValueError("CORS origins must be an exact allowlist without wildcards")
         key = self.cursor_signing_key.get_secret_value()
         if self.environment.lower() == "production" and (
             key.startswith("demo-only-") or len(key) < 48
@@ -67,7 +75,11 @@ class Settings(BaseSettings):
             raise ValueError(
                 "production cursor signing key must be explicit and at least 48 characters"
             )
-        controlled = self.environment.lower() in {"preproduction", "production"}
+        controlled = self.environment.lower() in {
+            "staging",
+            "preproduction",
+            "production",
+        }
         if controlled:
             oidc_values = (self.oidc_issuer, self.oidc_audience, self.oidc_jwks_url)
             if any(value is None for value in oidc_values):

@@ -1408,40 +1408,17 @@ async def _append_audit(
     request_id: str,
     now: datetime,
 ) -> None:
-    await connection.execute(text("SELECT pg_advisory_xact_lock(hashtext('audit_log'))"))
-    previous_hash = await connection.scalar(
-        text("SELECT entry_hash FROM audit_log ORDER BY created_at DESC, id DESC LIMIT 1")
-    )
-    audit_id = uuid7()
-    canonical = {
-        "id": str(audit_id),
-        "event_type": event_type,
-        "actor_id": str(actor_id),
-        "target_type": target_type,
-        "target_id": str(target_id),
-        "before_state": None,
-        "after_state": after_state,
-        "reason": reason,
-        "request_id": request_id,
-        "previous_hash": previous_hash,
-        "created_at": now.isoformat(),
-    }
-    entry_hash = sha256(_json(canonical).encode()).hexdigest()
     await connection.execute(
         text(
             """
-            INSERT INTO audit_log (
-                id, event_type, actor_id, target_type, target_id, before_state,
-                after_state, reason, request_id, previous_hash, entry_hash, created_at
-            ) VALUES (
+            SELECT append_audit_event(
                 :id, :event_type, :actor_id, :target_type, :target_id, NULL,
-                CAST(:after_state AS jsonb), :reason, :request_id,
-                :previous_hash, :entry_hash, :created_at
+                CAST(:after_state AS jsonb), :reason, :request_id, :created_at
             )
             """
         ),
         {
-            "id": audit_id,
+            "id": uuid7(),
             "event_type": event_type,
             "actor_id": actor_id,
             "target_type": target_type,
@@ -1449,8 +1426,6 @@ async def _append_audit(
             "after_state": _json(after_state),
             "reason": reason,
             "request_id": request_id,
-            "previous_hash": previous_hash,
-            "entry_hash": entry_hash,
             "created_at": now,
         },
     )

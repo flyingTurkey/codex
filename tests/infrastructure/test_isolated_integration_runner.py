@@ -10,6 +10,7 @@ from scripts.run_isolated_integration import (
     CLEANUP_FAILURE_EXIT_CODE,
     IntegrationConfig,
     TemporaryResources,
+    _environment_port,
     run_isolated_integration,
 )
 
@@ -74,6 +75,12 @@ def config() -> IntegrationConfig:
     )
 
 
+def test_empty_optional_port_uses_safe_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ANCHOR_MINIO_PORT", "")
+
+    assert _environment_port("ANCHOR_MINIO_PORT", 9002) == 9002
+
+
 def test_suite_uses_only_unique_temporary_database_and_bucket(
     config: IntegrationConfig,
     monkeypatch: pytest.MonkeyPatch,
@@ -94,7 +101,7 @@ def test_suite_uses_only_unique_temporary_database_and_bucket(
         monkeypatch.setenv(name, "shared-bootstrap-secret")
     backend = RecordingBackend()
     processes = RecordingProcessRunner([0, 0])
-    passwords = iter(("runtime-secret", "publication-secret", "worker-secret"))
+    passwords = iter(("runtime-secret", "publication-secret", "worker-secret", "projection-secret"))
 
     result = run_isolated_integration(
         ("apps/api/tests/test_safety_regulation_integration.py", "-q"),
@@ -175,7 +182,7 @@ def test_suite_failure_keeps_exit_code_and_still_cleans_every_resource(
 ) -> None:
     backend = RecordingBackend()
     processes = RecordingProcessRunner([0, 23])
-    passwords = iter(("runtime-secret", "publication-secret", "worker-secret"))
+    passwords = iter(("runtime-secret", "publication-secret", "worker-secret", "projection-secret"))
 
     result = run_isolated_integration(
         ("test_failure.py",),
@@ -261,7 +268,7 @@ def test_cleanup_failure_fails_a_green_suite_without_logging_credentials(
         }
     )
     processes = RecordingProcessRunner([0, 0])
-    passwords = iter(("runtime-secret", "publication-secret", "worker-secret"))
+    passwords = iter(("runtime-secret", "publication-secret", "worker-secret", "projection-secret"))
 
     result = run_isolated_integration(
         ("test_success.py",),

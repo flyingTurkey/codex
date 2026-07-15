@@ -51,6 +51,12 @@ const publicExports = {
   'product-normalization-decision-request.schema.json': ['ProductNormalizationDecisionRequest'],
   'publication-revision-request.schema.json': ['PublicationRevisionRequest'],
   'publication-withdrawal-request.schema.json': ['PublicationWithdrawalRequest'],
+  'published-event-summary-v1.schema.json': ['PublishedEventSummaryV1'],
+  'published-event-detail-v1.schema.json': [
+    'PublishedEventDetailV1',
+    'PublishedClaimV1',
+    'PublishedEvidenceReferenceV1',
+  ],
   'document-detail.schema.json': ['DocumentDetail'],
   'document-page-view.schema.json': ['DocumentPageView'],
   'evidence-view.schema.json': ['EvidenceView'],

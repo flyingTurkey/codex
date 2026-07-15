@@ -18,7 +18,7 @@ REQUIRED_TABLES = {
 
 def test_round10_migration_follows_round09_and_declares_portal_tables() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
-    assert script.get_current_head() == "0012_operations_readiness"
+    assert script.get_current_head() == "0013_internal_projection"
     revision = script.get_revision("0011_feed_search_daily")
     assert revision.down_revision == "0010_ai_editorial_governance"
     migration = runpy.run_path("apps/api/migrations/versions/0011_feed_search_daily.py")

@@ -19,14 +19,19 @@ from srbg_contracts import (
     UserRole,
 )
 
-from srbg_api.auth import Principal, get_current_principal, require_roles
+from srbg_api.auth import (
+    Principal,
+    get_current_principal,
+    require_roles,
+    require_roles_with_step_up,
+)
 from srbg_api.config import get_settings
 
 READ_ROLES = (UserRole.SOURCE_ADMIN, UserRole.PLATFORM_ADMIN, UserRole.AUDITOR)
 WRITE_ROLES = (UserRole.SOURCE_ADMIN, UserRole.PLATFORM_ADMIN)
 CurrentPrincipal = Annotated[Principal, Depends(get_current_principal)]
 ReadPrincipal = Annotated[Principal, Depends(require_roles(*READ_ROLES))]
-WritePrincipal = Annotated[Principal, Depends(require_roles(*WRITE_ROLES))]
+WritePrincipal = Annotated[Principal, Depends(require_roles_with_step_up(*WRITE_ROLES))]
 FixtureFilename = Annotated[
     str,
     Header(alias="X-Filename", min_length=1, max_length=255),

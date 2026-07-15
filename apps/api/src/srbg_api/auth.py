@@ -3,6 +3,7 @@
 import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -13,6 +14,7 @@ from jwt import PyJWKSet
 from srbg_contracts import UserRole
 
 from srbg_api.config import Settings, get_settings
+from srbg_api.observability import AUTHORIZATION_DENIALS
 
 LOCAL_USER_ID = UUID("019b0000-0000-7000-8000-000000009001")
 LOCAL_ENVIRONMENTS = frozenset({"demo", "development", "test"})
@@ -24,6 +26,10 @@ class Principal:
     display_name: str
     roles: frozenset[UserRole]
     local_identity: bool
+    acr: str | None = None
+    amr: frozenset[str] = frozenset()
+    authenticated_at: datetime | None = None
+    local_step_up: bool = False
 
 
 async def get_current_principal(request: Request) -> Principal:
@@ -65,6 +71,7 @@ async def get_current_principal(request: Request) -> Principal:
         display_name=request.headers.get("X-SRBG-Local-User", "本地来源管理员"),
         roles=roles,
         local_identity=True,
+        local_step_up=request.headers.get("X-SRBG-Local-Step-Up", "false").lower() == "true",
     )
     request.state.principal = principal
     return principal
@@ -118,7 +125,7 @@ def decode_oidc_token(token: str, jwks: object, settings: Settings) -> Principal
         algorithms=["RS256"],
         audience=settings.oidc_audience,
         issuer=settings.oidc_issuer,
-        options={"require": ["exp", "iat", "iss", "aud", "srbg_user_id", "roles"]},
+        options={"require": ["exp", "nbf", "iat", "iss", "aud", "srbg_user_id", "roles"]},
     )
     user_id = UUID(str(claims["srbg_user_id"]))
     if user_id.version != 7:
@@ -130,12 +137,61 @@ def decode_oidc_token(token: str, jwks: object, settings: Settings) -> Principal
     display_name = claims.get("name", "企业用户")
     if not isinstance(display_name, str) or not display_name or len(display_name) > 200:
         raise ValueError("OIDC display name is invalid")
+    raw_acr = claims.get("acr")
+    if raw_acr is not None and not isinstance(raw_acr, str):
+        raise ValueError("OIDC acr is invalid")
+    raw_amr = claims.get("amr", [])
+    if not isinstance(raw_amr, list) or any(not isinstance(method, str) for method in raw_amr):
+        raise ValueError("OIDC amr is invalid")
+    raw_auth_time = claims.get("auth_time")
+    authenticated_at = (
+        datetime.fromtimestamp(raw_auth_time, tz=UTC)
+        if isinstance(raw_auth_time, (int, float))
+        else None
+    )
     return Principal(
         user_id=user_id,
         display_name=display_name,
         roles=roles,
         local_identity=False,
+        acr=raw_acr,
+        amr=frozenset(raw_amr),
+        authenticated_at=authenticated_at,
     )
+
+
+def principal_has_step_up(
+    principal: Principal,
+    settings: Settings,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    """Verify recent MFA without treating an authorization role as authentication assurance."""
+
+    if principal.local_identity:
+        return settings.environment.lower() in LOCAL_ENVIRONMENTS and principal.local_step_up
+    if (
+        principal.acr not in settings.oidc_step_up_acr_values
+        or "mfa" not in principal.amr
+        or principal.authenticated_at is None
+    ):
+        return False
+    checked_at = now or datetime.now(UTC)
+    age_seconds = (checked_at - principal.authenticated_at).total_seconds()
+    return 0 <= age_seconds <= settings.oidc_step_up_max_age_seconds
+
+
+def require_step_up(
+    principal: Annotated[Principal, Depends(get_current_principal)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> Principal:
+    if not principal_has_step_up(principal, settings):
+        AUTHORIZATION_DENIALS.labels("step_up").inc()
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Recent multi-factor authentication is required",
+        )
+    return principal
 
 
 def require_roles(*allowed: UserRole) -> Callable[[Principal], Awaitable[Principal]]:
@@ -145,9 +201,36 @@ def require_roles(*allowed: UserRole) -> Callable[[Principal], Awaitable[Princip
         principal: Annotated[Principal, Depends(get_current_principal)],
     ) -> Principal:
         if principal.roles.isdisjoint(allowed_roles):
+            AUTHORIZATION_DENIALS.labels("role").inc()
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="This role is not permitted to perform the operation",
+            )
+        return principal
+
+    return authorize
+
+
+def require_roles_with_step_up(
+    *allowed: UserRole,
+) -> Callable[[Principal, Settings], Awaitable[Principal]]:
+    allowed_roles = frozenset(allowed)
+
+    async def authorize(
+        principal: Annotated[Principal, Depends(get_current_principal)],
+        settings: Annotated[Settings, Depends(get_settings)],
+    ) -> Principal:
+        if principal.roles.isdisjoint(allowed_roles):
+            AUTHORIZATION_DENIALS.labels("role").inc()
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This role is not permitted to perform the operation",
+            )
+        if not principal_has_step_up(principal, settings):
+            AUTHORIZATION_DENIALS.labels("step_up").inc()
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Recent multi-factor authentication is required",
             )
         return principal
 

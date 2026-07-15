@@ -19,6 +19,10 @@ x-python-environment: &python-environment
   SRBG_SENTRY_DSN: ${SRBG_SENTRY_DSN:-}
   SRBG_OPENALEX_API_KEY: ${SRBG_OPENALEX_API_KEY:-}
   SRBG_ACADEMIC_CONTACT: ${SRBG_ACADEMIC_CONTACT:-data-platform@srbg.local}
+  SRBG_BACKUP_S3_ENDPOINT_URL: ${SRBG_BACKUP_S3_ENDPOINT_URL:-http://anchor-minio:9000}
+  SRBG_BACKUP_S3_BUCKET: ${SRBG_BACKUP_S3_BUCKET:-srbg-audit-anchors}
+  SRBG_BACKUP_S3_ACCESS_KEY: ${ANCHOR_MINIO_ROOT_USER:-srbg_anchor_local}
+  SRBG_BACKUP_S3_SECRET_KEY: ${ANCHOR_MINIO_ROOT_PASSWORD:-srbg_anchor_storage_only}
 
 x-postgres-build: &postgres-build
   context: .
@@ -103,7 +107,6 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-srbg_local}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-srbg_local_storage_only}
       SRBG_S3_BUCKET: ${SRBG_S3_BUCKET:-srbg-raw}
-      SRBG_BACKUP_S3_BUCKET: ${SRBG_BACKUP_S3_BUCKET:-srbg-backup}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >-
@@ -111,9 +114,41 @@ services:
         && mc mb --ignore-existing "local/$${SRBG_S3_BUCKET}"
         && mc anonymous set none "local/$${SRBG_S3_BUCKET}"
         && mc version enable "local/$${SRBG_S3_BUCKET}"
-        && mc mb --ignore-existing "local/$${SRBG_BACKUP_S3_BUCKET}"
-        && mc anonymous set none "local/$${SRBG_BACKUP_S3_BUCKET}"
-        && mc version enable "local/$${SRBG_BACKUP_S3_BUCKET}"
+    restart: "no"
+
+  anchor-minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    command: ["server", "/data"]
+    environment:
+      MINIO_ROOT_USER: ${ANCHOR_MINIO_ROOT_USER:-srbg_anchor_local}
+      MINIO_ROOT_PASSWORD: ${ANCHOR_MINIO_ROOT_PASSWORD:-srbg_anchor_storage_only}
+    ports:
+      - "127.0.0.1:${ANCHOR_MINIO_PORT:-9002}:9000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+    volumes:
+      - anchor-minio-data:/data
+    restart: unless-stopped
+
+  anchor-minio-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    depends_on:
+      anchor-minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${ANCHOR_MINIO_ROOT_USER:-srbg_anchor_local}
+      MINIO_ROOT_PASSWORD: ${ANCHOR_MINIO_ROOT_PASSWORD:-srbg_anchor_storage_only}
+      SRBG_BACKUP_S3_BUCKET: ${SRBG_BACKUP_S3_BUCKET:-srbg-audit-anchors}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        mc alias set anchor http://anchor-minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
+        && mc mb --ignore-existing "anchor/$${SRBG_BACKUP_S3_BUCKET}"
+        && mc anonymous set none "anchor/$${SRBG_BACKUP_S3_BUCKET}"
+        && mc version enable "anchor/$${SRBG_BACKUP_S3_BUCKET}"
     restart: "no"
 
   migrate:
@@ -140,13 +175,15 @@ services:
       API_DB_PASSWORD: ${SRBG_API_DB_PASSWORD:-srbg_api_local_only}
       WORKER_DB_PASSWORD: ${SRBG_WORKER_DB_PASSWORD:-srbg_worker_local_only}
       PUBLISHER_DB_PASSWORD: ${SRBG_PUBLISHER_DB_PASSWORD:-srbg_publisher_local_only}
+      PROJECTION_DB_PASSWORD: ${SRBG_PROJECTION_DB_PASSWORD:-srbg_projection_local_only}
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - |
         psql --set=ON_ERROR_STOP=1 \
           --set=api_password="$${API_DB_PASSWORD}" \
           --set=worker_password="$${WORKER_DB_PASSWORD}" \
-          --set=publisher_password="$${PUBLISHER_DB_PASSWORD}" <<'SQL'
+          --set=publisher_password="$${PUBLISHER_DB_PASSWORD}" \
+          --set=projection_password="$${PROJECTION_DB_PASSWORD}" <<'SQL'
         DO $$$$
         BEGIN
           IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'srbg_api_login') THEN
@@ -158,14 +195,19 @@ services:
           IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'srbg_publisher_login') THEN
             CREATE ROLE srbg_publisher_login LOGIN;
           END IF;
+          IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'srbg_projection_reader_login') THEN
+            CREATE ROLE srbg_projection_reader_login LOGIN;
+          END IF;
         END
         $$$$;
         ALTER ROLE srbg_api_login PASSWORD :'api_password';
         ALTER ROLE srbg_worker_login PASSWORD :'worker_password';
         ALTER ROLE srbg_publisher_login PASSWORD :'publisher_password';
+        ALTER ROLE srbg_projection_reader_login PASSWORD :'projection_password';
         GRANT srbg_api_role TO srbg_api_login;
         GRANT srbg_worker_role TO srbg_worker_login;
         GRANT srbg_publication_writer TO srbg_publisher_login;
+        GRANT srbg_projection_reader TO srbg_projection_reader_login;
         SQL
     depends_on:
       migrate:
@@ -180,6 +222,7 @@ services:
       <<: *python-environment
       SRBG_DATABASE_URL: postgresql+asyncpg://srbg_api_login:${SRBG_API_DB_PASSWORD:-srbg_api_local_only}@postgres:5432/${POSTGRES_DB:-srbg}
       SRBG_PUBLICATION_DATABASE_URL: postgresql+asyncpg://srbg_publisher_login:${SRBG_PUBLISHER_DB_PASSWORD:-srbg_publisher_local_only}@postgres:5432/${POSTGRES_DB:-srbg}
+      SRBG_PROJECTION_DATABASE_URL: postgresql+asyncpg://srbg_projection_reader_login:${SRBG_PROJECTION_DB_PASSWORD:-srbg_projection_local_only}@postgres:5432/${POSTGRES_DB:-srbg}
     command: ["uvicorn", "srbg_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
@@ -189,6 +232,8 @@ services:
       redis:
         condition: service_healthy
       minio-init:
+        condition: service_completed_successfully
+      anchor-minio-init:
         condition: service_completed_successfully
       clamav:
         condition: service_healthy
@@ -322,6 +367,7 @@ services:
       dockerfile: infra/compose/Dockerfile.web
     environment:
       NUXT_INTERNAL_API_BASE: http://api:8000
+      SRBG_ENVIRONMENT: ${SRBG_ENVIRONMENT:-demo}
       NITRO_HOST: 0.0.0.0
       NITRO_PORT: 3000
       TZ: Asia/Shanghai
@@ -403,6 +449,7 @@ volumes:
   postgres-wal-archive:
   redis-data:
   minio-data:
+  anchor-minio-data:
   clamav-db:
   prometheus-data:
   grafana-data:

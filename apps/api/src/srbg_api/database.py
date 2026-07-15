@@ -16,3 +16,9 @@ def create_database_engine(settings: Settings, *, database_url: str | None = Non
 
 def create_publication_engine(settings: Settings) -> AsyncEngine:
     return create_database_engine(settings, database_url=settings.publication_database_url)
+
+
+def create_projection_reader_engine(settings: Settings) -> AsyncEngine:
+    """Create the only engine allowed for future ordinary published-content reads."""
+
+    return create_database_engine(settings, database_url=settings.projection_database_url)
