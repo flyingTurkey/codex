@@ -1,0 +1,52 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "feed_generation": {
+      "minimum": 0,
+      "title": "Feed Generation",
+      "type": "integer"
+    },
+    "fingerprint": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Fingerprint",
+      "type": "string"
+    },
+    "generated_at": {
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    },
+    "hot_topics_generation": {
+      "minimum": 0,
+      "title": "Hot Topics Generation",
+      "type": "integer"
+    },
+    "latest_daily_report_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Latest Daily Report Id"
+    },
+    "search_generation": {
+      "minimum": 0,
+      "title": "Search Generation",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "generated_at",
+    "feed_generation",
+    "search_generation",
+    "hot_topics_generation",
+    "fingerprint"
+  ],
+  "title": "FingerprintResponse",
+  "type": "object"
+}

@@ -54,6 +54,7 @@ describe('application shell contract', () => {
     expect(primaryNavigation.map((item) => [item.label, item.to])).toEqual([
       ['今日精选', '/'],
       ['全部动态', '/all'],
+      ['搜索', '/search'],
       ['数字化', '/digital'],
       ['安全情报', '/safety'],
       ['行业热点', '/hot'],

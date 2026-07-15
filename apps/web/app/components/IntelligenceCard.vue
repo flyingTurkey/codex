@@ -12,10 +12,11 @@ import type {
 } from '@srbg/contracts'
 import type { StatusBadgeTone } from '@srbg/ui'
 import { StatusBadge } from '@srbg/ui'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 import { safetyEngineeringLabel, safetyHazardLabel } from '../utils/safety-case-labels'
 import ScoreBreakdownDrawer from './ScoreBreakdownDrawer.vue'
+import { createUuidV7 } from '../utils/uuid-v7'
 
 const props = withDefaults(defineProps<{ item: ItemSummary, headingLevel?: 2 | 3 }>(), {
   headingLevel: 3,
@@ -25,6 +26,36 @@ const emit = defineEmits<{
   evidence: [itemId: string]
 }>()
 const scoreOpen = ref(false)
+const saved = ref(Boolean(props.item.is_saved))
+const saving = ref(false)
+const saveProblem = ref<string | null>(null)
+watch(() => props.item.is_saved, value => { saved.value = Boolean(value) })
+
+async function toggleSaved(): Promise<void> {
+  if (saving.value) return
+  saving.value = true
+  saveProblem.value = null
+  try {
+    if (saved.value) {
+      await $fetch(`/api/v1/saved-items/${props.item.id}`, { method: 'DELETE' })
+      saved.value = false
+    }
+    else {
+      await $fetch('/api/v1/saved-items', {
+        method: 'POST',
+        body: { item_id: props.item.id },
+        headers: { 'Idempotency-Key': createUuidV7() },
+      })
+      saved.value = true
+    }
+  }
+  catch {
+    saveProblem.value = '收藏操作失败，请稍后重试。'
+  }
+  finally {
+    saving.value = false
+  }
+}
 
 const shanghaiDateTime = new Intl.DateTimeFormat('zh-CN', {
   dateStyle: 'medium',
@@ -262,6 +293,18 @@ function formatLoss(amountMinor: number, currency: string): string {
     </dl>
 
     <p
+      v-if="item.search_context?.match_kind === 'EXACT_IDENTIFIER'"
+      class="intelligence-card__search-match"
+    >
+      <strong>精确编号命中</strong>
+      {{ (item.search_context.matched_identifiers ?? []).join('、') }}
+    </p>
+    <p v-else-if="item.search_context" class="intelligence-card__search-match">
+      <strong>{{ item.search_context.match_kind === 'SEMANTIC' ? '语义召回' : '关键词命中' }}</strong>
+      {{ (item.search_context.matched_fields ?? []).join('、') }}
+    </p>
+
+    <p
       v-if="item.one_sentence_fact && item.ai_assistance?.accepted_claims_only && item.review_status === 'APPROVED'"
       class="intelligence-card__ai-summary"
     >
@@ -444,7 +487,19 @@ function formatLoss(amountMinor: number, currency: string): string {
       >
         {{ isWithdrawn ? '查看历史证据' : '查看证据' }}（{{ item.evidence_count ?? 0 }}）
       </button>
+      <button
+        type="button"
+        data-testid="save-item"
+        :aria-pressed="saved"
+        :disabled="saving || (isWithdrawn && !saved)"
+        @click="toggleSaved"
+      >
+        {{ saving ? '处理中…' : saved ? '已收藏' : '收藏' }}
+      </button>
     </footer>
+    <p v-if="saveProblem" class="intelligence-card__save-problem" role="alert">
+      {{ saveProblem }}
+    </p>
     <ScoreBreakdownDrawer
       v-if="item.scores"
       :open="scoreOpen"
@@ -524,6 +579,20 @@ function formatLoss(amountMinor: number, currency: string): string {
   color: var(--color-ink-800);
   background: var(--color-brand-50);
   border-radius: var(--radius-sm);
+}
+
+.intelligence-card__search-match {
+  margin: 0;
+  padding: var(--spacing-3);
+  color: var(--color-brand-700);
+  background: var(--color-brand-50);
+  border-radius: var(--radius-sm);
+}
+
+.intelligence-card__save-problem {
+  margin: 0;
+  color: var(--color-conflict-700);
+  font-size: var(--text-sm);
 }
 
 .intelligence-card__badge.is-document-state[data-document-state='UPDATED'] {

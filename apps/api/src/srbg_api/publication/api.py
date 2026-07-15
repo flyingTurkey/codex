@@ -1,5 +1,6 @@
 """Feed, item detail, and R3 review HTTP API."""
 
+from datetime import date
 from typing import Annotated, Literal, Protocol, cast
 from uuid import UUID
 
@@ -36,6 +37,7 @@ from srbg_contracts import (
 )
 
 from srbg_api.auth import Principal, get_current_principal, require_roles
+from srbg_api.http_cache import contract_etag_response
 from srbg_api.safety_cases.candidates import EventCandidateAlreadyDecided
 
 
@@ -57,6 +59,13 @@ class IntelligenceQueryService(Protocol):
         product_kind: str | None,
         evidence_level: str | None,
         deployment_mode: str | None,
+        region: str | None,
+        source_id: UUID | None,
+        source_authority: str | None,
+        published_from: date | None,
+        published_to: date | None,
+        review_status: str | None,
+        evidence_status: str | None,
         sort: str,
         cursor: str | None,
         limit: int,
@@ -308,11 +317,20 @@ async def get_feed(
     product_kind: str | None = Query(default=None, max_length=100),
     evidence_level: str | None = Query(default=None, max_length=100),
     deployment_mode: str | None = Query(default=None, max_length=100),
+    region: str | None = Query(default=None, max_length=100),
+    source_id: UUID | None = None,
+    source_authority: Literal["A0", "A1", "B1", "B2", "C1", "C2"] | None = None,
+    published_from: date | None = None,
+    published_to: date | None = None,
+    review_status: Literal["PENDING", "APPROVED"] | None = None,
+    evidence_status: Literal["WITHHELD", "VERIFIED"] | None = None,
     sort: Literal["latest", "relevance", "impact", "heat"] = "latest",
     cursor: str | None = Query(default=None, max_length=1000),
     limit: int = Query(default=20, ge=1, le=100),
-) -> FeedPage:
-    return await _query_service(request).get_feed(
+) -> Response:
+    if published_from and published_to and published_from > published_to:
+        raise HTTPException(status_code=422, detail="published_from must not exceed published_to")
+    page = await _query_service(request).get_feed(
         mode=mode,
         domain=domain,
         content_type=content_type,
@@ -327,10 +345,18 @@ async def get_feed(
         product_kind=product_kind,
         evidence_level=evidence_level,
         deployment_mode=deployment_mode,
+        region=region,
+        source_id=source_id,
+        source_authority=source_authority,
+        published_from=published_from,
+        published_to=published_to,
+        review_status=review_status,
+        evidence_status=evidence_status,
         sort=sort,
         cursor=cursor,
         limit=limit,
     )
+    return contract_etag_response(request, page, exclude_unset=True)
 
 
 @router.get(
@@ -345,13 +371,14 @@ async def list_hot_topics(
     window: Literal["7d", "14d", "30d"] = "7d",
     cursor: str | None = Query(default=None, max_length=500),
     limit: int = Query(default=20, ge=1, le=100),
-) -> HotTopicPage:
-    return await _query_service(request).list_hot_topics(
+) -> Response:
+    page = await _query_service(request).list_hot_topics(
         domain=domain.upper() if domain else None,
         window_days=int(window.removesuffix("d")),
         cursor=cursor,
         limit=limit,
     )
+    return contract_etag_response(request, page, exclude_none=True)
 
 
 @router.get(
@@ -363,8 +390,10 @@ async def get_item(
     item_id: UUID,
     request: Request,
     _: CurrentPrincipal,
-) -> ItemDetail:
-    return await _query_service(request).get_item(item_id)
+) -> Response:
+    return contract_etag_response(
+        request, await _query_service(request).get_item(item_id), exclude_unset=True
+    )
 
 
 @router.get(
@@ -429,8 +458,8 @@ async def get_event(
     event_id: UUID,
     request: Request,
     _: CurrentPrincipal,
-) -> EventDetail:
-    return await _query_service(request).get_event(event_id)
+) -> Response:
+    return contract_etag_response(request, await _query_service(request).get_event(event_id))
 
 
 @router.get(

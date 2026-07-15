@@ -12,6 +12,9 @@ const schemaFiles = (await readdir(schemaDir))
   .sort()
 
 const publicExports = {
+  'collection-create-request.schema.json': ['CollectionCreateRequest'],
+  'collection-patch-request.schema.json': ['CollectionPatchRequest'],
+  'collection-summary.schema.json': ['CollectionSummary'],
   'cluster-candidate-view.schema.json': ['ClusterCandidateView'],
   'cluster-decision-request.schema.json': ['ClusterDecisionRequest'],
   'claim-view.schema.json': ['ClaimView'],
@@ -30,6 +33,8 @@ const publicExports = {
     'DigitalCaseReviewPatch',
     'DigitalOutcomeAttributionPatch',
   ],
+  'daily-draft-request.schema.json': ['DailyDraftRequest'],
+  'daily-report.schema.json': ['DailyReport', 'DailyReportItem', 'DailyReportSection'],
   'paper-detail.schema.json': [
     'PaperDetail',
     'PaperAuthor',
@@ -56,6 +61,7 @@ const publicExports = {
   'event-timeline.schema.json': ['EventTimeline'],
   'feed-notice.schema.json': ['FeedNotice'],
   'feed-page.schema.json': ['FeedPage'],
+  'fingerprint-response.schema.json': ['FingerprintResponse'],
   'hot-topic-page.schema.json': ['HotTopicPage', 'HotTopicSummary'],
   'fixture-upload-response.schema.json': ['FixtureUploadResponse'],
   'liveness-response.schema.json': ['LivenessResponse'],
@@ -70,6 +76,8 @@ const publicExports = {
     'ScoreDimensionSummary',
     'ScoreFeature',
   ],
+  'save-item-request.schema.json': ['SaveItemRequest'],
+  'search-context.schema.json': ['SearchContext'],
   'review-decision-request.schema.json': ['ReviewDecisionRequest'],
   'review-decision-response.schema.json': ['ReviewDecisionResponse'],
   'review-candidate-decision-request.schema.json': ['ReviewCandidateDecisionRequest'],

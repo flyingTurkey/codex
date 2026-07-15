@@ -31,6 +31,7 @@ export const primaryNavigation = [
     activePaths: ['/selected'],
   },
   { id: 'all', label: '全部动态', to: '/all', icon: 'List' },
+  { id: 'search', label: '搜索', to: '/search', icon: 'Search' },
   { id: 'digital', label: '数字化', to: '/digital', icon: 'GraphUp' },
   { id: 'safety', label: '安全情报', to: '/safety', icon: 'ShieldCheck' },
   { id: 'hot', label: '行业热点', to: '/hot', icon: 'GraphUp' },

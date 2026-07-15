@@ -22,7 +22,7 @@ REQUIRED_TABLES = {
 def test_round02_migration_follows_source_vault_and_declares_all_tables() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
 
-    assert script.get_current_head() == "0010_ai_editorial_governance"
+    assert script.get_current_head() == "0011_feed_search_daily"
     assert script.get_revision("0003_safety_publication").down_revision == ("0002_source_vault")
     assert script.get_revision("0004_pdf_ocr_versioning").down_revision == (
         "0003_safety_publication"

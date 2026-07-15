@@ -1,0 +1,28 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "collection_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Collection Id"
+    },
+    "item_id": {
+      "format": "uuid",
+      "title": "Item Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "item_id"
+  ],
+  "title": "SaveItemRequest",
+  "type": "object"
+}

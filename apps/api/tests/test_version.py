@@ -17,4 +17,6 @@ def test_version_endpoint_returns_contract_and_schema_versions() -> None:
     assert response.json() == {
         "api_version": "v1",
         "content_schema_version": "1.1.0",
+        "search_schema_version": "1.0.0",
+        "semantic_search_enabled": False,
     }

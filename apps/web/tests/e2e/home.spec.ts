@@ -39,13 +39,24 @@ function durationInMilliseconds(duration: string): number {
 test('root renders the selected-feed gate and honest no-score empty state', async ({
   page,
 }) => {
+  await page.route('**/api/v1/feed**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      fingerprint: 'sha256:e2e-empty',
+      freshness: 'fresh',
+      generated_at: '2026-07-15T01:00:00Z',
+      items: [],
+      next_cursor: null,
+      notices: [],
+    }),
+  }))
   const browserErrors = collectBrowserErrors(page)
 
   await page.goto('/')
   await expectHydratedApp(page)
 
   await expect(page.getByRole('heading', { level: 1, name: '今日精选' })).toBeVisible()
-  await expect(page.getByText('真实评分待接入', { exact: true })).toBeVisible()
+  await expect(page.locator('.srbg-status-badge')).toContainText('数据已更新')
   await expect(page.getByText('API v1 · Schema 1.1.0', { exact: true })).toBeVisible()
   const updatedAt = page.getByTestId('page-updated-at')
   await expect(updatedAt).toBeVisible()
@@ -262,7 +273,7 @@ test('forced colors preserves a visible focus indicator and text-plus-icon statu
   expect(outline.style).not.toBe('none')
   expect(outline.width).toBeGreaterThanOrEqual(2)
 
-  const status = page.getByText('真实评分待接入', { exact: true }).locator('..')
+  const status = page.locator('.srbg-status-badge').first()
   await expect(status).toBeVisible()
   const statusIcon = status.locator('svg')
   await expect(statusIcon).toBeVisible()
@@ -278,11 +289,11 @@ test('forced colors preserves a visible focus indicator and text-plus-icon statu
   expect(iconStyle.display).not.toBe('none')
   expect(iconStyle.visibility).toBe('visible')
 
-  const pathStrokes = await statusIcon.locator('path').evaluateAll((paths) =>
-    paths.map((path) => getComputedStyle(path).stroke),
+  const graphicStrokes = await statusIcon.locator('path, circle, polyline, line').evaluateAll(
+    elements => elements.map(element => getComputedStyle(element).stroke),
   )
-  expect(pathStrokes.length).toBeGreaterThan(0)
-  expect(pathStrokes.every((stroke) => stroke !== 'none')).toBe(true)
+  expect(graphicStrokes.length).toBeGreaterThan(0)
+  expect(graphicStrokes.every(stroke => stroke !== 'none')).toBe(true)
 })
 
 test('@a11y root has an entirely empty axe violations array', async ({ page }) => {

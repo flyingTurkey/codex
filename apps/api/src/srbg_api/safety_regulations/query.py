@@ -1,10 +1,9 @@
 # ruff: noqa: RUF001
 """Server-side R3 projections for feeds, details, evidence, and review work."""
 
-import base64
 import json
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from difflib import SequenceMatcher
 from hashlib import sha256
 from typing import Any, Literal, Protocol, cast
@@ -94,6 +93,8 @@ from srbg_contracts import (
     VersionTimelineResponse,
 )
 
+from srbg_api.config import get_settings
+from srbg_api.discovery.domain import CursorBindingError, CursorCodec
 from srbg_api.papers.domain import format_bibtex, format_gbt7714, format_ris
 
 
@@ -641,15 +642,35 @@ class PostgresIntelligenceQueryService:
         product_kind: str | None = None,
         evidence_level: str | None = None,
         deployment_mode: str | None = None,
+        region: str | None = None,
+        source_id: UUID | None = None,
+        source_authority: str | None = None,
+        published_from: date | None = None,
+        published_to: date | None = None,
+        review_status: str | None = None,
+        evidence_status: str | None = None,
     ) -> FeedPage:
         now = datetime.now(UTC)
+        async def finish(page: FeedPage) -> FeedPage:
+            filtered = await self._apply_common_feed_filters(
+                page,
+                region=region,
+                source_id=source_id,
+                source_authority=source_authority,
+                published_from=published_from,
+                published_to=published_to,
+                review_status=review_status,
+                evidence_status=evidence_status,
+            )
+            return await self._with_feed_freshness(filtered, now=now)
+
         if content_type in {
             "SOFTWARE_PRODUCT",
             "IOT_PRODUCT",
             "LOW_ALTITUDE_EQUIPMENT",
             "AI_EQUIPMENT",
         }:
-            return await self._get_product_feed(
+            page = await self._get_product_feed(
                 mode=mode,
                 content_type=content_type,
                 cursor=cursor,
@@ -660,8 +681,9 @@ class PostgresIntelligenceQueryService:
                 scenario=scenario,
                 maturity=maturity,
             )
+            return await finish(page)
         if content_type == "JOURNAL_PAPER":
-            return await self._get_paper_feed(
+            page = await self._get_paper_feed(
                 mode=mode,
                 cursor=cursor,
                 limit=limit,
@@ -672,8 +694,9 @@ class PostgresIntelligenceQueryService:
                 access_level=access_level,
                 year=year,
             )
+            return await finish(page)
         if domain == "digital" or content_type == "DIGITAL_CASE":
-            return await self._get_digital_feed(
+            page = await self._get_digital_feed(
                 mode=mode,
                 sort=sort,
                 cursor=cursor,
@@ -683,10 +706,14 @@ class PostgresIntelligenceQueryService:
                 maturity=maturity,
                 source_nature=source_nature,
             )
-        if mode == "selected" or (
-            content_type is not None and content_type not in {"SAFETY_REGULATION", "SAFETY_CASE"}
-        ):
-            return _feed_page([], now=now, mode=mode, domain=domain, next_cursor=None)
+            return await finish(page)
+        if content_type is not None and content_type not in {
+            "SAFETY_REGULATION",
+            "SAFETY_CASE",
+        }:
+            return await finish(
+                _feed_page([], now=now, mode=mode, domain=domain, next_cursor=None)
+            )
 
         cursor_time, cursor_id = _decode_cursor(cursor)
         async with self._engine.connect() as connection:
@@ -797,6 +824,7 @@ class PostgresIntelligenceQueryService:
                                 OR p.status IN ('PUBLISHED', 'WITHDRAWN')
                             )
                               AND i.risk_level = 'R3'
+                              AND (:mode <> 'selected' OR p.status = 'PUBLISHED')
                               AND (
                                 CAST(:content_type AS text) IS NULL
                                 OR i.item_type = CAST(:content_type AS text)
@@ -820,6 +848,7 @@ class PostgresIntelligenceQueryService:
                             "cursor_time": cursor_time,
                             "cursor_id": cursor_id,
                             "content_type": content_type,
+                            "mode": mode,
                             "row_limit": limit + 1,
                         },
                     )
@@ -832,7 +861,137 @@ class PostgresIntelligenceQueryService:
         next_cursor = None
         if has_more and visible:
             next_cursor = _encode_cursor(visible[-1]["activity_at"], visible[-1]["id"])
-        return _feed_page(items, now=now, mode=mode, domain=domain, next_cursor=next_cursor)
+        return await finish(
+            _feed_page(items, now=now, mode=mode, domain=domain, next_cursor=next_cursor)
+        )
+
+    async def _apply_common_feed_filters(
+        self,
+        page: FeedPage,
+        *,
+        region: str | None,
+        source_id: UUID | None,
+        source_authority: str | None,
+        published_from: date | None,
+        published_to: date | None,
+        review_status: str | None,
+        evidence_status: str | None,
+    ) -> FeedPage:
+        items = [
+            item
+            for item in page.items
+            if (review_status is None or item.review_status.value == review_status)
+            and (
+                evidence_status is None
+                or (
+                    item.evidence_status is not None
+                    and item.evidence_status.value == evidence_status
+                )
+            )
+        ]
+        database_filter = any(
+            value is not None
+            for value in (region, source_id, source_authority, published_from, published_to)
+        )
+        if database_filter and items:
+            async with self._engine.connect() as connection:
+                allowed = set(
+                    (
+                        await connection.execute(
+                            text(
+                                """
+                                SELECT i.id FROM intelligence_item i
+                                JOIN source s ON s.id = i.source_id
+                                LEFT JOIN safety_case_profile scp ON scp.item_id = i.id
+                                LEFT JOIN publication p ON p.item_id = i.id
+                                LEFT JOIN publication_revision pr ON pr.id = p.current_revision_id
+                                WHERE i.id = ANY(CAST(:item_ids AS uuid[]))
+                                  AND (CAST(:source_id AS uuid) IS NULL OR
+                                    i.source_id = CAST(:source_id AS uuid))
+                                  AND (CAST(:source_authority AS text) IS NULL OR
+                                    s.authority_level = CAST(:source_authority AS text))
+                                  AND (CAST(:published_from AS date) IS NULL
+                                    OR i.source_published_at::date >= CAST(:published_from AS date))
+                                  AND (CAST(:published_to AS date) IS NULL
+                                    OR i.source_published_at::date <= CAST(:published_to AS date))
+                                  AND (CAST(:region AS text) IS NULL OR COALESCE(
+                                    scp.region_name,
+                                    pr.snapshot->>'region_name',
+                                    pr.snapshot->>'region'
+                                  ) = CAST(:region AS text))
+                                """
+                            ),
+                            {
+                                "item_ids": [item.id for item in items],
+                                "source_id": source_id,
+                                "source_authority": source_authority,
+                                "published_from": published_from,
+                                "published_to": published_to,
+                                "region": region,
+                            },
+                        )
+                    ).scalars()
+                )
+            items = [item for item in items if item.id in allowed]
+        if items == page.items:
+            return page
+        fingerprint = sha256(
+            (page.fingerprint + "|" + "|".join(str(item.id) for item in items)).encode()
+        ).hexdigest()
+        return page.model_copy(
+            update={"items": items, "fingerprint": f"sha256:{fingerprint}"}
+        )
+
+    async def _with_feed_freshness(self, page: FeedPage, *, now: datetime) -> FeedPage:
+        async with self._engine.connect() as connection:
+            rows = list(
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT source.name, source.channel, source.priority,
+                              checkpoint.last_success_at, checkpoint.consecutive_failures
+                            FROM source
+                            JOIN source_connector connector ON connector.source_id = source.id
+                              AND connector.enabled
+                            LEFT JOIN source_checkpoint checkpoint
+                              ON checkpoint.source_connector_id = connector.id
+                            WHERE source.state = 'ACTIVE' AND source.enabled
+                            """
+                        )
+                    )
+                ).mappings().all()
+            )
+        if not rows:
+            return page
+        delayed: list[str] = []
+        for row in rows:
+            threshold_seconds = (
+                30 * 60
+                if row["channel"] in {"SAFETY", "BOTH"} and row["priority"] == "P0"
+                else 4 * 60 * 60
+            )
+            last_success = cast(datetime | None, row["last_success_at"])
+            if (
+                last_success is None
+                or (now - last_success).total_seconds() > threshold_seconds
+                or int(row["consecutive_failures"] or 0) > 0
+            ):
+                delayed.append(str(row["name"]))
+        if not delayed:
+            return page
+        freshness = "delayed" if len(delayed) == len(rows) else "partial"
+        suffix = "、".join(delayed[:5])
+        if len(delayed) > 5:
+            suffix += f"等{len(delayed)}个来源"
+        notice = FeedNotice(
+            code="SOURCE_DELAYED",
+            level="warning",
+            message=f"以下活动来源采集延迟或失败：{suffix}。内容时间可能不完整。",
+        )
+        return page.model_copy(
+            update={"freshness": freshness, "notices": [*page.notices, notice]}
+        )
 
     async def _get_digital_feed(
         self,
@@ -1789,13 +1948,16 @@ class PostgresIntelligenceQueryService:
         cursor: str | None,
         limit: int,
     ) -> HotTopicPage:
-        del cursor
+        cursor_heat, cursor_time, cursor_id = _decode_hot_cursor(
+            cursor, domain=domain, window_days=window_days
+        )
         async with self._engine.connect() as connection:
             rows = list(
                 (
                     await connection.execute(
                         text(
                             """
+                            WITH topics AS (
                             SELECT topic.id, topic.title, topic.domain,
                                    count(DISTINCT membership.event_id) AS event_count,
                                    count(DISTINCT (
@@ -1835,13 +1997,40 @@ class PostgresIntelligenceQueryService:
                               )
                               AND item.activity_at >= now() - make_interval(days => :window_days)
                             GROUP BY topic.id, topic.title, topic.domain
-                            ORDER BY heat_score DESC, latest_activity_at DESC, topic.id
+                            )
+                            SELECT * FROM topics
+                            WHERE CAST(:cursor_heat AS integer) IS NULL
+                               OR heat_score < CAST(:cursor_heat AS integer)
+                               OR (heat_score = CAST(:cursor_heat AS integer)
+                                   AND latest_activity_at < CAST(:cursor_time AS timestamptz))
+                               OR (heat_score = CAST(:cursor_heat AS integer)
+                                   AND latest_activity_at = CAST(:cursor_time AS timestamptz)
+                                   AND id > CAST(:cursor_id AS uuid))
+                            ORDER BY heat_score DESC, latest_activity_at DESC, id
                             LIMIT :limit
                             """
                         ),
-                        {"domain": domain, "window_days": window_days, "limit": limit},
+                        {
+                            "domain": domain,
+                            "window_days": window_days,
+                            "cursor_heat": cursor_heat,
+                            "cursor_time": cursor_time,
+                            "cursor_id": cursor_id,
+                            "limit": limit + 1,
+                        },
                     )
                 ).mappings()
+            )
+        visible = rows[:limit]
+        next_cursor = None
+        if len(rows) > limit and visible:
+            last = visible[-1]
+            next_cursor = _encode_hot_cursor(
+                int(last["heat_score"]),
+                cast(datetime, last["latest_activity_at"]),
+                cast(UUID, last["id"]),
+                domain=domain,
+                window_days=window_days,
             )
         return HotTopicPage(
             items=[
@@ -1855,8 +2044,9 @@ class PostgresIntelligenceQueryService:
                     latest_activity_at=row["latest_activity_at"],
                     rule_version="scoring-v1.0.0",
                 )
-                for row in rows
+                for row in visible
             ],
+            next_cursor=next_cursor,
             generated_at=datetime.now(UTC),
             evaluation_tier="INTERNAL_TEST_FIXTURE",
             auto_merge_enabled=False,
@@ -3793,14 +3983,6 @@ def _feed_page(
     notices = []
     if any(item.review_status == "PENDING" for item in items):
         notices.append(_restricted_notice())
-    if mode == "selected":
-        notices.append(
-            FeedNotice(
-                code="SELECTED_SCORES_UNAVAILABLE",
-                level="info",
-                message="暂无真实评分，精选频道不会返回未评分内容。",
-            )
-        )
     return FeedPage(
         items=items,
         next_cursor=next_cursor,
@@ -3820,22 +4002,62 @@ def _restricted_notice() -> FeedNotice:
 
 
 def _encode_cursor(activity_at: datetime, item_id: UUID) -> str:
-    raw = json.dumps([activity_at.isoformat(), str(item_id)], separators=(",", ":")).encode()
-    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+    return _cursor_codec().encode(
+        sort_values=(activity_at.isoformat(), str(item_id)),
+        binding={"kind": "feed-v1"},
+    )
 
 
 def _decode_cursor(value: str | None) -> tuple[datetime | None, UUID | None]:
     if value is None:
         return None, None
     try:
-        padded = value + "=" * (-len(value) % 4)
-        decoded = json.loads(base64.urlsafe_b64decode(padded).decode())
-        if not isinstance(decoded, list) or len(decoded) != 2:
+        decoded = _cursor_codec().decode(value, binding={"kind": "feed-v1"})
+        if len(decoded) != 2:
             raise ValueError
-        activity_at = datetime.fromisoformat(str(decoded[0]))
-        item_id = UUID(str(decoded[1]))
+        activity_at = datetime.fromisoformat(decoded[0])
+        item_id = UUID(decoded[1])
         if activity_at.tzinfo is None or item_id.version != 7:
             raise ValueError
         return activity_at, item_id
-    except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except (ValueError, CursorBindingError) as exc:
         raise InvalidFeedCursor("invalid feed cursor") from exc
+
+
+def _cursor_codec() -> CursorCodec:
+    return CursorCodec(get_settings().cursor_signing_key.get_secret_value().encode())
+
+
+def _encode_hot_cursor(
+    heat: int,
+    activity_at: datetime,
+    topic_id: UUID,
+    *,
+    domain: str | None,
+    window_days: int,
+) -> str:
+    return _cursor_codec().encode(
+        sort_values=(str(heat), activity_at.isoformat(), str(topic_id)),
+        binding={"kind": "hot-v1", "domain": domain, "window_days": window_days},
+    )
+
+
+def _decode_hot_cursor(
+    value: str | None, *, domain: str | None, window_days: int
+) -> tuple[int | None, datetime | None, UUID | None]:
+    if value is None:
+        return None, None, None
+    try:
+        decoded = _cursor_codec().decode(
+            value,
+            binding={"kind": "hot-v1", "domain": domain, "window_days": window_days},
+        )
+        if len(decoded) != 3:
+            raise ValueError
+        activity_at = datetime.fromisoformat(decoded[1])
+        topic_id = UUID(decoded[2])
+        if activity_at.tzinfo is None or topic_id.version != 7:
+            raise ValueError
+        return int(decoded[0]), activity_at, topic_id
+    except (ValueError, CursorBindingError) as exc:
+        raise InvalidFeedCursor("invalid hot-topic cursor") from exc

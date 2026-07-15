@@ -1,0 +1,33 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "archived": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Archived"
+    },
+    "name": {
+      "anyOf": [
+        {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Name"
+    }
+  },
+  "title": "CollectionPatchRequest",
+  "type": "object"
+}

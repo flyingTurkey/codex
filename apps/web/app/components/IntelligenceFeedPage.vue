@@ -45,6 +45,7 @@ const props = withDefaults(
     productKind?: string
     evidenceLevel?: string
     deploymentMode?: string
+    loadingMore?: boolean
   }>(),
   {
     eyebrow: undefined,
@@ -80,6 +81,7 @@ const props = withDefaults(
     productKind: 'all',
     evidenceLevel: 'all',
     deploymentMode: 'all',
+    loadingMore: false,
   },
 )
 
@@ -98,6 +100,7 @@ const emit = defineEmits<{
   'update:productKind': [value: string]
   'update:evidenceLevel': [value: string]
   'update:deploymentMode': [value: string]
+  'load-more': []
 }>()
 
 const selectedDomain = ref(props.initialDomain)
@@ -116,14 +119,7 @@ const selectedType = computed({
     emit('content-type-change', value)
   },
 })
-const visibleItems = computed(() =>
-  (props.feed?.items ?? []).filter((item) => {
-    const domainMatches =
-      selectedDomain.value === 'all' || item.domain.toLowerCase() === selectedDomain.value
-    const typeMatches = selectedType.value === 'all' || item.content_type === selectedType.value
-    return domainMatches && typeMatches
-  }),
-)
+const visibleItems = computed(() => props.feed?.items ?? [])
 </script>
 
 <template>
@@ -205,7 +201,18 @@ const visibleItems = computed(() =>
         retry-label="重新加载"
         @retry="emit('retry')"
       />
-      <TimelineFeed v-else-if="visibleItems.length" :items="visibleItems" />
+      <template v-else-if="visibleItems.length">
+        <TimelineFeed :items="visibleItems" />
+        <button
+          v-if="feed?.next_cursor"
+          type="button"
+          class="intelligence-feed-page__more"
+          :disabled="loadingMore"
+          @click="emit('load-more')"
+        >
+          {{ loadingMore ? '正在加载…' : '加载更多' }}
+        </button>
+      </template>
       <slot v-else name="empty">
         <EmptyState :title="emptyTitle" :description="emptyDescription" :icon="emptyIcon" />
       </slot>
@@ -239,6 +246,19 @@ const visibleItems = computed(() =>
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
+}
+
+.intelligence-feed-page__more {
+  display: block;
+  min-width: 8rem;
+  margin: var(--spacing-5) auto 0;
+  padding: var(--spacing-2) var(--spacing-4);
+  color: var(--color-brand-700);
+  font-weight: var(--font-weight-semibold);
+  background: var(--color-surface);
+  border: 1px solid var(--color-borderStrong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
 }
 
 @media (max-width: 47.999rem) {

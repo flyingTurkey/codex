@@ -6,7 +6,7 @@ import re
 import unicodedata
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from hashlib import sha256
 from typing import Any, cast
 from urllib.parse import urlsplit
@@ -22,6 +22,7 @@ from srbg_contracts import (
     ClaimConflictDecisionResponse,
     ClaimConflictStatus,
     CriticalSafetyField,
+    DailyReport,
     DigitalCaseReviewPatch,
     PreventionMeasureTag,
     ReviewDecisionResponse,
@@ -36,6 +37,7 @@ from srbg_api.digital_cases.domain import (
     validate_maturity,
     validate_taxonomy,
 )
+from srbg_api.discovery.repository import daily_report_from_rows
 from srbg_api.identifiers import uuid7
 from srbg_api.publication.service import PublicationDenied, PublicationTransaction
 from srbg_api.source_registry.repository import canonical_json_hash, fixture_set_hash
@@ -172,6 +174,272 @@ class PostgresPublicationRepository:
     async def close(self) -> None:
         await self._engine.dispose()
 
+    async def create_daily_draft(
+        self,
+        *,
+        report_date: date,
+        actor_id: UUID,
+        idempotency_key: str,
+        created_at: datetime,
+    ) -> DailyReport:
+        request_hash = sha256(report_date.isoformat().encode()).hexdigest()
+        async with self._engine.begin() as connection:
+            existing = (
+                await connection.execute(
+                    text(
+                        "SELECT request_sha256, response_id FROM idempotency_record "
+                        "WHERE owner_id = :actor_id AND scope = 'DAILY_DRAFT' "
+                        "AND idempotency_key = :key FOR UPDATE"
+                    ),
+                    {"actor_id": actor_id, "key": idempotency_key},
+                )
+            ).mappings().first()
+            if existing is not None:
+                if existing["request_sha256"] != request_hash:
+                    raise PublicationDenied(("IDEMPOTENCY_KEY_REUSED",))
+                return await self._load_daily_report(
+                    connection, cast(UUID, existing["response_id"])
+                )
+
+            report_id = uuid7()
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO daily_report (
+                      id, report_date, status, snapshot_at, published_at, created_by,
+                      reviewer_id, requires_regeneration, version
+                    ) VALUES (:id, :report_date, 'DRAFT', :now, NULL, :actor_id, NULL, false, 1)
+                    """
+                ),
+                {
+                    "id": report_id,
+                    "report_date": report_date,
+                    "now": created_at,
+                    "actor_id": actor_id,
+                },
+            )
+            candidates = list(
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT sp.item_id, sp.publication_revision_id, sp.domain,
+                              sp.title, ii.original_url,
+                              COALESCE(pr.snapshot->>'one_sentence_fact',
+                                       pr.snapshot->>'summary') AS summary
+                            FROM search_projection sp
+                            JOIN publication p ON p.item_id = sp.item_id
+                              AND p.current_revision_id = sp.publication_revision_id
+                              AND p.status = 'PUBLISHED'
+                            JOIN publication_revision pr ON pr.id = sp.publication_revision_id
+                              AND pr.valid
+                            JOIN intelligence_item ii ON ii.id = sp.item_id
+                            WHERE sp.visible AND sp.risk_level <> 'R4'
+                              AND NOT EXISTS (
+                                SELECT 1 FROM publication_projection_invalidation pi
+                                WHERE pi.revision_id = sp.publication_revision_id
+                                  AND pi.status = 'PENDING'
+                              )
+                            ORDER BY sp.activity_at DESC, sp.item_id DESC
+                            LIMIT 30
+                            """
+                        )
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            used: set[UUID] = set()
+            sections: list[tuple[str, RowMapping]] = []
+
+            def add(section: str, rows: list[RowMapping], count: int) -> None:
+                for row in rows:
+                    item_id = cast(UUID, row["item_id"])
+                    if item_id in used:
+                        continue
+                    used.add(item_id)
+                    sections.append((section, row))
+                    if sum(1 for name, _ in sections if name == section) >= count:
+                        break
+
+            add("TODAY_HIGHLIGHTS", candidates, 5)
+            add("DIGITAL_SELECTED", [row for row in candidates if row["domain"] == "DIGITAL"], 5)
+            add("SAFETY_HIGHLIGHTS", [row for row in candidates if row["domain"] == "SAFETY"], 5)
+            add("WATCHLIST", candidates, 5)
+            positions: dict[str, int] = {}
+            for section, row in sections:
+                positions[section] = positions.get(section, 0) + 1
+                await connection.execute(
+                    text(
+                        """
+                        INSERT INTO daily_report_item (
+                          report_id, section, position, item_id, publication_revision_id,
+                          title, summary, original_url
+                        ) VALUES (
+                          :report_id, :section, :position, :item_id, :revision_id,
+                          :title, :summary, :original_url
+                        )
+                        """
+                    ),
+                    {
+                        "report_id": report_id,
+                        "section": section,
+                        "position": positions[section],
+                        "item_id": row["item_id"],
+                        "revision_id": row["publication_revision_id"],
+                        "title": row["title"],
+                        "summary": row["summary"],
+                        "original_url": row["original_url"],
+                    },
+                )
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO idempotency_record (
+                      owner_id, scope, idempotency_key, request_sha256, response_id, created_at
+                    ) VALUES (:actor_id, 'DAILY_DRAFT', :key, :request_hash, :report_id, :now)
+                    """
+                ),
+                {
+                    "actor_id": actor_id,
+                    "key": idempotency_key,
+                    "request_hash": request_hash,
+                    "report_id": report_id,
+                    "now": created_at,
+                },
+            )
+            return await self._load_daily_report(connection, report_id)
+
+    async def publish_daily_report(
+        self,
+        *,
+        report_id: UUID,
+        reviewer_id: UUID,
+        idempotency_key: str,
+        published_at: datetime,
+    ) -> DailyReport:
+        request_hash = sha256(str(report_id).encode()).hexdigest()
+        async with self._engine.begin() as connection:
+            existing = (
+                await connection.execute(
+                    text(
+                        "SELECT request_sha256, response_id FROM idempotency_record "
+                        "WHERE owner_id = :reviewer_id AND scope = 'DAILY_PUBLISH' "
+                        "AND idempotency_key = :key FOR UPDATE"
+                    ),
+                    {"reviewer_id": reviewer_id, "key": idempotency_key},
+                )
+            ).mappings().first()
+            if existing is not None:
+                if existing["request_sha256"] != request_hash:
+                    raise PublicationDenied(("IDEMPOTENCY_KEY_REUSED",))
+                return await self._load_daily_report(
+                    connection, cast(UUID, existing["response_id"])
+                )
+            report = (
+                await connection.execute(
+                    text("SELECT * FROM daily_report WHERE id = :id FOR UPDATE"),
+                    {"id": report_id},
+                )
+            ).mappings().first()
+            if report is None or report["status"] != "DRAFT":
+                raise PublicationDenied(("DAILY_REPORT_NOT_DRAFT",))
+            if report["requires_regeneration"]:
+                raise PublicationDenied(("DAILY_REPORT_REGENERATION_REQUIRED",))
+            item_count = int(
+                await connection.scalar(
+                    text("SELECT count(*) FROM daily_report_item WHERE report_id = :id"),
+                    {"id": report_id},
+                )
+                or 0
+            )
+            if item_count == 0:
+                raise PublicationDenied(("DAILY_REPORT_EMPTY",))
+            invalid_count = int(
+                await connection.scalar(
+                    text(
+                        """
+                        SELECT count(*) FROM daily_report_item dri
+                        LEFT JOIN publication p ON p.item_id = dri.item_id
+                        LEFT JOIN publication_revision pr ON pr.id = dri.publication_revision_id
+                        LEFT JOIN search_projection sp ON sp.item_id = dri.item_id
+                        WHERE dri.report_id = :id AND (
+                          p.status <> 'PUBLISHED'
+                          OR p.current_revision_id <> dri.publication_revision_id
+                          OR NOT pr.valid OR NOT sp.visible OR sp.risk_level = 'R4'
+                          OR EXISTS (
+                            SELECT 1 FROM publication_projection_invalidation pi
+                            WHERE pi.revision_id = dri.publication_revision_id
+                              AND pi.status = 'PENDING'
+                          )
+                        )
+                        """
+                    ),
+                    {"id": report_id},
+                )
+                or 0
+            )
+            if invalid_count:
+                raise PublicationDenied(("DAILY_REPORT_ITEM_NOT_CURRENT",))
+            await connection.execute(
+                text(
+                    "UPDATE daily_report SET status = 'PUBLISHED', published_at = :now, "
+                    "reviewer_id = :reviewer_id, version = version + 1 WHERE id = :id"
+                ),
+                {"now": published_at, "reviewer_id": reviewer_id, "id": report_id},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO idempotency_record (owner_id, scope, idempotency_key, "
+                    "request_sha256, response_id, created_at) VALUES "
+                    "(:reviewer_id, 'DAILY_PUBLISH', :key, :request_hash, :id, :now)"
+                ),
+                {
+                    "reviewer_id": reviewer_id,
+                    "key": idempotency_key,
+                    "request_hash": request_hash,
+                    "id": report_id,
+                    "now": published_at,
+                },
+            )
+            await _append_audit(
+                connection,
+                event_type="DAILY_REPORT_PUBLISHED",
+                actor_id=reviewer_id,
+                target_type="daily_report",
+                target_id=report_id,
+                after_state={"status": "PUBLISHED", "item_count": item_count},
+                reason="DAILY_REVIEW_APPROVED",
+                request_id=f"daily:{idempotency_key[:80]}",
+                now=published_at,
+            )
+            return await self._load_daily_report(connection, report_id)
+
+    @staticmethod
+    async def _load_daily_report(connection: AsyncConnection, report_id: UUID) -> DailyReport:
+        report = (
+            await connection.execute(
+                text("SELECT * FROM daily_report WHERE id = :id"), {"id": report_id}
+            )
+        ).mappings().one()
+        items = list(
+            (
+                await connection.execute(
+                    text(
+                        """
+                        SELECT dri.*, CASE WHEN p.status = 'WITHDRAWN'
+                          THEN 'WITHDRAWN' ELSE 'PUBLISHED' END AS current_state
+                        FROM daily_report_item dri
+                        JOIN publication p ON p.item_id = dri.item_id
+                        WHERE dri.report_id = :id ORDER BY dri.section, dri.position
+                        """
+                    ),
+                    {"id": report_id},
+                )
+            ).mappings().all()
+        )
+        return daily_report_from_rows(report, items)
+
     async def list_claim_conflicts(self) -> list[ClaimConflict]:
         async with self._engine.connect() as connection:
             rows = list(
@@ -297,6 +565,8 @@ class PostgresPublicationRepository:
         *,
         processed_at: datetime,
         cache_generation: Callable[[UUID, int, bool], Awaitable[None]],
+        search_projection: Callable[[UUID, int, bool], Awaitable[None]] | None,
+        daily_digest: Callable[[UUID, int, bool], Awaitable[None]] | None,
     ) -> bool:
         """Consume one projection event; rollback leaves it pending on cache failure."""
         async with self._engine.begin() as connection:
@@ -321,6 +591,22 @@ class PostgresPublicationRepository:
                 return False
             if event["projection"] == "CACHE":
                 await cache_generation(
+                    cast(UUID, event["publication_id"]),
+                    int(event["generation"]),
+                    event["action"] != "WITHDRAW",
+                )
+            elif event["projection"] == "SEARCH":
+                if search_projection is None:
+                    raise RuntimeError("search projection callback is required")
+                await search_projection(
+                    cast(UUID, event["publication_id"]),
+                    int(event["generation"]),
+                    event["action"] != "WITHDRAW",
+                )
+            elif event["projection"] == "DAILY_DIGEST":
+                if daily_digest is None:
+                    raise RuntimeError("daily digest projection callback is required")
+                await daily_digest(
                     cast(UUID, event["publication_id"]),
                     int(event["generation"]),
                     event["action"] != "WITHDRAW",

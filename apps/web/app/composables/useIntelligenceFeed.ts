@@ -1,6 +1,6 @@
 import type { FeedPage } from '@srbg/contracts'
 import type { MaybeRef } from 'vue'
-import { computed, toValue } from 'vue'
+import { computed, ref, toValue } from 'vue'
 
 export type FeedContentTypeFilter =
   | 'all'
@@ -61,11 +61,33 @@ export function useIntelligenceFeed(
     }
   })
 
-  return useFetch<FeedPage>('/api/v1/feed', {
+  const result = useFetch<FeedPage>('/api/v1/feed', {
     key: computed(() => `feed:${toValue(mode)}:${domain ?? 'all'}:${toValue(contentType)}:${JSON.stringify(toValue(digitalFilters))}`),
     query,
     server: false,
     retry: 0,
     timeout: 5_000,
   })
+  const loadingMore = ref(false)
+
+  async function loadMore(): Promise<void> {
+    const current = result.data.value
+    if (!current?.next_cursor || loadingMore.value) return
+    loadingMore.value = true
+    try {
+      const next = await $fetch<FeedPage>('/api/v1/feed', {
+        query: { ...query.value, cursor: current.next_cursor },
+        timeout: 5_000,
+      })
+      result.data.value = {
+        ...next,
+        items: [...current.items, ...next.items],
+      }
+    }
+    finally {
+      loadingMore.value = false
+    }
+  }
+
+  return Object.assign(result, { loadingMore, loadMore })
 }

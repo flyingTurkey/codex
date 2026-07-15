@@ -8,7 +8,11 @@ ROOT = Path(__file__).parents[2]
 def test_compose_uses_pinned_services_and_loopback_ports() -> None:
     compose = (ROOT / "infra/compose/compose.yaml").read_text(encoding="utf-8")
 
-    assert "postgres:17.10-bookworm" in compose
+    postgres_dockerfile = (ROOT / "infra/compose/Dockerfile.postgres").read_text(
+        encoding="utf-8"
+    )
+    assert "postgres:17.10-bookworm" in postgres_dockerfile
+    assert "pgvector/pgvector:0.8.2-pg17-bookworm" in postgres_dockerfile
     assert "redis:7.4.7-alpine3.21" in compose
     assert "minio/minio:RELEASE.2025-09-07T16-13-09Z" in compose
     assert (
@@ -172,7 +176,7 @@ def test_compose_commands_use_repository_as_project_directory() -> None:
     assert "-include .env" in makefile
     assert "export WEB_PORT API_PORT" in makefile
     assert COMPOSE[:5] == ["docker", "compose", "--project-directory", ".", "-f"]
-    assert compose.count("context: .\n") == 8
+    assert compose.count("context: .\n") == 9
     assert "  parser:" in compose
     assert "  publisher:" in compose
     assert "context: ../.." not in compose

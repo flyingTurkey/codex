@@ -1,0 +1,46 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "match_kind": {
+      "enum": [
+        "EXACT_IDENTIFIER",
+        "TITLE_ENTITY_TAG",
+        "BODY",
+        "SEMANTIC"
+      ],
+      "title": "Match Kind",
+      "type": "string"
+    },
+    "matched_fields": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 10,
+      "title": "Matched Fields",
+      "type": "array"
+    },
+    "matched_identifiers": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 10,
+      "title": "Matched Identifiers",
+      "type": "array"
+    },
+    "semantic_status": {
+      "enum": [
+        "DISABLED",
+        "ENABLED",
+        "DEGRADED"
+      ],
+      "title": "Semantic Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "match_kind",
+    "semantic_status"
+  ],
+  "title": "SearchContext",
+  "type": "object"
+}

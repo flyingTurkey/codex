@@ -29,6 +29,15 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from srbg_api.auth import Principal, require_roles
 from srbg_api.config import get_settings
 from srbg_api.database import create_database_engine, create_publication_engine
+from srbg_api.discovery.api import PortalService
+from srbg_api.discovery.api import router as portal_router
+from srbg_api.discovery.domain import CursorBindingError
+from srbg_api.discovery.repository import (
+    PortalRepositoryConflict,
+    PortalRepositoryNotFound,
+    PostgresPortalRepository,
+)
+from srbg_api.discovery.service import PortalApplicationService
 from srbg_api.document_vault.security import UploadRejected
 from srbg_api.document_vault.storage import S3ObjectStore
 from srbg_api.health import HealthChecker, build_default_checkers, run_check
@@ -73,6 +82,7 @@ def create_app(
     intelligence_service: IntelligenceQueryService | None = None,
     publication_service: ReviewPublicationService | None = None,
     safety_event_candidate_service: EventCandidateGenerationService | None = None,
+    portal_service: PortalService | None = None,
 ) -> FastAPI:
     configure_logging()
     settings = get_settings()
@@ -88,6 +98,7 @@ def create_app(
             intelligence_service,
             publication_service,
             safety_event_candidate_service,
+            portal_service,
         ):
             close = getattr(service, "close", None)
             if close is not None:
@@ -98,6 +109,7 @@ def create_app(
     app.state.intelligence_service = intelligence_service
     app.state.publication_service = publication_service
     app.state.safety_event_candidate_service = safety_event_candidate_service
+    app.state.portal_service = portal_service
     app.state.publication_gate_denials = Counter()
     logger = logging.getLogger("srbg.api")
 
@@ -270,6 +282,57 @@ def create_app(
             media_type="application/problem+json",
         )
 
+    @app.exception_handler(CursorBindingError)
+    async def cursor_binding_handler(
+        request: Request, exc: CursorBindingError
+    ) -> JSONResponse:
+        problem = ProblemDetails(
+            title="Invalid cursor",
+            status=400,
+            detail=str(exc),
+            instance=str(request.url.path),
+            request_id=request.state.request_id,
+        )
+        return JSONResponse(
+            status_code=400,
+            content=problem.model_dump(mode="json"),
+            media_type="application/problem+json",
+        )
+
+    @app.exception_handler(PortalRepositoryNotFound)
+    async def portal_not_found_handler(
+        request: Request, exc: PortalRepositoryNotFound
+    ) -> JSONResponse:
+        problem = ProblemDetails(
+            title="Resource not found",
+            status=404,
+            detail=str(exc),
+            instance=str(request.url.path),
+            request_id=request.state.request_id,
+        )
+        return JSONResponse(
+            status_code=404,
+            content=problem.model_dump(mode="json"),
+            media_type="application/problem+json",
+        )
+
+    @app.exception_handler(PortalRepositoryConflict)
+    async def portal_conflict_handler(
+        request: Request, exc: PortalRepositoryConflict
+    ) -> JSONResponse:
+        problem = ProblemDetails(
+            title="Portal state conflict",
+            status=409,
+            detail=str(exc),
+            instance=str(request.url.path),
+            request_id=request.state.request_id,
+        )
+        return JSONResponse(
+            status_code=409,
+            content=problem.model_dump(mode="json"),
+            media_type="application/problem+json",
+        )
+
     @app.exception_handler(RepositoryConflict)
     async def repository_conflict_handler(
         request: Request,
@@ -344,10 +407,12 @@ def create_app(
         return VersionResponse(
             api_version=API_VERSION,
             content_schema_version=CONTENT_SCHEMA_VERSION,
+            semantic_search_enabled=settings.semantic_search_enabled,
         )
 
     app.include_router(source_vault_router)
     app.include_router(intelligence_router)
+    app.include_router(portal_router)
 
     @app.get("/metrics", response_class=PlainTextResponse, include_in_schema=False)
     async def metrics(_principal: MetricsPrincipal) -> str:
@@ -402,18 +467,26 @@ def build_default_app() -> FastAPI:
         policy_root / "publication_gate.json",
         policy_root / "publication_evaluation.schema.json",
     )
+    intelligence_service = PostgresIntelligenceQueryService(
+        create_database_engine(settings),
+        preview_object_reader=S3ObjectStore(settings),
+    )
     return create_app(
         source_service=build_default_source_service(settings),
-        intelligence_service=PostgresIntelligenceQueryService(
-            create_database_engine(settings),
-            preview_object_reader=S3ObjectStore(settings),
-        ),
+        intelligence_service=intelligence_service,
         publication_service=PublicationService(
             repository=PostgresPublicationRepository(create_publication_engine(settings)),
             gate=publication_gate,
         ),
         safety_event_candidate_service=SafetyEventCandidateService(
             PostgresEventCandidateStore(create_database_engine(settings))
+        ),
+        portal_service=PortalApplicationService(
+            repository=PostgresPortalRepository(create_database_engine(settings)),
+            intelligence=intelligence_service,
+            cursor_signing_key=settings.cursor_signing_key.get_secret_value().encode(),
+            semantic_enabled=settings.semantic_search_enabled,
+            semantic_timeout_seconds=settings.semantic_search_timeout_seconds,
         ),
     )
 

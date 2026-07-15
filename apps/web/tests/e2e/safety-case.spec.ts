@@ -187,12 +187,16 @@ test('/all keeps its content-type filter usable without a parent v-model binding
     title: '生产安全事故报告和调查处理规定',
     type_summary: null,
   }
-  await page.route('**/api/v1/feed**', (route) =>
-    route.fulfill({
+  await page.route('**/api/v1/feed**', (route) => {
+    const selectedType = new URL(route.request().url()).searchParams.get('content_type')
+    const items = selectedType === 'SAFETY_REGULATION'
+      ? [regulation]
+      : [regulation, safetyCase]
+    return route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify(feed([regulation, safetyCase])),
-    }),
-  )
+      body: JSON.stringify(feed(items)),
+    })
+  })
 
   await page.goto('/all')
   await expect(page.locator('.srbg-app-shell')).toHaveAttribute('aria-busy', 'false', {

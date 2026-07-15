@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+### Round 10 — 信息流、搜索、专题与日报
+
+- 在既有 `/api/v1/feed?mode=selected|all`、`/items/{id}`、`/events/{id}` 和 `/hot-topics` 上统一补齐签名 Cursor 分页、组合筛选、ACL 投影和稳定 ETag/304；新增 `/search`、`/daily`、`/reports/{id}`、`/fingerprint`、`/saved-items` 与私有专题接口，没有创建平行 `/items` 或 `/events` 列表。
+- 新增 Alembic `0011_feed_search_daily` 与 PostgreSQL 17.10 + pg_trgm/pgvector 基础：编号、文号、标准号和 DOI 规范化精确匹配永远排在标题/实体/标签 trigram、中文正文 bigram FTS 与可选语义召回之前；语义能力默认关闭、超时可降级，不能压过精确编号结果。
+- 收藏和自定义专题按用户隔离并在读取时重新应用当前 ACL；写入支持 Idempotency-Key，专题修改使用 If-Match。R3 仍只返回服务端白名单投影，R4 和管理内容不进入普通用户响应。
+- 日报草稿以固定 publication revision 快照生成，只能由 reviewer 审核后经唯一 `PublicationService` 发布；已发布日报保持历史标题和顺序，当前撤回状态以文字覆盖且不泄露旧摘要。新增 Markdown 导出，并对可能触发表格公式的前导字符执行转义。
+- 扩展既有发布投影 Worker，使发布、修订和撤回同步维护搜索与日报 generation/visible 状态；详情继续复用 accepted claim、事实清单、证据抽屉、来源冲突与版本时间线，原文失效、来源延迟、撤回和无 AI 均有显式降级状态。
+- 复用 `AppShell`、`IntelligenceFeedPage`、`TimelineFeed`、`IntelligenceCard` 和冻结的 `FeedPage`/`ItemSummary`，新增搜索、日报、收藏页面并完善首页、精选、全部、数字化和安全频道；首页首屏展示今日重点、数据更新时间和异常提示，不使用装饰 Hero。
+- 搜索与收藏页面通过共享 Feed 的加载更多契约追加 Cursor 页；首页视觉基线覆盖 1920×1080、1440×900、1024×768、768×1024，安全/撤回状态均同时使用文字，768 阅读宽度和 200% 等效视口保持可操作。
+- 新增迁移回放、搜索排序/游标/ETag/ACL、日报快照/发布、收藏专题、投影 Worker、性能 SLO、Playwright 关键路径和 axe 测试；部署实测搜索 40 次 P95 31.05 ms，低于 800 ms 门槛。
+
 ### Round 09 — 受控模型网关、审核治理与发布版本
 
 - 新增无工具能力的受控模型网关、确定性 Mock provider 和可配置 OpenAI 兼容 provider；分类、事实抽取、摘要、发布前复核四步均绑定不可变 Prompt、JSON Schema、模型参数、输入 SHA-256、原始/校验后输出、Token、微美元成本和耗时。

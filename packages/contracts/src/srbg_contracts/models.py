@@ -1,6 +1,6 @@
 """Canonical public contracts shared by API and Worker processes."""
 
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Annotated, Final, Literal
 from uuid import UUID
@@ -400,6 +400,8 @@ class ReadinessResponse(ContractModel):
 class VersionResponse(ContractModel):
     api_version: Literal["v1"] = API_VERSION
     content_schema_version: Literal["1.1.0"] = CONTENT_SCHEMA_VERSION
+    search_schema_version: Literal["1.0.0"] = "1.0.0"
+    semantic_search_enabled: bool = False
 
 
 class ProblemDetails(ContractModel):
@@ -1124,6 +1126,18 @@ class PublicationRevisionState(ContractModel):
     withdrawn_at: datetime | None = None
 
 
+class SearchContext(ContractModel):
+    match_kind: Literal[
+        "EXACT_IDENTIFIER",
+        "TITLE_ENTITY_TAG",
+        "BODY",
+        "SEMANTIC",
+    ]
+    matched_fields: list[str] = Field(default_factory=list, max_length=10)
+    matched_identifiers: list[str] = Field(default_factory=list, max_length=10)
+    semantic_status: Literal["DISABLED", "ENABLED", "DEGRADED"]
+
+
 class ItemSummary(ContractModel):
     id: UUID
     publication_revision_id: UUID | None
@@ -1152,6 +1166,7 @@ class ItemSummary(ContractModel):
     scores: ScoreSummary | None = None
     ai_assistance: AiAssistance | None = None
     revision_state: PublicationRevisionState | None = None
+    search_context: SearchContext | None = None
 
 
 class FeedPage(ContractModel):
@@ -1161,6 +1176,81 @@ class FeedPage(ContractModel):
     generated_at: datetime
     freshness: Literal["fresh", "delayed", "partial"]
     notices: list[FeedNotice]
+
+
+class SaveItemRequest(ContractModel):
+    item_id: UUID
+    collection_id: UUID | None = None
+
+
+class CollectionCreateRequest(ContractModel):
+    name: str = Field(min_length=1, max_length=100)
+
+
+class CollectionPatchRequest(ContractModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    archived: bool | None = None
+
+    @model_validator(mode="after")
+    def require_change(self) -> "CollectionPatchRequest":
+        if self.name is None and self.archived is None:
+            raise ValueError("at least one collection field is required")
+        return self
+
+
+class CollectionSummary(ContractModel):
+    id: UUID
+    name: str = Field(min_length=1, max_length=100)
+    item_count: int = Field(ge=0)
+    archived: bool
+    version: int = Field(ge=1)
+    created_at: datetime
+    updated_at: datetime
+
+
+class DailyReportItem(ContractModel):
+    item_id: UUID
+    publication_revision_id: UUID
+    position: int = Field(ge=1)
+    title: str = Field(min_length=1, max_length=500)
+    summary: str | None = Field(default=None, max_length=1000)
+    current_state: Literal["PUBLISHED", "WITHDRAWN", "SOURCE_UNAVAILABLE"]
+    original_url: HttpUrlString = Field(pattern=r"^https?://[^\s]+$", max_length=2048)
+
+
+class DailyReportSection(ContractModel):
+    kind: Literal[
+        "TODAY_HIGHLIGHTS",
+        "DIGITAL_SELECTED",
+        "SAFETY_HIGHLIGHTS",
+        "WATCHLIST",
+        "SOURCE_ANOMALIES",
+    ]
+    title: str = Field(min_length=1, max_length=100)
+    items: list[DailyReportItem]
+
+
+class DailyReport(ContractModel):
+    id: UUID
+    report_date: date
+    status: Literal["DRAFT", "PUBLISHED"]
+    snapshot_at: datetime
+    published_at: datetime | None = None
+    requires_regeneration: bool
+    sections: list[DailyReportSection]
+
+
+class DailyDraftRequest(ContractModel):
+    report_date: date
+
+
+class FingerprintResponse(ContractModel):
+    generated_at: datetime
+    feed_generation: int = Field(ge=0)
+    search_generation: int = Field(ge=0)
+    hot_topics_generation: int = Field(ge=0)
+    latest_daily_report_id: UUID | None = None
+    fingerprint: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
 
 
 class ClaimView(ContractModel):

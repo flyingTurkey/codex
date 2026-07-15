@@ -150,6 +150,16 @@ export type OverrideReason = string | null
 export type RawScore = number
 export type RuleVersion = 'scoring-v1.0.0'
 export type Score = number
+export type MatchKind = 'EXACT_IDENTIFIER' | 'TITLE_ENTITY_TAG' | 'BODY' | 'SEMANTIC'
+/**
+ * @maxItems 10
+ */
+export type MatchedFields = string[]
+/**
+ * @maxItems 10
+ */
+export type MatchedIdentifiers = string[]
+export type SemanticStatus = 'DISABLED' | 'ENABLED' | 'DEGRADED'
 export type SourceName = string
 export type SourcePublishedAt = string | null
 export type SourceRole = string | null
@@ -530,6 +540,7 @@ export interface ItemSummary {
   review_status: ReviewStatus
   revision_state?: PublicationRevisionState | null
   scores?: ScoreSummary | null
+  search_context?: SearchContext | null
   source_name: SourceName
   source_published_at: SourcePublishedAt
   source_role?: SourceRole
@@ -577,6 +588,12 @@ export interface ScoreFeature {
   explanation: Explanation
   label: Label1
   points: Points
+}
+export interface SearchContext {
+  match_kind: MatchKind
+  matched_fields?: MatchedFields
+  matched_identifiers?: MatchedIdentifiers
+  semantic_status: SemanticStatus
 }
 export interface SafetyRegulationTypeSummary {
   classification: RegulationClassification

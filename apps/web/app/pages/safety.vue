@@ -18,7 +18,7 @@ const contentTypeOptions: readonly FeedContentTypeOption[] = [
 ]
 const fallbackRequestId = createUuidV7()
 
-const { data: feed, error, refresh, status } = await useIntelligenceFeed(
+const { data: feed, error, refresh, status, loadMore, loadingMore } = useIntelligenceFeed(
   'all',
   'safety',
   contentType,
@@ -66,11 +66,13 @@ function selectContentType(value: FeedContentTypeFilter): void {
     empty-description="可切换全部、规定或案例；平台不会为无结果生成替代内容。"
     :feed="feed"
     :loading="status === 'idle' || status === 'pending'"
+    :loading-more="loadingMore"
     :problem="problem"
     :content-type-options="contentTypeOptions"
     show-filters
     :show-domain-filter="false"
     initial-domain="safety"
+    @load-more="loadMore"
     @content-type-change="selectContentType"
     @retry="refresh"
   >

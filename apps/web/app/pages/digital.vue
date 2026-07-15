@@ -65,7 +65,7 @@ const pageCopy = computed(() => isProduct.value
       emptyTitle: '暂无数字化情报',
       emptyDescription: '当前筛选下没有可见案例，可调整专业、场景或成熟度。',
     })
-const { data: feed, status, error, refresh } = await useIntelligenceFeed(
+const { data: feed, status, error, refresh, loadMore, loadingMore } = useIntelligenceFeed(
   mode,
   'digital',
   contentType,
@@ -106,6 +106,7 @@ watch(contentType, () => {
     :empty-description="pageCopy.emptyDescription"
     :feed="feed"
     :loading="status === 'idle' || status === 'pending'"
+    :loading-more="loadingMore"
     :problem="error?.data"
     initial-domain="digital"
     :content-type-options="[
@@ -121,6 +122,7 @@ watch(contentType, () => {
     :show-digital-filters="contentType === 'DIGITAL_CASE'"
     :show-paper-filters="contentType === 'JOURNAL_PAPER'"
     :show-product-filters="isProduct"
+    @load-more="loadMore"
     @retry="refresh"
   >
     <template #actions>

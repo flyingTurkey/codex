@@ -11,12 +11,20 @@ x-python-environment: &python-environment
   SRBG_CLAMAV_HOST: ${SRBG_CLAMAV_HOST:-clamav}
   SRBG_CLAMAV_PORT: ${SRBG_CLAMAV_PORT:-3310}
   SRBG_EXTERNAL_IO_TIMEOUT_SECONDS: ${SRBG_EXTERNAL_IO_TIMEOUT_SECONDS:-2}
+  SRBG_CURSOR_SIGNING_KEY: ${SRBG_CURSOR_SIGNING_KEY:-demo-only-round10-cursor-signing-key}
+  SRBG_SEMANTIC_SEARCH_ENABLED: ${SRBG_SEMANTIC_SEARCH_ENABLED:-false}
+  SRBG_SEMANTIC_SEARCH_TIMEOUT_SECONDS: ${SRBG_SEMANTIC_SEARCH_TIMEOUT_SECONDS:-0.3}
   SRBG_OPENALEX_API_KEY: ${SRBG_OPENALEX_API_KEY:-}
   SRBG_ACADEMIC_CONTACT: ${SRBG_ACADEMIC_CONTACT:-data-platform@srbg.local}
 
+x-postgres-build: &postgres-build
+  context: .
+  dockerfile: infra/compose/Dockerfile.postgres
+
 services:
   postgres:
-    image: postgres:17.10-bookworm
+    image: srbg-postgres:17.10-pgvector-0.8.2
+    build: *postgres-build
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-srbg}
       POSTGRES_USER: ${POSTGRES_USER:-srbg}
@@ -103,7 +111,8 @@ services:
     restart: "no"
 
   role-init:
-    image: postgres:17.10-bookworm
+    image: srbg-postgres:17.10-pgvector-0.8.2
+    build: *postgres-build
     environment:
       PGHOST: postgres
       PGDATABASE: ${POSTGRES_DB:-srbg}

@@ -12,6 +12,17 @@
       "default": "1.1.0",
       "title": "Content Schema Version",
       "type": "string"
+    },
+    "search_schema_version": {
+      "const": "1.0.0",
+      "default": "1.0.0",
+      "title": "Search Schema Version",
+      "type": "string"
+    },
+    "semantic_search_enabled": {
+      "default": false,
+      "title": "Semantic Search Enabled",
+      "type": "boolean"
     }
   },
   "title": "VersionResponse",

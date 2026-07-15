@@ -3,7 +3,7 @@
 import json
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from hashlib import sha256
 from typing import Any, Literal, Protocol
 from uuid import UUID
@@ -11,6 +11,7 @@ from uuid import UUID
 from srbg_contracts import (
     ClaimConflict,
     ClaimConflictDecisionResponse,
+    DailyReport,
     DigitalCaseReviewPatch,
     ReviewDecisionResponse,
     ScoreDimension,
@@ -54,6 +55,24 @@ class PublicationTransaction(Protocol):
 class PublicationRepository(Protocol):
     async def close(self) -> None: ...
 
+    async def create_daily_draft(
+        self,
+        *,
+        report_date: date,
+        actor_id: UUID,
+        idempotency_key: str,
+        created_at: datetime,
+    ) -> DailyReport: ...
+
+    async def publish_daily_report(
+        self,
+        *,
+        report_id: UUID,
+        reviewer_id: UUID,
+        idempotency_key: str,
+        published_at: datetime,
+    ) -> DailyReport: ...
+
     async def list_claim_conflicts(self) -> list[ClaimConflict]: ...
 
     def approval_transaction(
@@ -91,6 +110,8 @@ class PublicationRepository(Protocol):
         *,
         processed_at: datetime,
         cache_generation: Callable[[UUID, int, bool], Awaitable[None]],
+        search_projection: Callable[[UUID, int, bool], Awaitable[None]] | None,
+        daily_digest: Callable[[UUID, int, bool], Awaitable[None]] | None,
     ) -> bool: ...
 
     async def decide_product_normalization(
@@ -182,6 +203,34 @@ class PublicationService:
 
     async def close(self) -> None:
         await self._repository.close()
+
+    async def create_daily_draft(
+        self,
+        *,
+        report_date: date,
+        actor_id: UUID,
+        idempotency_key: str,
+    ) -> DailyReport:
+        return await self._repository.create_daily_draft(
+            report_date=report_date,
+            actor_id=actor_id,
+            idempotency_key=idempotency_key,
+            created_at=self._now(),
+        )
+
+    async def publish_daily_report(
+        self,
+        report_id: UUID,
+        *,
+        reviewer_id: UUID,
+        idempotency_key: str,
+    ) -> DailyReport:
+        return await self._repository.publish_daily_report(
+            report_id=report_id,
+            reviewer_id=reviewer_id,
+            idempotency_key=idempotency_key,
+            published_at=self._now(),
+        )
 
     async def list_claim_conflicts(self) -> list[ClaimConflict]:
         return await self._repository.list_claim_conflicts()
@@ -314,11 +363,15 @@ class PublicationService:
         self,
         *,
         cache_generation: Callable[[UUID, int, bool], Awaitable[None]],
+        search_projection: Callable[[UUID, int, bool], Awaitable[None]] | None = None,
+        daily_digest: Callable[[UUID, int, bool], Awaitable[None]] | None = None,
     ) -> bool:
         """Apply one search/cache/digest projection event under the publisher role."""
         return await self._repository.process_projection_invalidation_once(
             processed_at=self._now(),
             cache_generation=cache_generation,
+            search_projection=search_projection,
+            daily_digest=daily_digest,
         )
 
     async def decide_product_normalization(

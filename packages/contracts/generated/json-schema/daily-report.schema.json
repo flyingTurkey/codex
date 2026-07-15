@@ -1,0 +1,164 @@
+{
+  "$defs": {
+    "DailyReportItem": {
+      "additionalProperties": false,
+      "properties": {
+        "current_state": {
+          "enum": [
+            "PUBLISHED",
+            "WITHDRAWN",
+            "SOURCE_UNAVAILABLE"
+          ],
+          "title": "Current State",
+          "type": "string"
+        },
+        "item_id": {
+          "format": "uuid",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "original_url": {
+          "maxLength": 2048,
+          "pattern": "^https?://[^\\s]+$",
+          "title": "Original Url",
+          "type": "string"
+        },
+        "position": {
+          "minimum": 1,
+          "title": "Position",
+          "type": "integer"
+        },
+        "publication_revision_id": {
+          "format": "uuid",
+          "title": "Publication Revision Id",
+          "type": "string"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Summary"
+        },
+        "title": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "item_id",
+        "publication_revision_id",
+        "position",
+        "title",
+        "current_state",
+        "original_url"
+      ],
+      "title": "DailyReportItem",
+      "type": "object"
+    },
+    "DailyReportSection": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/DailyReportItem"
+          },
+          "title": "Items",
+          "type": "array"
+        },
+        "kind": {
+          "enum": [
+            "TODAY_HIGHLIGHTS",
+            "DIGITAL_SELECTED",
+            "SAFETY_HIGHLIGHTS",
+            "WATCHLIST",
+            "SOURCE_ANOMALIES"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "title",
+        "items"
+      ],
+      "title": "DailyReportSection",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "published_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Published At"
+    },
+    "report_date": {
+      "format": "date",
+      "title": "Report Date",
+      "type": "string"
+    },
+    "requires_regeneration": {
+      "title": "Requires Regeneration",
+      "type": "boolean"
+    },
+    "sections": {
+      "items": {
+        "$ref": "#/$defs/DailyReportSection"
+      },
+      "title": "Sections",
+      "type": "array"
+    },
+    "snapshot_at": {
+      "format": "date-time",
+      "title": "Snapshot At",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "DRAFT",
+        "PUBLISHED"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "report_date",
+    "status",
+    "snapshot_at",
+    "requires_regeneration",
+    "sections"
+  ],
+  "title": "DailyReport",
+  "type": "object"
+}

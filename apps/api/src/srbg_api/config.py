@@ -1,8 +1,10 @@
 """Environment-backed configuration with safe local defaults."""
 
+from __future__ import annotations
+
 from functools import lru_cache
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -39,6 +41,22 @@ class Settings(BaseSettings):
     openalex_api_key: SecretStr | None = None
     academic_contact: str = Field(default="data-platform@srbg.local", min_length=3, max_length=320)
     pgvector_recall_enabled: bool = False
+    cursor_signing_key: SecretStr = Field(
+        default_factory=lambda: SecretStr("demo-only-round10-cursor-signing-key")
+    )
+    semantic_search_enabled: bool = False
+    semantic_search_timeout_seconds: float = Field(default=0.3, gt=0, le=2)
+
+    @model_validator(mode="after")
+    def reject_demo_cursor_key_in_production(self) -> Settings:
+        key = self.cursor_signing_key.get_secret_value()
+        if self.environment.lower() == "production" and (
+            key.startswith("demo-only-") or len(key) < 48
+        ):
+            raise ValueError(
+                "production cursor signing key must be explicit and at least 48 characters"
+            )
+        return self
 
 
 @lru_cache

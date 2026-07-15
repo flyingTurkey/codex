@@ -420,7 +420,11 @@ def run_isolated_integration(
 def _migration_command(
     config: IntegrationConfig, verifier: str = "verify_round08_migration.py"
 ) -> tuple[str, ...]:
-    if verifier not in {"verify_round08_migration.py", "verify_round09_migration.py"}:
+    if verifier not in {
+        "verify_round08_migration.py",
+        "verify_round09_migration.py",
+        "verify_round10_migration.py",
+    }:
         raise ValueError("migration verifier is not approved")
     return (
         config.python_executable,
@@ -514,7 +518,11 @@ def _parse_args(arguments: Sequence[str] | None) -> tuple[str, tuple[str, ...]]:
     )
     parser.add_argument(
         "--migration-verifier",
-        choices=("verify_round08_migration.py", "verify_round09_migration.py"),
+        choices=(
+            "verify_round08_migration.py",
+            "verify_round09_migration.py",
+            "verify_round10_migration.py",
+        ),
         default="verify_round08_migration.py",
     )
     parser.add_argument("pytest_args", nargs=argparse.REMAINDER)

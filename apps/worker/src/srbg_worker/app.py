@@ -8,6 +8,7 @@ from celery import Celery
 from redis.asyncio import Redis, from_url
 from srbg_api.config import get_settings
 from srbg_api.database import create_publication_engine
+from srbg_api.discovery.projections import PostgresDiscoveryProjectionWriter
 from srbg_api.logging import configure_logging
 from srbg_api.publication.gate import PublicationGate
 from srbg_api.publication.repository import PostgresPublicationRepository
@@ -106,16 +107,20 @@ async def _drain_publication_projections() -> dict[str, int]:
         ),
     )
     cache = from_url(settings.redis_url, decode_responses=True)
+    projection_writer = PostgresDiscoveryProjectionWriter(create_publication_engine(settings))
     processed = 0
     try:
         async def advance(publication_id: UUID, generation: int, visible: bool) -> None:
             await _advance_cache_generation(cache, publication_id, generation, visible)
 
         while processed < 150 and await service.process_projection_invalidation_once(
-            cache_generation=advance
+            cache_generation=advance,
+            search_projection=projection_writer.apply_search,
+            daily_digest=projection_writer.invalidate_daily,
         ):
             processed += 1
         return {"processed": processed}
     finally:
         await cache.aclose()
+        await projection_writer.close()
         await service.close()
