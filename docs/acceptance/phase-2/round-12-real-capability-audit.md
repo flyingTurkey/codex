@@ -47,9 +47,9 @@
 
 独立验收修复前失败证据：
 
-- `make safety-regulation-test`、`make pdf-ocr-test`、`make safety-case-test`：退出2；隔离runner停在0009，当前查询引用0010 `ai_pipeline_run`。
-- `make smoke`：退出2；脚本要求旧两字段version对象，当前契约合法增加search schema和semantic flag。
-- `make golden-replay`、`make readiness-evidence`：退出2且decision=BLOCKED；五类真人金标数量均为0。这两项是诚实生产阻断，不应修成绿色。
+- `make safety-regulation-test`、`make pdf-ocr-test`、`make safety-case-test`：退出1；隔离runner停在0009，当前查询引用0010 `ai_pipeline_run`。
+- `make smoke`：退出1；脚本要求旧两字段version对象，当前契约合法增加search schema和semantic flag。
+- `make golden-replay`、`make readiness-evidence`：退出1且decision=BLOCKED；五类真人金标数量均为0。这两项是诚实生产阻断，不应修成绿色。
 
 独立验收采用测试优先完成三项最小修复：隔离集成默认迁移到当前0012 head；smoke校验完整版本契约并依据权威Feed区分空态/有数据态；统一Feed的selected查询要求存在当前score_set，阻止未评分已发布内容进入精选。没有修改迁移、来源状态、真实凭据、金标或阈值。
 

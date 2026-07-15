@@ -48,8 +48,8 @@ PowerShell按分号顺序执行首批专项时不会因native exit自动停止�
 
 | 命令 | 退出 | 结论 |
 |---|---:|---|
-| `make golden-replay` | 2 | BLOCKED：documents 0/500、pairs 0/300、events 0/100、claim/evidence 0/200、search 0/100 |
-| `make readiness-evidence` | 2 | 同上；严格门禁诚实拒绝晋级 |
+| `make golden-replay` | 1 | BLOCKED：documents 0/500、pairs 0/300、events 0/100、claim/evidence 0/200、search 0/100 |
+| `make readiness-evidence` | 1 | 同上；严格门禁诚实拒绝晋级 |
 
 严格真实门禁的非零是预期生产阻断，不应改绿。独立验收已按测试优先修复旧专项和smoke工程漂移，没有生成真人金标或降低阈值。
 
