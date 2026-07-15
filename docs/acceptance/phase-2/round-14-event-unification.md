@@ -143,4 +143,4 @@ Location: /events/019f65e9-53db-7e8d-adf6-d827b254fd06
 | `make web-e2e` | 42 passed |
 | `make web-a11y` | 13 passed |
 
-实现提交与最终验收提交哈希在本文件最后一次提交中记录；验收前工作树基线为 `0068921d75c190c1c204bc8d8428036de85361cb`，开始时工作树干净。
+实现提交为 `ff8d429a414d427b87a7a38671f7dcc2cbbe9c28`；验收前工作树基线为 `0068921d75c190c1c204bc8d8428036de85361cb`，开始时工作树干净。记录哈希的文档提交以最终 `git rev-parse HEAD` 为准。
