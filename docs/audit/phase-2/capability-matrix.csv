@@ -1,0 +1,35 @@
+capability_id,domain,capability,status,code_evidence,database_evidence,runtime_or_external_evidence,gap,target_round
+CAP-001,source,Source registry and admission,PARTIAL,"source_registry module; migrations 0002/0003","source/policy/onboarding tables; 46 seeds candidate","54 runtime ACTIVE are all test sources","Test state can look like production admission",15
+CAP-002,source,Real approved continuous acquisition,MISSING,"Only MEM static task","All 108 fetch runs are FIXTURE","No qualifying source for E2E trace","Need approved list and real window",17
+CAP-003,source,Unified SourceAdapter contract,PARTIAL,"acquisition/contracts.py SourceAdapter","Connector types are fixture-only","Only MEM fixture enters scheduler","Register all approved adapters through one runtime",15
+CAP-004,scheduling,PostgreSQL authoritative dynamic scheduler,MISSING,"Beat schedule is static in worker/app.py","No source plan/lease/next_run_at facts","One MEM task every 900 seconds","Implement DB plans leases budgets",16
+CAP-005,vault,Raw object and document versioning,IMPLEMENTED,"document_vault and PDF version services","raw_object/document/document_version populated","Fixture integration and security tests pass","Real-source retention execution unproved",16
+CAP-006,parsing,HTML parsing,FIXTURE_ONLY,"MEM parser and pipeline","Fixture fetch/document rows","Fixture replay passes; no real source window","Run approved sources and measure parse quality",17
+CAP-007,parsing,PDF OCR and file security,FIXTURE_ONLY,"PDF/OCR/security modules","PDF evidence tables populated by tests","Golden fixtures and ClamAV pass","No real distribution or capacity evidence",17
+CAP-008,evidence,Claim and evidence locators,IMPLEMENTED,"claim/evidence services and gates","367 claims and 367 evidence rows in TEST","Unit/integration gates pass","Event-keyed projection migration needed",13
+CAP-009,event,Event as portal identity,PARTIAL,"event and event_item models exist","event/event_item both zero; portal objects item-keyed","Feed and details return Item IDs","Build mapping then switch all consumers",14
+CAP-010,event,Topic clusters,PARTIAL,"topic_cluster_event relation exists","topic_cluster zero","Round08 fixture evaluation only","Requires stable Event and human decisions",14
+CAP-011,dedup,Deterministic identity and candidate recall,FIXTURE_ONLY,"resolution domain and service","Round08 tables exist","300 pair fixture eval; auto merge false","Replace developer fixtures with human gold",17
+CAP-012,publication,Single PublicationService application path,IMPLEMENTED,"one service class; path audit script","API/worker cannot write publication; publisher can","Round09/11 path audit passes","Keep publisher credential isolated",13
+CAP-013,publication,Event-keyed dedicated read projection,MISSING,"No dedicated reader implementation","publication/search/daily/saved all item-keyed; projection state zero","API login reads business tables","Build shadow projection and reader role",13
+CAP-014,publication,R3 metadata-only projection,IMPLEMENTED,"R3 query branches and UI","R3 test item present","Viewer runtime receives whitelist and notice","Unify under new projection",13
+CAP-015,publication,R4 isolation,PARTIAL,"Query excludes R4 and tests cover it","No dedicated reader/row projection","E2 tests pass; no real observation window","Prove across every consumer with low role",13
+CAP-016,search,Exact/trigram/FTS search,IMPLEMENTED,"discovery repository","search schema/index migration exists","40 TEST requests P95 31.53ms","Event identity and real scale remain",14
+CAP-017,search,Semantic search,NOT_APPLICABLE,"Feature flag defaults false","pgvector available but projection empty","Disabled as required at 20-source stage","Only evaluate after real search gold",20
+CAP-018,daily,Daily report snapshots,FIXTURE_ONLY,"daily services and publication flow","daily tables exist; runtime daily count zero","Round10 deterministic tests pass","Move snapshot identity to Event",14
+CAP-019,user,Saved items and collections,FIXTURE_ONLY,"discovery service","saved_item uses owner_id+item_id; runtime zero","Round10 tests pass","Migrate Item IDs and define retention",14
+CAP-020,auth,Enterprise OIDC validation,PARTIAL,"RS256/JWKS issuer audience tests","No identity database required","TEST uses default local identity; no real SSO","Verify in preproduction",17
+CAP-021,db_security,Low-privilege publication writer,IMPLEMENTED,"migration grants","Publisher can write; API/worker cannot","Actual-login has_table_privilege verified","API process still holds publisher URL",13
+CAP-022,db_security,Dedicated ordinary-user read role,MISSING,"No role or engine","API login reads/writes business tables","Actual-login verification","Create read-only projection login",13
+CAP-023,audit,Append-only tamper-evident audit,PARTIAL,"immutable trigger and hash chain","API/worker have audit DML grants","Arbitrary insert succeeds; update/delete rejected; no anchor","Controlled writer plus independent root anchor",13
+CAP-024,privacy,Anonymous passive usage aggregation,PARTIAL,"usage_metric_bucket new path","Legacy usage_event has 250 actor-linked SEARCH rows","No retention/delete/access boundary","Govern legacy data and grants",13
+CAP-025,ai,Controlled model gateway,MOCK_ONLY,"Schema gateway and isolated worker","AI tables exist","provider=mock; cost 0","Budget/provider approval and real eval absent",18
+CAP-026,notifications,Email and WeCom notifications,MISSING,"No notification implementation","No delivery/subscription tables","No credentials or real route","Wait for 50-source gate",19
+CAP-027,international,International sources and translation,MISSING,"No translation pipeline","No translation facts","No approved list/budget/reviewer","Wait for 100-source gate",20
+CAP-028,operations,Metrics and operations dashboard,PARTIAL,"Prometheus and operations service","TEST metric buckets and facts","Operations API works; no continuous production window","Freeze real metric window",17
+CAP-029,recovery,Logical recovery,IMPLEMENTED,"recovery drill","Recovery evidence fact","RPO0/RTO0.11 TEST logical drill","Does not prove production PITR",21
+CAP-030,recovery,Production PITR,MISSING,"WAL configuration only","No production restore evidence","pitr_production_evidence=false","Independent production-like drill",21
+CAP-031,quality,Human business gold set,MISSING,"Versioned empty manifest","All five gold counts zero","golden/readiness exit 2 BLOCKED","Assign business annotators and arbitration",17
+CAP-032,quality,Engineering CI baseline,PARTIAL,"Make targets and CI","N/A","Global quality gate passes; Round02-04 targets and smoke fail","Repair target drift without lowering assertions",14
+CAP-033,capacity,150-source operating capacity,MISSING,"No dynamic scheduler","No 150-source dataset/window","Only 100-request TEST load","Stage 20/50/100/150 evidence",21
+CAP-034,retention,Raw evidence and user-data retention execution,MISSING,"Policy fields exist","No deletion/legal-hold execution facts","Retention periods are unconfirmed","Define and implement before real pilot",16

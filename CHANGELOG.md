@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+### Round 12 — 真实能力审计与二阶段基线
+
+- 新增 `docs/audit/phase-2/` 十二项只读审计产物，以代码、实际数据库登录、运行API、测试和外部证据重新分类来源、连接器、Event/Item、发布投影、R3/R4、审计日志、用户行为、模型、指标和150来源风险；没有把CHANGELOG或方案声明当作实现证据。
+- 确认46条种子均为CANDIDATE，运行库54条ACTIVE全是固定/集成测试来源，108次采集全为FIXTURE；因此真实端到端追踪为`NOT_AVAILABLE`，生产模型、通知、国际来源、连续运行和真人金标指标均保持null。
+- 实测API/Worker登录可读写大量业务表和audit_log，普通用户尚无专用只读发布投影；audit_log可由运行角色自造INSERT、仅UPDATE/DELETE受不可变触发器阻止，且无独立hash根锚定。Event/Topic运行数据为空，门户、发布、搜索、日报和收藏仍以Item为身份。
+- 全局quality gate、Round08—11、42项E2E和13项a11y通过；Round02—04旧专项因隔离迁移边界缺少`ai_pipeline_run`失败，smoke因旧版本响应断言失败，严格真人金标/readiness按设计BLOCKED。本轮未修改业务代码或测试阈值，结论保持未完成。
+
 ### 二阶段文档基线
 
 - 固化企业内部 OIDC/SSO、Event 唯一用户身份、R3 `METADATA_ONLY`、Item 只读兼容、确定性归并和专用只读发布投影等已确认决策，删除匿名公开、`PROVISIONAL_EVENT`、R0、1000 候选硬指标和 `source_trust_score` 等冲突要求。

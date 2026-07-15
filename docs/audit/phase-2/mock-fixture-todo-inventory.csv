@@ -1,0 +1,21 @@
+id,area,current_artifact,status,evidence,required_replacement,target_round
+MF-001,sources,46-row source_registry seed list,FIXTURE_ONLY,"All rows CANDIDATE/disabled","Approved owners policies and trial evidence",15
+MF-002,sources,49 fixed test ACTIVE sources,FIXTURE_ONLY,"Names and connector types explicitly fixture","Isolate/delete test state from pilot DB; never promote",15
+MF-003,sources,5 integration-test ACTIVE sources,FIXTURE_ONLY,"No connector and test names","Isolate from pilot DB",15
+MF-004,acquisition,MEM HTML/PDF fixture scheduler,FIXTURE_ONLY,"108 fetch runs all trigger FIXTURE","Approved MEM source through governed dynamic scheduler",16
+MF-005,digital_cases,MOT and Shudao fixed replay,FIXTURE_ONLY,"Adapters and manifests only; source candidates disabled","Approved live policies and unified runner",17
+MF-006,papers,OpenAlex/Crossref/China Highway fixtures,FIXTURE_ONLY,"Code and fixed JSON pass; no runtime registration","Approved credentials and real trial",17
+MF-007,products,Glodon and DJI fixed product fixtures,FIXTURE_ONLY,"Vendor adapter source_active gate; no approved source","Approved policies and live shared client",17
+MF-008,dedup,Round08 300 pairs and 100 events,FIXTURE_ONLY,"evaluation_tier INTERNAL_TEST_FIXTURE","Business-labelled versioned samples",17
+MF-009,ai,Round09 deterministic provider,MOCK_ONLY,"SRBG_AI_PROVIDER defaults mock; cost 0","Approved model budget policy and shadow eval",18
+MF-010,search,Round10 performance fixture data,FIXTURE_ONLY,"40 TEST samples; search projection can be empty","Real question gold and 20-source corpus",17
+MF-011,operations,Round11 load baseline,FIXTURE_ONLY,"100 requests and mock cost","Frozen continuous pilot window",21
+MF-012,recovery,Isolated logical recovery,FIXTURE_ONLY,"pitr_production_evidence=false","Production-like base backup plus WAL restore",21
+MF-013,gold,tests/gold/v1/manifest.json,MISSING,"All five arrays empty","Named domain annotators; safety double-label and arbitration",17
+MF-014,alerts,Alertmanager unconfigured receiver,MISSING,"No real P0/P1 route","Approved contacts and delivery test",21
+MF-015,notifications,Email/WeCom,MISSING,"No implementation or credentials","50-source gate and approved channels",19
+MF-016,international,English source translation,MISSING,"No approved list or translation evidence","100-source gate budget and reviewer",20
+MF-017,privacy,Legacy actor-linked usage_event,PARTIAL,"250 SEARCH rows with actor_id","Retention/delete decision and restricted admin access",13
+MF-018,audit,Independent audit hash anchor,MISSING,"No external root anchor found","Daily root to independent immutable store",13
+MF-019,tests,Round02-04 specialty targets,BROKEN,"Current queries require ai_pipeline_run absent at target migration head","Update isolated target migration boundary with regression tests",14
+MF-020,tests,smoke version assertion,BROKEN,"Script rejects valid new version fields","Validate current VersionResponse contract",14

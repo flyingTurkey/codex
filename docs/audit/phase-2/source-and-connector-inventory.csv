@@ -1,0 +1,49 @@
+inventory_id,name,channel,registry_state,enabled,adapter_or_fixture,runtime_chain,manual_production_approval,real_continuous_runs,capability_status,evidence
+GOV-001,国家法律法规数据库,SAFETY,CANDIDATE,false,none,none,false,false,MISSING,source_registry.csv
+GOV-002,中国政府网政策,BOTH,CANDIDATE,false,none,none,false,false,MISSING,source_registry.csv
+GOV-003,交通运输部,BOTH,CANDIDATE,false,MotDigitalCaseAdapter-direct-PDF,not-registered,false,false,PARTIAL,digital_cases/source.py
+GOV-004,交通运输部政府信息公开,BOTH,CANDIDATE,false,none,none,false,false,MISSING,source_registry.csv
+GOV-005,住房和城乡建设部,BOTH,CANDIDATE,false,none,none,false,false,MISSING,source_registry.csv
+GOV-006,应急管理部,SAFETY,CANDIDATE,false,MemSafetyRegulationAdapter+fixture,static-Beat-runs-fixture-only,false,false,FIXTURE_ONLY,worker/app.py and safety_regulations/source.py
+GOV-007,应急管理部事故调查报告,SAFETY,CANDIDATE,false,round04-fixed-materials,fixture-tests,false,false,FIXTURE_ONLY,round04 manifest
+GOV-008,全国标准信息公共服务平台,SAFETY,CANDIDATE,false,none,none,false,false,MISSING,source_registry.csv
+GOV-009,国家标准全文公开系统,SAFETY,CANDIDATE,false,none,none,false,false,MISSING,source_registry.csv
+GOV-010,工业和信息化部,DIGITAL,CANDIDATE,false,none,none,false,false,MISSING,source_registry.csv
+GOV-011,国务院国资委,DIGITAL,CANDIDATE,false,none,none,false,false,MISSING,source_registry.csv
+GOV-012,国家发展改革委,DIGITAL,CANDIDATE,false,none,none,false,false,MISSING,source_registry.csv
+GOV-013,科学技术部,DIGITAL,CANDIDATE,false,none,none,false,false,MISSING,source_registry.csv
+GOV-014,中国民用航空局,DIGITAL,CANDIDATE,false,none,none,false,false,MISSING,source_registry.csv
+GOV-015,四川省交通运输厅,BOTH,CANDIDATE,false,none,none,false,false,MISSING,source_registry.csv
+GOV-016,四川省应急管理厅,SAFETY,CANDIDATE,false,none,none,false,false,MISSING,source_registry.csv
+GOV-017,四川省住房和城乡建设厅,BOTH,CANDIDATE,false,none,none,false,false,MISSING,source_registry.csv
+GOV-018,四川省市场监督管理局,SAFETY,CANDIDATE,false,none,none,false,false,MISSING,source_registry.csv
+GOV-019,大埔县人民政府,SAFETY,CANDIDATE,false,round04-official-fixture,fixture-tests,false,false,FIXTURE_ONLY,round04 manifest
+GOV-020,广东省应急管理厅事故调查报告,SAFETY,CANDIDATE,false,round04-official-fixture,fixture-tests,false,false,FIXTURE_ONLY,round04 manifest
+GOV-021,广东省应急管理厅,SAFETY,CANDIDATE,false,round04-official-fixture,fixture-tests,false,false,FIXTURE_ONLY,round04 manifest
+GOV-022,广东省纪委监委南粤清风网,SAFETY,CANDIDATE,false,round04-official-fixture,fixture-tests,false,false,FIXTURE_ONLY,round04 manifest
+RES-001,中国公路学会,DIGITAL,CANDIDATE,false,none,none,false,false,MISSING,source_registry.csv
+RES-002,中国施工企业管理协会,DIGITAL,CANDIDATE,false,none,none,false,false,MISSING,source_registry.csv
+RES-003,中国建筑科学研究院,DIGITAL,CANDIDATE,false,none,none,false,false,MISSING,source_registry.csv
+RES-004,中国公路学报,DIGITAL,CANDIDATE,false,fixed-catalog-fixture,fixture-tests,false,false,FIXTURE_ONLY,round06 fixtures
+RES-005,隧道建设（中英文）,DIGITAL,CANDIDATE,false,none,none,false,false,MISSING,source_registry.csv
+RES-006,中国安全科学学报,SAFETY,CANDIDATE,false,none,none,false,false,MISSING,source_registry.csv
+RES-007,OpenAlex API,DIGITAL,CANDIDATE,false,OpenAlexPaperAdapter,not-registered-and-key-required,false,false,PARTIAL,papers/source.py
+RES-008,Crossref REST API,DIGITAL,CANDIDATE,false,CrossrefPaperAdapter-lookup,not-registered,false,false,PARTIAL,papers/source.py
+RES-009,中国知网,DIGITAL,CANDIDATE,false,manual-or-licensed-only,none,false,false,NOT_APPLICABLE,source policy prohibits bypass
+RES-010,万方数据,DIGITAL,CANDIDATE,false,manual-or-licensed-only,none,false,false,NOT_APPLICABLE,source policy prohibits bypass
+RES-011,中国土木工程学会,DIGITAL,CANDIDATE,false,none,none,false,false,MISSING,source_registry.csv
+RES-012,中国建筑业协会,DIGITAL,CANDIDATE,false,none,none,false,false,MISSING,source_registry.csv
+ENT-001,中国交建,DIGITAL,CANDIDATE,false,none,none,false,false,MISSING,source_registry.csv
+ENT-002,中国建筑,DIGITAL,CANDIDATE,false,none,none,false,false,MISSING,source_registry.csv
+ENT-003,中国中铁,DIGITAL,CANDIDATE,false,none,none,false,false,MISSING,source_registry.csv
+ENT-004,中国铁建,DIGITAL,CANDIDATE,false,none,none,false,false,MISSING,source_registry.csv
+ENT-005,蜀道集团,DIGITAL,CANDIDATE,false,ShudaoDigitalCaseAdapter-direct-PDF,not-registered,false,false,PARTIAL,digital_cases/source.py
+ENT-006,华为行业数字化,DIGITAL,CANDIDATE,false,none,none,false,false,MISSING,source_registry.csv
+ENT-007,广联达,DIGITAL,CANDIDATE,false,VendorProductAdapter+fixture,not-registered-source-inactive,false,false,FIXTURE_ONLY,technology_products/source.py
+ENT-008,大疆行业应用,DIGITAL,CANDIDATE,false,VendorProductAdapter+fixture,not-registered-source-inactive,false,false,FIXTURE_ONLY,technology_products/source.py
+ENT-009,三一集团,DIGITAL,CANDIDATE,false,none,none,false,false,MISSING,source_registry.csv
+MED-001,中国公路网,DIGITAL,CANDIDATE,false,none,none,false,false,MISSING,source_registry.csv
+MED-002,科技日报,DIGITAL,CANDIDATE,false,none,none,false,false,MISSING,source_registry.csv
+MED-003,Engineering News-Record,BOTH,CANDIDATE,false,none,none,false,false,MISSING,international source not approved
+RUNTIME-FIXED-49,运行库固定测试来源49条,TEST,ACTIVE,true,MEM-or-PDF-fixture,fixture-only,false,false,FIXTURE_ONLY,pretest DB query
+RUNTIME-INTEGRATION-5,运行库集成测试来源5条,TEST,ACTIVE,true,no-enabled-connector,test-created,false,false,FIXTURE_ONLY,pretest DB query

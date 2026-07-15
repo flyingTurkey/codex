@@ -1,0 +1,64 @@
+{
+  "definition_version": "phase2-audit-v1.0.0",
+  "observed_at": "2026-07-15T11:31:02.2647583Z",
+  "timezone": "UTC",
+  "environment": "TEST",
+  "commit": "c9ffd4b2c70d3fa7a1c52fbb194dbba943039372",
+  "north_star": {
+    "name": "end_to_end_effective_event_availability_rate",
+    "value": null,
+    "numerator": null,
+    "denominator": null,
+    "reason": "The versioned human-labelled Event gold set is empty; fixture samples cannot be used."
+  },
+  "diagnostics": {
+    "discovery_coverage_rate": {"value": null, "reason": "No approved real source window or human Event gold set."},
+    "real_source_fetch_success_rate": {"value": null, "reason": "All observed fetch_run rows use trigger FIXTURE."},
+    "real_html_parse_success_rate": {"value": null, "reason": "No approved real-source denominator."},
+    "real_pdf_parse_success_rate": {"value": null, "reason": "Only fixture and isolated-test evidence is available."},
+    "correct_eventization_rate": {"value": null, "reason": "Runtime Event and event_item tables are empty and human gold is absent."},
+    "non_duplicate_event_rate": {"value": null, "reason": "Round08 evaluation tier is INTERNAL_TEST_FIXTURE."},
+    "published_critical_claim_evidence_coverage": {"value": null, "reason": "No production publication population or human audit window."},
+    "searchable_readable_event_rate": {"value": null, "reason": "Portal and search are Item-keyed; no Event gold set."},
+    "r3_bypass_count": {"value": null, "reason": "Deterministic tests show zero, but no real observation window exists."},
+    "r4_leak_count": {"value": null, "reason": "Deterministic tests show zero, but no real observation window exists."}
+  },
+  "source_baseline": {
+    "registry_seed_count": 46,
+    "registry_seed_active_count": 0,
+    "runtime_source_count_pretest": 158,
+    "runtime_active_enabled_count_pretest": 54,
+    "runtime_active_real_approved_count": 0,
+    "runtime_fetch_run_count_pretest": 108,
+    "runtime_real_fetch_run_count_pretest": 0,
+    "reason": "All runtime ACTIVE sources are named fixed/integration test sources; all runs are FIXTURE."
+  },
+  "gold_baseline": {
+    "version": "1.0.0-seed",
+    "human_annotated": false,
+    "documents": 0,
+    "duplicate_pairs": 0,
+    "event_clusters": 0,
+    "claim_evidence_annotations": 0,
+    "search_questions": 0
+  },
+  "external_capabilities": {
+    "production_model_cost": {"value": null, "currency": null, "reason": "Configured runtime provider is mock; no approved production model evidence."},
+    "notification_delivery": {"value": null, "reason": "No email or WeCom implementation, credentials or approved recipients."},
+    "international_source_count": {"value": null, "reason": "No approved international source list or live connector evidence."},
+    "personal_browsing_history_retention_days": {"value": null, "reason": "No consent/retention/deletion policy; new passive events use anonymous buckets but legacy personal rows remain."},
+    "continuous_real_operation_days": {"value": null, "reason": "No frozen real-source observation window."},
+    "production_pitr_rpo_minutes": {"value": null, "reason": "Only isolated logical recovery was executed."},
+    "production_pitr_rto_minutes": {"value": null, "reason": "Only isolated logical recovery was executed."}
+  },
+  "test_runtime": {
+    "api_load_samples": 100,
+    "api_load_errors": 0,
+    "api_load_p95_ms": 103.45,
+    "search_samples": 40,
+    "search_p95_ms": 31.53,
+    "recovery_rpo_minutes": 0,
+    "recovery_rto_minutes": 0.11,
+    "production_baseline": false
+  }
+}
