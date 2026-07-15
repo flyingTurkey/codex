@@ -9,7 +9,7 @@ def test_round07_authoritative_context_is_loaded_for_all_product_types() -> None
     source = REPOSITORY.read_text(encoding="utf-8")
 
     assert "async def _round07_gate_facts(" in source
-    assert 'policy_version == "7.0.0" and round07 is not None' in source
+    assert 'policy_version in {"2.1.0", "7.0.0"} and round07 is not None' in source
     assert 'context["server"])["round07"] = round07' in source
     for item_type in (
         "SOFTWARE_PRODUCT",

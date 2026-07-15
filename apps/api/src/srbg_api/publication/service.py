@@ -1,7 +1,7 @@
 """The sole application entry point for review and publication state changes."""
 
 import json
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -85,6 +85,13 @@ class PublicationRepository(Protocol):
     ) -> UUID: ...
 
     async def process_outbox_once(self, *, processed_at: datetime) -> bool: ...
+
+    async def process_projection_invalidation_once(
+        self,
+        *,
+        processed_at: datetime,
+        cache_generation: Callable[[UUID, int, bool], Awaitable[None]],
+    ) -> bool: ...
 
     async def decide_product_normalization(
         self,
@@ -302,6 +309,17 @@ class PublicationService:
     async def process_outbox_once(self) -> bool:
         """The publisher worker enters version lifecycle changes through this service only."""
         return await self._repository.process_outbox_once(processed_at=self._now())
+
+    async def process_projection_invalidation_once(
+        self,
+        *,
+        cache_generation: Callable[[UUID, int, bool], Awaitable[None]],
+    ) -> bool:
+        """Apply one search/cache/digest projection event under the publisher role."""
+        return await self._repository.process_projection_invalidation_once(
+            processed_at=self._now(),
+            cache_generation=cache_generation,
+        )
 
     async def decide_product_normalization(
         self,

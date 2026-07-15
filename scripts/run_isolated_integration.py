@@ -350,6 +350,7 @@ def run_isolated_integration(
     process_runner: ProcessRunner,
     token_factory: Callable[[], str] | None = None,
     password_factory: Callable[[], str] | None = None,
+    migration_verifier: str = "verify_round08_migration.py",
 ) -> int:
     """Provision, run migrations and pytest, then clean up without masking test failures."""
     if not pytest_args:
@@ -372,7 +373,9 @@ def run_isolated_integration(
         bucket_created = True
 
         migration_environment = _migration_environment(config, resources)
-        exit_code = process_runner(_migration_command(config), migration_environment)
+        exit_code = process_runner(
+            _migration_command(config, migration_verifier), migration_environment
+        )
         if exit_code == 0:
             backend.create_login_roles(resources)
             login_roles_created = True
@@ -414,10 +417,14 @@ def run_isolated_integration(
     return exit_code
 
 
-def _migration_command(config: IntegrationConfig) -> tuple[str, ...]:
+def _migration_command(
+    config: IntegrationConfig, verifier: str = "verify_round08_migration.py"
+) -> tuple[str, ...]:
+    if verifier not in {"verify_round08_migration.py", "verify_round09_migration.py"}:
+        raise ValueError("migration verifier is not approved")
     return (
         config.python_executable,
-        "scripts/verify_round08_migration.py",
+        f"scripts/{verifier}",
     )
 
 
@@ -501,9 +508,14 @@ def _is_loopback_host(host: str) -> bool:
         return False
 
 
-def _parse_args(arguments: Sequence[str] | None) -> tuple[str, ...]:
+def _parse_args(arguments: Sequence[str] | None) -> tuple[str, tuple[str, ...]]:
     parser = argparse.ArgumentParser(
         description="Run pytest with a disposable PostgreSQL database and MinIO bucket."
+    )
+    parser.add_argument(
+        "--migration-verifier",
+        choices=("verify_round08_migration.py", "verify_round09_migration.py"),
+        default="verify_round08_migration.py",
     )
     parser.add_argument("pytest_args", nargs=argparse.REMAINDER)
     namespace = parser.parse_args(arguments)
@@ -512,11 +524,11 @@ def _parse_args(arguments: Sequence[str] | None) -> tuple[str, ...]:
         pytest_args = pytest_args[1:]
     if not pytest_args:
         parser.error("pytest arguments are required after --")
-    return pytest_args
+    return namespace.migration_verifier, pytest_args
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
-    pytest_args = _parse_args(arguments)
+    migration_verifier, pytest_args = _parse_args(arguments)
     try:
         config = IntegrationConfig.from_environment()
         return run_isolated_integration(
@@ -524,6 +536,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             config=config,
             backend=LocalResourceBackend(config),
             process_runner=_run_process,
+            migration_verifier=migration_verifier,
         )
     except Exception:
         print("Isolated integration setup failed; details redacted.", file=sys.stderr)

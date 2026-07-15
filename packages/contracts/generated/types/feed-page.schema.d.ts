@@ -2,6 +2,13 @@ export type Fingerprint = string
 export type Freshness = 'fresh' | 'delayed' | 'partial'
 export type GeneratedAt = string
 export type ActivityAt = string
+export type AcceptedClaimsOnly = boolean
+export type GeneratedAt1 = string | null
+export type ModelProfile = string | null
+export type PipelineRunId = string | null
+export type PromptVersion = string | null
+export type SchemaVersion = string | null
+export type Status = 'ASSISTED' | 'DEGRADED'
 export type ItemType =
   | 'DIGITAL_CASE'
   | 'JOURNAL_PAPER'
@@ -28,6 +35,10 @@ export type PublicationRevisionId = string | null
 export type PublicationStatus = 'PENDING_REVIEW' | 'PUBLISHED' | 'WITHDRAWN'
 export type RelevanceReason = string | null
 export type ReviewStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
+export type Action = 'PUBLISH' | 'REVISE' | 'WITHDRAW' | 'REPUBLISH'
+export type CreatedAt = string
+export type RevisionNumber = number
+export type WithdrawnAt = string | null
 export type CalculatedAt = string
 export type ScoreDimension =
   'RELEVANCE' | 'AUTHORITY' | 'IMPACT' | 'NOVELTY' | 'TIMELINESS' | 'EVIDENCE' | 'CONFIDENCE' | 'HEAT'
@@ -249,6 +260,7 @@ export interface FeedPage {
 }
 export interface ItemSummary {
   activity_at: ActivityAt
+  ai_assistance?: AiAssistance | null
   content_type: ItemType
   detail_available?: DetailAvailable
   document_states?: DocumentStates
@@ -266,6 +278,7 @@ export interface ItemSummary {
   publication_status?: PublicationStatus | null
   relevance_reason?: RelevanceReason
   review_status: ReviewStatus
+  revision_state?: PublicationRevisionState | null
   scores?: ScoreSummary | null
   source_name: SourceName
   source_published_at: SourcePublishedAt
@@ -273,6 +286,21 @@ export interface ItemSummary {
   tags?: Tags
   title: Title
   type_summary?: TypeSummary
+}
+export interface AiAssistance {
+  accepted_claims_only?: AcceptedClaimsOnly
+  generated_at?: GeneratedAt1
+  model_profile?: ModelProfile
+  pipeline_run_id?: PipelineRunId
+  prompt_version?: PromptVersion
+  schema_version?: SchemaVersion
+  status: Status
+}
+export interface PublicationRevisionState {
+  action: Action
+  created_at: CreatedAt
+  revision_number: RevisionNumber
+  withdrawn_at?: WithdrawnAt
 }
 export interface ScoreSummary {
   authority?: ScoreDimensionSummary | null

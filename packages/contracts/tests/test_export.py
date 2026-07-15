@@ -41,6 +41,8 @@ def test_exported_json_schemas_are_deterministic(tmp_path: Path) -> None:
         "product-normalization-candidate.schema.json",
         "product-normalization-decision-request.schema.json",
         "problem-details.schema.json",
+        "publication-revision-request.schema.json",
+        "publication-withdrawal-request.schema.json",
         "readiness-response.schema.json",
         "review-decision-request.schema.json",
         "review-decision-response.schema.json",

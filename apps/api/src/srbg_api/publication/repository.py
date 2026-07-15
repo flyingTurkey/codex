@@ -4,7 +4,7 @@ import json
 import logging
 import re
 import unicodedata
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -290,6 +290,51 @@ class PostgresPublicationRepository:
                         "error_code": type(error).__name__[:100],
                     },
                 )
+            return True
+
+    async def process_projection_invalidation_once(
+        self,
+        *,
+        processed_at: datetime,
+        cache_generation: Callable[[UUID, int, bool], Awaitable[None]],
+    ) -> bool:
+        """Consume one projection event; rollback leaves it pending on cache failure."""
+        async with self._engine.begin() as connection:
+            event = (
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT id, publication_id, projection, action, generation
+                            FROM publication_projection_invalidation
+                            WHERE status = 'PENDING'
+                            ORDER BY created_at, id
+                            FOR UPDATE SKIP LOCKED LIMIT 1
+                            """
+                        )
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            if event is None:
+                return False
+            if event["projection"] == "CACHE":
+                await cache_generation(
+                    cast(UUID, event["publication_id"]),
+                    int(event["generation"]),
+                    event["action"] != "WITHDRAW",
+                )
+            await connection.execute(
+                text(
+                    """
+                    UPDATE publication_projection_invalidation
+                    SET status = 'APPLIED', applied_at = :processed_at
+                    WHERE id = :event_id AND status = 'PENDING'
+                    """
+                ),
+                {"event_id": event["id"], "processed_at": processed_at},
+            )
             return True
 
     async def decide_cluster(
@@ -609,6 +654,15 @@ class PostgresPublicationRepository:
                         "reason": reason,
                     },
                 )
+                await _append_review_decision(
+                    connection,
+                    review_task_id=review_task_id,
+                    action="APPROVE",
+                    submitted_by=task["submitted_by"],
+                    decided_by=reviewer_id,
+                    reason=reason,
+                    decided_at=decided_at,
+                )
                 yield _PostgresPublicationTransaction(connection, task)
                 await transaction.commit()
             except BaseException:
@@ -641,6 +695,15 @@ class PostgresPublicationRepository:
                     "decided_at": decided_at,
                     "reason": reason,
                 },
+            )
+            await _append_review_decision(
+                connection,
+                review_task_id=review_task_id,
+                action="REJECT",
+                submitted_by=task["submitted_by"],
+                decided_by=reviewer_id,
+                reason=reason,
+                decided_at=decided_at,
             )
             await connection.execute(
                 text(
@@ -698,10 +761,12 @@ class PostgresPublicationRepository:
                                    item.item_type, membership.event_id,
                                    r.revision_number, r.document_version_id,
                                    r.source_policy_id, r.source_policy_sha256,
-                                   r.review_task_id, r.snapshot, r.evaluation
+                                   r.review_task_id, r.snapshot, r.evaluation,
+                                   task.submitted_by AS original_submitted_by
                             FROM publication p
                             JOIN publication_revision r ON r.id = p.current_revision_id
                             JOIN intelligence_item item ON item.id = p.item_id
+                            JOIN review_task task ON task.id = r.review_task_id
                             LEFT JOIN event_item membership ON membership.item_id = p.item_id
                             WHERE p.id = :publication_id
                             FOR UPDATE OF p
@@ -739,8 +804,46 @@ class PostgresPublicationRepository:
             )
             if not official_evidence:
                 raise PublicationDenied(("WITHDRAWAL_OFFICIAL_EVIDENCE_REQUIRED",))
+            if row["original_submitted_by"] == actor_id:
+                raise PublicationDenied(("DUTIES_NOT_SEPARATED",))
             revision_id = uuid7()
+            withdrawal_task_id = uuid7()
             evaluation = dict(row["evaluation"])
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO review_task (
+                        id, item_id, document_version_id, source_policy_id,
+                        risk_level, status, submitted_by, submitted_at,
+                        assigned_to, decided_by, decided_at, decision_reason,
+                        created_at, task_type
+                    ) VALUES (
+                        :id, :item_id, :document_version_id, :source_policy_id,
+                        'R3', 'APPROVED', :submitted_by, :now,
+                        :actor_id, :actor_id, :now, :reason, :now, 'WITHDRAWAL_REVIEW'
+                    )
+                    """
+                ),
+                {
+                    "id": withdrawal_task_id,
+                    "item_id": row["item_id"],
+                    "document_version_id": row["document_version_id"],
+                    "source_policy_id": row["source_policy_id"],
+                    "submitted_by": row["original_submitted_by"],
+                    "actor_id": actor_id,
+                    "reason": reason.strip(),
+                    "now": withdrawn_at,
+                },
+            )
+            await _append_review_decision(
+                connection,
+                review_task_id=withdrawal_task_id,
+                action="WITHDRAW",
+                submitted_by=row["original_submitted_by"],
+                decided_by=actor_id,
+                reason=reason,
+                decided_at=withdrawn_at,
+            )
             await connection.execute(
                 text(
                     """
@@ -764,7 +867,7 @@ class PostgresPublicationRepository:
                     "document_version_id": row["document_version_id"],
                     "source_policy_id": row["source_policy_id"],
                     "source_policy_sha256": row["source_policy_sha256"],
-                    "review_task_id": row["review_task_id"],
+                    "review_task_id": withdrawal_task_id,
                     "snapshot": _json(dict(row["snapshot"])),
                     "evaluation": _json(evaluation),
                     "evaluation_sha256": canonical_json_hash(evaluation),
@@ -786,6 +889,13 @@ class PostgresPublicationRepository:
                     "publication_id": publication_id,
                     "withdrawn_at": withdrawn_at,
                 },
+            )
+            await _enqueue_projection_invalidations(
+                connection,
+                publication_id=publication_id,
+                revision_id=revision_id,
+                action="WITHDRAW",
+                created_at=withdrawn_at,
             )
             await _append_audit(
                 connection,
@@ -1717,7 +1827,14 @@ class _PostgresPublicationTransaction:
             facts["paragraphs"] or [],
             item_type=item_type,
         )
-        if policy_version not in {"3.0.0", "4.0.0", "5.0.0", "6.0.0", "7.0.0"}:
+        if policy_version not in {
+            "2.1.0",
+            "3.0.0",
+            "4.0.0",
+            "5.0.0",
+            "6.0.0",
+            "7.0.0",
+        }:
             evidence_integrity.pop("minimum_critical_ocr_confidence_bps", None)
         round03 = await _round03_gate_facts(
             self._connection,
@@ -1775,6 +1892,11 @@ class _PostgresPublicationTransaction:
                 item_id=facts["item_id"],
             )
         content_hash = str(facts["content_hash"])
+        ai_pipeline = await _ai_pipeline_gate_facts(
+            self._connection,
+            document_version_id=facts["document_version_id"],
+            accepted_claim_ids={str(row["id"]) for row in claims},
+        )
         context: dict[str, Any] = {
             "evaluation_id": str(evaluation_id),
             "policy_version": policy_version,
@@ -1830,6 +1952,7 @@ class _PostgresPublicationTransaction:
                     "submitted_by": str(facts["submitted_by"]),
                     "decided_by": str(facts["decided_by"]),
                     "duties_separated": facts["submitted_by"] != facts["decided_by"],
+                    "decision_reason": str(facts["decision_reason"] or ""),
                 },
                 "pipeline": {
                     "candidate_schema_valid": _candidate_schema_valid(
@@ -1842,10 +1965,18 @@ class _PostgresPublicationTransaction:
                         if item_type == "SAFETY_CASE"
                         else "safety-regulation-parser-1.0.0"
                     ),
+                    **ai_pipeline,
                 },
             },
         }
-        if policy_version in {"3.0.0", "4.0.0", "5.0.0", "6.0.0", "7.0.0"}:
+        if policy_version in {
+            "2.1.0",
+            "3.0.0",
+            "4.0.0",
+            "5.0.0",
+            "6.0.0",
+            "7.0.0",
+        }:
             cast(dict[str, Any], context["server"])["round03"] = round03
             cast(dict[str, Any], cast(dict[str, Any], context["server"])["document"]).update(
                 {
@@ -1853,13 +1984,13 @@ class _PostgresPublicationTransaction:
                     "raw_security_status": facts["raw_security_status"],
                 }
             )
-        if policy_version in {"4.0.0", "5.0.0", "6.0.0", "7.0.0"} and round04 is not None:
+        if policy_version in {"2.1.0", "4.0.0", "5.0.0", "6.0.0", "7.0.0"} and round04 is not None:
             cast(dict[str, Any], context["server"])["round04"] = round04
-        if policy_version in {"5.0.0", "6.0.0", "7.0.0"} and round05 is not None:
+        if policy_version in {"2.1.0", "5.0.0", "6.0.0", "7.0.0"} and round05 is not None:
             cast(dict[str, Any], context["server"])["round05"] = round05
-        if policy_version in {"6.0.0", "7.0.0"} and round06 is not None:
+        if policy_version in {"2.1.0", "6.0.0", "7.0.0"} and round06 is not None:
             cast(dict[str, Any], context["server"])["round06"] = round06
-        if policy_version == "7.0.0" and round07 is not None:
+        if policy_version in {"2.1.0", "7.0.0"} and round07 is not None:
             cast(dict[str, Any], context["server"])["round07"] = round07
         self._context = context
         return context
@@ -1954,6 +2085,13 @@ class _PostgresPublicationTransaction:
                 "reviewer_id": reviewer_id,
                 "decided_at": decided_at,
             },
+        )
+        await _enqueue_projection_invalidations(
+            self._connection,
+            publication_id=publication_id,
+            revision_id=revision_id,
+            action="UPSERT",
+            created_at=decided_at,
         )
         await self._connection.execute(
             text(
@@ -2059,6 +2197,116 @@ class _PostgresPublicationTransaction:
             review_task_id=facts["review_task_id"],
             status=ReviewStatus.APPROVED,
             publication_revision_id=revision_id,
+        )
+
+
+async def _append_review_decision(
+    connection: AsyncConnection,
+    *,
+    review_task_id: UUID,
+    action: str,
+    submitted_by: UUID,
+    decided_by: UUID,
+    reason: str,
+    decided_at: datetime,
+) -> None:
+    if submitted_by == decided_by:
+        raise PublicationDenied(("DUTIES_NOT_SEPARATED",))
+    if not reason.strip():
+        raise PublicationDenied(("REVIEW_REASON_REQUIRED",))
+    await connection.execute(
+        text(
+            """
+            INSERT INTO review_decision (
+                id, review_task_id, action, reason,
+                submitted_by, decided_by, decided_at
+            ) VALUES (
+                :id, :review_task_id, :action, :reason,
+                :submitted_by, :decided_by, :decided_at
+            )
+            """
+        ),
+        {
+            "id": uuid7(),
+            "review_task_id": review_task_id,
+            "action": action,
+            "reason": reason.strip(),
+            "submitted_by": submitted_by,
+            "decided_by": decided_by,
+            "decided_at": decided_at,
+        },
+    )
+
+
+async def _enqueue_projection_invalidations(
+    connection: AsyncConnection,
+    *,
+    publication_id: UUID,
+    revision_id: UUID,
+    action: str,
+    created_at: datetime,
+) -> None:
+    generation = int(
+        await connection.scalar(
+            text(
+                """
+                SELECT COALESCE(MAX(generation), 0) + 1
+                FROM publication_projection_invalidation
+                WHERE publication_id = :publication_id
+                """
+            ),
+            {"publication_id": publication_id},
+        )
+        or 1
+    )
+    for projection in ("SEARCH", "CACHE", "DAILY_DIGEST"):
+        await connection.execute(
+            text(
+                """
+                INSERT INTO publication_projection_state (
+                    publication_id, projection, revision_id,
+                    visible, generation, updated_at
+                ) VALUES (
+                    :publication_id, :projection, :revision_id,
+                    :visible, :generation, :created_at
+                )
+                ON CONFLICT (publication_id, projection) DO UPDATE
+                SET revision_id = EXCLUDED.revision_id,
+                    visible = EXCLUDED.visible,
+                    generation = EXCLUDED.generation,
+                    updated_at = EXCLUDED.updated_at
+                """
+            ),
+            {
+                "publication_id": publication_id,
+                "projection": projection,
+                "revision_id": revision_id,
+                "visible": action != "WITHDRAW",
+                "generation": generation,
+                "created_at": created_at,
+            },
+        )
+        await connection.execute(
+            text(
+                """
+                INSERT INTO publication_projection_invalidation (
+                    id, publication_id, revision_id, projection,
+                    action, generation, status, created_at, applied_at
+                ) VALUES (
+                    :id, :publication_id, :revision_id, :projection,
+                    :action, :generation, 'PENDING', :created_at, NULL
+                )
+                """
+            ),
+            {
+                "id": uuid7(),
+                "publication_id": publication_id,
+                "revision_id": revision_id,
+                "projection": projection,
+                "action": action,
+                "generation": generation,
+                "created_at": created_at,
+            },
         )
 
 
@@ -3809,6 +4057,106 @@ def _validate_pending_review(task: RowMapping, reviewer_id: UUID, reason: str) -
         raise PublicationDenied(tuple(reasons))
 
 
+async def _ai_pipeline_gate_facts(
+    connection: AsyncConnection,
+    *,
+    document_version_id: UUID,
+    accepted_claim_ids: set[str],
+) -> dict[str, object]:
+    run = (
+        (
+            await connection.execute(
+                text(
+                    """
+                    SELECT id, status
+                    FROM ai_pipeline_run
+                    WHERE document_version_id = :document_version_id
+                      AND mode = 'LIVE'
+                    ORDER BY started_at DESC, id DESC
+                    LIMIT 1
+                    """
+                ),
+                {"document_version_id": document_version_id},
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if run is None or run["status"] in {"FAILED", "DEGRADED"}:
+        return {
+            "ai_status": "NOT_RUN_DEGRADED",
+            "four_steps_completed": False,
+            "accepted_summary_claim_refs_valid": False,
+            "unauthorized_candidate_field_count": 0,
+        }
+    step_rows = list(
+        (
+            await connection.execute(
+                text(
+                    """
+                    SELECT DISTINCT ON (step) step, status, validated_output
+                    FROM ai_step_run
+                    WHERE pipeline_run_id = :pipeline_run_id
+                    ORDER BY step, attempt DESC
+                    """
+                ),
+                {"pipeline_run_id": run["id"]},
+            )
+        ).mappings()
+    )
+    successful_steps = {
+        str(row["step"]) for row in step_rows if row["status"] == "SUCCEEDED"
+    }
+    four_steps_completed = successful_steps == {
+        "CLASSIFY",
+        "EXTRACT",
+        "SUMMARIZE",
+        "VERIFY",
+    }
+    summary = next(
+        (dict(row["validated_output"] or {}) for row in step_rows if row["step"] == "SUMMARIZE"),
+        {},
+    )
+    used_claim_ids = summary.get("used_claim_ids")
+    accepted_summary_claim_refs_valid = (
+        isinstance(used_claim_ids, list)
+        and bool(used_claim_ids)
+        and all(isinstance(value, str) for value in used_claim_ids)
+        and set(used_claim_ids).issubset(accepted_claim_ids)
+    )
+    forbidden = {
+        "source_authority",
+        "source_level",
+        "review_status",
+        "risk_level",
+        "security_resolution",
+        "publication_status",
+        "publication_recommendation",
+    }
+    unauthorized_count = sum(
+        _count_forbidden_candidate_fields(row["validated_output"], forbidden)
+        for row in step_rows
+    )
+    return {
+        "ai_status": "VALIDATED" if run["status"] == "SUCCEEDED" else "INVALID",
+        "four_steps_completed": four_steps_completed,
+        "accepted_summary_claim_refs_valid": accepted_summary_claim_refs_valid,
+        "unauthorized_candidate_field_count": unauthorized_count,
+    }
+
+
+def _count_forbidden_candidate_fields(value: object, forbidden: set[str]) -> int:
+    if isinstance(value, Mapping):
+        return sum(
+            (1 if str(key) in forbidden else 0)
+            + _count_forbidden_candidate_fields(child, forbidden)
+            for key, child in value.items()
+        )
+    if isinstance(value, list):
+        return sum(_count_forbidden_candidate_fields(child, forbidden) for child in value)
+    return 0
+
+
 async def _publication_facts(
     connection: AsyncConnection, review_task_id: UUID
 ) -> RowMapping | None:
@@ -3818,7 +4166,8 @@ async def _publication_facts(
                 text(
                     """
                     SELECT r.id AS review_task_id, r.risk_level, r.submitted_by,
-                           r.decided_by, r.document_version_id, r.source_policy_id,
+                           r.decided_by, r.decision_reason,
+                           r.document_version_id, r.source_policy_id,
                            i.id AS item_id, i.item_type, i.is_demo, i.publishable,
                            i.title, i.original_url, i.source_published_at,
                            i.current_document_version_id,

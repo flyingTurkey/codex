@@ -1,7 +1,7 @@
 {
-  "version": "2.0.0",
+  "version": "2.1.0",
   "contract": "publication_evaluation.schema.json",
-  "trust_boundary": "Only server-authoritative fields may be evaluated. Candidate payload fields never satisfy authority, scoring, review, source policy, document lifecycle, security resolution or evidence integrity rules.",
+  "trust_boundary": "Only server-authoritative fields freshly queried by PublicationService may be evaluated. AI candidate fields never satisfy source authority, scores, review, risk, security resolution, publication advice, document lifecycle or evidence integrity rules. Versions 3.0.0 through 7.0.0 are historical replay policies only.",
   "rule_precedence": ["DENY", "QUARANTINE", "HUMAN_REVIEW", "AUTO_INGEST", "SELECTED"],
   "default_decision": "DENY",
   "deny_overrides": [
@@ -20,7 +20,11 @@
     {"code": "PII_OR_REPUTATIONAL_REVIEW_FAILED", "field": "server.privacy.status", "not_in": ["CLEAR", "REDACTED_AND_APPROVED"]},
     {"code": "R4_QUARANTINE_ONLY", "field": "server.review.risk_level", "eq": "R4"},
     {"code": "CANDIDATE_SCHEMA_INVALID", "field": "server.pipeline.candidate_schema_valid", "eq": false},
-    {"code": "SEMANTIC_SAFETY_SCAN_FAILED", "field": "server.pipeline.semantic_safety_scan_pass", "eq": false}
+    {"code": "SEMANTIC_SAFETY_SCAN_FAILED", "field": "server.pipeline.semantic_safety_scan_pass", "eq": false},
+    {"code": "UNAUTHORIZED_AI_AUTHORITY_CANDIDATE", "field": "server.pipeline.unauthorized_candidate_field_count", "gt": 0},
+    {"code": "AI_PIPELINE_STATUS_INVALID", "field": "server.pipeline.ai_status", "not_in": ["VALIDATED", "NOT_RUN_DEGRADED"]},
+    {"code": "AI_FOUR_STEPS_INCOMPLETE", "all": [{"field": "server.pipeline.ai_status", "eq": "VALIDATED"}, {"field": "server.pipeline.four_steps_completed", "eq": false}]},
+    {"code": "SUMMARY_CLAIM_REFS_INVALID", "all": [{"field": "server.pipeline.ai_status", "eq": "VALIDATED"}, {"field": "server.pipeline.accepted_summary_claim_refs_valid", "eq": false}]}
   ],
   "mandatory_human_review": [
     {"item_types": ["SAFETY_REGULATION", "SAFETY_CASE"], "reason": "高风险安全内容"},
@@ -60,4 +64,3 @@
     "query_guard": "is_demo = false AND publishable = true AND publication_revision.valid = true"
   }
 }
-

@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://srbg.example.internal/schemas/publication-evaluation-2.0.0.json",
+  "$id": "https://srbg.example.internal/schemas/publication-evaluation-2.1.0.json",
   "title": "Authoritative Publication Evaluation Context",
   "type": "object",
   "additionalProperties": false,
   "required": ["evaluation_id", "policy_version", "policy_sha256", "evaluated_at", "item", "server"],
   "properties": {
     "evaluation_id": {"type": "string"},
-    "policy_version": {"const": "2.0.0"},
+    "policy_version": {"const": "2.1.0"},
     "policy_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "evaluated_at": {"type": "string", "format": "date-time"},
     "item": {
@@ -25,7 +25,7 @@
     "server": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["source", "document", "evidence_integrity", "security", "privacy", "review", "pipeline"],
+      "required": ["source", "document", "evidence_integrity", "security", "privacy", "review", "pipeline", "round03"],
       "properties": {
         "source": {
           "type": "object",
@@ -44,7 +44,7 @@
         "document": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["document_id", "document_version_id", "content_sha256", "is_current", "lifecycle_status", "hash_verified", "url_policy_pass"],
+          "required": ["document_id", "document_version_id", "content_sha256", "is_current", "lifecycle_status", "hash_verified", "url_policy_pass", "processing_state", "raw_security_status"],
           "properties": {
             "document_id": {"type": "string"},
             "document_version_id": {"type": "string"},
@@ -52,13 +52,15 @@
             "is_current": {"const": true},
             "lifecycle_status": {"enum": ["ACTIVE", "CORRECTED"]},
             "hash_verified": {"const": true},
-            "url_policy_pass": {"const": true}
+            "url_policy_pass": {"const": true},
+            "processing_state": {"const": "READY"},
+            "raw_security_status": {"const": "CLEAN"}
           }
         },
         "evidence_integrity": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["claim_count", "evidence_count", "bidirectional_refs_valid", "locators_verified", "excerpts_match_source", "accepted_critical_claim_coverage_percent", "unresolved_conflict_count", "validator_version"],
+          "required": ["claim_count", "evidence_count", "bidirectional_refs_valid", "locators_verified", "excerpts_match_source", "accepted_critical_claim_coverage_percent", "unresolved_conflict_count", "minimum_critical_ocr_confidence_bps", "validator_version"],
           "properties": {
             "claim_count": {"type": "integer", "minimum": 1},
             "evidence_count": {"type": "integer", "minimum": 1},
@@ -67,6 +69,7 @@
             "excerpts_match_source": {"const": true},
             "accepted_critical_claim_coverage_percent": {"const": 100},
             "unresolved_conflict_count": {"const": 0},
+            "minimum_critical_ocr_confidence_bps": {"type": "integer", "minimum": 9500, "maximum": 10000},
             "validator_version": {"type": "string"}
           }
         },
@@ -115,28 +118,50 @@
         "review": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["risk_level", "required", "decision_status", "duties_separated"],
+          "required": ["risk_level", "required", "decision_status", "duties_separated", "decision_reason"],
           "properties": {
-            "risk_level": {"enum": ["R1", "R2", "R3"]},
+            "risk_level": {"enum": ["R1", "R2", "R3", "R4"]},
             "required": {"type": "boolean"},
             "decision_status": {"enum": ["NOT_REQUIRED", "APPROVED"]},
             "decision_id": {"type": ["string", "null"]},
             "submitted_by": {"type": ["string", "null"]},
             "decided_by": {"type": ["string", "null"]},
-            "duties_separated": {"type": "boolean"}
+            "duties_separated": {"type": "boolean"},
+            "decision_reason": {"type": "string", "minLength": 1}
           }
         },
         "pipeline": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["candidate_schema_valid", "semantic_safety_scan_pass", "candidate_schema_version"],
+          "required": ["candidate_schema_valid", "semantic_safety_scan_pass", "candidate_schema_version", "ai_status", "four_steps_completed", "accepted_summary_claim_refs_valid", "unauthorized_candidate_field_count"],
           "properties": {
             "candidate_schema_valid": {"const": true},
             "semantic_safety_scan_pass": {"const": true},
-            "candidate_schema_version": {"type": "string"}
+            "candidate_schema_version": {"type": "string"},
+            "ai_status": {"enum": ["VALIDATED", "NOT_RUN_DEGRADED"]},
+            "four_steps_completed": {"type": "boolean"},
+            "accepted_summary_claim_refs_valid": {"type": "boolean"},
+            "unauthorized_candidate_field_count": {"const": 0}
           }
+        },
+        "round03": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["unresolved_relation_candidate_count", "unreviewed_regulation_status_candidate_count", "unsafe_attachment_count", "summary_claim_refs_valid", "official_status_evidence", "status_reviewer_decision"],
+          "properties": {
+            "unresolved_relation_candidate_count": {"const": 0},
+            "unreviewed_regulation_status_candidate_count": {"const": 0},
+            "unsafe_attachment_count": {"const": 0},
+            "summary_claim_refs_valid": {"const": true},
+            "official_status_evidence": {"type": "boolean"},
+            "status_reviewer_decision": {"type": "boolean"}
+          }
+        },
+        "round04": {"type": "object"},
+        "round05": {"type": "object"},
+        "round06": {"type": "object"},
+        "round07": {"type": "object"}
         }
       }
     }
   }
-}

@@ -13,6 +13,7 @@ import { computed, ref, watch } from 'vue'
 
 import EvidenceDrawer from '../../../components/EvidenceDrawer.vue'
 import IntelligenceCard from '../../../components/IntelligenceCard.vue'
+import ReviewWorkbench from '../../../components/ReviewWorkbench.vue'
 
 const route = useRoute()
 const taskId = String(route.params.id)
@@ -189,6 +190,7 @@ async function decide(action: 'APPROVE' | 'REJECT'): Promise<void> {
         :label="detail.task.status === 'PENDING' ? '待审核' : detail.task.status === 'APPROVED' ? '已批准' : '已拒绝'"
         :tone="detail.task.status === 'PENDING' ? 'pending' : detail.task.status === 'APPROVED' ? 'verified' : 'conflict'"
       />
+      <ReviewWorkbench :detail="detail" @evidence="openAllEvidence" />
       <section class="review-detail__item" aria-labelledby="review-item-title">
         <h2 id="review-item-title">待审核内容</h2>
         <IntelligenceCard :item="detail.item" />

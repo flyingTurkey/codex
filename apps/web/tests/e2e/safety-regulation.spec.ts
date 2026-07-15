@@ -221,6 +221,15 @@ test('review workspace submits only decision and reason to the service endpoint'
     evidence,
     item: {
       ...baseItem,
+      ai_assistance: {
+        accepted_claims_only: true,
+        generated_at: '2026-07-14T01:08:00Z',
+        model_profile: 'mock-v1',
+        pipeline_run_id: '019b0000-0000-7000-8000-000000001030',
+        prompt_version: 'summary-v1',
+        schema_version: 'summary-schema-v1',
+        status: 'ASSISTED',
+      },
       evidence_count: 1,
       evidence_status: 'VERIFIED',
       publication_status: 'PENDING_REVIEW',
@@ -280,6 +289,13 @@ test('review workspace submits only decision and reason to the service endpoint'
   await expect(page.locator('.srbg-app-shell')).toHaveAttribute('aria-busy', 'false', {
     timeout: 15_000,
   })
+  const workbench = page.getByRole('region', { name: '三栏审核工作台' })
+  await expect(workbench.getByRole('heading', { name: '原文与定位证据' })).toBeVisible()
+  await expect(workbench.getByRole('heading', { name: '字段与证据' })).toBeVisible()
+  await expect(workbench.getByRole('heading', { name: '摘要对照与决定' })).toBeVisible()
+  await workbench.getByText('Prompt / Schema / 模型版本').click()
+  await expect(workbench.getByText('summary-v1')).toBeVisible()
+  await expect(workbench.getByText('模型建议不具授权性', { exact: false })).toBeVisible()
   await page.getByRole('button', { name: '批准并发布' }).click()
 
   expect(decisionBody).toEqual({ action: 'APPROVE', reason: '字段与官方原文证据一致' })

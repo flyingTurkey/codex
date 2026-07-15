@@ -27,7 +27,7 @@ CLAIM_CONFLICT_ID = UUID("019b0000-0000-7000-8000-000000005008")
 def _context(*, source_status: str = "ACTIVE", duties_separated: bool = True) -> dict[str, Any]:
     return {
         "evaluation_id": "019b0000-0000-7000-8000-000000005010",
-        "policy_version": "2.0.0",
+        "policy_version": "2.1.0",
         "policy_sha256": sha256(POLICY.read_bytes()).hexdigest(),
         "evaluated_at": "2026-07-14T02:00:00Z",
         "item": {
@@ -55,6 +55,8 @@ def _context(*, source_status: str = "ACTIVE", duties_separated: bool = True) ->
                 "lifecycle_status": "ACTIVE",
                 "hash_verified": True,
                 "url_policy_pass": True,
+                "processing_state": "READY",
+                "raw_security_status": "CLEAN",
             },
             "evidence_integrity": {
                 "claim_count": 4,
@@ -64,6 +66,7 @@ def _context(*, source_status: str = "ACTIVE", duties_separated: bool = True) ->
                 "excerpts_match_source": True,
                 "accepted_critical_claim_coverage_percent": 100,
                 "unresolved_conflict_count": 0,
+                "minimum_critical_ocr_confidence_bps": 10000,
                 "validator_version": "1.0.0",
             },
             "security": {
@@ -86,11 +89,24 @@ def _context(*, source_status: str = "ACTIVE", duties_separated: bool = True) ->
                 "submitted_by": str(SUBMITTER_ID),
                 "decided_by": str(REVIEWER_ID),
                 "duties_separated": duties_separated,
+                "decision_reason": "已逐项核对原文、证据与关键字段",
             },
             "pipeline": {
                 "candidate_schema_valid": True,
                 "semantic_safety_scan_pass": True,
                 "candidate_schema_version": "safety-regulation-parser-1.0.0",
+                "ai_status": "NOT_RUN_DEGRADED",
+                "four_steps_completed": False,
+                "accepted_summary_claim_refs_valid": False,
+                "unauthorized_candidate_field_count": 0,
+            },
+            "round03": {
+                "unresolved_relation_candidate_count": 0,
+                "unreviewed_regulation_status_candidate_count": 0,
+                "unsafe_attachment_count": 0,
+                "summary_claim_refs_valid": True,
+                "official_status_evidence": False,
+                "status_reviewer_decision": False,
             },
         },
     }
@@ -134,7 +150,7 @@ class FakeTransaction:
         decided_at: datetime,
     ) -> ReviewDecisionResponse:
         assert action == "PUBLISH"
-        assert evaluation["policy_version"] == "2.0.0"
+        assert evaluation["policy_version"] == "2.1.0"
         assert len(evaluation_sha256) == 64
         assert reviewer_id == REVIEWER_ID
         assert reason

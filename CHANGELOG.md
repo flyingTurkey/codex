@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+### Round 09 — 受控模型网关、审核治理与发布版本
+
+- 新增无工具能力的受控模型网关、确定性 Mock provider 和可配置 OpenAI 兼容 provider；分类、事实抽取、摘要、发布前复核四步均绑定不可变 Prompt、JSON Schema、模型参数、输入 SHA-256、原始/校验后输出、Token、微美元成本和耗时。
+- 新增 Alembic `0010_ai_editorial_governance`，保存 AI 运行、Prompt/Schema/模型版本、注入扫描、安全决定、内容审核决定、历史回放、影子结果、质量报告及发布投影状态；AI Worker 使用独立队列且没有数据库、对象存储、Shell 或工具权限。
+- 将唯一 `publication_gate.json` 升级为 `2.1.0`，由唯一 `PublicationService` 现查来源、当前文档、证据、审核、风险和安全事实；模型自报的来源等级、审核状态、风险、安全处置和发布建议均不能授权发布，R3/R4、事故原因/责任和法规效力保持强制人审。
+- 扩展原有发布服务完成批准、拒绝、纠错、修订、撤回和重发的不可变 `review_decision`/`publication_revision` 工作流；API、后台动作、Worker 和脚本的发布路径审计确认不存在平行入口，应用层与 PostgreSQL 最小权限共同阻止直写发布表。
+- 发布、修订和撤回在同一事务推进搜索、缓存和日报投影 generation；publisher worker 经 `PublicationService` 消费投影事件并原子更新 Redis generation/visible 指针，撤回后旧缓存版本不可达，已发布修订快照不被模型升级静默改写。
+- 复用 `AppShell`、`IntelligenceFeedPage`、`TimelineFeed`、`IntelligenceCard`、冻结的 `FeedPage`/`ItemSummary`、`PdfEvidenceViewer`、`FactList`、`EvidenceDrawer` 和 `StatusBadge`，新增三栏 `ReviewWorkbench`，并在信息流/详情增量展示 AI 辅助、Prompt/Schema/模型版本、无 AI 降级、修订和撤回状态；完整摘要只允许引用 accepted claims。
+- 新增恶意固定样本、模型输出对抗、发布绕过审计、迁移/RBAC、fixture replay 和质量报告；覆盖忽略指令/密钥泄露、额外字段、错误 JSON、伪造 evidence_id、无证据事实、企业声明缺归因以及伪造审核/权威/安全处置。
+
 ### Round 08 — 去重、事件聚类、热点和评分
 
 - 新增 Alembic `0009_dedup_events_scoring`，统一保存 URL/外部 ID/DOI/机构域内文号/哈希身份键、正文指纹、重复候选与决定、来源谱系、主题聚类、八维评分、人工覆盖和回归样本；决定与审计均为追加式，运行角色不能直接写人工决定。

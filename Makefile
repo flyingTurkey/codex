@@ -47,7 +47,7 @@ export PLAYWRIGHT_BROWSERS_PATH
 .PHONY: setup dev runtime-ready down lint typecheck test contract-test security-check smoke \
 	resilience-test fixture-replay quality-gate web-e2e web-a11y source-fixture-test \
 	safety-regulation-test pdf-ocr-test safety-case-test digital-case-test paper-test product-test \
-	round08-test round08-eval
+	round08-test round08-eval round09-test round09-eval
 
 setup:
 	$(UV) sync --frozen --all-packages
@@ -128,7 +128,12 @@ fixture-replay:
 		apps/api/tests/test_technology_product_source.py \
 		apps/api/tests/test_round08_resolution_domain.py \
 		apps/api/tests/test_round08_evaluation.py \
+		apps/api/tests/test_ai_gateway.py \
+		apps/api/tests/test_ai_pipeline_runtime.py \
+		apps/api/tests/test_round09_feed_projection.py \
+		apps/api/tests/test_round09_projection_contract.py \
 		apps/api/tests/test_publication_service.py -q
+	$(UV) run python scripts/evaluate_round09.py
 
 quality-gate: lint typecheck test contract-test security-check
 
@@ -203,6 +208,25 @@ round08-test:
 
 round08-eval:
 	$(UV) run python scripts/evaluate_round08.py
+
+round09-test:
+	$(COMPOSE) up --detach --wait postgres minio
+	$(UV) run python scripts/run_isolated_integration.py --migration-verifier verify_round09_migration.py -- \
+		apps/api/tests/test_ai_gateway.py \
+		apps/api/tests/test_ai_pipeline_contracts.py \
+		apps/api/tests/test_ai_pipeline_runtime.py \
+		apps/api/tests/test_round09_migration.py \
+		apps/api/tests/test_round09_publication_paths.py \
+		apps/api/tests/test_round09_projection_contract.py \
+		apps/api/tests/test_round09_feed_projection.py \
+		apps/api/tests/test_publication_gate.py \
+		apps/api/tests/test_publication_rbac_integration.py \
+		apps/worker/tests/test_ai_worker_isolation.py \
+		apps/worker/tests/test_round09_projection_worker.py -q
+	$(UV) run python scripts/audit_publication_paths.py
+
+round09-eval:
+	$(UV) run python scripts/evaluate_round09.py
 
 web-e2e: runtime-ready
 	$(PNPM) --filter @srbg/web e2e

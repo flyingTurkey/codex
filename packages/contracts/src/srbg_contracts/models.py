@@ -1107,6 +1107,23 @@ class TypeSummary(RootModel[TypeSummaryValue]):
     """Tagged union exported for TypeScript consumers."""
 
 
+class AiAssistance(ContractModel):
+    status: Literal["ASSISTED", "DEGRADED"]
+    pipeline_run_id: UUID | None = None
+    prompt_version: str | None = Field(default=None, max_length=80)
+    schema_version: str | None = Field(default=None, max_length=80)
+    model_profile: str | None = Field(default=None, max_length=80)
+    generated_at: datetime | None = None
+    accepted_claims_only: bool = False
+
+
+class PublicationRevisionState(ContractModel):
+    revision_number: int = Field(ge=1)
+    action: Literal["PUBLISH", "REVISE", "WITHDRAW", "REPUBLISH"]
+    created_at: datetime
+    withdrawn_at: datetime | None = None
+
+
 class ItemSummary(ContractModel):
     id: UUID
     publication_revision_id: UUID | None
@@ -1133,6 +1150,8 @@ class ItemSummary(ContractModel):
     document_states: list[DocumentState] | None = None
     has_version_history: bool | None = None
     scores: ScoreSummary | None = None
+    ai_assistance: AiAssistance | None = None
+    revision_state: PublicationRevisionState | None = None
 
 
 class FeedPage(ContractModel):
@@ -1471,6 +1490,15 @@ class ReviewDecisionResponse(ContractModel):
     review_task_id: UUID
     status: ReviewStatus
     publication_revision_id: UUID | None
+
+
+class PublicationRevisionRequest(ContractModel):
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class PublicationWithdrawalRequest(ContractModel):
+    reason: str = Field(min_length=1, max_length=1000)
+    evidence_id: UUID
 
 
 class ReviewTaskSummary(ContractModel):

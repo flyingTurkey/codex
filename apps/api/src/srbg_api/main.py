@@ -399,8 +399,8 @@ def build_default_app() -> FastAPI:
     settings = get_settings()
     policy_root = Path("docs/codex-kit/assets/validation")
     publication_gate = PublicationGate.from_files(
-        policy_root / "publication_gate_v7.json",
-        policy_root / "publication_evaluation_v7.schema.json",
+        policy_root / "publication_gate.json",
+        policy_root / "publication_evaluation.schema.json",
     )
     return create_app(
         source_service=build_default_source_service(settings),

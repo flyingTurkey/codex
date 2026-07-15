@@ -8,6 +8,7 @@ dependencies = [
   "asyncpg==0.31.0",
   "fastapi==0.139.0",
   "httpx2==2.5.0",
+  "jsonschema==4.26.0",
   "pydantic-settings==2.14.2",
   "pymupdf==1.26.7",
   "redis==8.0.1",

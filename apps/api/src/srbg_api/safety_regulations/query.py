@@ -15,6 +15,7 @@ from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 from srbg_contracts import (
     AbstractAvailability,
+    AiAssistance,
     AiEquipmentTypeSummary,
     Channel,
     ClaimView,
@@ -66,6 +67,7 @@ from srbg_contracts import (
     ProductEvidenceLevel,
     ProductNormalizationCandidateView,
     ProductPermitStatus,
+    PublicationRevisionState,
     PublicationStatus,
     RecommendedAction,
     RelevanceFactor,
@@ -198,6 +200,99 @@ class PostgresIntelligenceQueryService:
             if item.id in grouped
             else item
             for item in items
+        ]
+
+    async def _with_round09_projection(
+        self, rows: list[RowMapping]
+    ) -> list[dict[str, Any]]:
+        """Attach governed AI provenance and immutable revision state to feed rows."""
+        if not rows:
+            return []
+        item_ids = [cast(UUID, row["id"]) for row in rows]
+        async with self._engine.connect() as connection:
+            projection_rows = list(
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT item.id,
+                                   current_revision.revision_number,
+                                   current_revision.action AS revision_action,
+                                   current_revision.created_at AS revision_created_at,
+                                   CASE WHEN current_revision.action = 'WITHDRAW'
+                                        THEN current_revision.created_at
+                                        ELSE NULL END AS revision_withdrawn_at,
+                                   ai.run_id AS ai_pipeline_run_id,
+                                   ai.prompt_version AS ai_prompt_version,
+                                   ai.schema_version AS ai_schema_version,
+                                   ai.model_profile AS ai_model_profile,
+                                   ai.generated_at AS ai_generated_at,
+                                   ai.one_sentence_fact,
+                                   COALESCE(ai.accepted_claims_only, false)
+                                     AS ai_accepted_claims_only
+                            FROM intelligence_item item
+                            LEFT JOIN publication
+                              ON publication.item_id = item.id
+                            LEFT JOIN publication_revision current_revision
+                              ON current_revision.id = publication.current_revision_id
+                            LEFT JOIN LATERAL (
+                                SELECT run.id AS run_id,
+                                       prompt.version AS prompt_version,
+                                       schema.version AS schema_version,
+                                       model.version AS model_profile,
+                                       run.completed_at AS generated_at,
+                                       summary.validated_output ->> 'one_sentence'
+                                         AS one_sentence_fact,
+                                       NOT EXISTS (
+                                         SELECT 1
+                                         FROM jsonb_array_elements_text(
+                                           summary.validated_output -> 'used_claim_ids'
+                                         ) used(claim_id)
+                                         WHERE NOT EXISTS (
+                                           SELECT 1 FROM claim accepted
+                                           WHERE accepted.id::text = used.claim_id
+                                             AND accepted.item_id = item.id
+                                             AND accepted.verification_status = 'ACCEPTED'
+                                         )
+                                       ) AS accepted_claims_only
+                                FROM ai_pipeline_run run
+                                JOIN LATERAL (
+                                  SELECT step.* FROM ai_step_run step
+                                  WHERE step.pipeline_run_id = run.id
+                                    AND step.step = 'SUMMARIZE'
+                                    AND step.status = 'SUCCEEDED'
+                                  ORDER BY step.attempt DESC LIMIT 1
+                                ) summary ON true
+                                JOIN ai_prompt_version prompt
+                                  ON prompt.id = summary.prompt_version_id
+                                JOIN ai_schema_version schema
+                                  ON schema.id = summary.schema_version_id
+                                JOIN ai_model_profile model
+                                  ON model.id = summary.model_profile_id
+                                WHERE run.document_version_id = item.current_document_version_id
+                                  AND run.mode = 'LIVE' AND run.status = 'SUCCEEDED'
+                                  AND (
+                                    SELECT count(DISTINCT step.step)
+                                    FROM ai_step_run step
+                                    WHERE step.pipeline_run_id = run.id
+                                      AND step.status = 'SUCCEEDED'
+                                  ) = 4
+                                ORDER BY run.completed_at DESC NULLS LAST,
+                                         run.id DESC LIMIT 1
+                            ) ai ON true
+                            WHERE item.id = ANY(CAST(:item_ids AS uuid[]))
+                            """
+                        ),
+                        {"item_ids": item_ids},
+                    )
+                ).mappings()
+            )
+        projections = {row["id"]: row for row in projection_rows}
+        return [
+            {**dict(row), **dict(projections[row["id"]])}
+            if row["id"] in projections
+            else dict(row)
+            for row in rows
         ]
 
     async def render_processing_metrics(self) -> str:
@@ -732,7 +827,8 @@ class PostgresIntelligenceQueryService:
             )
         has_more = len(rows) > limit
         visible = rows[:limit]
-        items = await self._with_scores([_item_summary(row) for row in visible])
+        projected = await self._with_round09_projection(visible)
+        items = await self._with_scores([_item_summary(row) for row in projected])
         next_cursor = None
         if has_more and visible:
             next_cursor = _encode_cursor(visible[-1]["activity_at"], visible[-1]["id"])
@@ -861,7 +957,8 @@ class PostgresIntelligenceQueryService:
             )
         has_more = len(rows) > limit
         visible = rows[:limit]
-        items = await self._with_scores([_item_summary(row) for row in visible])
+        projected = await self._with_round09_projection(visible)
+        items = await self._with_scores([_item_summary(row) for row in projected])
         next_cursor = None
         if has_more and visible and sort == "latest":
             next_cursor = _encode_cursor(visible[-1]["activity_at"], visible[-1]["id"])
@@ -972,12 +1069,13 @@ class PostgresIntelligenceQueryService:
                 ).mappings()
             )
         visible = rows[:limit]
+        projected = await self._with_round09_projection(visible)
         next_cursor = (
             _encode_cursor(visible[-1]["activity_at"], visible[-1]["id"])
             if len(rows) > limit and visible
             else None
         )
-        items = await self._with_scores([_item_summary(row) for row in visible])
+        items = await self._with_scores([_item_summary(row) for row in projected])
         return _feed_page(
             items,
             now=datetime.now(UTC),
@@ -1101,12 +1199,13 @@ class PostgresIntelligenceQueryService:
                 ).mappings()
             )
         visible = rows[:limit]
+        projected = await self._with_round09_projection(visible)
         next_cursor = (
             _encode_cursor(visible[-1]["activity_at"], visible[-1]["id"])
             if len(rows) > limit and visible
             else None
         )
-        items = await self._with_scores([_item_summary(row) for row in visible])
+        items = await self._with_scores([_item_summary(row) for row in projected])
         return _feed_page(
             items,
             now=datetime.now(UTC),
@@ -2331,6 +2430,18 @@ async def _item_row(
                    i.review_status, s.name AS source_name,
                    p.status AS publication_status,
                    p.current_revision_id AS publication_revision_id,
+                   current_revision.revision_number,
+                   current_revision.action AS revision_action,
+                   current_revision.created_at AS revision_created_at,
+                   CASE WHEN current_revision.action = 'WITHDRAW'
+                        THEN current_revision.created_at ELSE NULL END AS revision_withdrawn_at,
+                   ai.run_id AS ai_pipeline_run_id,
+                   ai.prompt_version AS ai_prompt_version,
+                   ai.schema_version AS ai_schema_version,
+                   ai.model_profile AS ai_model_profile,
+                   ai.generated_at AS ai_generated_at,
+                   ai.one_sentence_fact,
+                   COALESCE(ai.accepted_claims_only, false) AS ai_accepted_claims_only,
                    r.classification, r.document_number, r.issuing_authority,
                    r.regulation_status,
                    case_profile.report_stage,
@@ -2515,6 +2626,44 @@ async def _item_row(
             ) product_capabilities ON true
             LEFT JOIN event_item event_link ON event_link.item_id = i.id
             LEFT JOIN publication p ON p.item_id = i.id
+            LEFT JOIN publication_revision current_revision
+              ON current_revision.id = p.current_revision_id
+            LEFT JOIN LATERAL (
+                SELECT run.id AS run_id,
+                       prompt.version AS prompt_version,
+                       schema.version AS schema_version,
+                       model.version AS model_profile,
+                       run.completed_at AS generated_at,
+                       summary.validated_output ->> 'one_sentence' AS one_sentence_fact,
+                       NOT EXISTS (
+                         SELECT 1
+                         FROM jsonb_array_elements_text(
+                           summary.validated_output -> 'used_claim_ids'
+                         ) used(claim_id)
+                         WHERE NOT EXISTS (
+                           SELECT 1 FROM claim accepted
+                           WHERE accepted.id::text = used.claim_id
+                             AND accepted.item_id = i.id
+                             AND accepted.verification_status = 'ACCEPTED'
+                         )
+                       ) AS accepted_claims_only
+                FROM ai_pipeline_run run
+                JOIN LATERAL (
+                  SELECT step.* FROM ai_step_run step
+                  WHERE step.pipeline_run_id = run.id AND step.step = 'SUMMARIZE'
+                    AND step.status = 'SUCCEEDED'
+                  ORDER BY step.attempt DESC LIMIT 1
+                ) summary ON true
+                JOIN ai_prompt_version prompt ON prompt.id = summary.prompt_version_id
+                JOIN ai_schema_version schema ON schema.id = summary.schema_version_id
+                JOIN ai_model_profile model ON model.id = summary.model_profile_id
+                WHERE run.document_version_id = i.current_document_version_id
+                  AND run.mode = 'LIVE' AND run.status = 'SUCCEEDED'
+                  AND (SELECT count(DISTINCT step.step) FROM ai_step_run step
+                       WHERE step.pipeline_run_id = run.id
+                         AND step.status = 'SUCCEEDED') = 4
+                ORDER BY run.completed_at DESC NULLS LAST, run.id DESC LIMIT 1
+            ) ai ON true
             LEFT JOIN LATERAL (
                 SELECT array_agg(DISTINCT conflict.field_name) AS fields
                 FROM public_safety_case_conflict conflict
@@ -2672,7 +2821,9 @@ async def _technology_product_detail(
     )
 
 
-def _item_summary(row: RowMapping, *, reviewer_projection: bool = False) -> ItemSummary:
+def _item_summary(
+    row: RowMapping | Mapping[str, Any], *, reviewer_projection: bool = False
+) -> ItemSummary:
     states = _document_states(row)
     item_type = ItemType(str(row.get("item_type", ItemType.SAFETY_REGULATION.value)))
     published = row["publication_status"] == "PUBLISHED" and row["review_status"] == "APPROVED"
@@ -2902,6 +3053,11 @@ def _item_summary(row: RowMapping, *, reviewer_projection: bool = False) -> Item
         activity_at=row["activity_at"],
         original_url=row["original_url"],
         review_status=ReviewStatus(row["review_status"]),
+        one_sentence_fact=(
+            str(row["one_sentence_fact"])
+            if row.get("one_sentence_fact") and row.get("ai_accepted_claims_only") is True
+            else None
+        ),
         source_role=(
             "企业自述"
             if item_type is ItemType.DIGITAL_CASE
@@ -2929,6 +3085,32 @@ def _item_summary(row: RowMapping, *, reviewer_projection: bool = False) -> Item
         detail_available=True,
         document_states=states or None,
         has_version_history=(row["version_count"] > 1) or None,
+        ai_assistance=(
+            AiAssistance(
+                status="ASSISTED" if row.get("ai_pipeline_run_id") else "DEGRADED",
+                pipeline_run_id=row.get("ai_pipeline_run_id"),
+                prompt_version=row.get("ai_prompt_version"),
+                schema_version=row.get("ai_schema_version"),
+                model_profile=row.get("ai_model_profile"),
+                generated_at=row.get("ai_generated_at"),
+                accepted_claims_only=row.get("ai_accepted_claims_only") is True,
+            )
+            if "ai_pipeline_run_id" in row
+            else None
+        ),
+        revision_state=(
+            PublicationRevisionState(
+                revision_number=int(row["revision_number"]),
+                action=cast(
+                    Literal["PUBLISH", "REVISE", "WITHDRAW", "REPUBLISH"],
+                    str(row["revision_action"]),
+                ),
+                created_at=row["revision_created_at"],
+                withdrawn_at=row.get("revision_withdrawn_at"),
+            )
+            if row.get("revision_number") is not None
+            else None
+        ),
     )
 
 
@@ -2943,7 +3125,7 @@ def _critical_safety_field(field_name: str) -> CriticalSafetyField:
     return mapping[field_name]
 
 
-def _document_states(row: RowMapping) -> list[DocumentState]:
+def _document_states(row: RowMapping | Mapping[str, Any]) -> list[DocumentState]:
     states: list[DocumentState] = []
     if row["publication_status"] == "WITHDRAWN":
         states.append(DocumentState.WITHDRAWN)

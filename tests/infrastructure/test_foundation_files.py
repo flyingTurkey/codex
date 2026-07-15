@@ -172,7 +172,7 @@ def test_compose_commands_use_repository_as_project_directory() -> None:
     assert "-include .env" in makefile
     assert "export WEB_PORT API_PORT" in makefile
     assert COMPOSE[:5] == ["docker", "compose", "--project-directory", ".", "-f"]
-    assert compose.count("context: .\n") == 7
+    assert compose.count("context: .\n") == 8
     assert "  parser:" in compose
     assert "  publisher:" in compose
     assert "context: ../.." not in compose

@@ -1,12 +1,13 @@
 """Publication gate v2 evaluated only from server-authoritative context."""
 
 import json
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, Literal, TypeGuard
+
+from jsonschema import Draft202012Validator, FormatChecker
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,7 +22,8 @@ class GateResult:
 class PublicationGate:
     def __init__(self, policy: dict[str, Any], schema: dict[str, Any], policy_sha256: str) -> None:
         if (
-            policy.get("version") not in {"2.0.0", "3.0.0", "4.0.0", "5.0.0", "6.0.0", "7.0.0"}
+            policy.get("version")
+            not in {"2.0.0", "2.1.0", "3.0.0", "4.0.0", "5.0.0", "6.0.0", "7.0.0"}
             or policy.get("default_decision") != "DENY"
         ):
             raise ValueError("publication gate must be a supported default-deny policy")
@@ -51,7 +53,9 @@ class PublicationGate:
         action: Literal["PUBLISH", "SELECTED"],
     ) -> GateResult:
         reasons: list[str] = []
-        if _schema_errors(context, self._schema, "$"):
+        if tuple(
+            Draft202012Validator(self._schema, format_checker=FormatChecker()).iter_errors(context)
+        ):
             reasons.append("EVALUATION_SCHEMA_INVALID")
         if context.get("policy_version") != self._policy["version"]:
             reasons.append("POLICY_VERSION_MISMATCH")
@@ -115,18 +119,44 @@ class PublicationGate:
             reasons.append("CANDIDATE_SCHEMA_INVALID")
         if pipeline.get("semantic_safety_scan_pass") is not True:
             reasons.append("SEMANTIC_SAFETY_SCAN_FAILED")
+        if self.policy_version == "2.1.0":
+            if pipeline.get("unauthorized_candidate_field_count") != 0:
+                reasons.append("UNAUTHORIZED_AI_AUTHORITY_CANDIDATE")
+            ai_status = pipeline.get("ai_status")
+            if ai_status not in {"VALIDATED", "NOT_RUN_DEGRADED"}:
+                reasons.append("AI_PIPELINE_STATUS_INVALID")
+            if ai_status == "VALIDATED":
+                if pipeline.get("four_steps_completed") is not True:
+                    reasons.append("AI_FOUR_STEPS_INCOMPLETE")
+                if pipeline.get("accepted_summary_claim_refs_valid") is not True:
+                    reasons.append("SUMMARY_CLAIM_REFS_INVALID")
         if review.get("risk_level") == "R4":
             reasons.append("R4_NOT_PUBLISHABLE")
 
-        if item.get("item_type") == "SAFETY_REGULATION" or review.get("risk_level") == "R3":
+        if (
+            item.get("item_type") in {"SAFETY_REGULATION", "SAFETY_CASE"}
+            or review.get("risk_level") == "R3"
+        ):
             if review.get("decision_status") != "APPROVED" or not review.get("decision_id"):
                 reasons.append("HUMAN_REVIEW_REQUIRED")
             if review.get("duties_separated") is not True:
                 reasons.append("DUTIES_NOT_SEPARATED")
             if review.get("submitted_by") == review.get("decided_by"):
                 reasons.append("DUTIES_NOT_SEPARATED")
+            if (
+                self.policy_version == "2.1.0"
+                and not str(review.get("decision_reason") or "").strip()
+            ):
+                reasons.append("HUMAN_REVIEW_REASON_REQUIRED")
 
-        if self.policy_version in {"3.0.0", "4.0.0", "5.0.0", "6.0.0", "7.0.0"}:
+        if self.policy_version in {
+            "2.1.0",
+            "3.0.0",
+            "4.0.0",
+            "5.0.0",
+            "6.0.0",
+            "7.0.0",
+        }:
             if document.get("processing_state") != "READY":
                 reasons.append("DOCUMENT_NOT_READY")
             if document.get("raw_security_status") != "CLEAN":
@@ -153,7 +183,7 @@ class PublicationGate:
             reasons.append("LEGAL_EFFECT_NOT_AUTHORIZED")
 
         if (
-            self.policy_version in {"4.0.0", "5.0.0", "6.0.0", "7.0.0"}
+            self.policy_version in {"2.1.0", "4.0.0", "5.0.0", "6.0.0", "7.0.0"}
             and item.get("item_type") == "SAFETY_CASE"
         ):
             if round04.get("event_assignment_confirmed") is not True:
@@ -189,7 +219,7 @@ class PublicationGate:
                 reasons.append("SAFETY_CASE_OPERATIONAL_INSTRUCTION_FORBIDDEN")
 
         if (
-            self.policy_version in {"5.0.0", "6.0.0", "7.0.0"}
+            self.policy_version in {"2.1.0", "5.0.0", "6.0.0", "7.0.0"}
             and item.get("item_type") == "DIGITAL_CASE"
         ):
             if round05.get("classification_claims_authorized") is not True:
@@ -224,7 +254,10 @@ class PublicationGate:
             ):
                 reasons.append("ENTERPRISE_CASE_HUMAN_REVIEW_REQUIRED")
 
-        if self.policy_version in {"6.0.0", "7.0.0"} and item.get("item_type") == "JOURNAL_PAPER":
+        if (
+            self.policy_version in {"2.1.0", "6.0.0", "7.0.0"}
+            and item.get("item_type") == "JOURNAL_PAPER"
+        ):
             if round06.get("identity_resolved") is not True:
                 reasons.append("PAPER_IDENTITY_UNRESOLVED")
             access_level = round06.get("access_level")
@@ -271,7 +304,7 @@ class PublicationGate:
             "LOW_ALTITUDE_EQUIPMENT",
             "AI_EQUIPMENT",
         }
-        if self.policy_version == "7.0.0" and item.get("item_type") in product_types:
+        if self.policy_version in {"2.1.0", "7.0.0"} and item.get("item_type") in product_types:
             if round07.get("identity_safe") is not True:
                 reasons.append("PRODUCT_IDENTITY_UNSAFE")
             if round07.get("capability_groups_separated") is not True:
@@ -353,77 +386,3 @@ def _number(value: Any) -> float:
 
 def _is_nonnegative_count(value: object) -> TypeGuard[int]:
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
-
-
-def _schema_errors(value: Any, schema: Mapping[str, Any], path: str) -> list[str]:
-    errors: list[str] = []
-    if "const" in schema and value != schema["const"]:
-        errors.append(f"{path}:const")
-    if "enum" in schema and value not in schema["enum"]:
-        errors.append(f"{path}:enum")
-
-    declared_type = schema.get("type")
-    if declared_type is not None and not _matches_type(value, declared_type):
-        return [*errors, f"{path}:type"]
-
-    if isinstance(value, Mapping):
-        required = schema.get("required", [])
-        for name in required:
-            if name not in value:
-                errors.append(f"{path}.{name}:required")
-        properties = _mapping(schema.get("properties"))
-        if schema.get("additionalProperties") is False:
-            for name in value:
-                if name not in properties:
-                    errors.append(f"{path}.{name}:additional")
-        for name, child_schema in properties.items():
-            if name in value and isinstance(child_schema, Mapping):
-                errors.extend(_schema_errors(value[name], child_schema, f"{path}.{name}"))
-    elif isinstance(value, list):
-        minimum = schema.get("minItems")
-        if isinstance(minimum, int) and len(value) < minimum:
-            errors.append(f"{path}:minItems")
-        if schema.get("uniqueItems") is True and len({repr(item) for item in value}) != len(value):
-            errors.append(f"{path}:uniqueItems")
-        child_schema = schema.get("items")
-        if isinstance(child_schema, Mapping):
-            for index, child in enumerate(value):
-                errors.extend(_schema_errors(child, child_schema, f"{path}[{index}]"))
-    elif isinstance(value, str):
-        minimum = schema.get("minLength")
-        if isinstance(minimum, int) and len(value) < minimum:
-            errors.append(f"{path}:minLength")
-        pattern = schema.get("pattern")
-        if isinstance(pattern, str) and re.search(pattern, value) is None:
-            errors.append(f"{path}:pattern")
-    elif isinstance(value, (int, float)) and not isinstance(value, bool):
-        minimum = schema.get("minimum")
-        maximum = schema.get("maximum")
-        if isinstance(minimum, (int, float)) and value < minimum:
-            errors.append(f"{path}:minimum")
-        if isinstance(maximum, (int, float)) and value > maximum:
-            errors.append(f"{path}:maximum")
-
-    for condition in schema.get("allOf", []):
-        if not isinstance(condition, Mapping):
-            continue
-        if_schema = condition.get("if")
-        then_schema = condition.get("then")
-        if isinstance(if_schema, Mapping) and isinstance(then_schema, Mapping):
-            if not _schema_errors(value, if_schema, path):
-                errors.extend(_schema_errors(value, then_schema, path))
-    return errors
-
-
-def _matches_type(value: Any, declared: Any) -> bool:
-    if isinstance(declared, list):
-        return any(_matches_type(value, item) for item in declared)
-    return {
-        "object": isinstance(value, Mapping),
-        "array": isinstance(value, list),
-        "string": isinstance(value, str),
-        "integer": isinstance(value, int) and not isinstance(value, bool),
-        "number": isinstance(value, (int, float)) and not isinstance(value, bool),
-        "boolean": isinstance(value, bool),
-        "null": value is None,
-    }.get(str(declared), True)

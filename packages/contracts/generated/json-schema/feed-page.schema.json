@@ -1,5 +1,93 @@
 {
   "$defs": {
+    "AiAssistance": {
+      "additionalProperties": false,
+      "properties": {
+        "accepted_claims_only": {
+          "default": false,
+          "title": "Accepted Claims Only",
+          "type": "boolean"
+        },
+        "generated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Generated At"
+        },
+        "model_profile": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Profile"
+        },
+        "pipeline_run_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pipeline Run Id"
+        },
+        "prompt_version": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt Version"
+        },
+        "schema_version": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Schema Version"
+        },
+        "status": {
+          "enum": [
+            "ASSISTED",
+            "DEGRADED"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "AiAssistance",
+      "type": "object"
+    },
     "AiEquipmentTypeSummary": {
       "additionalProperties": false,
       "properties": {
@@ -375,6 +463,17 @@
           "title": "Activity At",
           "type": "string"
         },
+        "ai_assistance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AiAssistance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "content_type": {
           "$ref": "#/$defs/ItemType"
         },
@@ -536,6 +635,17 @@
         },
         "review_status": {
           "$ref": "#/$defs/ReviewStatus"
+        },
+        "revision_state": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PublicationRevisionState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "scores": {
           "anyOf": [
@@ -972,6 +1082,51 @@
       ],
       "title": "ProductPermitStatus",
       "type": "string"
+    },
+    "PublicationRevisionState": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "PUBLISH",
+            "REVISE",
+            "WITHDRAW",
+            "REPUBLISH"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "revision_number": {
+          "minimum": 1,
+          "title": "Revision Number",
+          "type": "integer"
+        },
+        "withdrawn_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Withdrawn At"
+        }
+      },
+      "required": [
+        "revision_number",
+        "action",
+        "created_at"
+      ],
+      "title": "PublicationRevisionState",
+      "type": "object"
     },
     "PublicationStatus": {
       "enum": [

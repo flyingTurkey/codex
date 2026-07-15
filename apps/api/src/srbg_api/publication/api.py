@@ -19,6 +19,8 @@ from srbg_contracts import (
     ItemDetail,
     ProductNormalizationCandidateView,
     ProductNormalizationDecisionRequest,
+    PublicationRevisionRequest,
+    PublicationWithdrawalRequest,
     ReviewCandidateDecisionRequest,
     ReviewDecisionRequest,
     ReviewDecisionResponse,
@@ -131,6 +133,31 @@ class ReviewPublicationService(Protocol):
         reviewer_id: UUID,
         digital_case_patch: DigitalCaseReviewPatch | None = None,
     ) -> ReviewDecisionResponse: ...
+
+    async def revise(
+        self,
+        review_task_id: UUID,
+        *,
+        reason: str,
+        reviewer_id: UUID,
+    ) -> ReviewDecisionResponse: ...
+
+    async def republish(
+        self,
+        review_task_id: UUID,
+        *,
+        reason: str,
+        reviewer_id: UUID,
+    ) -> ReviewDecisionResponse: ...
+
+    async def withdraw(
+        self,
+        publication_id: UUID,
+        *,
+        reason: str,
+        actor_id: UUID,
+        evidence_id: UUID,
+    ) -> UUID: ...
 
     async def decide_candidate(
         self,
@@ -620,6 +647,59 @@ async def decide_review(
         reviewer_id=principal.user_id,
         digital_case_patch=payload.digital_case_patch,
     )
+
+
+@router.post(
+    "/admin/review-tasks/{task_id}/revisions",
+    response_model=ReviewDecisionResponse,
+)
+async def revise_publication(
+    task_id: UUID,
+    payload: PublicationRevisionRequest,
+    request: Request,
+    principal: ReviewWritePrincipal,
+) -> ReviewDecisionResponse:
+    return await _publication_service(request).revise(
+        task_id,
+        reason=payload.reason,
+        reviewer_id=principal.user_id,
+    )
+
+
+@router.post(
+    "/admin/review-tasks/{task_id}/republish",
+    response_model=ReviewDecisionResponse,
+)
+async def republish_publication(
+    task_id: UUID,
+    payload: PublicationRevisionRequest,
+    request: Request,
+    principal: ReviewWritePrincipal,
+) -> ReviewDecisionResponse:
+    return await _publication_service(request).republish(
+        task_id,
+        reason=payload.reason,
+        reviewer_id=principal.user_id,
+    )
+
+
+@router.post(
+    "/admin/publications/{publication_id}/withdrawals",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def withdraw_publication(
+    publication_id: UUID,
+    payload: PublicationWithdrawalRequest,
+    request: Request,
+    principal: ReviewWritePrincipal,
+) -> Response:
+    await _publication_service(request).withdraw(
+        publication_id,
+        reason=payload.reason,
+        actor_id=principal.user_id,
+        evidence_id=payload.evidence_id,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(

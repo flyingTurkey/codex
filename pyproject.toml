@@ -47,5 +47,5 @@ strict = true
 packages = ["srbg_api", "srbg_contracts", "srbg_worker"]
 
 [[tool.mypy.overrides]]
-module = ["aioboto3", "aiobotocore.*", "botocore.*", "celery"]
+module = ["aioboto3", "aiobotocore.*", "botocore.*", "celery", "jsonschema"]
 ignore_missing_imports = true

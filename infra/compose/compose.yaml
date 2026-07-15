@@ -223,6 +223,34 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  ai-worker:
+    build:
+      context: .
+      dockerfile: infra/compose/Dockerfile.python
+    hostname: ai-worker
+    environment:
+      SRBG_AI_BROKER_URL: ${SRBG_REDIS_URL:-redis://redis:6379/0}
+      SRBG_AI_PROVIDER: ${SRBG_AI_PROVIDER:-mock}
+      SRBG_AI_BASE_URL: ${SRBG_AI_BASE_URL:-http://model-gateway.invalid}
+      SRBG_AI_REQUEST_PATH: ${SRBG_AI_REQUEST_PATH:-/v1/chat/completions}
+      SRBG_AI_API_KEY: ${SRBG_AI_API_KEY:-}
+      SRBG_AI_TIMEOUT_SECONDS: ${SRBG_AI_TIMEOUT_SECONDS:-30}
+    command: ["celery", "-A", "srbg_worker.ai_app:celery_app", "worker", "--loglevel=INFO", "--queues=ai", "--concurrency=1", "--max-tasks-per-child=50"]
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - celery -A srbg_worker.ai_app:celery_app inspect ping --destination celery@ai-worker --timeout 2
+      interval: 10s
+      timeout: 4s
+      retries: 12
+    restart: unless-stopped
+
   publisher:
     build:
       context: .

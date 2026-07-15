@@ -200,6 +200,18 @@ function formatLoss(amountMinor: number, currency: string): string {
       >
         {{ typeLabel }}
       </span>
+      <span v-if="item.ai_assistance?.status === 'ASSISTED'" class="intelligence-card__badge is-ai">
+        AI 辅助 · 已受控校验
+      </span>
+      <span v-else-if="item.ai_assistance?.status === 'DEGRADED'" class="intelligence-card__badge is-pending">
+        无 AI · 题录降级
+      </span>
+      <span v-if="item.revision_state?.action === 'REVISE'" class="intelligence-card__badge">
+        第 {{ item.revision_state.revision_number }} 版修订
+      </span>
+      <span v-if="item.revision_state?.action === 'REPUBLISH'" class="intelligence-card__badge is-reviewed">
+        已重新发布
+      </span>
       <span
         v-for="state in documentStates"
         :key="state"
@@ -248,6 +260,13 @@ function formatLoss(amountMinor: number, currency: string): string {
         <dd>{{ formatDate(item.source_published_at) }}</dd>
       </div>
     </dl>
+
+    <p
+      v-if="item.one_sentence_fact && item.ai_assistance?.accepted_claims_only && item.review_status === 'APPROVED'"
+      class="intelligence-card__ai-summary"
+    >
+      {{ item.one_sentence_fact }}
+    </p>
 
     <template v-if="!isWithdrawn && item.publication_revision_id && regulationSummary">
       <dl class="intelligence-card__facts">
@@ -492,6 +511,19 @@ function formatLoss(amountMinor: number, currency: string): string {
 .intelligence-card__badge.is-reviewed {
   color: var(--color-verified-700);
   background: var(--color-verified-50);
+}
+
+.intelligence-card__badge.is-ai {
+  color: var(--color-brand-700);
+  background: var(--color-brand-50);
+}
+
+.intelligence-card__ai-summary {
+  margin: 0;
+  padding: var(--spacing-3);
+  color: var(--color-ink-800);
+  background: var(--color-brand-50);
+  border-radius: var(--radius-sm);
 }
 
 .intelligence-card__badge.is-document-state[data-document-state='UPDATED'] {

@@ -1,0 +1,22 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "evidence_id": {
+      "format": "uuid",
+      "title": "Evidence Id",
+      "type": "string"
+    },
+    "reason": {
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Reason",
+      "type": "string"
+    }
+  },
+  "required": [
+    "reason",
+    "evidence_id"
+  ],
+  "title": "PublicationWithdrawalRequest",
+  "type": "object"
+}
