@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+### 二阶段文档基线
+
+- 固化企业内部 OIDC/SSO、Event 唯一用户身份、R3 `METADATA_ONLY`、Item 只读兼容、确定性归并和专用只读发布投影等已确认决策，删除匿名公开、`PROVISIONAL_EVENT`、R0、1000 候选硬指标和 `source_trust_score` 等冲突要求。
+- 将执行顺序统一为 11F、11P、12—21，并按 20→50→100→150 来源门禁安排 AI、外部通知和国际来源；明确第 11 轮工程切片 `PASSED` 与生产证据 `BLOCKED` 是不同状态，第 12 轮无获准 ACTIVE 来源时真实追踪记录 `NOT_AVAILABLE`。
+- 更新 README 的现状与文档导航；本次仅固化文档，不修改业务代码、数据库、依赖、配置、测试阈值或运行环境。
+
 ### Round 11 — 质量、运维、安全与上线门禁
 
 - 新增 PostgreSQL 权威的最小失败任务、优先级人工重放、不可回溯个人的聚合运行指标和显式反馈；失败记录不保存正文、令牌、Cookie、模型输入、个人敏感 Payload 或关联哈希，解析/AI 重放在无法安全重建时默认失败。复用唯一 `PublicationService` 及既有 Feed/卡片/AppShell，交付来源健康、运行中心和质量看板。
