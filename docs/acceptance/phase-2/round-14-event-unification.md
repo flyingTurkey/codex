@@ -163,4 +163,4 @@ Location: /events/019f65e9-53db-7e8d-adf6-d827b254fd06
 
 本次有效命令与结果：`phase2-round13-test` 32 passed；`phase2-round14-test` 23 passed，含 `0013 -> 0014 -> 0013 -> 0014`；`lint`、`typecheck`、`contract-test`、`security-check`、`quality-gate` 均退出 0；`test` 为 Python 516 passed / 25 skipped、UI 53 passed、Web 71 passed；`fixture-replay` 164 passed且 mock provider 评估通过；`web-e2e` 42 passed；`web-a11y` 13 passed；API/Web 镜像构建退出 0。`quality-gate` 有一次被 64 秒执行器时限终止，不计结果，随后从头重跑 61.5 秒退出 0。
 
-回滚仍采用应用版本回退，保留 0014 Event、alias、发布修订和审计事实；有 event-keyed 事实的数据库不得破坏性 downgrade。完成验收前必须把普通内容读取装配到专用投影角色，扩展投影以承载统一 EventSummary/EventDetail，并将所有 consumer 查询/新写入真正切为 event_id，再用含真实旧引用的 PostgreSQL 数据对账。
+本次独立复验修复提交为 `1f4712aa774792bddd1c7b21d653513ae9fb7d80`。回滚仍采用应用版本回退，保留 0014 Event、alias、发布修订和审计事实；有 event-keyed 事实的数据库不得破坏性 downgrade。完成验收前必须把普通内容读取装配到专用投影角色，扩展投影以承载统一 EventSummary/EventDetail，并将所有 consumer 查询/新写入真正切为 event_id，再用含真实旧引用的 PostgreSQL 数据对账。
