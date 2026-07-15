@@ -193,6 +193,7 @@ def test_event_detail_links_confirmed_facts_to_existing_item_evidence() -> None:
     )
     detail = models.EventDetail(
         id=EVENT_ID,
+        event_type="SAFETY_INCIDENT",
         title="梅大高速茶阳路段塌方灾害",
         project_name="梅大高速",
         occurred_at=datetime(2024, 5, 1, 2, 10, tzinfo=UTC),

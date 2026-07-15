@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from functools import lru_cache
 
 from pydantic import Field, SecretStr, model_validator
@@ -63,6 +64,8 @@ class Settings(BaseSettings):
     backup_s3_bucket: str | None = None
     backup_s3_access_key: str | None = None
     backup_s3_secret_key: SecretStr | None = None
+    item_api_deprecation_at: datetime = datetime(2026, 7, 15, tzinfo=UTC)
+    item_api_sunset_at: datetime | None = None
 
     @model_validator(mode="after")
     def reject_demo_cursor_key_in_production(self) -> Settings:

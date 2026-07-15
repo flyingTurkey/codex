@@ -39,13 +39,13 @@ async function toggleSaved(): Promise<void> {
   saveProblem.value = null
   try {
     if (saved.value) {
-      await $fetch(`/api/v1/saved-items/${props.item.id}`, { method: 'DELETE' })
+      await $fetch(`/api/v1/saved-events/${props.item.id}`, { method: 'DELETE' })
       saved.value = false
     }
     else {
-      await $fetch('/api/v1/saved-items', {
+      await $fetch('/api/v1/saved-events', {
         method: 'POST',
-        body: { item_id: props.item.id },
+        body: { event_id: props.item.id },
         headers: { 'Idempotency-Key': createUuidV7() },
       })
       saved.value = true
@@ -64,7 +64,7 @@ async function recordFeedback(value: 'USEFUL' | 'NOT_USEFUL'): Promise<void> {
   try {
     await $fetch('/api/v1/feedback', {
       method: 'POST',
-      body: { item_id: props.item.id, value },
+      body: { event_id: props.item.id, value },
     })
     feedback.value = value
   }
@@ -294,7 +294,7 @@ function formatLoss(amountMinor: number, currency: string): string {
     </div>
 
     <component :is="headingTag" class="intelligence-card__title">
-      <a :href="`/items/${item.id}`">{{ item.title }}</a>
+      <a :href="`/events/${item.id}`">{{ item.title }}</a>
     </component>
 
     <dl class="intelligence-card__source">

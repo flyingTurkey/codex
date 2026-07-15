@@ -33,7 +33,10 @@ from srbg_contracts import (
     EventDetail,
     EventItem,
     EventRelationView,
+    EventStatus,
+    EventSummary,
     EventTimeline,
+    EventType,
     EvidenceStatus,
     EvidenceView,
     FeedNotice,
@@ -145,12 +148,15 @@ class PostgresIntelligenceQueryService:
                     await connection.execute(
                         text(
                             """
-                            SELECT score_set.item_id, score_set.rule_version,
+                            SELECT COALESCE(binding.event_id, score_set.item_id) AS identity_id,
+                                   score_set.rule_version,
                                    score_set.calculated_at, dimension.dimension,
                                    dimension.raw_score, dimension.features,
                                    override.score AS override_score,
                                    override.reason AS override_reason
                             FROM score_set
+                            LEFT JOIN event_identity_binding binding
+                              ON binding.item_id = score_set.item_id
                             JOIN score_dimension dimension
                               ON dimension.score_set_id = score_set.id
                             LEFT JOIN LATERAL (
@@ -160,7 +166,8 @@ class PostgresIntelligenceQueryService:
                               ORDER BY candidate.reviewed_at DESC, candidate.id DESC
                               LIMIT 1
                             ) override ON true
-                            WHERE score_set.item_id = ANY(CAST(:item_ids AS uuid[]))
+                            WHERE COALESCE(binding.event_id, score_set.item_id)
+                                  = ANY(CAST(:item_ids AS uuid[]))
                               AND score_set.is_current
                             ORDER BY score_set.calculated_at DESC, score_set.id DESC
                             """
@@ -171,7 +178,7 @@ class PostgresIntelligenceQueryService:
             )
         grouped: dict[UUID, dict[str, ScoreDimensionSummary]] = {}
         for row in rows:
-            item_scores = grouped.setdefault(row["item_id"], {})
+            item_scores = grouped.setdefault(row["identity_id"], {})
             name = str(row["dimension"])
             if name.casefold() in item_scores:
                 continue
@@ -203,9 +210,7 @@ class PostgresIntelligenceQueryService:
             for item in items
         ]
 
-    async def _with_round09_projection(
-        self, rows: list[RowMapping]
-    ) -> list[dict[str, Any]]:
+    async def _with_round09_projection(self, rows: list[RowMapping]) -> list[dict[str, Any]]:
         """Attach governed AI provenance and immutable revision state to feed rows."""
         if not rows:
             return []
@@ -216,7 +221,10 @@ class PostgresIntelligenceQueryService:
                     await connection.execute(
                         text(
                             """
-                            SELECT item.id,
+                            SELECT item.id, binding.event_id, event.event_type,
+                                   event.status AS event_status,
+                                   event.canonical_event_id,
+                                   event.version AS event_version,
                                    current_revision.revision_number,
                                    current_revision.action AS revision_action,
                                    current_revision.created_at AS revision_created_at,
@@ -232,6 +240,9 @@ class PostgresIntelligenceQueryService:
                                    COALESCE(ai.accepted_claims_only, false)
                                      AS ai_accepted_claims_only
                             FROM intelligence_item item
+                            LEFT JOIN event_identity_binding binding
+                              ON binding.item_id = item.id
+                            LEFT JOIN event ON event.id = binding.event_id
                             LEFT JOIN publication
                               ON publication.item_id = item.id
                             LEFT JOIN publication_revision current_revision
@@ -290,9 +301,7 @@ class PostgresIntelligenceQueryService:
             )
         projections = {row["id"]: row for row in projection_rows}
         return [
-            {**dict(row), **dict(projections[row["id"]])}
-            if row["id"] in projections
-            else dict(row)
+            {**dict(row), **dict(projections[row["id"]])} if row["id"] in projections else dict(row)
             for row in rows
         ]
 
@@ -453,7 +462,7 @@ class PostgresIntelligenceQueryService:
                 )
             ).mappings()
             digital_outcomes = {
-                str(outcome['outcome_kind']): int(outcome['count'])
+                str(outcome["outcome_kind"]): int(outcome["count"])
                 for outcome in digital_outcome_rows
             }
             pending_enterprise_review = int(
@@ -530,7 +539,7 @@ class PostgresIntelligenceQueryService:
                 )
             ).mappings()
             product_capabilities = {
-                str(capability['kind']): int(capability['count'])
+                str(capability["kind"]): int(capability["count"])
                 for capability in product_capability_rows
             }
             pending_product_normalization = int(
@@ -568,7 +577,9 @@ class PostgresIntelligenceQueryService:
                             """
                         )
                     )
-                ).mappings().one()
+                )
+                .mappings()
+                .one()
             )
         pdf_total = int(row["pdf_total"])
         ocr_pages = int(row["ocr_pages"])
@@ -655,6 +666,7 @@ class PostgresIntelligenceQueryService:
         evidence_status: str | None = None,
     ) -> FeedPage:
         now = datetime.now(UTC)
+
         async def finish(page: FeedPage) -> FeedPage:
             filtered = await self._apply_common_feed_filters(
                 page,
@@ -715,9 +727,7 @@ class PostgresIntelligenceQueryService:
             "SAFETY_REGULATION",
             "SAFETY_CASE",
         }:
-            return await finish(
-                _feed_page([], now=now, mode=mode, domain=domain, next_cursor=None)
-            )
+            return await finish(_feed_page([], now=now, mode=mode, domain=domain, next_cursor=None))
 
         cursor_time, cursor_id = _decode_cursor(cursor)
         async with self._engine.connect() as connection:
@@ -949,9 +959,7 @@ class PostgresIntelligenceQueryService:
         fingerprint = sha256(
             (page.fingerprint + "|" + "|".join(str(item.id) for item in items)).encode()
         ).hexdigest()
-        return page.model_copy(
-            update={"items": items, "fingerprint": f"sha256:{fingerprint}"}
-        )
+        return page.model_copy(update={"items": items, "fingerprint": f"sha256:{fingerprint}"})
 
     async def _with_feed_freshness(self, page: FeedPage, *, now: datetime) -> FeedPage:
         async with self._engine.connect() as connection:
@@ -971,7 +979,9 @@ class PostgresIntelligenceQueryService:
                             """
                         )
                     )
-                ).mappings().all()
+                )
+                .mappings()
+                .all()
             )
         if not rows:
             return page
@@ -1000,9 +1010,7 @@ class PostgresIntelligenceQueryService:
             level="warning",
             message=f"以下活动来源采集延迟或失败：{suffix}。内容时间可能不完整。",
         )
-        return page.model_copy(
-            update={"freshness": freshness, "notices": [*page.notices, notice]}
-        )
+        return page.model_copy(update={"freshness": freshness, "notices": [*page.notices, notice]})
 
     async def _get_digital_feed(
         self,
@@ -1440,6 +1448,102 @@ class PostgresIntelligenceQueryService:
                 )
             return ItemDetail(item=item, claims=claims, evidence=evidence)
 
+    async def resolve_item_event(self, item_id: UUID) -> UUID:
+        """Resolve the immutable Item alias, with reviewed split allocation overlay."""
+
+        async with self._engine.connect() as connection:
+            event_id = await connection.scalar(
+                text(
+                    """
+                    SELECT COALESCE(split.child_event_id, binding.event_id)
+                      FROM event_identity_binding binding
+                      LEFT JOIN LATERAL (
+                        SELECT allocation.child_event_id
+                          FROM event_split_allocation allocation
+                          JOIN event_identity_change_request request
+                            ON request.id=allocation.request_id AND request.status='APPLIED'
+                         WHERE allocation.item_id=binding.item_id
+                         ORDER BY request.created_at DESC, request.id DESC LIMIT 1
+                      ) split ON true
+                     WHERE binding.item_id=:item_id
+                    """
+                ),
+                {"item_id": item_id},
+            )
+        if event_id is None:
+            raise IntelligenceNotFound("item has no canonical event identity")
+        return UUID(str(event_id))
+
+    async def resolve_event_redirect(self, event_id: UUID) -> UUID | None:
+        async with self._engine.connect() as connection:
+            row = (
+                (
+                    await connection.execute(
+                        text("SELECT status, canonical_event_id FROM event WHERE id=:event_id"),
+                        {"event_id": event_id},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+        if row is None:
+            return None
+        if row["status"] == "MERGED":
+            return UUID(str(row["canonical_event_id"]))
+        return event_id
+
+    async def get_event_item_projection(self, event_id: UUID) -> ItemDetail:
+        """Return type-specific content inside the Event detail, never as a second identity."""
+
+        async with self._engine.connect() as connection:
+            item_id = await connection.scalar(
+                text(
+                    """
+                    SELECT binding.item_id
+                      FROM event_identity_binding binding
+                      JOIN publication ON publication.item_id=binding.item_id
+                     WHERE binding.event_id=:event_id
+                       AND publication.status='PUBLISHED'
+                     ORDER BY publication.updated_at DESC, binding.item_id DESC
+                     LIMIT 1
+                    """
+                ),
+                {"event_id": event_id},
+            )
+        if item_id is None:
+            raise IntelligenceNotFound("event has no published content projection")
+        return await self.get_item(UUID(str(item_id)))
+
+    async def get_event_summary_for_item(self, item_id: UUID) -> EventSummary:
+        detail = await self.get_item(item_id)
+        async with self._engine.connect() as connection:
+            identity = (
+                await connection.execute(
+                    text(
+                        """
+                        SELECT event.id,event.event_type,event.status,
+                               event.canonical_event_id,event.version
+                          FROM event_identity_binding binding
+                          JOIN event ON event.id=binding.event_id
+                         WHERE binding.item_id=:item_id
+                        """
+                    ),
+                    {"item_id": item_id},
+                )
+            ).mappings().first()
+        if identity is None:
+            raise IntelligenceNotFound("item has no canonical event identity")
+        return EventSummary.model_validate(
+            detail.item.model_dump()
+            | {
+                "id": identity["id"],
+                "event_type": identity["event_type"],
+                "event_status": identity["status"],
+                "canonical_event_id": identity["canonical_event_id"],
+                "event_version": identity["version"],
+            }
+        )
+
     async def list_product_normalization_candidates(
         self, *, status: str
     ) -> list[ProductNormalizationCandidateView]:
@@ -1542,10 +1646,53 @@ class PostgresIntelligenceQueryService:
 
     async def get_event(self, event_id: UUID) -> EventDetail:
         async with self._engine.connect() as connection:
-            event_type = await connection.scalar(
-                text("SELECT event_type FROM event WHERE id = :event_id"),
-                {"event_id": event_id},
-            )
+            identity = (
+                await connection.execute(
+                    text(
+                        "SELECT id,event_type,title,status,canonical_event_id,version "
+                        "FROM event WHERE id = :event_id"
+                    ),
+                    {"event_id": event_id},
+                )
+            ).mappings().first()
+            if identity is not None and identity["status"] == EventStatus.SPLIT:
+                child_ids = list(
+                    await connection.scalars(
+                        text(
+                            """
+                            SELECT DISTINCT child.event_id
+                              FROM event_identity_change_target source
+                              JOIN event_identity_change_request request
+                                ON request.id=source.request_id
+                               AND request.operation='SPLIT'
+                               AND request.status='APPLIED'
+                              JOIN event_identity_change_target child
+                                ON child.request_id=source.request_id
+                               AND child.target_role='CHILD'
+                             WHERE source.event_id=:event_id
+                               AND source.target_role='SOURCE'
+                             ORDER BY child.event_id
+                            """
+                        ),
+                        {"event_id": event_id},
+                    )
+                )
+                return EventDetail(
+                    id=identity["id"],
+                    title=identity["title"],
+                    event_type=identity["event_type"],
+                    event_status=EventStatus.SPLIT,
+                    canonical_event_id=identity["canonical_event_id"],
+                    event_version=identity["version"],
+                    split_child_event_ids=child_ids,
+                    confirmed_facts=[],
+                    unverified_facts=[],
+                    timeline=EventTimeline(event_id=event_id, items=[]),
+                    relations=[],
+                    similar_scenario_tags=[],
+                    prevention_measure_tags=[],
+                )
+            event_type = None if identity is None else identity["event_type"]
         if event_type is not None and event_type != "SAFETY_INCIDENT":
             return await self._get_generic_event(event_id)
         async with self._engine.connect() as connection:
@@ -1859,6 +2006,7 @@ class PostgresIntelligenceQueryService:
         ]
         return EventDetail(
             id=event["id"],
+            event_type=EventType.SAFETY_INCIDENT,
             title=event["title"],
             project_name=event["project_name"],
             occurred_at=event["occurred_at"],
@@ -3042,6 +3190,16 @@ def _item_summary(
 ) -> ItemSummary:
     states = _document_states(row)
     item_type = ItemType(str(row.get("item_type", ItemType.SAFETY_REGULATION.value)))
+    event_id = row.get("event_id") if row.get("event_type") is not None else None
+    summary_model = EventSummary if event_id is not None else ItemSummary
+    identity: dict[str, Any] = {}
+    if event_id is not None:
+        identity = {
+            "event_type": EventType(str(row["event_type"])),
+            "event_status": EventStatus(str(row["event_status"])),
+            "canonical_event_id": row["canonical_event_id"],
+            "event_version": int(row["event_version"]),
+        }
     published = row["publication_status"] == "PUBLISHED" and row["review_status"] == "APPROVED"
     withdrawn = row["publication_status"] == "WITHDRAWN"
     product_types = {
@@ -3060,8 +3218,8 @@ def _item_summary(
             hints["document_states"] = states
         if row["version_count"] > 1:
             hints["has_version_history"] = True
-        return ItemSummary(
-            id=row["id"],
+        return summary_model(
+            id=event_id or row["id"],
             publication_revision_id=None,
             domain=Channel.SAFETY,
             content_type=item_type,
@@ -3072,6 +3230,7 @@ def _item_summary(
             activity_at=row["activity_at"],
             original_url=row["original_url"],
             review_status=ReviewStatus(row["review_status"]),
+            **identity,
             **hints,
         )
     if item_type is ItemType.DIGITAL_CASE:
@@ -3253,8 +3412,8 @@ def _item_summary(
         )
         tags = ["安全规定", "部门规章"]
 
-    return ItemSummary(
-        id=row["id"],
+    return summary_model(
+        id=event_id or row["id"],
         publication_revision_id=row["publication_revision_id"] if published else None,
         domain=(
             Channel.DIGITAL
@@ -3327,6 +3486,7 @@ def _item_summary(
             if row.get("revision_number") is not None
             else None
         ),
+        **identity,
     )
 
 
@@ -4003,6 +4163,9 @@ def _feed_page(
     domain: str | None,
     next_cursor: str | None,
 ) -> FeedPage:
+    event_items = [cast(EventSummary, item) for item in items]
+    if any(not isinstance(item, EventSummary) for item in items):
+        raise RuntimeError("consumer switch requires EventSummary identities")
     fingerprint = sha256(
         "|".join([mode, domain or "all", *(str(item.id) for item in items)]).encode()
     ).hexdigest()
@@ -4010,7 +4173,7 @@ def _feed_page(
     if any(item.review_status == "PENDING" for item in items):
         notices.append(_restricted_notice())
     return FeedPage(
-        items=items,
+        items=event_items,
         next_cursor=next_cursor,
         fingerprint=f"sha256:{fingerprint}",
         generated_at=now,

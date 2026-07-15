@@ -201,9 +201,31 @@ class PostgresOperationsService:
             status="QUEUED",
         )
 
-    async def record_feedback(self, *, item_id: UUID, value: str, actor_id: UUID) -> None:
+    async def record_feedback(
+        self,
+        *,
+        item_id: UUID | None,
+        event_id: UUID | None = None,
+        value: str,
+        actor_id: UUID,
+    ) -> None:
         now = self._now()
         async with self._engine.begin() as connection:
+            if event_id is not None:
+                item_id = await connection.scalar(
+                    text(
+                        """
+                        SELECT binding.item_id FROM event_identity_binding binding
+                        JOIN publication ON publication.item_id=binding.item_id
+                          AND publication.status='PUBLISHED'
+                        WHERE binding.event_id=:event_id
+                        ORDER BY binding.item_id DESC LIMIT 1
+                        """
+                    ),
+                    {"event_id": event_id},
+                )
+            if item_id is None:
+                raise OperationsRejected("feedback target is not visible")
             visible = (
                 await connection.execute(
                     text(
@@ -217,12 +239,20 @@ class PostgresOperationsService:
                 raise OperationsRejected("feedback target is not visible")
             await connection.execute(
                 text(
-                    """INSERT INTO item_feedback (id, actor_id, item_id, value, recorded_at)
-                       VALUES (:id, :actor, :item, :value, :now)
+                    """INSERT INTO item_feedback
+                         (id, actor_id, item_id, event_id, value, recorded_at)
+                       VALUES (:id, :actor, :item, :event, :value, :now)
                        ON CONFLICT (actor_id, item_id) DO UPDATE
                        SET value = EXCLUDED.value, recorded_at = EXCLUDED.recorded_at"""
                 ),
-                {"id": uuid7(), "actor": actor_id, "item": item_id, "value": value, "now": now},
+                {
+                    "id": uuid7(),
+                    "actor": actor_id,
+                    "item": item_id,
+                    "event": event_id,
+                    "value": value,
+                    "now": now,
+                },
             )
 
     async def record_usage(

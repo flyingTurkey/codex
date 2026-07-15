@@ -52,7 +52,7 @@ export PLAYWRIGHT_BROWSERS_PATH
 	round08-test round08-eval round09-test round09-eval round10-test round10-eval \
 	round11-test observability-test golden-replay load-test recovery-drill runbook-test \
 	round11-evidence-test readiness-evidence slo-weekly-report \
-	phase2-round13-test
+	phase2-round13-test phase2-round14-test
 
 setup:
 	$(UV) sync --frozen --all-packages
@@ -284,6 +284,21 @@ phase2-round13-test:
 		apps/api/tests/test_round13_projection_permissions.py \
 		tests/infrastructure/test_round13_observability.py \
 		packages/contracts/tests/test_round13_contracts.py -q
+	$(UV) run python scripts/audit_publication_paths.py
+
+phase2-round14-test:
+	$(COMPOSE) up --detach --wait postgres minio
+	$(UV) run python scripts/run_isolated_integration.py \
+		--migration-verifier verify_round14_migration.py -- \
+		apps/api/tests/test_round14_event_unification.py \
+		apps/api/tests/test_round14_item_compatibility.py \
+		apps/api/tests/test_round14_identity_changes.py \
+		apps/api/tests/test_round14_identity_integration.py \
+		apps/api/tests/test_round14_migration.py \
+		packages/contracts/tests/test_round14_contracts.py \
+		apps/api/tests/test_round13_access_boundary.py \
+		apps/api/tests/test_round13_projection_policy.py \
+		apps/api/tests/test_publication_rbac_integration.py -q
 	$(UV) run python scripts/audit_publication_paths.py
 
 observability-test:

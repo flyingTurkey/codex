@@ -7,11 +7,11 @@ from srbg_api.main import create_app
 from srbg_api.safety_regulations.query import InvalidFeedCursor, _decode_cursor, _encode_cursor
 from srbg_contracts import (
     ClusterCandidateView,
+    EventSummary,
     FeedNotice,
     FeedPage,
     HotTopicPage,
     ItemDetail,
-    ItemSummary,
     ReviewDecisionResponse,
     ReviewTaskDetail,
     ReviewTaskSummary,
@@ -37,8 +37,8 @@ def test_feed_cursor_decodes_to_database_driver_native_types() -> None:
     assert isinstance(decoded[1], UUID)
 
 
-def _pending_item() -> ItemSummary:
-    return ItemSummary(
+def _pending_item() -> EventSummary:
+    return EventSummary(
         id=ITEM_ID,
         publication_revision_id=None,
         domain="SAFETY",
@@ -50,6 +50,10 @@ def _pending_item() -> ItemSummary:
         activity_at=NOW,
         original_url="https://www.mem.gov.cn/example.shtml",
         review_status="PENDING",
+        event_type="REGULATION_CHANGE",
+        event_status="ACTIVE",
+        canonical_event_id=ITEM_ID,
+        event_version=1,
     )
 
 
@@ -227,8 +231,15 @@ def test_viewer_feed_and_detail_receive_only_r3_whitelist() -> None:
         "activity_at",
         "original_url",
         "review_status",
+        "event_type",
+        "event_status",
+        "canonical_event_id",
+        "event_version",
     }
     assert detail.status_code == 200
+    assert detail.headers["deprecation"].startswith("@")
+    assert f"</api/v1/events/{ITEM_ID}>; rel=\"successor-version\"" in detail.headers["link"]
+    assert "sunset" not in detail.headers
     assert "claims" not in detail.json()
     assert "evidence" not in detail.json()
 

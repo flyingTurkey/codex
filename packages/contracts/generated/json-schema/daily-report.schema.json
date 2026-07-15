@@ -12,6 +12,19 @@
           "title": "Current State",
           "type": "string"
         },
+        "event_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Event Id"
+        },
         "item_id": {
           "format": "uuid",
           "title": "Item Id",

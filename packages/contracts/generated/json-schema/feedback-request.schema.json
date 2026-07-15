@@ -1,10 +1,31 @@
 {
   "additionalProperties": false,
   "properties": {
+    "event_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Event Id"
+    },
     "item_id": {
-      "format": "uuid",
-      "title": "Item Id",
-      "type": "string"
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Item Id"
     },
     "value": {
       "enum": [
@@ -16,7 +37,6 @@
     }
   },
   "required": [
-    "item_id",
     "value"
   ],
   "title": "FeedbackRequest",

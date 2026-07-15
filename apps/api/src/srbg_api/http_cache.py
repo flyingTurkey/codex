@@ -18,6 +18,7 @@ def contract_etag_response(
     *,
     exclude_none: bool = False,
     exclude_unset: bool = False,
+    extra_headers: dict[str, str] | None = None,
 ) -> Response:
     data: Any
     if isinstance(payload, BaseModel):
@@ -26,9 +27,7 @@ def contract_etag_response(
         )
     else:
         data = [
-            entry.model_dump(
-                mode="json", exclude_none=exclude_none, exclude_unset=exclude_unset
-            )
+            entry.model_dump(mode="json", exclude_none=exclude_none, exclude_unset=exclude_unset)
             for entry in payload
         ]
     etag_data = data
@@ -37,6 +36,8 @@ def contract_etag_response(
     canonical = json.dumps(etag_data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     etag = f'"sha256:{hashlib.sha256(canonical.encode()).hexdigest()}"'
     headers = {"ETag": etag, "Cache-Control": "private, must-revalidate"}
+    if extra_headers:
+        headers.update(extra_headers)
     if request.headers.get("If-None-Match") == etag:
         return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
     return JSONResponse(content=data, headers=headers)

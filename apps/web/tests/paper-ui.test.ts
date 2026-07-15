@@ -72,7 +72,7 @@ describe('round 06 journal paper UI', () => {
   })
 
   it('keeps metadata, abstract, fulltext, citation and similar papers explicit on shared detail', () => {
-    const page = readFileSync(resolve(process.cwd(), 'app/pages/items/[id].vue'), 'utf8')
+    const page = readFileSync(resolve(process.cwd(), 'app/pages/events/[id].vue'), 'utf8')
 
     expect(page).toContain('元数据可见')
     expect(page).toContain('许可不明确，未收录摘要')

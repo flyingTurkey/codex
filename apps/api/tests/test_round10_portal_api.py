@@ -166,15 +166,18 @@ def test_search_supports_etag_and_conditional_get() -> None:
 def test_saved_item_requires_idempotency_key_and_uses_current_principal() -> None:
     client, portal, _ = _client()
     item_id = "019b0000-0000-7000-8000-000000009301"
-    assert client.post("/api/v1/saved-items", json={"item_id": item_id}).status_code == 422
+    deprecated = client.post("/api/v1/saved-items", json={"item_id": item_id})
+    assert deprecated.status_code == 410
+    assert deprecated.headers["deprecation"].startswith("@")
+    assert f"/api/v1/events/{item_id}" in deprecated.headers["link"]
 
     response = client.post(
         "/api/v1/saved-items",
         json={"item_id": item_id},
         headers={"Idempotency-Key": "save-item-0001"},
     )
-    assert response.status_code == 204
-    assert portal.saved == [(USER_ID, UUID(item_id), None, "save-item-0001")]
+    assert response.status_code == 410
+    assert portal.saved == []
 
 
 def test_collection_patch_requires_if_match() -> None:

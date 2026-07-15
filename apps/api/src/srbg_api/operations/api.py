@@ -35,7 +35,14 @@ class OperationsService(Protocol):
         idempotency_key: str,
     ) -> ReplayResult: ...
 
-    async def record_feedback(self, *, item_id: UUID, value: str, actor_id: UUID) -> None: ...
+    async def record_feedback(
+        self,
+        *,
+        item_id: UUID | None,
+        event_id: UUID | None = None,
+        value: str,
+        actor_id: UUID,
+    ) -> None: ...
 
     async def record_usage(
         self,
@@ -88,11 +95,20 @@ async def feedback(
     request: Request,
     principal: CurrentPrincipal,
 ) -> Response:
-    await _service(request).record_feedback(
-        item_id=payload.item_id,
-        value=payload.value,
-        actor_id=principal.user_id,
-    )
+    service = _service(request)
+    if payload.event_id is None:
+        await service.record_feedback(
+            item_id=payload.item_id,
+            value=payload.value,
+            actor_id=principal.user_id,
+        )
+    else:
+        await service.record_feedback(
+            item_id=None,
+            event_id=payload.event_id,
+            value=payload.value,
+            actor_id=principal.user_id,
+        )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

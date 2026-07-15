@@ -73,6 +73,19 @@ async function mockProduct(page: Page): Promise<void> {
     contentType: 'application/json',
     body: JSON.stringify({ item, claims: [], evidence: [], technology_product: technologyProduct }),
   }))
+  await page.route(`**/api/v1/events/${itemId}`, (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      id: itemId, title: item.title, event_type: 'PRODUCT_RELEASE', event_status: 'ACTIVE',
+      canonical_event_id: itemId, event_version: 1, confirmed_facts: [], unverified_facts: [],
+      timeline: { items: [] }, relations: [], similar_scenario_tags: [],
+      prevention_measure_tags: [], topic_ids: [], independent_source_count: 1,
+    }),
+  }))
+  await page.route(`**/api/v1/events/${itemId}/content`, (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ item, claims: [], evidence: [], technology_product: technologyProduct }),
+  }))
 }
 
 test('four product tabs reuse the digital feed and expose product filters', async ({ page }) => {
@@ -89,9 +102,9 @@ test('four product tabs reuse the digital feed and expose product filters', asyn
 
 test('@a11y product detail separates capabilities evidence and permits without axe violations', async ({ page }) => {
   await mockProduct(page)
-  await page.goto(`/items/${itemId}`)
+  await page.goto(`/events/${itemId}`)
 
-  await expect(page.getByRole('heading', { level: 1, name: '技术产品详情' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: item.title })).toBeVisible()
   await expect(page.getByRole('heading', { level: 2, name: '产品能力' })).toBeVisible()
   await expect(page.getByRole('heading', { level: 2, name: '工程证据' })).toBeVisible()
   await expect(page.getByRole('heading', { level: 2, name: '许可与限制' })).toBeVisible()

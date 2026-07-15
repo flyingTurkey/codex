@@ -24,6 +24,12 @@ const { data: detail, error, refresh, status } = await useFetch<EventDetail>(
     timeout: 5_000,
   },
 )
+const { data: content } = await useFetch<ItemDetail>(`/api/v1/events/${eventId}/content`, {
+  key: `event-content:${eventId}`,
+  retry: 0,
+  server: false,
+  timeout: 5_000,
+})
 const { data: sourceComparison } = await useFetch<SourceComparisonContract>(
   `/api/v1/events/${eventId}/source-comparison`,
   { key: `event-sources:${eventId}`, retry: 0, server: false, timeout: 5_000 },
@@ -132,6 +138,12 @@ async function openEvidence(itemId: string): Promise<void> {
     evidenceLoading.value = false
   }
 }
+
+function openOutcomeEvidence(evidenceIds: string[]): void {
+  if (!content.value || evidenceIds.length === 0) return
+  evidenceDetail.value = content.value
+  evidenceOpen.value = true
+}
 </script>
 
 <template>
@@ -172,6 +184,56 @@ async function openEvidence(itemId: string): Promise<void> {
     />
 
     <template v-else-if="detail">
+      <section v-if="content?.digital_case" class="event-detail-page__type-detail">
+        <h2>发布方声称的成效</h2>
+        <ul>
+          <li v-for="outcome in content.digital_case.claimed_outcomes" :key="outcome.id">
+            {{ outcome.statement }}
+            <button
+              type="button"
+              :aria-label="`查看成效证据（${outcome.evidence_ids.length}）`"
+              @click="openOutcomeEvidence(outcome.evidence_ids)"
+            >查看证据</button>
+          </li>
+        </ul>
+        <h2>独立证据支持的成效</h2>
+        <p v-if="content.digital_case.verified_outcomes.length === 0">暂无可独立验证的量化成效。</p>
+        <ul>
+          <li v-for="outcome in content.digital_case.verified_outcomes" :key="outcome.id">
+            {{ outcome.statement }}
+          </li>
+        </ul>
+        <h2>复制条件</h2>
+        <p>{{ content.digital_case.replication_conditions?.join('；') || '待证据补充' }}</p>
+        <h2>限制与风险</h2>
+        <p>{{ content.digital_case.limitations?.join('；') || '待证据补充' }}</p>
+        <p>仅供技术调研，不构成采购建议。</p>
+      </section>
+
+      <section v-if="content?.paper" class="event-detail-page__type-detail">
+        <h2>论文访问与证据边界</h2>
+        <p>元数据可见</p>
+        <p v-if="!content.paper.abstract">许可不明确，未收录摘要。</p>
+        <p v-if="!content.paper.open_fulltext_url">平台未保存全文，仅提供题录与原文链接。</p>
+        <a :href="`/api/v1/events/${eventId}/citation?format=gb-t-7714`">复制 GB/T 7714</a>
+        <a :href="`/api/v1/events/${eventId}/citation?format=ris`">导出 RIS</a>
+        <a :href="`/api/v1/events/${eventId}/citation?format=bibtex`">导出 BibTeX</a>
+        <h2>相似论文</h2>
+      </section>
+
+      <section v-if="content?.technology_product" class="event-detail-page__type-detail">
+        <h2>产品能力</h2>
+        <h2>工程证据</h2>
+        <h2>许可与限制</h2>
+        <p
+          v-if="content.item.content_type === 'LOW_ALTITUDE_EQUIPMENT'"
+          class="item-detail-page__permit-boundary"
+        >
+          产品发布不代表空域、适航、飞手和项目许可。
+        </p>
+        <p>仅供技术调研，不构成采购建议。</p>
+      </section>
+
       <section
         v-if="detail.incident_status === 'WITHDRAWN'"
         class="event-detail-page__withdrawn"
@@ -286,6 +348,13 @@ async function openEvidence(itemId: string): Promise<void> {
 .event-detail-page__evidence-error {
   padding: var(--spacing-3) var(--spacing-4);
   border-radius: var(--radius-sm);
+}
+
+.event-detail-page__type-detail {
+  padding: var(--spacing-5);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
 }
 
 .event-detail-page__notice {

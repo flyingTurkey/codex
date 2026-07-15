@@ -1,3 +1,4 @@
+export type CanonicalEventId = string | null
 export type ClaimId = string
 /**
  * @minItems 1
@@ -23,8 +24,10 @@ export type Unit = string | null
 export type Value = string | number | string[]
 export type ConfirmedFacts = ConfirmedFact[]
 export type EngineeringType = string | null
+export type EventStatus = 'ACTIVE' | 'MERGED' | 'SPLIT' | 'WITHDRAWN'
 export type EventType =
   'SAFETY_INCIDENT' | 'REGULATION_CHANGE' | 'DIGITAL_PROJECT' | 'RESEARCH_RESULT' | 'PRODUCT_RELEASE'
+export type EventVersion = number
 export type HazardType = string | null
 export type Id = string
 export type IncidentStatus =
@@ -84,6 +87,7 @@ export type SimilarScenarioTag =
   | 'TEMPORARY_STRUCTURE_FAILURE'
   | 'TUNNEL_GEOLOGICAL_RISK'
 export type SimilarScenarioTags = SimilarScenarioTag[]
+export type SplitChildEventIds = string[]
 export type EventId1 = string
 export type DocumentStates = DocumentState[] | null
 export type DocumentState = 'UPDATED' | 'RE_REVIEW_PENDING' | 'WITHDRAWN' | 'SOURCE_UNAVAILABLE'
@@ -112,9 +116,12 @@ export type Value1 = null
 export type UnverifiedFacts = UnverifiedFact[]
 
 export interface EventDetail {
+  canonical_event_id?: CanonicalEventId
   confirmed_facts: ConfirmedFacts
   engineering_type?: EngineeringType
-  event_type?: EventType
+  event_status?: EventStatus
+  event_type: EventType
+  event_version?: EventVersion
   hazard_type?: HazardType
   id: Id
   incident_status?: IncidentStatus | null
@@ -127,6 +134,7 @@ export interface EventDetail {
   relations: Relations
   scores?: ScoreSummary | null
   similar_scenario_tags: SimilarScenarioTags
+  split_child_event_ids?: SplitChildEventIds
   timeline: EventTimeline
   title: Title1
   topic_ids?: TopicIds

@@ -74,7 +74,7 @@ describe('round 07 technology product UI', () => {
   })
 
   it('shows the three required product detail regions and fixed low-altitude boundary', () => {
-    const page = readFileSync(resolve(process.cwd(), 'app/pages/items/[id].vue'), 'utf8')
+    const page = readFileSync(resolve(process.cwd(), 'app/pages/events/[id].vue'), 'utf8')
 
     expect(page).toContain('<h2>产品能力</h2>')
     expect(page).toContain('<h2>工程证据</h2>')

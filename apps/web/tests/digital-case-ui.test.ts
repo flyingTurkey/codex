@@ -109,7 +109,7 @@ describe('round 05 digital case UI', () => {
   })
 
   it('keeps claimed and verified outcomes separate and traceable on the shared detail page', () => {
-    const page = readFileSync(resolve(process.cwd(), 'app/pages/items/[id].vue'), 'utf8')
+    const page = readFileSync(resolve(process.cwd(), 'app/pages/events/[id].vue'), 'utf8')
 
     expect(page).toContain('发布方声称的成效')
     expect(page).toContain('独立证据支持的成效')

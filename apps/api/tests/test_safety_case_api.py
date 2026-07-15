@@ -25,6 +25,7 @@ class StubSafetyCaseQuery:
         assert event_id == EVENT_ID
         return EventDetail(
             id=EVENT_ID,
+            event_type="SAFETY_INCIDENT",
             title="梅大高速茶阳路段“5·1”塌方灾害",
             project_name="梅大高速东延线",
             occurred_at=datetime(2024, 4, 30, 17, 57, tzinfo=UTC),

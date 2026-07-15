@@ -396,6 +396,96 @@ class PostgresPortalRepository:
                     },
                 )
 
+    async def save_event(
+        self,
+        *,
+        owner_id: UUID,
+        event_id: UUID,
+        collection_id: UUID | None,
+        idempotency_key: str,
+        saved_at: datetime,
+    ) -> None:
+        request_hash = _hash_request(
+            {"event_id": str(event_id), "collection_id": str(collection_id)}
+        )
+        async with self._engine.begin() as connection:
+            item_id = await connection.scalar(
+                text(
+                    """
+                    SELECT projection.item_id
+                      FROM search_projection projection
+                     WHERE projection.event_id=:event_id
+                       AND projection.visible AND projection.risk_level <> 'R4'
+                     ORDER BY projection.activity_at DESC, projection.item_id DESC LIMIT 1
+                    """
+                ),
+                {"event_id": event_id},
+            )
+            if item_id is None:
+                raise PortalRepositoryNotFound("event is not available to save")
+            replay = await self._claim_idempotency(
+                connection,
+                owner_id=owner_id,
+                scope="SAVE_EVENT",
+                key=idempotency_key,
+                request_hash=request_hash,
+                response_id=event_id,
+                created_at=saved_at,
+            )
+            if replay:
+                return
+            await connection.execute(
+                text(
+                    "INSERT INTO saved_item (owner_id,item_id,event_id,saved_at) "
+                    "VALUES (:owner_id,:item_id,:event_id,:saved_at) ON CONFLICT DO NOTHING"
+                ),
+                {
+                    "owner_id": owner_id,
+                    "item_id": item_id,
+                    "event_id": event_id,
+                    "saved_at": saved_at,
+                },
+            )
+            if collection_id is not None:
+                await connection.execute(
+                    text(
+                        "INSERT INTO collection_item "
+                        "(collection_id,owner_id,item_id,event_id,added_at) "
+                        "VALUES (:collection_id,:owner_id,:item_id,:event_id,:saved_at) "
+                        "ON CONFLICT DO NOTHING"
+                    ),
+                    {
+                        "collection_id": collection_id,
+                        "owner_id": owner_id,
+                        "item_id": item_id,
+                        "event_id": event_id,
+                        "saved_at": saved_at,
+                    },
+                )
+
+    async def remove_saved_event(
+        self, *, owner_id: UUID, event_id: UUID, collection_id: UUID | None
+    ) -> None:
+        async with self._engine.begin() as connection:
+            if collection_id is None:
+                await connection.execute(
+                    text(
+                        "DELETE FROM saved_item WHERE owner_id=:owner_id AND event_id=:event_id"
+                    ),
+                    {"owner_id": owner_id, "event_id": event_id},
+                )
+            else:
+                await connection.execute(
+                    text(
+                        "DELETE FROM collection_item WHERE collection_id=:collection_id "
+                        "AND owner_id=:owner_id AND event_id=:event_id"
+                    ),
+                    {
+                        "collection_id": collection_id,
+                        "owner_id": owner_id,
+                        "event_id": event_id,
+                    },
+                )
     async def remove_saved_item(
         self, *, owner_id: UUID, item_id: UUID, collection_id: UUID | None
     ) -> None:
@@ -731,6 +821,7 @@ def daily_report_from_rows(report: RowMapping, item_rows: list[RowMapping]) -> D
         grouped[section].append(
             DailyReportItem(
                 item_id=cast(UUID, row["item_id"]),
+                event_id=cast(UUID | None, row.get("event_id")),
                 publication_revision_id=cast(UUID, row["publication_revision_id"]),
                 position=int(row["position"]),
                 title=str(row["title"]),

@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+### Round 14 — Event 统一身份、关系拆分与 Item 兼容迁移
+
+- 扩展现有 Event 为显式通用事件模型，增加稳定 canonical identity、版本、合并/拆分/回滚工作流和不可变 Item alias；没有创建平行事件服务或 `PROVISIONAL_EVENT`。
+- 分离 Document 来源角色、Event 生命周期、Event-Entity、Topic-Event 和受控分类关系；八类 Item 显式映射 Event 类型，模糊匹配只生成候选且 `auto_merge` 保持关闭。
+- 以版本化、幂等、可断点恢复任务完成 shadow backfill 和 consumer parity；已发布 Item 身份 23/23 可解析，差异为 0，23 条未知来源角色进入人工队列。
+- Feed、搜索、日报、收藏、专题、下载和详情在一次 consumer switch 中改用 Event；旧 Item 页面只返回 308，读取 API 返回 `Deprecation/Link` 和可配置 `Sunset`，旧写接口返回 410。
+- 合并、拆分和回滚经 reviewer、`PublicationService` 与追加式审计执行；新增 Round14 专项门禁、真实 PostgreSQL 引用完整性测试、兼容 E2E、R3/R4 越权测试和迁移/别名/候选/回滚指标。
+
 ### Round 13 — 内部发布投影、Event 身份与权限隔离
 
 - 新增 Alembic `0013_internal_projection` 和版本化 `published_v1` schema，以稳定 Event 公开 ID 保存 `PublishedEventSummaryV1`/`PublishedEventDetailV1` 影子投影、字段来源、generation、publication revision、生成时间、失效原因和审计引用；既有 `publication_projection_state` 继续只负责搜索、缓存与日报失效。

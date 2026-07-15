@@ -61,6 +61,28 @@ class PublicationRepository(Protocol):
 
     async def internal_projection_metrics(self) -> dict[str, float]: ...
 
+    async def request_event_identity_change(
+        self,
+        *,
+        operation: Literal["MERGE", "SPLIT", "ROLLBACK"],
+        event_ids: list[UUID],
+        canonical_event_id: UUID | None,
+        allocations: Mapping[UUID, UUID],
+        submitted_by: UUID,
+        reason: str,
+        created_at: datetime,
+    ) -> UUID: ...
+
+    async def decide_event_identity_change(
+        self,
+        *,
+        request_id: UUID,
+        approve: bool,
+        reviewer_id: UUID,
+        reason: str,
+        decided_at: datetime,
+    ) -> None: ...
+
     async def create_daily_draft(
         self,
         *,
@@ -220,6 +242,56 @@ class PublicationService:
 
     async def internal_projection_metrics(self) -> dict[str, float]:
         return await self._repository.internal_projection_metrics()
+
+    async def request_event_identity_change(
+        self,
+        *,
+        operation: Literal["MERGE", "SPLIT", "ROLLBACK"],
+        event_ids: list[UUID],
+        canonical_event_id: UUID | None,
+        allocations: Mapping[UUID, UUID],
+        submitted_by: UUID,
+        reason: str,
+    ) -> UUID:
+        if len(set(event_ids)) != len(event_ids) or not event_ids:
+            raise PublicationDenied(("EVENT_IDENTITY_TARGETS_INVALID",))
+        if operation == "MERGE" and (
+            len(event_ids) < 2 or canonical_event_id not in event_ids
+        ):
+            raise PublicationDenied(("EVENT_MERGE_CANONICAL_INVALID",))
+        if operation == "SPLIT" and (len(event_ids) < 2 or not allocations):
+            raise PublicationDenied(("EVENT_SPLIT_ALLOCATION_REQUIRED",))
+        if operation != "SPLIT" and allocations:
+            raise PublicationDenied(("EVENT_ALLOCATION_ONLY_FOR_SPLIT",))
+        if not reason.strip():
+            raise PublicationDenied(("EVENT_IDENTITY_REASON_REQUIRED",))
+        return await self._repository.request_event_identity_change(
+            operation=operation,
+            event_ids=event_ids,
+            canonical_event_id=canonical_event_id,
+            allocations=allocations,
+            submitted_by=submitted_by,
+            reason=reason.strip(),
+            created_at=self._now(),
+        )
+
+    async def decide_event_identity_change(
+        self,
+        request_id: UUID,
+        *,
+        approve: bool,
+        reviewer_id: UUID,
+        reason: str,
+    ) -> None:
+        if not reason.strip():
+            raise PublicationDenied(("EVENT_IDENTITY_DECISION_REASON_REQUIRED",))
+        await self._repository.decide_event_identity_change(
+            request_id=request_id,
+            approve=approve,
+            reviewer_id=reviewer_id,
+            reason=reason.strip(),
+            decided_at=self._now(),
+        )
 
     async def create_daily_draft(
         self,

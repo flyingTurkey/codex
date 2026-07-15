@@ -134,6 +134,33 @@ async function mockDigital(page: Page): Promise<void> {
       body: JSON.stringify({ item, claims, evidence, digital_case: digitalCase }),
     }),
   )
+  await page.route(`**/api/v1/events/${itemId}`, (route) =>
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: itemId,
+        title: item.title,
+        event_type: 'DIGITAL_PROJECT',
+        event_status: 'ACTIVE',
+        canonical_event_id: itemId,
+        event_version: 1,
+        confirmed_facts: [],
+        unverified_facts: [],
+        timeline: { items: [] },
+        relations: [],
+        similar_scenario_tags: [],
+        prevention_measure_tags: [],
+        topic_ids: [],
+        independent_source_count: 1,
+      }),
+    }),
+  )
+  await page.route(`**/api/v1/events/${itemId}/content`, (route) =>
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ item, claims, evidence, digital_case: digitalCase }),
+    }),
+  )
 }
 
 async function openDigital(page: Page): Promise<void> {
@@ -161,9 +188,9 @@ test('digital feed filters shared cards and explains relevance without confidenc
 
 test('digital detail separates attributed outcomes and opens their evidence', async ({ page }) => {
   await mockDigital(page)
-  await page.goto(`/items/${itemId}`)
+  await page.goto(`/events/${itemId}`)
 
-  await expect(page.getByRole('heading', { level: 1, name: '数字化案例详情' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: item.title })).toBeVisible()
   await expect(page.getByRole('heading', { name: '发布方声称的成效' })).toBeVisible()
   await expect(page.getByText('暂无可独立验证的量化成效。')).toBeVisible()
   await page.getByRole('button', { name: '查看成效证据（1）' }).click()
@@ -223,7 +250,7 @@ test('@a11y digital feed and detail have no axe violations', async ({ page }) =>
   await openDigital(page)
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
 
-  await page.goto(`/items/${itemId}`)
-  await expect(page.getByRole('heading', { level: 1, name: '数字化案例详情' })).toBeVisible()
+  await page.goto(`/events/${itemId}`)
+  await expect(page.getByRole('heading', { level: 1, name: item.title })).toBeVisible()
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
 })

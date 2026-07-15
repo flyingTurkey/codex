@@ -11,11 +11,11 @@ from uuid import UUID
 from srbg_contracts import (
     CollectionSummary,
     DailyReport,
+    EventSummary,
     FeedNotice,
     FeedPage,
     FingerprintResponse,
     ItemDetail,
-    ItemSummary,
     SearchContext,
     UserRole,
 )
@@ -28,6 +28,8 @@ from srbg_api.identifiers import uuid7
 
 class IntelligenceReader(Protocol):
     async def get_item(self, item_id: UUID) -> ItemDetail: ...
+
+    async def get_event_summary_for_item(self, item_id: UUID) -> EventSummary: ...
 
 
 class EmbeddingProvider(Protocol):
@@ -138,11 +140,10 @@ class PortalApplicationService:
         hits: list[SearchHit],
         *,
         semantic_status: Literal["DISABLED", "ENABLED", "DEGRADED"],
-    ) -> list[ItemSummary]:
-        items: list[ItemSummary] = []
+    ) -> list[EventSummary]:
+        items: list[EventSummary] = []
         for hit in hits:
-            detail = await self._intelligence.get_item(hit.item_id)
-            summary = detail.item
+            summary = await self._intelligence.get_event_summary_for_item(hit.item_id)
             items.append(
                 summary.model_copy(
                     update={
@@ -178,10 +179,9 @@ class PortalApplicationService:
             cursor_values=values,
             limit=limit,
         )
-        items: list[ItemSummary] = []
+        items: list[EventSummary] = []
         for item_id in item_ids:
-            detail = await self._intelligence.get_item(item_id)
-            summary = detail.item
+            summary = await self._intelligence.get_event_summary_for_item(item_id)
             items.append(summary.model_copy(update={"is_saved": True}))
         return FeedPage(
             items=items,
@@ -210,11 +210,38 @@ class PortalApplicationService:
             saved_at=datetime.now(UTC),
         )
 
+    async def resolve_item_event(self, item_id: UUID) -> UUID:
+        summary = await self._intelligence.get_event_summary_for_item(item_id)
+        return summary.id
+
     async def remove_saved_item(
         self, *, owner_id: UUID, item_id: UUID, collection_id: UUID | None
     ) -> None:
         await self._repository.remove_saved_item(
             owner_id=owner_id, item_id=item_id, collection_id=collection_id
+        )
+
+    async def save_event(
+        self,
+        *,
+        owner_id: UUID,
+        event_id: UUID,
+        collection_id: UUID | None,
+        idempotency_key: str,
+    ) -> None:
+        await self._repository.save_event(
+            owner_id=owner_id,
+            event_id=event_id,
+            collection_id=collection_id,
+            idempotency_key=idempotency_key,
+            saved_at=datetime.now(UTC),
+        )
+
+    async def remove_saved_event(
+        self, *, owner_id: UUID, event_id: UUID, collection_id: UUID | None
+    ) -> None:
+        await self._repository.remove_saved_event(
+            owner_id=owner_id, event_id=event_id, collection_id=collection_id
         )
 
     async def list_collections(

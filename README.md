@@ -2,7 +2,16 @@
 
 四川路桥内部使用的行业数智与安全情报平台。仓库已形成 Round 00—13 的工程切片，覆盖来源与原始文档、证据化内容处理、统一信息流、搜索/日报/收藏、质量运维安全门禁，以及 Event-keyed 内部发布投影的安全影子基线。各项能力的真实联网和生产等级仍须按验收证据判断，不能由本说明直接推定。
 
-当前第 13 轮影子基线状态为 `PASSED`，但尚未切换 Feed、搜索、日报、收藏、专题和详情等用户消费者；它们仍使用既有 Item-keyed 路径，计划在第 14 轮一次性切换。第 11 轮生产证据状态仍为 `BLOCKED`：真实业务金标、连续运行窗口、生产 PITR 和真实告警路由等证据尚未完整。仓库不应被表述为生产就绪。
+当前第 14 轮工程验收状态为 `PASSED`：Feed、搜索、日报、收藏、专题、下载和详情已在一次受控切换中统一使用 Event 身份；旧 Item 仅保留不可变映射、308 页面跳转和有期限的只读 API 兼容。第 11 轮生产证据状态仍为 `BLOCKED`：真实业务金标、连续运行窗口、生产 PITR 和真实告警路由等证据尚未完整。仓库不应被表述为生产就绪。
+
+## 第 14 轮 Event 统一身份
+
+- `EventSummary`/`EventDetail` 是唯一用户契约，`event_type` 必填且不默认安全事故；Document 只作为证据并显式记录来源角色。
+- 旧 `/items/{id}` 页面返回 308 到 `/events/{event_id}`；旧读取 API 返回 `Deprecation` 和 successor `Link`。`Sunset` 只有显式配置后才发送，仓库没有自定生产删除日期。
+- 回填任务独立于 Alembic，按版本和 checkpoint 幂等运行；模糊匹配只进入人工候选，生产自动合并关闭。
+- 本地验收已发布 Item 身份迁移为 23/23、consumer parity difference 为 0；23 条来源角色因证据不足进入人工队列，没有猜测。
+
+完整证据见[第 14 轮验收记录](docs/acceptance/phase-2/round-14-event-unification.md)。
 
 ## 运行组成
 
@@ -88,6 +97,7 @@ make security-check
 make fixture-replay
 make quality-gate
 make phase2-round13-test
+make phase2-round14-test
 make web-e2e
 make web-a11y
 ```
@@ -115,6 +125,7 @@ make resilience-test
 - 架构基线：[ADR-0001](docs/adr/0001-modular-monolith.md)
 - 第 11 轮工程与生产证据状态：[Round 11 验收记录](docs/acceptance/round-11-quality-operations-security.md)
 - 第 13 轮内部发布投影与 Event 身份：[Round 13 验收记录](docs/acceptance/phase-2/round-13-internal-projection-event-identity.md)
+- 第 14 轮 Event 统一身份与 Item 兼容迁移：[Round 14 验收记录](docs/acceptance/phase-2/round-14-event-unification.md)
 - 二阶段产品与架构基线：[二阶段实施总规范](docs/codex-kit/docs/phase-2/SRBG-Phase-2-Optimization-Codex-Spec.md)
 - 二阶段执行顺序：[11F、11P 及第 12—21 轮指令](docs/codex-kit/docs/phase-2/SRBG-Phase-2-Rounds-11F-21-Codex-Commands.md)
 - 初始工程证据：[Round 00 验收记录](docs/acceptance/round-00-foundation.md)

@@ -84,10 +84,14 @@ def test_published_safety_item_binds_immutable_revision_and_typed_summary() -> N
 
 
 def test_feed_page_is_flat_cursor_contract_with_notices_and_no_total() -> None:
-    item = models.ItemSummary(
+    item = models.EventSummary(
         **_common_item(),
         publication_revision_id=None,
         review_status="PENDING",
+        event_type="REGULATION_CHANGE",
+        event_status="ACTIVE",
+        canonical_event_id=ITEM_ID,
+        event_version=1,
     )
     page = models.FeedPage(
         items=[item],

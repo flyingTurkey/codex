@@ -25,7 +25,7 @@ defineProps<{ report: DailyReport }>()
       <ol v-if="section.items.length">
         <li v-for="item in section.items" :key="item.item_id">
           <div>
-            <a :href="`/items/${item.item_id}`">{{ item.title }}</a>
+            <a :href="`/events/${item.event_id ?? item.item_id}`">{{ item.title }}</a>
             <strong v-if="item.current_state === 'WITHDRAWN'">已撤回</strong>
             <strong v-else-if="item.current_state === 'SOURCE_UNAVAILABLE'">原文失效</strong>
           </div>

@@ -174,6 +174,152 @@ class PostgresPublicationRepository:
     async def close(self) -> None:
         await self._engine.dispose()
 
+    async def request_event_identity_change(
+        self,
+        *,
+        operation: str,
+        event_ids: list[UUID],
+        canonical_event_id: UUID | None,
+        allocations: Mapping[UUID, UUID],
+        submitted_by: UUID,
+        reason: str,
+        created_at: datetime,
+    ) -> UUID:
+        request_id = uuid7()
+        async with self._engine.begin() as connection:
+            existing = set(
+                (
+                    await connection.scalars(
+                        text("SELECT id FROM event WHERE id=ANY(CAST(:ids AS uuid[])) FOR SHARE"),
+                        {"ids": event_ids},
+                    )
+                ).all()
+            )
+            if existing != set(event_ids):
+                raise PublicationDenied(("EVENT_IDENTITY_TARGET_NOT_FOUND",))
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO event_identity_change_request
+                      (id,operation,status,reason,submitted_by,created_at)
+                    VALUES (:id,:operation,'PENDING',:reason,:submitted_by,:created_at)
+                    """
+                ),
+                {
+                    "id": request_id,
+                    "operation": operation,
+                    "reason": reason,
+                    "submitted_by": submitted_by,
+                    "created_at": created_at,
+                },
+            )
+            for event_id in event_ids:
+                role = "TARGET"
+                if operation == "MERGE":
+                    role = "CANONICAL" if event_id == canonical_event_id else "ALIAS"
+                elif operation == "SPLIT":
+                    role = "SOURCE" if event_id == canonical_event_id else "CHILD"
+                await connection.execute(
+                    text(
+                        "INSERT INTO event_identity_change_target "
+                        "(request_id,event_id,target_role) VALUES (:request_id,:event_id,:role)"
+                    ),
+                    {"request_id": request_id, "event_id": event_id, "role": role},
+                )
+            for item_id, child_event_id in allocations.items():
+                await connection.execute(
+                    text(
+                        "INSERT INTO event_split_allocation "
+                        "(request_id,item_id,child_event_id,created_at) "
+                        "VALUES (:request_id,:item_id,:child_event_id,:created_at)"
+                    ),
+                    {
+                        "request_id": request_id,
+                        "item_id": item_id,
+                        "child_event_id": child_event_id,
+                        "created_at": created_at,
+                    },
+                )
+            await _append_audit(
+                connection,
+                event_type=f"EVENT_IDENTITY_{operation}_REQUESTED",
+                actor_id=submitted_by,
+                target_type="event_identity_change_request",
+                target_id=request_id,
+                after_state={"event_ids": [str(value) for value in event_ids]},
+                reason=reason,
+                request_id=str(request_id),
+                now=created_at,
+            )
+        return request_id
+
+    async def decide_event_identity_change(
+        self,
+        *,
+        request_id: UUID,
+        approve: bool,
+        reviewer_id: UUID,
+        reason: str,
+        decided_at: datetime,
+    ) -> None:
+        async with self._engine.begin() as connection:
+            request = (
+                await connection.execute(
+                    text(
+                        "SELECT operation,submitted_by,status FROM event_identity_change_request "
+                        "WHERE id=:request_id FOR UPDATE"
+                    ),
+                    {"request_id": request_id},
+                )
+            ).mappings().first()
+            if request is None or request["status"] != "PENDING":
+                raise PublicationDenied(("EVENT_IDENTITY_REQUEST_NOT_PENDING",))
+            if request["submitted_by"] == reviewer_id:
+                raise PublicationDenied(("EVENT_IDENTITY_SEPARATION_OF_DUTIES",))
+            decision_label = "APPROVED" if approve else "REJECTED"
+            audit_id = await _append_audit(
+                connection,
+                event_type=f"EVENT_IDENTITY_{request['operation']}_{decision_label}",
+                actor_id=reviewer_id,
+                target_type="event_identity_change_request",
+                target_id=request_id,
+                after_state={"approved": approve},
+                reason=reason,
+                request_id=str(request_id),
+                now=decided_at,
+            )
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO event_identity_change_decision
+                      (id,request_id,decision,reviewer_id,submitted_by,audit_log_id,created_at)
+                    VALUES (
+                      :id,:request_id,:decision,:reviewer_id,
+                      :submitted_by,:audit_id,:created_at
+                    )
+                    """
+                ),
+                {
+                    "id": uuid7(),
+                    "request_id": request_id,
+                    "decision": "APPROVE" if approve else "REJECT",
+                    "reviewer_id": reviewer_id,
+                    "submitted_by": request["submitted_by"],
+                    "audit_id": audit_id,
+                    "created_at": decided_at,
+                },
+            )
+            if approve:
+                await _apply_event_identity_change(
+                    connection, request_id=request_id, operation=str(request["operation"])
+                )
+            await connection.execute(
+                text(
+                    "UPDATE event_identity_change_request SET status=:status WHERE id=:request_id"
+                ),
+                {"status": "APPLIED" if approve else "REJECTED", "request_id": request_id},
+            )
+
     async def build_internal_projection(
         self, *, actor_id: UUID, generated_at: datetime
     ) -> Any:
@@ -270,7 +416,7 @@ class PostgresPublicationRepository:
                     await connection.execute(
                         text(
                             """
-                            SELECT sp.item_id, sp.publication_revision_id, sp.domain,
+                            SELECT sp.item_id, sp.event_id, sp.publication_revision_id, sp.domain,
                               sp.title, ii.original_url,
                               COALESCE(pr.snapshot->>'one_sentence_fact',
                                        pr.snapshot->>'summary') AS summary
@@ -320,10 +466,12 @@ class PostgresPublicationRepository:
                     text(
                         """
                         INSERT INTO daily_report_item (
-                          report_id, section, position, item_id, publication_revision_id,
+                          report_id, section, position, item_id, event_id,
+                          publication_revision_id,
                           title, summary, original_url
                         ) VALUES (
-                          :report_id, :section, :position, :item_id, :revision_id,
+                          :report_id, :section, :position, :item_id, :event_id,
+                          :revision_id,
                           :title, :summary, :original_url
                         )
                         """
@@ -333,6 +481,7 @@ class PostgresPublicationRepository:
                         "section": section,
                         "position": positions[section],
                         "item_id": row["item_id"],
+                        "event_id": row["event_id"],
                         "revision_id": row["publication_revision_id"],
                         "title": row["title"],
                         "summary": row["summary"],
@@ -5975,6 +6124,54 @@ def _safety_metadata_value_valid(claim_type: str, value: object) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
+async def _apply_event_identity_change(
+    connection: AsyncConnection, *, request_id: UUID, operation: str
+) -> None:
+    targets = list(
+        (
+            await connection.execute(
+                text(
+                    "SELECT event_id,target_role FROM event_identity_change_target "
+                    "WHERE request_id=:request_id"
+                ),
+                {"request_id": request_id},
+            )
+        ).mappings()
+    )
+    if operation == "MERGE":
+        canonical = next(row["event_id"] for row in targets if row["target_role"] == "CANONICAL")
+        aliases = [row["event_id"] for row in targets if row["target_role"] == "ALIAS"]
+        await connection.execute(
+            text(
+                "UPDATE event SET status='MERGED',canonical_event_id=:canonical,"
+                "version=version+1,updated_at=now() WHERE id=ANY(CAST(:aliases AS uuid[]))"
+            ),
+            {"canonical": canonical, "aliases": aliases},
+        )
+        await connection.execute(
+            text("UPDATE event SET version=version+1,updated_at=now() WHERE id=:canonical"),
+            {"canonical": canonical},
+        )
+    elif operation == "SPLIT":
+        source = next(row["event_id"] for row in targets if row["target_role"] == "SOURCE")
+        await connection.execute(
+            text(
+                "UPDATE event SET status='SPLIT',canonical_event_id=id,"
+                "version=version+1,updated_at=now() WHERE id=:source"
+            ),
+            {"source": source},
+        )
+    elif operation == "ROLLBACK":
+        ids = [row["event_id"] for row in targets]
+        await connection.execute(
+            text(
+                "UPDATE event SET status='ACTIVE',canonical_event_id=id,"
+                "version=version+1,updated_at=now() WHERE id=ANY(CAST(:ids AS uuid[]))"
+            ),
+            {"ids": ids},
+        )
+
+
 async def _append_audit(
     connection: AsyncConnection,
     *,
@@ -5986,7 +6183,8 @@ async def _append_audit(
     reason: str,
     request_id: str,
     now: datetime,
-) -> None:
+) -> UUID:
+    audit_id = uuid7()
     await connection.execute(
         text(
             """
@@ -5997,7 +6195,7 @@ async def _append_audit(
             """
         ),
         {
-            "id": uuid7(),
+            "id": audit_id,
             "event_type": event_type,
             "actor_id": actor_id,
             "target_type": target_type,
@@ -6008,6 +6206,7 @@ async def _append_audit(
             "created_at": now,
         },
     )
+    return audit_id
 
 
 def _json(value: Any) -> str:

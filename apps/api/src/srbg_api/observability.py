@@ -56,6 +56,28 @@ AUTHORIZATION_DENIALS = Counter(
     "Authorization denials by bounded policy reason.",
     ("reason",),
 )
+EVENT_MIGRATION_RECORDS = Gauge(
+    "srbg_event_migration_records",
+    "Latest Event migration records by bounded outcome.",
+    ("outcome",),
+)
+EVENT_CONSUMER_PARITY_DIFFERENCES = Gauge(
+    "srbg_event_consumer_parity_differences",
+    "Latest Item-to-Event consumer parity differences.",
+)
+EVENT_ALIAS_RESOLUTIONS = Counter(
+    "srbg_event_alias_resolutions_total",
+    "Item/Event alias resolution outcomes.",
+    ("outcome",),
+)
+EVENT_IDENTITY_CANDIDATE_BACKLOG = Gauge(
+    "srbg_event_identity_candidate_backlog",
+    "Fuzzy identity candidates awaiting a human decision.",
+)
+EVENT_IDENTITY_ROLLBACKS = Counter(
+    "srbg_event_identity_rollbacks_total",
+    "Reviewed Event merge/split rollbacks.",
+)
 
 
 def configure_observability(settings: Settings) -> None:

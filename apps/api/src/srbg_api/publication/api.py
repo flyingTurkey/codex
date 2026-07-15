@@ -5,6 +5,7 @@ from typing import Annotated, Literal, Protocol, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi.responses import RedirectResponse
 from srbg_contracts import (
     ClaimConflict,
     ClaimConflictDecisionRequest,
@@ -42,6 +43,8 @@ from srbg_api.auth import (
     require_roles,
     require_roles_with_step_up,
 )
+from srbg_api.config import get_settings
+from srbg_api.event_unification.compatibility import item_deprecation_headers
 from srbg_api.http_cache import contract_etag_response
 from srbg_api.safety_cases.candidates import EventCandidateAlreadyDecided
 
@@ -85,6 +88,8 @@ class IntelligenceQueryService(Protocol):
     async def get_citation(self, item_id: UUID, citation_format: str) -> tuple[str, str]: ...
 
     async def get_event(self, event_id: UUID) -> EventDetail: ...
+
+    async def get_event_item_projection(self, event_id: UUID) -> ItemDetail: ...
 
     async def list_hot_topics(
         self,
@@ -280,6 +285,19 @@ def _query_service(request: Request) -> IntelligenceQueryService:
     return cast(IntelligenceQueryService, service)
 
 
+async def _item_compatibility_headers(
+    service: IntelligenceQueryService, item_id: UUID
+) -> dict[str, str]:
+    resolver = getattr(service, "resolve_item_event", None)
+    event_id = await resolver(item_id) if resolver is not None else item_id
+    settings = get_settings()
+    return item_deprecation_headers(
+        event_id,
+        deprecation_at=settings.item_api_deprecation_at,
+        sunset_at=settings.item_api_sunset_at,
+    )
+
+
 def _publication_service(request: Request) -> ReviewPublicationService:
     service = getattr(request.app.state, "publication_service", None)
     if service is None:
@@ -396,8 +414,12 @@ async def get_item(
     request: Request,
     _: CurrentPrincipal,
 ) -> Response:
+    service = _query_service(request)
     return contract_etag_response(
-        request, await _query_service(request).get_item(item_id), exclude_unset=True
+        request,
+        await service.get_item(item_id),
+        exclude_unset=True,
+        extra_headers=await _item_compatibility_headers(service, item_id),
     )
 
 
@@ -451,7 +473,8 @@ async def get_item_citation(
         headers={
             "Content-Disposition": f'attachment; filename="paper-{item_id}.{extension}"',
             "Cache-Control": "private, max-age=300",
-        },
+        }
+        | await _item_compatibility_headers(_query_service(request), item_id),
     )
 
 
@@ -464,7 +487,57 @@ async def get_event(
     request: Request,
     _: CurrentPrincipal,
 ) -> Response:
-    return contract_etag_response(request, await _query_service(request).get_event(event_id))
+    service = _query_service(request)
+    resolver = getattr(service, "resolve_event_redirect", None)
+    canonical_id = await resolver(event_id) if resolver is not None else None
+    if canonical_id is not None and canonical_id != event_id:
+        return RedirectResponse(
+            url=f"/api/v1/events/{canonical_id}",
+            status_code=status.HTTP_308_PERMANENT_REDIRECT,
+        )
+    return contract_etag_response(request, await service.get_event(event_id))
+
+
+@router.get(
+    "/events/{event_id}/content",
+    response_model=ItemDetail,
+    response_model_exclude_unset=True,
+)
+async def get_event_content(
+    event_id: UUID,
+    request: Request,
+    _: CurrentPrincipal,
+) -> Response:
+    return contract_etag_response(
+        request,
+        await _query_service(request).get_event_item_projection(event_id),
+        exclude_unset=True,
+    )
+
+
+@router.get("/events/{event_id}/citation")
+async def get_event_citation(
+    event_id: UUID,
+    request: Request,
+    _: CurrentPrincipal,
+    citation_format: Literal["ris", "bibtex", "gb-t-7714"] = Query(alias="format"),
+) -> Response:
+    service = _query_service(request)
+    content_projection = await service.get_event_item_projection(event_id)
+    content, media_type = await service.get_citation(
+        content_projection.item.id, citation_format
+    )
+    extension = {"ris": "ris", "bibtex": "bib", "gb-t-7714": "txt"}[
+        citation_format
+    ]
+    return Response(
+        content=content.encode("utf-8"),
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="event-{event_id}.{extension}"',
+            "Cache-Control": "private, max-age=300",
+        },
+    )
 
 
 @router.get(
@@ -580,10 +653,16 @@ async def get_versions(
     item_id: UUID,
     request: Request,
     principal: CurrentPrincipal,
-) -> VersionTimelineResponse:
-    return await _query_service(request).get_versions(
+) -> Response:
+    service = _query_service(request)
+    result = await service.get_versions(
         item_id,
         include_restricted=not principal.roles.isdisjoint(_RESTRICTED_READ_ROLES),
+    )
+    return contract_etag_response(
+        request,
+        result,
+        extra_headers=await _item_compatibility_headers(service, item_id),
     )
 
 
@@ -594,12 +673,18 @@ async def get_diff(
     principal: CurrentPrincipal,
     from_version_id: FromVersionQuery,
     to_version_id: ToVersionQuery,
-) -> VersionDiffResponse:
-    return await _query_service(request).get_diff(
+) -> Response:
+    service = _query_service(request)
+    result = await service.get_diff(
         item_id,
         from_version_id=from_version_id,
         to_version_id=to_version_id,
         include_restricted=not principal.roles.isdisjoint(_RESTRICTED_READ_ROLES),
+    )
+    return contract_etag_response(
+        request,
+        result,
+        extra_headers=await _item_compatibility_headers(service, item_id),
     )
 
 

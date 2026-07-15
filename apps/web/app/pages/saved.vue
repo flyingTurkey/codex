@@ -7,7 +7,7 @@ import { createUuidV7 } from '../utils/uuid-v7'
 
 const selectedCollection = ref<string>('')
 const { data: collections, refresh: refreshCollections } = await useFetch<CollectionSummary[]>('/api/v1/collections', { server: false, retry: 0 })
-const { data: feed, error, refresh, status } = await useFetch<FeedPage>('/api/v1/saved-items', {
+const { data: feed, error, refresh, status } = await useFetch<FeedPage>('/api/v1/saved-events', {
   query: computed(() => ({ collection_id: selectedCollection.value || undefined })),
   server: false, retry: 0, timeout: 5_000,
 })
@@ -30,7 +30,7 @@ async function loadMore(): Promise<void> {
   if (!current?.next_cursor || loadingMore.value) return
   loadingMore.value = true
   try {
-    const next = await $fetch<FeedPage>('/api/v1/saved-items', {
+    const next = await $fetch<FeedPage>('/api/v1/saved-events', {
       query: {
         collection_id: selectedCollection.value || undefined,
         cursor: current.next_cursor,

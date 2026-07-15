@@ -458,8 +458,15 @@ class ReplayResult(ContractModel):
 
 
 class FeedbackRequest(ContractModel):
-    item_id: UUID
+    item_id: UUID | None = None
+    event_id: UUID | None = None
     value: Literal["USEFUL", "NOT_USEFUL"]
+
+    @model_validator(mode="after")
+    def require_one_identity(self) -> "FeedbackRequest":
+        if (self.item_id is None) == (self.event_id is None):
+            raise ValueError("exactly one of item_id or event_id is required")
+        return self
 
 
 class PilotMetrics(ContractModel):
@@ -1082,6 +1089,13 @@ class EventType(StrEnum):
     PRODUCT_RELEASE = "PRODUCT_RELEASE"
 
 
+class EventStatus(StrEnum):
+    ACTIVE = "ACTIVE"
+    MERGED = "MERGED"
+    SPLIT = "SPLIT"
+    WITHDRAWN = "WITHDRAWN"
+
+
 class SourceLineageRole(StrEnum):
     ORIGINAL = "ORIGINAL"
     REPRINT = "REPRINT"
@@ -1299,8 +1313,17 @@ class ItemSummary(ContractModel):
     search_context: SearchContext | None = None
 
 
+class EventSummary(ItemSummary):
+    """The sole feed/search/saved/report identity after the Round 14 switch."""
+
+    event_type: EventType
+    event_status: EventStatus
+    canonical_event_id: UUID
+    event_version: int = Field(ge=1)
+
+
 class FeedPage(ContractModel):
-    items: list[ItemSummary]
+    items: list[EventSummary]
     next_cursor: str | None
     fingerprint: str = Field(min_length=1, max_length=200)
     generated_at: datetime
@@ -1310,6 +1333,11 @@ class FeedPage(ContractModel):
 
 class SaveItemRequest(ContractModel):
     item_id: UUID
+    collection_id: UUID | None = None
+
+
+class SaveEventRequest(ContractModel):
+    event_id: UUID
     collection_id: UUID | None = None
 
 
@@ -1340,6 +1368,7 @@ class CollectionSummary(ContractModel):
 
 class DailyReportItem(ContractModel):
     item_id: UUID
+    event_id: UUID | None = None
     publication_revision_id: UUID
     position: int = Field(ge=1)
     title: str = Field(min_length=1, max_length=500)
@@ -1467,7 +1496,11 @@ class EventRelationView(ContractModel):
 class EventDetail(ContractModel):
     id: UUID
     title: str = Field(min_length=1, max_length=500)
-    event_type: EventType = EventType.SAFETY_INCIDENT
+    event_type: EventType
+    event_status: EventStatus = EventStatus.ACTIVE
+    canonical_event_id: UUID | None = None
+    event_version: int = Field(default=1, ge=1)
+    split_child_event_ids: list[UUID] = Field(default_factory=list)
     project_name: str | None = Field(default=None, min_length=1, max_length=300)
     occurred_at: datetime | None = None
     region: str | None = Field(default=None, min_length=1, max_length=200)

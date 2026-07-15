@@ -11,7 +11,7 @@ from srbg_contracts import (
     DailyReport,
     DailyReportItem,
     DailyReportSection,
-    ItemSummary,
+    EventSummary,
     ItemType,
     ReviewStatus,
 )
@@ -29,8 +29,8 @@ PRINCIPAL = Principal(
 DOCUMENT_NUMBER = "川交规\u30142026\u301510号"
 
 
-def _summary() -> ItemSummary:
-    return ItemSummary(
+def _summary() -> EventSummary:
+    return EventSummary(
         id=ITEM_ID,
         publication_revision_id=REVISION_ID,
         domain=Channel.SAFETY,
@@ -42,6 +42,10 @@ def _summary() -> ItemSummary:
         activity_at=NOW,
         original_url="https://example.com/item",
         review_status=ReviewStatus.APPROVED,
+        event_type="REGULATION_CHANGE",
+        event_status="ACTIVE",
+        canonical_event_id=ITEM_ID,
+        event_version=1,
     )
 
 
@@ -49,6 +53,10 @@ class FakeIntelligence:
     async def get_item(self, item_id: UUID) -> SimpleNamespace:
         assert item_id == ITEM_ID
         return SimpleNamespace(item=_summary())
+
+    async def get_event_summary_for_item(self, item_id: UUID) -> EventSummary:
+        assert item_id == ITEM_ID
+        return _summary()
 
 
 class FakeRepository:

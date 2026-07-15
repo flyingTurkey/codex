@@ -9,6 +9,7 @@ export type PipelineRunId = string | null
 export type PromptVersion = string | null
 export type SchemaVersion = string | null
 export type Status = 'ASSISTED' | 'DEGRADED'
+export type CanonicalEventId = string
 export type ItemType =
   | 'DIGITAL_CASE'
   | 'JOURNAL_PAPER'
@@ -22,6 +23,10 @@ export type DetailAvailable = boolean | null
 export type DocumentStates = DocumentState[] | null
 export type DocumentState = 'UPDATED' | 'RE_REVIEW_PENDING' | 'WITHDRAWN' | 'SOURCE_UNAVAILABLE'
 export type Channel = 'DIGITAL' | 'SAFETY'
+export type EventStatus = 'ACTIVE' | 'MERGED' | 'SPLIT' | 'WITHDRAWN'
+export type EventType =
+  'SAFETY_INCIDENT' | 'REGULATION_CHANGE' | 'DIGITAL_PROJECT' | 'RESEARCH_RESULT' | 'PRODUCT_RELEASE'
+export type EventVersion = number
 export type EvidenceCount = number | null
 export type EvidenceStatus = 'WITHHELD' | 'VERIFIED'
 export type FirstDiscoveredAt = string
@@ -253,7 +258,7 @@ export type PromotionalClaimCount3 = number
 export type VendorName3 = string
 export type VerifiedCapabilityCount3 = number
 export type Version3 = string | null
-export type Items = ItemSummary[]
+export type Items = EventSummary[]
 export type NextCursor = string | null
 export type Code2 = string
 export type Level = 'info' | 'warning' | 'error'
@@ -268,13 +273,20 @@ export interface FeedPage {
   next_cursor: NextCursor
   notices: Notices
 }
-export interface ItemSummary {
+/**
+ * The sole feed/search/saved/report identity after the Round 14 switch.
+ */
+export interface EventSummary {
   activity_at: ActivityAt
   ai_assistance?: AiAssistance | null
+  canonical_event_id: CanonicalEventId
   content_type: ItemType
   detail_available?: DetailAvailable
   document_states?: DocumentStates
   domain: Channel
+  event_status: EventStatus
+  event_type: EventType
+  event_version: EventVersion
   evidence_count?: EvidenceCount
   evidence_status?: EvidenceStatus | null
   first_discovered_at: FirstDiscoveredAt

@@ -81,7 +81,7 @@ async function mockRound10Api(page: Page): Promise<void> {
       }],
     }),
   }))
-  await page.route('**/api/v1/saved-items', route => route.fulfill({ status: 204 }))
+  await page.route('**/api/v1/saved-events', route => route.fulfill({ status: 204 }))
   await page.route('**/api/v1/me', route => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({

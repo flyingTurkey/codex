@@ -111,7 +111,7 @@ def test_cluster_and_score_write_contracts_reject_smuggled_state() -> None:
     assert relation_candidate.relation_type == "FOLLOW_UP"
 
 
-def test_event_detail_supports_all_domain_event_types_with_safe_defaults() -> None:
+def test_event_detail_supports_all_domain_event_types_with_explicit_type() -> None:
     fields = models.EventDetail.model_fields
     assert set(models.EventType) == {
         models.EventType.SAFETY_INCIDENT,
@@ -120,5 +120,5 @@ def test_event_detail_supports_all_domain_event_types_with_safe_defaults() -> No
         models.EventType.RESEARCH_RESULT,
         models.EventType.PRODUCT_RELEASE,
     }
-    assert fields["event_type"].default is models.EventType.SAFETY_INCIDENT
+    assert fields["event_type"].is_required()
     assert fields["independent_source_count"].default == 0

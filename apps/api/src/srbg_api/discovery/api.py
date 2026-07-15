@@ -17,12 +17,15 @@ from srbg_contracts import (
     DailyReport,
     FeedPage,
     FingerprintResponse,
+    SaveEventRequest,
     SaveItemRequest,
     UserRole,
 )
 
 from srbg_api.auth import Principal, get_current_principal, require_roles
+from srbg_api.config import get_settings
 from srbg_api.discovery.domain import normalize_search_query
+from srbg_api.event_unification.compatibility import item_deprecation_headers
 from srbg_api.http_cache import contract_etag_response
 from srbg_api.observability import SEARCH_DURATION
 
@@ -67,6 +70,19 @@ class PortalService(Protocol):
 
     async def remove_saved_item(
         self, *, owner_id: UUID, item_id: UUID, collection_id: UUID | None
+    ) -> None: ...
+
+    async def save_event(
+        self,
+        *,
+        owner_id: UUID,
+        event_id: UUID,
+        collection_id: UUID | None,
+        idempotency_key: str,
+    ) -> None: ...
+
+    async def remove_saved_event(
+        self, *, owner_id: UUID, event_id: UUID, collection_id: UUID | None
     ) -> None: ...
 
     async def list_collections(
@@ -176,6 +192,7 @@ async def search(
     return contract_etag_response(request, page, exclude_unset=True)
 
 
+@router.get("/saved-events", response_model=FeedPage, response_model_exclude_unset=True)
 @router.get("/saved-items", response_model=FeedPage, response_model_exclude_unset=True)
 async def list_saved_items(
     request: Request,
@@ -198,27 +215,67 @@ async def list_saved_items(
 async def save_item(
     payload: SaveItemRequest,
     request: Request,
-    principal: CurrentPrincipal,
-    idempotency_key: IdempotencyKey,
+    _: CurrentPrincipal,
 ) -> Response:
-    await _service(request).save_item(
-        owner_id=principal.user_id,
-        item_id=payload.item_id,
-        collection_id=payload.collection_id,
-        idempotency_key=idempotency_key,
+    resolver = getattr(_service(request), "resolve_item_event", None)
+    event_id = await resolver(payload.item_id) if resolver is not None else payload.item_id
+    settings = get_settings()
+    return Response(
+        status_code=status.HTTP_410_GONE,
+        headers=item_deprecation_headers(
+            event_id,
+            deprecation_at=settings.item_api_deprecation_at,
+            sunset_at=settings.item_api_sunset_at,
+        ),
     )
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.delete("/saved-items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_saved_item(
     item_id: UUID,
     request: Request,
+    _: CurrentPrincipal,
+) -> Response:
+    resolver = getattr(_service(request), "resolve_item_event", None)
+    event_id = await resolver(item_id) if resolver is not None else item_id
+    settings = get_settings()
+    return Response(
+        status_code=status.HTTP_410_GONE,
+        headers=item_deprecation_headers(
+            event_id,
+            deprecation_at=settings.item_api_deprecation_at,
+            sunset_at=settings.item_api_sunset_at,
+        ),
+    )
+
+
+@router.post("/saved-events", status_code=status.HTTP_204_NO_CONTENT)
+async def save_event(
+    payload: SaveEventRequest,
+    request: Request,
+    principal: CurrentPrincipal,
+    idempotency_key: IdempotencyKey,
+) -> Response:
+    await _service(request).save_event(
+        owner_id=principal.user_id,
+        event_id=payload.event_id,
+        collection_id=payload.collection_id,
+        idempotency_key=idempotency_key,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete("/saved-events/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_saved_event(
+    event_id: UUID,
+    request: Request,
     principal: CurrentPrincipal,
     collection_id: UUID | None = None,
 ) -> Response:
-    await _service(request).remove_saved_item(
-        owner_id=principal.user_id, item_id=item_id, collection_id=collection_id
+    await _service(request).remove_saved_event(
+        owner_id=principal.user_id,
+        event_id=event_id,
+        collection_id=collection_id,
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

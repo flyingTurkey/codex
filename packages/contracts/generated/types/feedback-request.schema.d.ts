@@ -1,7 +1,9 @@
-export type ItemId = string
+export type EventId = string | null
+export type ItemId = string | null
 export type Value = 'USEFUL' | 'NOT_USEFUL'
 
 export interface FeedbackRequest {
-  item_id: ItemId
+  event_id?: EventId
+  item_id?: ItemId
   value: Value
 }
