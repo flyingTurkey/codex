@@ -1,4 +1,4 @@
-version: "1.1.0"
+version: "1.2.0"
 locale: zh-CN
 rules:
   one_primary_item_type: true
@@ -54,6 +54,7 @@ engineering_domains:
   - {code: MUNICIPAL, name: 市政, relevance_weight: 0.75}
   - {code: BUILDING, name: 房建, relevance_weight: 0.65}
   - {code: RAILWAY, name: 铁路, relevance_weight: 0.65}
+  - {code: RAIL_TRANSIT, name: 轨道交通, relevance_weight: 0.65}
   - {code: WATER_CONSERVANCY, name: 水利, relevance_weight: 0.55}
   - {code: PORT_WATERWAY, name: 港口航道, relevance_weight: 0.55}
   - {code: GEOLOGICAL_ENGINEERING, name: 地质工程, relevance_weight: 0.75}

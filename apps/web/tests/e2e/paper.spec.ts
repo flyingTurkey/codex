@@ -77,13 +77,10 @@ async function mockPaper(page: Page): Promise<void> {
       id: itemId, title: item.title, event_type: 'RESEARCH_RESULT', event_status: 'ACTIVE',
       canonical_event_id: itemId, event_version: 1, confirmed_facts: [], unverified_facts: [],
       timeline: { items: [] }, relations: [], similar_scenario_tags: [],
-      prevention_measure_tags: [], topic_ids: [], independent_source_count: 1,
-    }),
-  }))
-  await page.route(`**/api/v1/events/${itemId}/content`, (route) => route.fulfill({
-    contentType: 'application/json',
-    body: JSON.stringify({ item, claims: [], evidence: [], paper }),
-  }))
+       prevention_measure_tags: [], topic_ids: [], independent_source_count: 1,
+       type_detail: item.type_summary,
+     }),
+   }))
   await page.route(`**/api/v1/events/${itemId}/citation**`, (route) => route.fulfill({
     contentType: 'text/plain; charset=utf-8',
     body: '寮犱笁. 妗ユ鏁板瓧瀛敓鐮旂┒[J]. 涓浗鍏矾瀛︽姤, 2025.',
@@ -108,7 +105,7 @@ test('@a11y paper detail separates metadata, abstract and fulltext without axe v
   await page.goto(`/events/${itemId}`)
 
   await expect(page.getByRole('heading', { level: 1, name: item.title })).toBeVisible()
-  await expect(page.getByText('许可不明确，未收录摘要。')).toBeVisible()
+  await expect(page.getByText('当前发布投影仅含题录，未收录摘要。')).toBeVisible()
   await expect(page.getByText('平台未保存全文，仅提供题录与原文链接。')).toBeVisible()
   await expect(page.getByRole('link', { name: '导出 RIS' })).toBeVisible()
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])

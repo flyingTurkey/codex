@@ -7,10 +7,70 @@
         "B1",
         "B2",
         "C1",
-        "C2"
+        "C2",
+        "UNKNOWN"
       ],
       "title": "AuthorityLevel",
       "type": "string"
+    },
+    "RuntimeAuthorization": {
+      "description": "Server-derived execution authorization; never accepted as client input.",
+      "enum": [
+        "DENIED",
+        "TRIAL_ONLY",
+        "PRODUCTION"
+      ],
+      "title": "RuntimeAuthorization",
+      "type": "string"
+    },
+    "SourceAuthorityAssessment": {
+      "additionalProperties": false,
+      "properties": {
+        "assessed_at": {
+          "format": "date-time",
+          "title": "Assessed At",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "level": {
+          "$ref": "#/$defs/AuthorityLevel"
+        },
+        "reason_codes": {
+          "items": {
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Z][A-Z0-9_]*$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "title": "Reason Codes",
+          "type": "array"
+        },
+        "rule_version": {
+          "maxLength": 50,
+          "minLength": 1,
+          "title": "Rule Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "level",
+        "rule_version",
+        "reason_codes",
+        "assessed_at"
+      ],
+      "title": "SourceAuthorityAssessment",
+      "type": "object"
     },
     "SourceChannel": {
       "enum": [
@@ -19,6 +79,39 @@
         "BOTH"
       ],
       "title": "SourceChannel",
+      "type": "string"
+    },
+    "SourceContentDomain": {
+      "enum": [
+        "DIGITAL_TRANSFORMATION_CASE",
+        "RESEARCH_PAPER",
+        "SOFTWARE_PLATFORM",
+        "IOT_EQUIPMENT",
+        "LOW_ALTITUDE_EQUIPMENT",
+        "AI_APPLICATION",
+        "SAFETY_REGULATION",
+        "STANDARD_GUIDANCE",
+        "ACCIDENT_INVESTIGATION",
+        "OFFICIAL_NOTICE",
+        "PENALTY",
+        "RECTIFICATION",
+        "UNKNOWN"
+      ],
+      "title": "SourceContentDomain",
+      "type": "string"
+    },
+    "SourceDeclaredRole": {
+      "enum": [
+        "OFFICIAL_PRIMARY",
+        "OFFICIAL_SECONDARY",
+        "STANDARDS_PUBLISHER",
+        "RESEARCH_PUBLISHER",
+        "MANUFACTURER",
+        "INDEPENDENT_REPORTER",
+        "AGGREGATOR",
+        "UNKNOWN"
+      ],
+      "title": "SourceDeclaredRole",
       "type": "string"
     },
     "SourceEligibility": {
@@ -86,7 +179,106 @@
       "title": "SourceEligibility",
       "type": "object"
     },
+    "SourceIndependenceAssessment": {
+      "additionalProperties": false,
+      "properties": {
+        "assessed_at": {
+          "format": "date-time",
+          "title": "Assessed At",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "level": {
+          "$ref": "#/$defs/SourceIndependenceLevel"
+        },
+        "reason_codes": {
+          "items": {
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Z][A-Z0-9_]*$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "title": "Reason Codes",
+          "type": "array"
+        },
+        "rule_version": {
+          "maxLength": 50,
+          "minLength": 1,
+          "title": "Rule Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "level",
+        "rule_version",
+        "reason_codes",
+        "assessed_at"
+      ],
+      "title": "SourceIndependenceAssessment",
+      "type": "object"
+    },
+    "SourceIndependenceLevel": {
+      "enum": [
+        "EDITORIALLY_INDEPENDENT",
+        "PARTIALLY_INDEPENDENT",
+        "NOT_INDEPENDENT",
+        "UNKNOWN"
+      ],
+      "title": "SourceIndependenceLevel",
+      "type": "string"
+    },
+    "SourceIndustry": {
+      "enum": [
+        "HIGHWAY",
+        "BRIDGE",
+        "TUNNEL",
+        "RAILWAY",
+        "RAIL_TRANSIT",
+        "GENERAL_TRANSPORT",
+        "UNKNOWN"
+      ],
+      "title": "SourceIndustry",
+      "type": "string"
+    },
+    "SourceLifecycleAction": {
+      "enum": [
+        "SUBMIT_COMPLIANCE",
+        "START_FIXTURE_TRIAL",
+        "START_LIVE_TRIAL",
+        "APPROVE_PRODUCTION",
+        "PAUSE",
+        "RESUME",
+        "RETIRE"
+      ],
+      "title": "SourceLifecycleAction",
+      "type": "string"
+    },
+    "SourceLifecycleState": {
+      "description": "Authoritative V2 source lifecycle computed by the server.",
+      "enum": [
+        "CANDIDATE",
+        "COMPLIANCE_REVIEW",
+        "TRIAL",
+        "ACTIVE",
+        "PAUSED",
+        "RETIRED"
+      ],
+      "title": "SourceLifecycleState",
+      "type": "string"
+    },
     "SourceState": {
+      "description": "Deprecated V1 source state retained only for compatibility projections.",
       "enum": [
         "CANDIDATE",
         "COMPLIANCE_REVIEW",
@@ -118,6 +310,13 @@
     "authority_level": {
       "$ref": "#/$defs/AuthorityLevel"
     },
+    "available_actions": {
+      "items": {
+        "$ref": "#/$defs/SourceLifecycleAction"
+      },
+      "title": "Available Actions",
+      "type": "array"
+    },
     "base_url": {
       "title": "Base Url",
       "type": "string"
@@ -129,10 +328,70 @@
       "title": "Collection Method",
       "type": "string"
     },
+    "content_domains": {
+      "items": {
+        "$ref": "#/$defs/SourceContentDomain"
+      },
+      "title": "Content Domains",
+      "type": "array"
+    },
+    "country_codes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Country Codes",
+      "type": "array"
+    },
     "created_at": {
       "format": "date-time",
       "title": "Created At",
       "type": "string"
+    },
+    "current_connector_config_version_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Current Connector Config Version Id"
+    },
+    "current_policy_version_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Current Policy Version Id"
+    },
+    "current_trial_run_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Current Trial Run Id"
+    },
+    "declared_roles": {
+      "items": {
+        "$ref": "#/$defs/SourceDeclaredRole"
+      },
+      "title": "Declared Roles",
+      "type": "array"
     },
     "effective_active": {
       "title": "Effective Active",
@@ -150,10 +409,40 @@
       "title": "Fixture Count",
       "type": "integer"
     },
+    "governance_owner_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Governance Owner Id"
+    },
     "id": {
       "format": "uuid",
       "title": "Id",
       "type": "string"
+    },
+    "industries": {
+      "items": {
+        "$ref": "#/$defs/SourceIndustry"
+      },
+      "title": "Industries",
+      "type": "array"
+    },
+    "language_tags": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Language Tags",
+      "type": "array"
+    },
+    "lifecycle_state": {
+      "$ref": "#/$defs/SourceLifecycleState"
     },
     "name": {
       "title": "Name",
@@ -171,6 +460,13 @@
       "title": "Priority",
       "type": "string"
     },
+    "region_codes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Region Codes",
+      "type": "array"
+    },
     "registry_code": {
       "anyOf": [
         {
@@ -181,6 +477,31 @@
         }
       ],
       "title": "Registry Code"
+    },
+    "runtime_authorization": {
+      "$ref": "#/$defs/RuntimeAuthorization"
+    },
+    "source_authority": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SourceAuthorityAssessment"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "source_independence": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SourceIndependenceAssessment"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "source_type": {
       "$ref": "#/$defs/SourceType"
@@ -203,6 +524,8 @@
     "effective_active",
     "fixture_count",
     "created_at",
+    "lifecycle_state",
+    "runtime_authorization",
     "collection_method",
     "poll_interval_minutes",
     "owner",

@@ -1,4 +1,6 @@
+from dataclasses import replace
 from io import BytesIO
+from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 import pytest
@@ -18,10 +20,33 @@ POLICY = FileSecurityPolicy(
     max_compression_ratio=100,
     max_page_pixels=40_000_000,
 )
+VALID_PDF = (
+    Path(__file__).parent / "fixtures" / "source" / "round01-sample.pdf"
+).read_bytes()
 
 
 def _minimal_pdf(extra: bytes = b"") -> bytes:
     return b"%PDF-1.4\n1 0 obj<</Type/Catalog" + extra + b">>endobj\n%%EOF"
+
+
+def _xref_pdf(objects: tuple[bytes, ...]) -> bytes:
+    document = bytearray(b"%PDF-1.4\n")
+    offsets: list[int] = []
+    for number, body in enumerate(objects, start=1):
+        offsets.append(len(document))
+        document.extend(f"{number} 0 obj\n".encode() + body + b"\nendobj\n")
+    xref_offset = len(document)
+    document.extend(f"xref\n0 {len(objects) + 1}\n".encode())
+    document.extend(b"0000000000 65535 f \n")
+    for offset in offsets:
+        document.extend(f"{offset:010d} 00000 n \n".encode())
+    document.extend(
+        (
+            f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\n"
+            f"startxref\n{xref_offset}\n%%EOF\n"
+        ).encode()
+    )
+    return bytes(document)
 
 
 @pytest.mark.parametrize(
@@ -54,6 +79,31 @@ def test_pdf_declared_mime_and_extension_must_match_detected_bytes() -> None:
         )
 
 
+def test_pdf_widget_external_action_is_rejected_after_name_decoding() -> None:
+    widget = _xref_pdf(
+        (
+            b"<< /Type /Catalog /Pages 2 0 R >>",
+            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            (
+                b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 72 72] "
+                b"/Annots [4 0 R] >>"
+            ),
+            (
+                b"<< /Type /Annot /Subtype /Wid#67et /Rect [0 0 10 10] "
+                b"/A << /S /Sub#6ditForm /F (https://attacker.invalid/) >> >>"
+            ),
+        )
+    )
+
+    with pytest.raises(SecurityViolation, match="PDF_ACTIVE_ACTION"):
+        inspect_pdf_bytes(
+            widget,
+            filename="widget.pdf",
+            declared_mime="application/pdf",
+            policy=POLICY,
+        )
+
+
 def _zip(entries: list[tuple[ZipInfo | str, bytes]]) -> bytes:
     target = BytesIO()
     with ZipFile(target, "w", ZIP_DEFLATED) as archive:
@@ -67,7 +117,7 @@ def test_flat_zip_returns_a_bounded_attachment_tree() -> None:
         _zip(
             [
                 ("notice.html", b"<!doctype html><title>test only</title>"),
-                ("attachments/rule.pdf", _minimal_pdf()),
+                ("attachments/rule.pdf", VALID_PDF),
             ]
         ),
         filename="test-only.zip",
@@ -98,7 +148,7 @@ def test_any_unsafe_zip_entry_quarantines_the_whole_archive(entry: str, code: st
         content = b"MZ"
     with pytest.raises(SecurityViolation, match=code):
         inspect_zip_bytes(
-            _zip([("safe.pdf", _minimal_pdf()), (entry, content)]),
+            _zip([("safe.pdf", VALID_PDF), (entry, content)]),
             filename="test-only.zip",
             declared_mime="application/zip",
             policy=POLICY,
@@ -120,6 +170,114 @@ def test_zip_symlink_and_compression_bomb_are_rejected() -> None:
     with pytest.raises(SecurityViolation, match="ZIP_COMPRESSION_RATIO"):
         inspect_zip_bytes(
             _zip([("bomb.html", b"0" * 1_000_000)]),
+            filename="test-only.zip",
+            declared_mime="application/zip",
+            policy=POLICY,
+        )
+
+
+def test_pdf_polyglot_payload_is_rejected() -> None:
+    polyglot = _minimal_pdf() + b"PK\x03\x04hidden-archive"
+
+    with pytest.raises(SecurityViolation, match="POLYGLOT"):
+        inspect_pdf_bytes(
+            polyglot,
+            filename="test-only.pdf",
+            declared_mime="application/pdf",
+            policy=POLICY,
+        )
+
+
+@pytest.mark.parametrize(
+    "active_html",
+    [
+        b"<!doctype html><SCRIPT>alert(1)</SCRIPT>",
+        b'<!doctype html><body onload="x()"></body>',
+        b'<!doctype html><meta http-equiv="refresh" content="0;url=x">',
+        b'<!doctype html><a href="javascript:x()">x</a>',
+    ],
+)
+def test_active_html_inside_zip_is_rejected(active_html: bytes) -> None:
+    with pytest.raises(SecurityViolation, match="HTML_ACTIVE_CONTENT"):
+        inspect_zip_bytes(
+            _zip([("active.html", active_html)]),
+            filename="test-only.zip",
+            declared_mime="application/zip",
+            policy=POLICY,
+        )
+
+
+def test_zip_rejects_bytes_after_the_declared_end_of_central_directory() -> None:
+    polyglot = _zip([("safe.pdf", VALID_PDF)]) + b"<script>alert(1)</script>"
+
+    with pytest.raises(SecurityViolation, match="ZIP_POLYGLOT"):
+        inspect_zip_bytes(
+            polyglot,
+            filename="test-only.zip",
+            declared_mime="application/zip",
+            policy=POLICY,
+        )
+
+
+@pytest.mark.parametrize(
+    ("unsafe_pdf", "code"),
+    [
+        (VALID_PDF.replace(b"%%EOF", b"/JavaScript 9 0 R\n%%EOF"), "PDF_ACTIVE_ACTION"),
+        (VALID_PDF.replace(b"%%EOF", b"/Encrypt 9 0 R\n%%EOF"), "PDF_ENCRYPTED"),
+        (VALID_PDF + b"PK\x03\x04hidden-archive", "PDF_POLYGLOT"),
+    ],
+)
+def test_pdf_entries_receive_full_recursive_inspection(
+    unsafe_pdf: bytes,
+    code: str,
+) -> None:
+    with pytest.raises(SecurityViolation, match=code):
+        inspect_zip_bytes(
+            _zip([("attachments/unsafe.pdf", unsafe_pdf)]),
+            filename="test-only.zip",
+            declared_mime="application/zip",
+            policy=POLICY,
+        )
+
+
+def test_zip_html_entry_must_obey_the_per_file_byte_limit() -> None:
+    policy = replace(
+        POLICY,
+        max_file_bytes=200,
+        max_uncompressed_bytes=1_000,
+        max_compression_ratio=1_000,
+    )
+
+    with pytest.raises(SecurityViolation, match="FILE_SIZE_LIMIT"):
+        inspect_zip_bytes(
+            _zip(
+                [
+                    (
+                        "oversized.html",
+                        b"<!doctype html><html><body>" + b"A" * 300 + b"</body></html>",
+                    )
+                ]
+            ),
+            filename="test-only.zip",
+            declared_mime="application/zip",
+            policy=policy,
+        )
+
+
+@pytest.mark.parametrize(
+    ("entry_name", "code"),
+    [
+        ("a" * 251 + ".html", "ZIP_PATH_LIMIT"),
+        ("attachments/bad\x1fname.html", "ZIP_PATH_INVALID"),
+    ],
+)
+def test_zip_entry_metadata_is_bounded_before_extraction(
+    entry_name: str,
+    code: str,
+) -> None:
+    with pytest.raises(SecurityViolation, match=code):
+        inspect_zip_bytes(
+            _zip([(entry_name, b"<!doctype html><html></html>")]),
             filename="test-only.zip",
             declared_mime="application/zip",
             policy=POLICY,

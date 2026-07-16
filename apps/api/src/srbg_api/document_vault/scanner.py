@@ -3,7 +3,7 @@
 import asyncio
 import struct
 
-from srbg_api.document_vault.security import UploadRejected
+from srbg_api.document_vault.security import MalwareDetected, MalwareScanInconclusive
 
 
 class ClamAVScanner:
@@ -34,10 +34,10 @@ class ClamAVScanner:
             asyncio.IncompleteReadError,
             asyncio.LimitOverrunError,
         ) as exc:
-            raise UploadRejected("malware scanner is unavailable") from exc
+            raise MalwareScanInconclusive("malware scanner is unavailable") from exc
 
         result = response.rstrip(b"\0").decode("utf-8", errors="replace")
         if result.endswith(" FOUND"):
-            raise UploadRejected("malware scanner rejected the fixture")
+            raise MalwareDetected("malware scanner rejected the fixture")
         if not result.endswith(" OK"):
-            raise UploadRejected("malware scanner returned an invalid result")
+            raise MalwareScanInconclusive("malware scanner returned an invalid result")

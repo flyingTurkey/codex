@@ -1,0 +1,46 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "parse_failed_count": {
+      "minimum": 0,
+      "title": "Parse Failed Count",
+      "type": "integer"
+    },
+    "raw_count": {
+      "minimum": 0,
+      "title": "Raw Count",
+      "type": "integer"
+    },
+    "ready_count": {
+      "minimum": 0,
+      "title": "Ready Count",
+      "type": "integer"
+    },
+    "ready_ratio_bps": {
+      "maximum": 10000,
+      "minimum": 0,
+      "title": "Ready Ratio Bps",
+      "type": "integer"
+    },
+    "rejected_raw_attempt_count": {
+      "minimum": 0,
+      "title": "Rejected Raw Attempt Count",
+      "type": "integer"
+    },
+    "security_failed_count": {
+      "minimum": 0,
+      "title": "Security Failed Count",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "raw_count",
+    "ready_count",
+    "parse_failed_count",
+    "security_failed_count",
+    "rejected_raw_attempt_count",
+    "ready_ratio_bps"
+  ],
+  "title": "SourceTrialQualitySummary",
+  "type": "object"
+}

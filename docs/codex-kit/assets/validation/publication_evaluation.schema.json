@@ -44,7 +44,7 @@
         "document": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["document_id", "document_version_id", "content_sha256", "is_current", "lifecycle_status", "hash_verified", "url_policy_pass", "processing_state", "raw_security_status"],
+          "required": ["document_id", "document_version_id", "content_sha256", "is_current", "lifecycle_status", "hash_verified", "url_policy_pass", "execution_domain", "processing_state", "raw_security_status"],
           "properties": {
             "document_id": {"type": "string"},
             "document_version_id": {"type": "string"},
@@ -53,6 +53,7 @@
             "lifecycle_status": {"enum": ["ACTIVE", "CORRECTED"]},
             "hash_verified": {"const": true},
             "url_policy_pass": {"const": true},
+            "execution_domain": {"const": "PRODUCTION"},
             "processing_state": {"const": "READY"},
             "raw_security_status": {"const": "CLEAN"}
           }

@@ -1,0 +1,55 @@
+{
+  "$defs": {
+    "ConnectorType": {
+      "enum": [
+        "RSS_ATOM",
+        "JSON_API",
+        "SITEMAP",
+        "LIST_DETAIL",
+        "DIRECT_PDF",
+        "MANUAL_IMPORT"
+      ],
+      "title": "ConnectorType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "config": {
+      "additionalProperties": true,
+      "title": "Config",
+      "type": "object"
+    },
+    "connector_type": {
+      "$ref": "#/$defs/ConnectorType"
+    },
+    "definition_version": {
+      "title": "Definition Version",
+      "type": "string"
+    },
+    "network_io_performed": {
+      "const": false,
+      "title": "Network Io Performed",
+      "type": "boolean"
+    },
+    "schema_sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Schema Sha256",
+      "type": "string"
+    },
+    "schema_version": {
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "connector_type",
+    "definition_version",
+    "schema_version",
+    "schema_sha256",
+    "config",
+    "network_io_performed"
+  ],
+  "title": "ConnectorConfigPreview",
+  "type": "object"
+}

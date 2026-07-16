@@ -9,11 +9,12 @@ function source(path: string): string {
   return readFileSync(resolve(appRoot, path), 'utf8')
 }
 
-describe('round 01 source registry UI', () => {
-  it('adds source list, detail, and document metadata routes', () => {
+describe('source center UI', () => {
+  it('adds source list, detail, coverage, and document metadata routes', () => {
     const routes = [
       'pages/admin/sources/index.vue',
       'pages/admin/sources/[id].vue',
+      'pages/admin/sources/coverage.vue',
       'pages/admin/documents/[id].vue',
     ]
 
@@ -28,7 +29,8 @@ describe('round 01 source registry UI', () => {
     const detail = source('pages/admin/sources/[id].vue')
 
     expect(layout).toContain('<AppShell')
-    expect(layout).toContain("route.path.startsWith('/admin')")
+    expect(layout).toContain('adminNavigationForRoles')
+    expect(layout).toContain('visibleAdminNavigation')
     expect(list).toContain('PageHeader')
     expect(list).toContain('StatusBadge')
     expect(list).toContain('ResponsiveDrawer')
@@ -38,16 +40,20 @@ describe('round 01 source registry UI', () => {
     expect(detail).toContain('ResponsiveDrawer')
   })
 
-  it('uses the real admin APIs for default-denied registration and fixture upload', () => {
+  it('uses V2 governance APIs and retires client-driven lifecycle writes', () => {
     const list = source('pages/admin/sources/index.vue')
     const detail = source('pages/admin/sources/[id].vue')
     const document = source('pages/admin/documents/[id].vue')
 
     expect(list).toContain('/api/v1/admin/sources')
-    expect(detail).toContain('/policy')
-    expect(detail).toContain('/transitions')
-    expect(detail).toContain('/fixture')
-    expect(detail).toContain('/onboarding-records')
+    expect(detail).toContain('/policy-versions')
+    expect(detail).toContain('/connector-config-versions/preview')
+    expect(detail).toContain('/trial-runs')
+    expect(detail).toContain('/lifecycle-events')
+    expect(detail).toContain('/audit-events')
+    expect(detail).not.toContain('/transitions')
+    expect(detail).not.toContain('/enable')
+    expect(detail).not.toContain('/disable')
     expect(document).toContain('/api/v1/admin/documents/')
   })
 })

@@ -14,7 +14,18 @@ ALLOWED_EXTRA_FIELDS = (
     "duration_ms",
     "dependency",
     "error_code",
+    "event_name",
+    "action",
+    "outcome",
+    "reason_code",
     "reason_codes",
+    "source_id",
+    "object_id",
+    "connector_type",
+    "trial_kind",
+    "trial_status",
+    "ready_ratio_bps",
+    "gap_cell_count",
 )
 
 

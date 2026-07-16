@@ -1,1 +1,67 @@
-{"title":"来源健康","uid":"srbg-source-health","schemaVersion":41,"version":1,"panels":[{"type":"timeseries","title":"来源熔断","targets":[{"expr":"srbg_source_circuit_open"}],"gridPos":{"h":8,"w":24,"x":0,"y":0}}]}
+{
+  "title": "来源健康与治理",
+  "uid": "srbg-source-health",
+  "schemaVersion": 41,
+  "version": 4,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "来源熔断",
+      "targets": [{"expr": "srbg_source_circuit_open"}],
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0}
+    },
+    {
+      "type": "stat",
+      "title": "权威生命周期",
+      "targets": [{"expr": "srbg_source_lifecycle_state"}],
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0}
+    },
+    {
+      "type": "stat",
+      "title": "运行授权不一致",
+      "targets": [{"expr": "srbg_source_runtime_authorization_mismatches"}],
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0}
+    },
+    {
+      "type": "timeseries",
+      "title": "来源策略拒绝",
+      "targets": [{"expr": "sum by (reason) (rate(srbg_source_policy_rejections_total[15m]))"}],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+    },
+    {
+      "type": "timeseries",
+      "title": "试运行结果",
+      "targets": [{"expr": "sum by (mode, outcome) (rate(srbg_source_trial_runs_total[15m]))"}],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+    },
+    {
+      "type": "timeseries",
+      "title": "配置版本校验",
+      "targets": [{"expr": "sum by (definition, outcome) (rate(srbg_connector_config_versions_total[30m]))"}],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}
+    },
+    {
+      "type": "stat",
+      "title": "覆盖缺口单元",
+      "targets": [{"expr": "srbg_source_coverage_gap_cells"}],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16}
+    },
+    {
+      "type": "timeseries",
+      "title": "试运行 READY 比例（基点）",
+      "targets": [
+        {"expr": "srbg_source_trial_ready_ratio_basis_points"},
+        {"expr": "srbg_source_trial_quality_count"}
+      ],
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24}
+    },
+    {
+      "type": "timeseries",
+      "title": "生产调度默认拒绝",
+      "targets": [
+        {"expr": "sum by (reason) (rate(srbg_source_production_scheduling_blocked_total[15m]))"}
+      ],
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 32}
+    }
+  ]
+}

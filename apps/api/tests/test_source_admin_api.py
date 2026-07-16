@@ -11,9 +11,11 @@ from srbg_api.source_registry.api import _read_fixture_body
 from srbg_contracts import (
     AuthorityLevel,
     CreateSourceRequest,
+    RuntimeAuthorization,
     SourceChannel,
     SourceDetail,
     SourceEligibility,
+    SourceLifecycleState,
     SourceState,
     SourceSummary,
     SourceType,
@@ -37,6 +39,8 @@ def _summary() -> SourceSummary:
         effective_active=False,
         fixture_count=0,
         created_at=datetime.now(UTC),
+        lifecycle_state=SourceLifecycleState.CANDIDATE,
+        runtime_authorization=RuntimeAuthorization.DENIED,
     )
 
 
@@ -163,6 +167,41 @@ def test_fixture_stream_is_bounded_without_relying_on_content_length() -> None:
     with pytest.raises(HTTPException) as rejected:
         asyncio.run(read_body([b"abc", b"def"], 5))
     assert rejected.value.status_code == 413
+
+
+@pytest.mark.parametrize("content_length", ["-1", "+1", "01", "1, 5"])
+def test_fixture_upload_rejects_noncanonical_or_ambiguous_content_length(
+    content_length: str,
+) -> None:
+    response = _client().post(
+        "/api/v1/admin/sources/019b0000-0000-7000-8000-000000000001/fixture",
+        content=b"abcde",
+        headers={
+            "X-SRBG-Local-Roles": "source_admin",
+            "X-Filename": "fixture.html",
+            "X-Document-URL": "https://example.test/fixture",
+            "Content-Type": "text/html",
+            "Content-Length": content_length,
+        },
+    )
+
+    assert response.status_code == 400
+
+
+def test_fixture_upload_rejects_content_length_that_does_not_match_stream() -> None:
+    response = _client().post(
+        "/api/v1/admin/sources/019b0000-0000-7000-8000-000000000001/fixture",
+        content=b"abcde",
+        headers={
+            "X-SRBG-Local-Roles": "source_admin",
+            "X-Filename": "fixture.html",
+            "X-Document-URL": "https://example.test/fixture",
+            "Content-Type": "text/html",
+            "Content-Length": "1",
+        },
+    )
+
+    assert response.status_code == 400
 
 
 def test_unexpected_source_failure_returns_safe_problem_details() -> None:

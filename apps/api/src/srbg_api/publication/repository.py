@@ -40,7 +40,7 @@ from srbg_api.digital_cases.domain import (
 from srbg_api.discovery.repository import daily_report_from_rows
 from srbg_api.identifiers import uuid7
 from srbg_api.publication.service import PublicationDenied, PublicationTransaction
-from srbg_api.source_registry.repository import canonical_json_hash, fixture_set_hash
+from srbg_api.source_registry.repository import canonical_json_hash
 from srbg_api.technology_products.domain import contains_procurement_conclusion
 
 logger = logging.getLogger(__name__)
@@ -264,14 +264,19 @@ class PostgresPublicationRepository:
     ) -> None:
         async with self._engine.begin() as connection:
             request = (
-                await connection.execute(
-                    text(
-                        "SELECT operation,submitted_by,status FROM event_identity_change_request "
-                        "WHERE id=:request_id FOR UPDATE"
-                    ),
-                    {"request_id": request_id},
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT operation,submitted_by,status "
+                            "FROM event_identity_change_request "
+                            "WHERE id=:request_id FOR UPDATE"
+                        ),
+                        {"request_id": request_id},
+                    )
                 )
-            ).mappings().first()
+                .mappings()
+                .first()
+            )
             if request is None or request["status"] != "PENDING":
                 raise PublicationDenied(("EVENT_IDENTITY_REQUEST_NOT_PENDING",))
             if request["submitted_by"] == reviewer_id:
@@ -320,9 +325,7 @@ class PostgresPublicationRepository:
                 {"status": "APPLIED" if approve else "REJECTED", "request_id": request_id},
             )
 
-    async def build_internal_projection(
-        self, *, actor_id: UUID, generated_at: datetime
-    ) -> Any:
+    async def build_internal_projection(self, *, actor_id: UUID, generated_at: datetime) -> Any:
         from srbg_api.internal_projection.backfill import backfill_internal_projection
 
         return await backfill_internal_projection(
@@ -378,15 +381,19 @@ class PostgresPublicationRepository:
         request_hash = sha256(report_date.isoformat().encode()).hexdigest()
         async with self._engine.begin() as connection:
             existing = (
-                await connection.execute(
-                    text(
-                        "SELECT request_sha256, response_id FROM idempotency_record "
-                        "WHERE owner_id = :actor_id AND scope = 'DAILY_DRAFT' "
-                        "AND idempotency_key = :key FOR UPDATE"
-                    ),
-                    {"actor_id": actor_id, "key": idempotency_key},
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT request_sha256, response_id FROM idempotency_record "
+                            "WHERE owner_id = :actor_id AND scope = 'DAILY_DRAFT' "
+                            "AND idempotency_key = :key FOR UPDATE"
+                        ),
+                        {"actor_id": actor_id, "key": idempotency_key},
+                    )
                 )
-            ).mappings().first()
+                .mappings()
+                .first()
+            )
             if existing is not None:
                 if existing["request_sha256"] != request_hash:
                     raise PublicationDenied(("IDEMPOTENCY_KEY_REUSED",))
@@ -515,15 +522,19 @@ class PostgresPublicationRepository:
         request_hash = sha256(str(report_id).encode()).hexdigest()
         async with self._engine.begin() as connection:
             existing = (
-                await connection.execute(
-                    text(
-                        "SELECT request_sha256, response_id FROM idempotency_record "
-                        "WHERE owner_id = :reviewer_id AND scope = 'DAILY_PUBLISH' "
-                        "AND idempotency_key = :key FOR UPDATE"
-                    ),
-                    {"reviewer_id": reviewer_id, "key": idempotency_key},
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT request_sha256, response_id FROM idempotency_record "
+                            "WHERE owner_id = :reviewer_id AND scope = 'DAILY_PUBLISH' "
+                            "AND idempotency_key = :key FOR UPDATE"
+                        ),
+                        {"reviewer_id": reviewer_id, "key": idempotency_key},
+                    )
                 )
-            ).mappings().first()
+                .mappings()
+                .first()
+            )
             if existing is not None:
                 if existing["request_sha256"] != request_hash:
                     raise PublicationDenied(("IDEMPOTENCY_KEY_REUSED",))
@@ -531,11 +542,15 @@ class PostgresPublicationRepository:
                     connection, cast(UUID, existing["response_id"])
                 )
             report = (
-                await connection.execute(
-                    text("SELECT * FROM daily_report WHERE id = :id FOR UPDATE"),
-                    {"id": report_id},
+                (
+                    await connection.execute(
+                        text("SELECT * FROM daily_report WHERE id = :id FOR UPDATE"),
+                        {"id": report_id},
+                    )
                 )
-            ).mappings().first()
+                .mappings()
+                .first()
+            )
             if report is None or report["status"] != "DRAFT":
                 raise PublicationDenied(("DAILY_REPORT_NOT_DRAFT",))
             if report["requires_regeneration"]:
@@ -612,10 +627,14 @@ class PostgresPublicationRepository:
     @staticmethod
     async def _load_daily_report(connection: AsyncConnection, report_id: UUID) -> DailyReport:
         report = (
-            await connection.execute(
-                text("SELECT * FROM daily_report WHERE id = :id"), {"id": report_id}
+            (
+                await connection.execute(
+                    text("SELECT * FROM daily_report WHERE id = :id"), {"id": report_id}
+                )
             )
-        ).mappings().one()
+            .mappings()
+            .one()
+        )
         items = list(
             (
                 await connection.execute(
@@ -630,7 +649,9 @@ class PostgresPublicationRepository:
                     ),
                     {"id": report_id},
                 )
-            ).mappings().all()
+            )
+            .mappings()
+            .all()
         )
         return daily_report_from_rows(report, items)
 
@@ -2201,33 +2222,23 @@ class _PostgresPublicationTransaction:
         policy_sha256: str,
         evaluated_at: datetime,
     ) -> dict[str, Any]:
-        facts = await _publication_facts(self._connection, self._task["id"])
+        facts = await _publication_facts(
+            self._connection,
+            self._task["id"],
+            evaluated_at=evaluated_at,
+        )
         if facts is None:
             raise PublicationDenied(("AUTHORITATIVE_FACTS_MISSING",))
         self._facts = facts
 
         source_policy = dict(facts["policy_document"])
-        onboarding = dict(facts["onboarding_record"] or {})
-        fixture_hashes = list(
-            await self._connection.scalars(
-                text(
-                    """
-                    SELECT DISTINCT v.content_hash
-                    FROM document_version v
-                    JOIN document d ON d.id = v.document_id
-                    WHERE d.source_id = :source_id
-                      AND d.admission_fixture = true
-                    ORDER BY v.content_hash
-                    """
-                ),
-                {"source_id": facts["source_id"]},
-            )
-        )
         source_effective = _source_is_effectively_active(
             facts,
+            evaluated_at=evaluated_at,
+        )
+        legacy_policy_valid = _legacy_source_policy_is_valid(
+            facts,
             source_policy=source_policy,
-            onboarding=onboarding,
-            fixture_hashes=fixture_hashes,
             evaluated_at=evaluated_at,
         )
         allowed_domains = source_policy.get("access", {}).get("allowed_domains", [])
@@ -2395,7 +2406,7 @@ class _PostgresPublicationTransaction:
                     "status": "ACTIVE" if source_effective else "INACTIVE",
                     "authority_level": facts["authority_level"],
                     "policy_version": facts["source_policy_version"],
-                    "policy_status": "VALID" if source_effective else "INVALID",
+                    "policy_status": "VALID" if legacy_policy_valid else "INVALID",
                     "excerpt_policy_pass": _excerpt_policy_pass(source_policy),
                     "attribution_policy_pass": _attribution_policy_pass(source_policy),
                 },
@@ -2407,6 +2418,7 @@ class _PostgresPublicationTransaction:
                     "lifecycle_status": "ACTIVE",
                     "hash_verified": content_hash == facts["raw_sha256"],
                     "url_policy_pass": url_allowed,
+                    "execution_domain": facts["document_version_execution_domain"],
                 },
                 "evidence_integrity": evidence_integrity,
                 "security": {
@@ -4180,7 +4192,9 @@ async def _publish_metadata_revision(
                            item.review_status, source.name AS source_name,
                            profile.document_number, profile.issuing_authority,
                            profile.regulation_status,
-                           version.content_hash, raw.sha256 AS raw_sha256,
+                           version.content_hash,
+                           version.execution_domain,
+                           raw.sha256 AS raw_sha256,
                            state.state AS processing_state,
                            security.status AS security_status
                     FROM intelligence_item item
@@ -4198,10 +4212,14 @@ async def _publish_metadata_revision(
                         ORDER BY event.created_at DESC, event.id DESC LIMIT 1
                     ) state ON true
                     LEFT JOIN LATERAL (
-                        SELECT fact.status
+                        SELECT CASE
+                          WHEN bool_or(fact.status IN ('REJECTED','QUARANTINED'))
+                            THEN 'QUARANTINED'
+                          WHEN bool_or(fact.status = 'CLEAN') THEN 'CLEAN'
+                          ELSE NULL
+                        END AS status
                         FROM raw_object_security_fact fact
                         WHERE fact.raw_object_id = raw.id
-                        ORDER BY fact.created_at DESC, fact.id DESC LIMIT 1
                     ) security ON true
                     WHERE item.id = :item_id
                       AND item.current_document_version_id = :version_id
@@ -4218,6 +4236,8 @@ async def _publish_metadata_revision(
     )
     if row is None:
         return False
+    if row["execution_domain"] != "PRODUCTION":
+        raise PublicationDenied(("NON_PRODUCTION_EXECUTION_DOMAIN",))
     if row["processing_state"] != "READY" or row["security_status"] != "CLEAN":
         raise PublicationDenied(("METADATA_REVISION_NOT_SAFE",))
     evaluation = dict(row["evaluation"])
@@ -4230,6 +4250,7 @@ async def _publish_metadata_revision(
             "is_current": True,
             "lifecycle_status": "ACTIVE",
             "hash_verified": row["content_hash"] == row["raw_sha256"],
+            "execution_domain": row["execution_domain"],
         }
     )
     server["document"] = document
@@ -4610,9 +4631,7 @@ async def _ai_pipeline_gate_facts(
             )
         ).mappings()
     )
-    successful_steps = {
-        str(row["step"]) for row in step_rows if row["status"] == "SUCCEEDED"
-    }
+    successful_steps = {str(row["step"]) for row in step_rows if row["status"] == "SUCCEEDED"}
     four_steps_completed = successful_steps == {
         "CLASSIFY",
         "EXTRACT",
@@ -4640,8 +4659,7 @@ async def _ai_pipeline_gate_facts(
         "publication_recommendation",
     }
     unauthorized_count = sum(
-        _count_forbidden_candidate_fields(row["validated_output"], forbidden)
-        for row in step_rows
+        _count_forbidden_candidate_fields(row["validated_output"], forbidden) for row in step_rows
     )
     return {
         "ai_status": "VALIDATED" if run["status"] == "SUCCEEDED" else "INVALID",
@@ -4664,7 +4682,10 @@ def _count_forbidden_candidate_fields(value: object, forbidden: set[str]) -> int
 
 
 async def _publication_facts(
-    connection: AsyncConnection, review_task_id: UUID
+    connection: AsyncConnection,
+    review_task_id: UUID,
+    *,
+    evaluated_at: datetime,
 ) -> RowMapping | None:
     return (
         (
@@ -4677,20 +4698,47 @@ async def _publication_facts(
                            i.id AS item_id, i.item_type, i.is_demo, i.publishable,
                            i.title, i.original_url, i.source_published_at,
                            i.current_document_version_id,
-                           s.id AS source_id, s.name AS source_name, s.state AS source_state,
-                           s.enabled AS source_enabled, s.authority_level,
+                           s.id AS source_id, s.name AS source_name, s.authority_level,
+                           s.lifecycle_state AS source_lifecycle_state_v2,
                            p.policy_version AS source_policy_version,
                            p.status AS source_policy_status, p.document AS policy_document,
                            p.document_sha256 AS source_policy_sha256,
                            p.valid_until AS source_policy_valid_until,
-                           o.source_policy_id AS onboarding_policy_id,
-                           o.record AS onboarding_record,
-                           o.record_sha256 AS onboarding_sha256,
-                           o.fixture_count AS onboarding_fixture_count,
-                           o.fixture_set_sha256 AS onboarding_fixture_sha256,
-                           o.valid_until AS onboarding_valid_until,
+                           policy_v2.status AS source_policy_v2_status,
+                           COALESCE(
+                             policy_v2.document_sha256 = encode(digest(convert_to(
+                               policy_v2.document::text, 'UTF8'
+                             ), 'sha256'), 'hex'),
+                             false
+                           ) AS source_policy_v2_hash_verified,
+                           policy_v2.valid_from AS source_policy_v2_valid_from,
+                           policy_v2.valid_until AS source_policy_v2_valid_until,
+                           COALESCE(source_v2_policy_compliance_approved(
+                               s.id, policy_v2.id, :evaluated_at
+                           ), false) AS source_policy_v2_compliance_approved,
+                           config_v2.validation_status
+                               AS source_connector_config_v2_status,
+                           trial_v2.kind AS source_trial_v2_kind,
+                           trial_v2.execution_domain AS source_trial_v2_execution_domain,
+                           trial_result_v2.status AS source_trial_v2_result_status,
+                           EXISTS (
+                               SELECT 1
+                               FROM source_governance_decision approval_v2
+                               WHERE approval_v2.source_id = s.id
+                                 AND approval_v2.policy_version_id = policy_v2.id
+                                 AND approval_v2.connector_config_version_id = config_v2.id
+                                 AND approval_v2.trial_run_id = trial_v2.id
+                                 AND approval_v2.decision_type = 'PRODUCTION_APPROVAL'
+                                 AND approval_v2.outcome = 'APPROVED'
+                                 AND (
+                                   approval_v2.valid_until IS NULL
+                                   OR approval_v2.valid_until > :evaluated_at
+                                 )
+                           ) AS source_production_approval_current,
                            d.id AS document_id, d.current_version_id,
-                           v.content_hash, raw.sha256 AS raw_sha256,
+                           v.content_hash,
+                           v.execution_domain AS document_version_execution_domain,
+                           raw.sha256 AS raw_sha256,
                            regulation_profile.document_number,
                            regulation_profile.issuing_authority,
                            regulation_profile.effective_at,
@@ -4735,11 +4783,20 @@ async def _publication_facts(
                     JOIN intelligence_item i ON i.id = r.item_id
                     JOIN source s ON s.id = i.source_id
                     JOIN source_policy p ON p.id = r.source_policy_id
-                    LEFT JOIN LATERAL (
-                        SELECT * FROM source_onboarding_record candidate
-                        WHERE candidate.source_id = s.id
-                        ORDER BY candidate.created_at DESC, candidate.id DESC LIMIT 1
-                    ) o ON true
+                    LEFT JOIN source_policy_version policy_v2
+                      ON policy_v2.id = s.current_policy_version_id
+                     AND policy_v2.source_id = s.id
+                    LEFT JOIN connector_config_version config_v2
+                      ON config_v2.id = s.current_connector_config_version_id
+                     AND config_v2.source_id = s.id
+                     AND config_v2.policy_version_id = policy_v2.id
+                    LEFT JOIN source_trial_run trial_v2
+                      ON trial_v2.id = s.current_trial_run_id
+                     AND trial_v2.source_id = s.id
+                     AND trial_v2.policy_version_id = policy_v2.id
+                     AND trial_v2.connector_config_version_id = config_v2.id
+                    LEFT JOIN source_trial_run_result trial_result_v2
+                      ON trial_result_v2.trial_run_id = trial_v2.id
                     JOIN document d ON d.id = i.primary_document_id
                     JOIN document_version v ON v.id = r.document_version_id
                     JOIN raw_object raw ON raw.id = v.raw_object_id
@@ -4762,10 +4819,14 @@ async def _publication_facts(
                         ORDER BY event.created_at DESC, event.id DESC LIMIT 1
                     ) state ON true
                     LEFT JOIN LATERAL (
-                        SELECT fact.status
+                        SELECT CASE
+                          WHEN bool_or(fact.status IN ('REJECTED','QUARANTINED'))
+                            THEN 'QUARANTINED'
+                          WHEN bool_or(fact.status = 'CLEAN') THEN 'CLEAN'
+                          ELSE NULL
+                        END AS status
                         FROM raw_object_security_fact fact
                         WHERE fact.raw_object_id = raw.id
-                        ORDER BY fact.created_at DESC, fact.id DESC LIMIT 1
                     ) security ON true
                     WHERE r.id = :review_task_id
                       AND (
@@ -4781,7 +4842,7 @@ async def _publication_facts(
                     ORDER BY run.completed_at DESC, run.id DESC LIMIT 1
                     """
                 ),
-                {"review_task_id": review_task_id},
+                {"review_task_id": review_task_id, "evaluated_at": evaluated_at},
             )
         )
         .mappings()
@@ -4790,27 +4851,43 @@ async def _publication_facts(
 
 
 def _source_is_effectively_active(
-    facts: RowMapping,
+    facts: RowMapping | Mapping[str, Any],
     *,
-    source_policy: dict[str, Any],
-    onboarding: dict[str, Any],
-    fixture_hashes: list[str],
     evaluated_at: datetime,
 ) -> bool:
+    valid_from = facts.get("source_policy_v2_valid_from")
+    valid_until = facts.get("source_policy_v2_valid_until")
     return bool(
-        facts["source_state"] == "ACTIVE"
-        and facts["source_enabled"] is True
-        and facts["source_policy_status"] == "VALID"
-        and facts["source_policy_valid_until"] > evaluated_at
-        and facts["source_policy_sha256"] == canonical_json_hash(source_policy)
-        and facts["onboarding_policy_id"] == facts["source_policy_id"]
-        and facts["onboarding_valid_until"] is not None
-        and facts["onboarding_valid_until"] > evaluated_at
-        and onboarding.get("decision") == "APPROVED"
-        and facts["onboarding_sha256"] == canonical_json_hash(onboarding)
-        and len(set(fixture_hashes)) >= 30
-        and facts["onboarding_fixture_count"] == len(set(fixture_hashes))
-        and facts["onboarding_fixture_sha256"] == fixture_set_hash(fixture_hashes)
+        facts.get("source_lifecycle_state_v2") == "ACTIVE"
+        # Policy rows are immutable submissions and remain PENDING_REVIEW;
+        # the current append-only COMPLIANCE decision is authoritative.
+        and facts.get("source_policy_v2_status") == "PENDING_REVIEW"
+        and facts.get("source_policy_v2_hash_verified") is True
+        and isinstance(valid_from, datetime)
+        and valid_from <= evaluated_at
+        and isinstance(valid_until, datetime)
+        and valid_until > evaluated_at
+        and facts.get("source_policy_v2_compliance_approved") is True
+        and facts.get("source_connector_config_v2_status") == "VALID"
+        and facts.get("source_trial_v2_kind") == "LIVE_TRIAL"
+        and facts.get("source_trial_v2_execution_domain") == "TRIAL"
+        and facts.get("source_trial_v2_result_status") == "SUCCEEDED"
+        and facts.get("source_production_approval_current") is True
+    )
+
+
+def _legacy_source_policy_is_valid(
+    facts: RowMapping | Mapping[str, Any],
+    *,
+    source_policy: dict[str, Any],
+    evaluated_at: datetime,
+) -> bool:
+    valid_until = facts.get("source_policy_valid_until")
+    return bool(
+        facts.get("source_policy_status") == "VALID"
+        and isinstance(valid_until, datetime)
+        and valid_until > evaluated_at
+        and facts.get("source_policy_sha256") == canonical_json_hash(source_policy)
     )
 
 
@@ -5086,9 +5163,16 @@ async def _round03_gate_facts(
         await connection.scalar(
             text(
                 """
-                SELECT count(*) FROM document_attachment
-                WHERE document_version_id = :version_id
-                  AND security_status <> 'CLEAN'
+                SELECT count(*) FROM document_attachment attachment
+                WHERE attachment.document_version_id = :version_id
+                  AND (
+                    attachment.security_status <> 'CLEAN'
+                    OR EXISTS (
+                      SELECT 1 FROM raw_object_security_fact negative
+                       WHERE negative.raw_object_id=attachment.raw_object_id
+                         AND negative.status IN ('REJECTED','QUARANTINED')
+                    )
+                  )
                 """
             ),
             {"version_id": document_version_id},

@@ -7,7 +7,8 @@
         "B1",
         "B2",
         "C1",
-        "C2"
+        "C2",
+        "UNKNOWN"
       ],
       "title": "AuthorityLevel",
       "type": "string"
@@ -19,6 +20,52 @@
         "BOTH"
       ],
       "title": "SourceChannel",
+      "type": "string"
+    },
+    "SourceContentDomain": {
+      "enum": [
+        "DIGITAL_TRANSFORMATION_CASE",
+        "RESEARCH_PAPER",
+        "SOFTWARE_PLATFORM",
+        "IOT_EQUIPMENT",
+        "LOW_ALTITUDE_EQUIPMENT",
+        "AI_APPLICATION",
+        "SAFETY_REGULATION",
+        "STANDARD_GUIDANCE",
+        "ACCIDENT_INVESTIGATION",
+        "OFFICIAL_NOTICE",
+        "PENALTY",
+        "RECTIFICATION",
+        "UNKNOWN"
+      ],
+      "title": "SourceContentDomain",
+      "type": "string"
+    },
+    "SourceDeclaredRole": {
+      "enum": [
+        "OFFICIAL_PRIMARY",
+        "OFFICIAL_SECONDARY",
+        "STANDARDS_PUBLISHER",
+        "RESEARCH_PUBLISHER",
+        "MANUFACTURER",
+        "INDEPENDENT_REPORTER",
+        "AGGREGATOR",
+        "UNKNOWN"
+      ],
+      "title": "SourceDeclaredRole",
+      "type": "string"
+    },
+    "SourceIndustry": {
+      "enum": [
+        "HIGHWAY",
+        "BRIDGE",
+        "TUNNEL",
+        "RAILWAY",
+        "RAIL_TRANSIT",
+        "GENERAL_TRANSPORT",
+        "UNKNOWN"
+      ],
+      "title": "SourceIndustry",
       "type": "string"
     },
     "SourceType": {
@@ -57,6 +104,63 @@
       "title": "Collection Method",
       "type": "string"
     },
+    "content_domains": {
+      "items": {
+        "$ref": "#/$defs/SourceContentDomain"
+      },
+      "maxItems": 30,
+      "title": "Content Domains",
+      "type": "array"
+    },
+    "country_codes": {
+      "items": {
+        "pattern": "^[A-Z]{2}$",
+        "type": "string"
+      },
+      "maxItems": 20,
+      "title": "Country Codes",
+      "type": "array"
+    },
+    "declared_roles": {
+      "items": {
+        "$ref": "#/$defs/SourceDeclaredRole"
+      },
+      "maxItems": 20,
+      "title": "Declared Roles",
+      "type": "array"
+    },
+    "governance_owner_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Governance Owner Id"
+    },
+    "industries": {
+      "items": {
+        "$ref": "#/$defs/SourceIndustry"
+      },
+      "maxItems": 20,
+      "title": "Industries",
+      "type": "array"
+    },
+    "language_tags": {
+      "items": {
+        "maxLength": 35,
+        "minLength": 2,
+        "pattern": "^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$",
+        "type": "string"
+      },
+      "maxItems": 20,
+      "title": "Language Tags",
+      "type": "array"
+    },
     "name": {
       "maxLength": 200,
       "minLength": 1,
@@ -83,6 +187,17 @@
       ],
       "title": "Priority",
       "type": "string"
+    },
+    "region_codes": {
+      "items": {
+        "maxLength": 16,
+        "minLength": 2,
+        "pattern": "^[A-Z0-9]{2,3}(?:-[A-Z0-9]{1,6})?$",
+        "type": "string"
+      },
+      "maxItems": 50,
+      "title": "Region Codes",
+      "type": "array"
     },
     "source_type": {
       "$ref": "#/$defs/SourceType"

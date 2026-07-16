@@ -5,17 +5,35 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from srbg_contracts import (
+    ConnectorConfigPreview,
+    ConnectorConfigPreviewRequest,
+    ConnectorConfigRequest,
+    ConnectorConfigVersionView,
+    ConnectorDefinitionView,
     CreateSourceRequest,
     DocumentDetail,
     FixtureUploadResponse,
     MeResponse,
     SourceActionRequest,
+    SourceAssessmentSubmission,
+    SourceAuditEventView,
+    SourceCoverageMatrix,
     SourceDetail,
     SourceEligibility,
+    SourceGovernanceMetadataUpdate,
+    SourceLifecycleAction,
+    SourceLifecycleActionRequest,
+    SourceLifecycleEventView,
     SourceOnboardingSubmission,
+    SourcePolicyDecisionRequest,
     SourcePolicySubmission,
+    SourcePolicyV2Submission,
+    SourcePolicyVersionView,
+    SourceProductionApprovalRequest,
     SourceSummary,
     SourceTransitionRequest,
+    SourceTrialRunRequest,
+    SourceTrialRunView,
     UserRole,
 )
 
@@ -52,6 +70,27 @@ async def _read_fixture_body(request: Request, max_bytes: int) -> bytes:
             )
         content.extend(chunk)
     return bytes(content)
+
+
+def _fixture_content_length(request: Request, max_bytes: int) -> int | None:
+    values = request.headers.getlist("content-length")
+    if not values:
+        return None
+    value = values[0]
+    if (
+        len(values) != 1
+        or not value.isascii()
+        or not value.isdigit()
+        or (len(value) > 1 and value.startswith("0"))
+    ):
+        raise HTTPException(status_code=400, detail="Invalid Content-Length")
+    declared_length = int(value)
+    if declared_length > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail="Fixture is too large",
+        )
+    return declared_length
 
 
 class AdminSourceService(Protocol):
@@ -106,6 +145,114 @@ class AdminSourceService(Protocol):
         request_id: str,
     ) -> SourceDetail: ...
 
+    async def submit_policy_version(
+        self,
+        source_id: UUID,
+        payload: SourcePolicyV2Submission,
+        *,
+        actor_id: UUID,
+        request_id: str,
+    ) -> SourcePolicyVersionView: ...
+
+    async def list_policy_versions(
+        self, source_id: UUID
+    ) -> list[SourcePolicyVersionView]: ...
+
+    async def decide_policy_version(
+        self,
+        source_id: UUID,
+        policy_id: UUID,
+        payload: SourcePolicyDecisionRequest,
+        *,
+        actor_id: UUID,
+        request_id: str,
+    ) -> SourcePolicyVersionView: ...
+
+    async def start_trial_run(
+        self,
+        source_id: UUID,
+        payload: SourceTrialRunRequest,
+        *,
+        actor_id: UUID,
+        request_id: str,
+    ) -> SourceTrialRunView: ...
+
+    async def list_trial_runs(self, source_id: UUID) -> list[SourceTrialRunView]: ...
+
+    async def complete_fixture_trial(
+        self,
+        source_id: UUID,
+        trial_id: UUID,
+        reason: str,
+        *,
+        actor_id: UUID,
+        request_id: str,
+    ) -> SourceTrialRunView: ...
+
+    async def approve_production(
+        self,
+        source_id: UUID,
+        payload: SourceProductionApprovalRequest,
+        *,
+        actor_id: UUID,
+        request_id: str,
+    ) -> SourceDetail: ...
+
+    async def list_lifecycle_events(
+        self, source_id: UUID
+    ) -> list[SourceLifecycleEventView]: ...
+
+    async def list_audit_events(self, source_id: UUID) -> list[SourceAuditEventView]: ...
+
+    async def source_coverage(self) -> SourceCoverageMatrix: ...
+
+    async def list_connector_definitions(self) -> list[ConnectorDefinitionView]: ...
+
+    async def preview_connector_config(
+        self, source_id: UUID, payload: ConnectorConfigPreviewRequest
+    ) -> ConnectorConfigPreview: ...
+
+    async def save_connector_config(
+        self,
+        source_id: UUID,
+        payload: ConnectorConfigRequest,
+        *,
+        actor_id: UUID,
+        request_id: str,
+    ) -> ConnectorConfigVersionView: ...
+
+    async def list_connector_configs(
+        self, source_id: UUID
+    ) -> list[ConnectorConfigVersionView]: ...
+
+    async def update_governance_metadata(
+        self,
+        source_id: UUID,
+        payload: SourceGovernanceMetadataUpdate,
+        *,
+        actor_id: UUID,
+        request_id: str,
+    ) -> SourceDetail: ...
+
+    async def append_assessments(
+        self,
+        source_id: UUID,
+        payload: SourceAssessmentSubmission,
+        *,
+        actor_id: UUID,
+        request_id: str,
+    ) -> SourceDetail: ...
+
+    async def lifecycle_action(
+        self,
+        source_id: UUID,
+        action: str,
+        reason: str,
+        *,
+        actor_id: UUID,
+        request_id: str,
+    ) -> SourceDetail: ...
+
     async def upload_fixture(
         self,
         source_id: UUID,
@@ -152,6 +299,24 @@ async def list_sources(
     return await _service(request).list_sources()
 
 
+@router.get("/admin/source-coverage", response_model=SourceCoverageMatrix)
+async def source_coverage(
+    request: Request,
+    _: ReadPrincipal,
+) -> SourceCoverageMatrix:
+    return await _service(request).source_coverage()
+
+
+@router.get(
+    "/admin/connector-definitions", response_model=list[ConnectorDefinitionView]
+)
+async def list_connector_definitions(
+    request: Request,
+    _: ReadPrincipal,
+) -> list[ConnectorDefinitionView]:
+    return await _service(request).list_connector_definitions()
+
+
 @router.post("/admin/sources", response_model=SourceDetail, status_code=status.HTTP_201_CREATED)
 async def create_source(
     payload: CreateSourceRequest,
@@ -174,6 +339,82 @@ async def get_source(
     return await _service(request).get_source(source_id)
 
 
+@router.put(
+    "/admin/sources/{source_id}/governance-metadata", response_model=SourceDetail
+)
+async def update_governance_metadata(
+    source_id: UUID,
+    payload: SourceGovernanceMetadataUpdate,
+    request: Request,
+    principal: WritePrincipal,
+) -> SourceDetail:
+    return await _service(request).update_governance_metadata(
+        source_id,
+        payload,
+        actor_id=principal.user_id,
+        request_id=request.state.request_id,
+    )
+
+
+@router.post("/admin/sources/{source_id}/assessments", response_model=SourceDetail)
+async def append_source_assessments(
+    source_id: UUID,
+    payload: SourceAssessmentSubmission,
+    request: Request,
+    principal: WritePrincipal,
+) -> SourceDetail:
+    return await _service(request).append_assessments(
+        source_id,
+        payload,
+        actor_id=principal.user_id,
+        request_id=request.state.request_id,
+    )
+
+
+@router.get(
+    "/admin/sources/{source_id}/connector-config-versions",
+    response_model=list[ConnectorConfigVersionView],
+)
+async def list_connector_configs(
+    source_id: UUID,
+    request: Request,
+    _: ReadPrincipal,
+) -> list[ConnectorConfigVersionView]:
+    return await _service(request).list_connector_configs(source_id)
+
+
+@router.post(
+    "/admin/sources/{source_id}/connector-config-versions/preview",
+    response_model=ConnectorConfigPreview,
+)
+async def preview_connector_config(
+    source_id: UUID,
+    payload: ConnectorConfigPreviewRequest,
+    request: Request,
+    _: WritePrincipal,
+) -> ConnectorConfigPreview:
+    return await _service(request).preview_connector_config(source_id, payload)
+
+
+@router.post(
+    "/admin/sources/{source_id}/connector-config-versions",
+    response_model=ConnectorConfigVersionView,
+    status_code=status.HTTP_201_CREATED,
+)
+async def save_connector_config(
+    source_id: UUID,
+    payload: ConnectorConfigRequest,
+    request: Request,
+    principal: WritePrincipal,
+) -> ConnectorConfigVersionView:
+    return await _service(request).save_connector_config(
+        source_id,
+        payload,
+        actor_id=principal.user_id,
+        request_id=request.state.request_id,
+    )
+
+
 @router.get("/admin/sources/{source_id}/eligibility", response_model=SourceEligibility)
 async def get_eligibility(
     source_id: UUID,
@@ -188,13 +429,17 @@ async def save_policy(
     source_id: UUID,
     payload: SourcePolicySubmission,
     request: Request,
-    principal: WritePrincipal,
+    _: WritePrincipal,
 ) -> SourceDetail:
-    return await _service(request).save_policy(
-        source_id,
-        payload,
-        actor_id=principal.user_id,
-        request_id=request.state.request_id,
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="Legacy source policy writes are retired",
+        headers={
+            "Link": (
+                f"</api/v1/admin/sources/{source_id}/policy-versions>; "
+                'rel="successor-version"'
+            )
+        },
     )
 
 
@@ -203,13 +448,14 @@ async def save_onboarding(
     source_id: UUID,
     payload: SourceOnboardingSubmission,
     request: Request,
-    principal: WritePrincipal,
+    _: WritePrincipal,
 ) -> SourceDetail:
-    return await _service(request).save_onboarding(
-        source_id,
-        payload,
-        actor_id=principal.user_id,
-        request_id=request.state.request_id,
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="Legacy onboarding writes are retired",
+        headers={
+            "Link": f"</api/v1/admin/sources/{source_id}/trial-runs>; rel=\"successor-version\""
+        },
     )
 
 
@@ -218,13 +464,14 @@ async def transition(
     source_id: UUID,
     payload: SourceTransitionRequest,
     request: Request,
-    principal: WritePrincipal,
+    _: WritePrincipal,
 ) -> SourceDetail:
-    return await _service(request).transition(
-        source_id,
-        payload,
-        actor_id=principal.user_id,
-        request_id=request.state.request_id,
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="Legacy state writes are retired",
+        headers={
+            "Link": f"</api/v1/admin/sources/{source_id}/approve>; rel=\"successor-version\""
+        },
     )
 
 
@@ -233,14 +480,14 @@ async def enable_source(
     source_id: UUID,
     payload: SourceActionRequest,
     request: Request,
-    principal: WritePrincipal,
+    _: WritePrincipal,
 ) -> SourceDetail:
-    return await _service(request).set_enabled(
-        source_id,
-        True,
-        payload.reason,
-        actor_id=principal.user_id,
-        request_id=request.state.request_id,
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="Legacy enable is retired",
+        headers={
+            "Link": f"</api/v1/admin/sources/{source_id}/approve>; rel=\"successor-version\""
+        },
     )
 
 
@@ -249,14 +496,219 @@ async def disable_source(
     source_id: UUID,
     payload: SourceActionRequest,
     request: Request,
-    principal: WritePrincipal,
+    _: WritePrincipal,
 ) -> SourceDetail:
-    return await _service(request).set_enabled(
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="Legacy disable is retired",
+        headers={
+            "Link": f"</api/v1/admin/sources/{source_id}/pause>; rel=\"successor-version\""
+        },
+    )
+
+
+async def _run_lifecycle_action(
+    source_id: UUID,
+    action: SourceLifecycleAction,
+    payload: SourceLifecycleActionRequest,
+    request: Request,
+    principal: Principal,
+) -> SourceDetail:
+    return await _service(request).lifecycle_action(
         source_id,
-        False,
+        action.value,
         payload.reason,
         actor_id=principal.user_id,
         request_id=request.state.request_id,
+    )
+
+
+@router.post("/admin/sources/{source_id}/submit-compliance", response_model=SourceDetail)
+async def submit_compliance(
+    source_id: UUID,
+    payload: SourceLifecycleActionRequest,
+    request: Request,
+    principal: WritePrincipal,
+) -> SourceDetail:
+    return await _run_lifecycle_action(
+        source_id, SourceLifecycleAction.SUBMIT_COMPLIANCE, payload, request, principal
+    )
+
+
+@router.get(
+    "/admin/sources/{source_id}/policy-versions",
+    response_model=list[SourcePolicyVersionView],
+)
+async def list_policy_versions(
+    source_id: UUID,
+    request: Request,
+    _: ReadPrincipal,
+) -> list[SourcePolicyVersionView]:
+    return await _service(request).list_policy_versions(source_id)
+
+
+@router.post(
+    "/admin/sources/{source_id}/policy-versions",
+    response_model=SourcePolicyVersionView,
+    status_code=status.HTTP_201_CREATED,
+)
+async def submit_policy_version(
+    source_id: UUID,
+    payload: SourcePolicyV2Submission,
+    request: Request,
+    principal: WritePrincipal,
+) -> SourcePolicyVersionView:
+    return await _service(request).submit_policy_version(
+        source_id,
+        payload,
+        actor_id=principal.user_id,
+        request_id=request.state.request_id,
+    )
+
+
+@router.post(
+    "/admin/sources/{source_id}/policy-versions/{policy_id}/decisions",
+    response_model=SourcePolicyVersionView,
+)
+async def decide_policy_version(
+    source_id: UUID,
+    policy_id: UUID,
+    payload: SourcePolicyDecisionRequest,
+    request: Request,
+    principal: WritePrincipal,
+) -> SourcePolicyVersionView:
+    return await _service(request).decide_policy_version(
+        source_id,
+        policy_id,
+        payload,
+        actor_id=principal.user_id,
+        request_id=request.state.request_id,
+    )
+
+
+@router.get(
+    "/admin/sources/{source_id}/trial-runs",
+    response_model=list[SourceTrialRunView],
+)
+async def list_trial_runs(
+    source_id: UUID,
+    request: Request,
+    _: ReadPrincipal,
+) -> list[SourceTrialRunView]:
+    return await _service(request).list_trial_runs(source_id)
+
+
+@router.post(
+    "/admin/sources/{source_id}/trial-runs",
+    response_model=SourceTrialRunView,
+    status_code=status.HTTP_201_CREATED,
+)
+async def start_trial_run(
+    source_id: UUID,
+    payload: SourceTrialRunRequest,
+    request: Request,
+    principal: WritePrincipal,
+) -> SourceTrialRunView:
+    return await _service(request).start_trial_run(
+        source_id,
+        payload,
+        actor_id=principal.user_id,
+        request_id=request.state.request_id,
+    )
+
+
+@router.post(
+    "/admin/sources/{source_id}/trial-runs/{trial_id}/complete-fixture",
+    response_model=SourceTrialRunView,
+)
+async def complete_fixture_trial(
+    source_id: UUID,
+    trial_id: UUID,
+    payload: SourceLifecycleActionRequest,
+    request: Request,
+    principal: WritePrincipal,
+) -> SourceTrialRunView:
+    return await _service(request).complete_fixture_trial(
+        source_id,
+        trial_id,
+        payload.reason,
+        actor_id=principal.user_id,
+        request_id=request.state.request_id,
+    )
+
+
+@router.post("/admin/sources/{source_id}/approve", response_model=SourceDetail)
+async def approve_source(
+    source_id: UUID,
+    payload: SourceProductionApprovalRequest,
+    request: Request,
+    principal: WritePrincipal,
+) -> SourceDetail:
+    return await _service(request).approve_production(
+        source_id,
+        payload,
+        actor_id=principal.user_id,
+        request_id=request.state.request_id,
+    )
+
+
+@router.get(
+    "/admin/sources/{source_id}/lifecycle-events",
+    response_model=list[SourceLifecycleEventView],
+)
+async def list_lifecycle_events(
+    source_id: UUID,
+    request: Request,
+    _: ReadPrincipal,
+) -> list[SourceLifecycleEventView]:
+    return await _service(request).list_lifecycle_events(source_id)
+
+
+@router.get(
+    "/admin/sources/{source_id}/audit-events",
+    response_model=list[SourceAuditEventView],
+)
+async def list_source_audit_events(
+    source_id: UUID,
+    request: Request,
+    _: ReadPrincipal,
+) -> list[SourceAuditEventView]:
+    return await _service(request).list_audit_events(source_id)
+
+
+@router.post("/admin/sources/{source_id}/pause", response_model=SourceDetail)
+async def pause_source(
+    source_id: UUID,
+    payload: SourceLifecycleActionRequest,
+    request: Request,
+    principal: WritePrincipal,
+) -> SourceDetail:
+    return await _run_lifecycle_action(
+        source_id, SourceLifecycleAction.PAUSE, payload, request, principal
+    )
+
+
+@router.post("/admin/sources/{source_id}/resume", response_model=SourceDetail)
+async def resume_source(
+    source_id: UUID,
+    payload: SourceLifecycleActionRequest,
+    request: Request,
+    principal: WritePrincipal,
+) -> SourceDetail:
+    return await _run_lifecycle_action(
+        source_id, SourceLifecycleAction.RESUME, payload, request, principal
+    )
+
+
+@router.post("/admin/sources/{source_id}/retire", response_model=SourceDetail)
+async def retire_source(
+    source_id: UUID,
+    payload: SourceLifecycleActionRequest,
+    request: Request,
+    principal: WritePrincipal,
+) -> SourceDetail:
+    return await _run_lifecycle_action(
+        source_id, SourceLifecycleAction.RETIRE, payload, request, principal
     )
 
 
@@ -273,18 +725,13 @@ async def upload_fixture(
     canonical_url: FixtureCanonicalUrl,
 ) -> FixtureUploadResponse:
     max_fixture_bytes = get_settings().fixture_max_bytes
-    content_length = request.headers.get("content-length")
-    if content_length is not None:
-        try:
-            exceeds_limit = int(content_length) > max_fixture_bytes
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail="Invalid Content-Length") from exc
-        if exceeds_limit:
-            raise HTTPException(
-                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-                detail="Fixture is too large",
-            )
+    declared_length = _fixture_content_length(request, max_fixture_bytes)
     content = await _read_fixture_body(request, max_fixture_bytes)
+    if declared_length is not None and declared_length != len(content):
+        raise HTTPException(
+            status_code=400,
+            detail="Content-Length does not match the fixture body",
+        )
     return await _service(request).upload_fixture(
         source_id,
         content=content,

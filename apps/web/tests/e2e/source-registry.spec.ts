@@ -1,47 +1,65 @@
 import AxeBuilder from '@axe-core/playwright'
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
-test('source admin registers a default-denied candidate and opens admission tools', async ({ page }) => {
-  await page.goto('/admin/sources')
+async function mockEmptySourceCenter(page: Page): Promise<void> {
+  await page.route('**/api/v1/feed**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      fingerprint: 'sha256:source-registry-empty',
+      freshness: 'fresh',
+      generated_at: '2026-07-16T06:00:00Z',
+      items: [],
+      next_cursor: null,
+      notices: [],
+    }),
+  }))
+  await page.route('**/api/v1/me', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      display_name: '来源管理员',
+      local_identity: true,
+      roles: ['source_admin'],
+      user_id: '019b0000-0000-7000-8000-000000009015',
+    }),
+  }))
+  await page.route('**/api/v1/admin/sources', route => route.fulfill({
+    contentType: 'application/json',
+    body: '[]',
+  }))
+}
+
+async function openSourceCenter(page: Page): Promise<void> {
+  await page.goto('/')
   await expect(page.locator('.srbg-app-shell')).toHaveAttribute('aria-busy', 'false', {
     timeout: 20_000,
   })
-  await expect(page.getByRole('heading', { level: 1, name: '来源注册与准入' })).toBeVisible()
+  await page.getByRole('link', { name: '管理入口', exact: true }).click()
+}
+
+test('source admin opens a blank, default-denied candidate registration', async ({ page }) => {
+  await mockEmptySourceCenter(page)
+  await openSourceCenter(page)
+  await expect(page.locator('.srbg-app-shell')).toHaveAttribute('aria-busy', 'false', {
+    timeout: 20_000,
+  })
+  await expect(page.getByRole('heading', { level: 1, name: '来源中心 V2' })).toBeVisible()
   await expect(page.getByText('默认拒绝', { exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: '登记候选来源', exact: true }).click()
   const drawer = page.getByRole('dialog', { name: '登记候选来源' })
   await expect(drawer).toBeVisible()
-  const unique = Date.now().toString()
-  const sourceName = `浏览器验收来源-${unique}`
-  await drawer.getByLabel('来源名称').fill(sourceName)
-  await drawer.getByLabel('来源 URL').fill(`https://example.test/e2e/${unique}`)
-  await drawer.getByRole('button', { name: '登记候选来源' }).click()
-
-  await expect(page).toHaveURL(/\/admin\/sources\/[0-9a-f-]+$/)
-  await expect(page.getByRole('heading', { level: 1, name: sourceName })).toBeVisible()
-  const detailPage = page.locator('.source-detail-page')
-  await expect(detailPage.getByText('候选', { exact: true })).toBeVisible()
-  await expect(detailPage.getByText(/disabled · 0\/30 样本/)).toBeVisible()
-
-  await page.getByRole('button', { name: '准入策略' }).click()
-  const policyDrawer = page.getByRole('dialog', { name: '来源准入策略' })
-  await expect(policyDrawer).toBeVisible()
-  await policyDrawer.getByRole('button', { name: '关闭抽屉' }).click()
-
-  await page.getByRole('button', { name: '准入记录' }).click()
-  const onboardingDrawer = page.getByRole('dialog', { name: '来源准入记录' })
-  await expect(onboardingDrawer).toBeVisible()
-  await onboardingDrawer.getByRole('button', { name: '关闭抽屉' }).click()
-
-  await page.getByRole('button', { name: '上传样本' }).click()
-  await expect(page.getByRole('dialog', { name: '上传固定样本' })).toBeVisible()
-  await expect(page.getByText(/仅允许 HTML\/PDF，最大 50 MiB/)).toBeVisible()
+  await expect(drawer.getByLabel('来源名称')).toHaveValue('')
+  await expect(drawer.getByLabel('公开基础 URL')).toHaveValue('')
+  await expect(drawer.getByLabel('治理责任人 ID')).toHaveValue('')
+  await expect(drawer.getByText(/不批准、不试运行，也不发起任何网络请求/)).toBeVisible()
+  await expect(drawer.getByLabel(/状态|ACTIVE|批准单号/)).toHaveCount(0)
+  await expect(drawer.locator('textarea')).toHaveCount(0)
 })
 
 test('@a11y source registry list has no axe violations', async ({ page }) => {
-  await page.goto('/admin/sources')
-  await expect(page.getByRole('heading', { level: 1, name: '来源注册与准入' })).toBeVisible()
+  await mockEmptySourceCenter(page)
+  await openSourceCenter(page)
+  await expect(page.getByRole('heading', { level: 1, name: '来源中心 V2' })).toBeVisible()
 
   const results = await new AxeBuilder({ page }).analyze()
   expect(results.violations).toEqual([])

@@ -16,7 +16,7 @@ withDefaults(
 )
 
 const emit = defineEmits<{
-  evidence: [itemId: string]
+  evidence: [evidenceIds: string[]]
 }>()
 
 function formatFactValue(fact: ConfirmedFact): string {
@@ -54,7 +54,7 @@ function factKey(fact: ConfirmedFact | UnverifiedFact): string {
             v-if="fact.evidence_ids.length"
             type="button"
             data-testid="fact-evidence-trigger"
-            @click="emit('evidence', fact.source_item_id)"
+            @click="emit('evidence', [...fact.evidence_ids])"
           >
             查看证据（{{ fact.evidence_ids.length }}）
           </button>

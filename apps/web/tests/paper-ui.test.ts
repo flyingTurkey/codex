@@ -75,7 +75,7 @@ describe('round 06 journal paper UI', () => {
     const page = readFileSync(resolve(process.cwd(), 'app/pages/events/[id].vue'), 'utf8')
 
     expect(page).toContain('元数据可见')
-    expect(page).toContain('许可不明确，未收录摘要')
+    expect(page).toContain('当前发布投影仅含题录，未收录摘要')
     expect(page).toContain('平台未保存全文')
     expect(page).toContain('复制 GB/T 7714')
     expect(page).toContain('导出 RIS')

@@ -16,8 +16,21 @@ async function normalizeDynamicPageData(page: Page): Promise<void> {
   })
 }
 
+async function mockVisualIdentity(page: Page): Promise<void> {
+  await page.route('**/api/v1/me', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      display_name: '视觉基线用户',
+      local_identity: true,
+      roles: ['viewer', 'source_admin', 'reviewer'],
+      user_id: '019b0000-0000-7000-8000-000000009015',
+    }),
+  }))
+}
+
 for (const viewport of visualViewports) {
   test(`home visual baseline at ${viewport.name}`, async ({ page }) => {
+    await mockVisualIdentity(page)
     await page.route('**/api/v1/feed**', route => route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({

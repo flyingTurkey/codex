@@ -93,6 +93,10 @@ class PublicationGate:
             reasons.append("DOCUMENT_WITHDRAWN_OR_SUPERSEDED")
         if document.get("hash_verified") is not True or document.get("url_policy_pass") is not True:
             reasons.append("DOCUMENT_HASH_OR_URL_INVALID")
+        execution_domain = document.get("execution_domain")
+        if execution_domain is not None or self.policy_version == "2.1.0":
+            if execution_domain != "PRODUCTION":
+                reasons.append("NON_PRODUCTION_EXECUTION_DOMAIN")
         if _number(evidence.get("claim_count")) < 1 or _number(evidence.get("evidence_count")) < 1:
             reasons.append("EMPTY_CLAIM_OR_EVIDENCE_SET")
         if not all(

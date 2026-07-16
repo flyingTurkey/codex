@@ -61,7 +61,9 @@
         "detected_mime": {
           "enum": [
             "text/html",
-            "application/pdf"
+            "application/pdf",
+            "application/xml",
+            "application/json"
           ],
           "title": "Detected Mime",
           "type": "string"
@@ -111,7 +113,9 @@
     "document_kind": {
       "enum": [
         "HTML",
-        "PDF"
+        "PDF",
+        "DISCOVERY_XML",
+        "DISCOVERY_JSON"
       ],
       "title": "Document Kind",
       "type": "string"

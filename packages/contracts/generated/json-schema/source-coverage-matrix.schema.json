@@ -1,0 +1,132 @@
+{
+  "$defs": {
+    "SourceContentDomain": {
+      "enum": [
+        "DIGITAL_TRANSFORMATION_CASE",
+        "RESEARCH_PAPER",
+        "SOFTWARE_PLATFORM",
+        "IOT_EQUIPMENT",
+        "LOW_ALTITUDE_EQUIPMENT",
+        "AI_APPLICATION",
+        "SAFETY_REGULATION",
+        "STANDARD_GUIDANCE",
+        "ACCIDENT_INVESTIGATION",
+        "OFFICIAL_NOTICE",
+        "PENALTY",
+        "RECTIFICATION",
+        "UNKNOWN"
+      ],
+      "title": "SourceContentDomain",
+      "type": "string"
+    },
+    "SourceCoverageCell": {
+      "additionalProperties": false,
+      "properties": {
+        "active_count": {
+          "minimum": 0,
+          "title": "Active Count",
+          "type": "integer"
+        },
+        "candidate_count": {
+          "minimum": 0,
+          "title": "Candidate Count",
+          "type": "integer"
+        },
+        "content_domain": {
+          "$ref": "#/$defs/SourceContentDomain"
+        },
+        "gap": {
+          "title": "Gap",
+          "type": "boolean"
+        },
+        "industry": {
+          "$ref": "#/$defs/SourceIndustry"
+        },
+        "language": {
+          "title": "Language",
+          "type": "string"
+        },
+        "region": {
+          "title": "Region",
+          "type": "string"
+        },
+        "source_type": {
+          "$ref": "#/$defs/SourceType"
+        },
+        "trial_count": {
+          "minimum": 0,
+          "title": "Trial Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "industry",
+        "content_domain",
+        "source_type",
+        "region",
+        "language",
+        "candidate_count",
+        "trial_count",
+        "active_count",
+        "gap"
+      ],
+      "title": "SourceCoverageCell",
+      "type": "object"
+    },
+    "SourceIndustry": {
+      "enum": [
+        "HIGHWAY",
+        "BRIDGE",
+        "TUNNEL",
+        "RAILWAY",
+        "RAIL_TRANSIT",
+        "GENERAL_TRANSPORT",
+        "UNKNOWN"
+      ],
+      "title": "SourceIndustry",
+      "type": "string"
+    },
+    "SourceType": {
+      "enum": [
+        "government",
+        "standards",
+        "journal",
+        "research_institute",
+        "association",
+        "enterprise",
+        "media",
+        "academic_api",
+        "academic_database"
+      ],
+      "title": "SourceType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "cells": {
+      "items": {
+        "$ref": "#/$defs/SourceCoverageCell"
+      },
+      "title": "Cells",
+      "type": "array"
+    },
+    "gap_cell_count": {
+      "minimum": 0,
+      "title": "Gap Cell Count",
+      "type": "integer"
+    },
+    "generated_at": {
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "generated_at",
+    "cells",
+    "gap_cell_count"
+  ],
+  "title": "SourceCoverageMatrix",
+  "type": "object"
+}

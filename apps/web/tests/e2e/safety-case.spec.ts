@@ -90,6 +90,12 @@ const eventRelations = [
 }))
 
 const eventDetail = {
+  claims: [{
+    claim_id: '019b0000-0000-7000-8000-000000004010',
+    evidence_ids: ['019b0000-0000-7000-8000-000000004011'],
+    field_name: 'OFFICIAL_DIRECT_CAUSES',
+    value: '长时间持续性降水与多种因素叠加耦合作用',
+  }],
   confirmed_facts: [
     {
       claim_id: '019b0000-0000-7000-8000-000000004010',
@@ -104,6 +110,11 @@ const eventDetail = {
     },
   ],
   engineering_type: 'EXPRESSWAY',
+  evidence: [{
+    content_sha256: 'a'.repeat(64),
+    evidence_id: '019b0000-0000-7000-8000-000000004011',
+    locator: 'html-p-0042',
+  }],
   hazard_type: 'ROADBED_COLLAPSE',
   id: eventId,
   incident_status: 'RECTIFICATION_FOLLOW_UP',
@@ -132,27 +143,6 @@ const eventDetail = {
   ],
 }
 
-const itemDetail = {
-  claims: [{
-    claim_type: 'official_direct_causes',
-    evidence_ids: ['019b0000-0000-7000-8000-000000004011'],
-    id: '019b0000-0000-7000-8000-000000004010',
-    label: '正式调查认定的直接原因',
-    value: '长时间持续性降水与多种因素叠加耦合作用',
-  }],
-  evidence: [{
-    char_end: 28,
-    char_start: 0,
-    claim_ids: ['019b0000-0000-7000-8000-000000004010'],
-    excerpt: '调查报告认定，长时间持续性降水与多种因素叠加耦合作用。',
-    excerpt_sha256: 'a'.repeat(64),
-    id: '019b0000-0000-7000-8000-000000004011',
-    original_url: investigationItem.original_url,
-    paragraph_id: 'html-p-0042',
-  }],
-  item: investigationItem,
-}
-
 function feed(items: unknown[]) {
   return {
     fingerprint: 'sha256:round04-e2e',
@@ -170,12 +160,6 @@ async function mockSafetyCasePath(page: Page): Promise<void> {
   )
   await page.route(`**/api/v1/events/${eventId}`, (route) =>
     route.fulfill({ contentType: 'application/json', body: JSON.stringify(eventDetail) }),
-  )
-  await page.route(`**/api/v1/items/${investigationItemId}`, (route) =>
-    route.fulfill({ contentType: 'application/json', body: JSON.stringify(itemDetail) }),
-  )
-  await page.route(`**/api/v1/items/${investigationItemId}/versions`, (route) =>
-    route.fulfill({ contentType: 'application/json', body: JSON.stringify({ item_id: investigationItemId, versions: [] }) }),
   )
 }
 
@@ -265,6 +249,8 @@ test('safety case filter is server-backed and the five-stage event remains evide
   const drawer = page.getByRole('dialog', { name: '原文段落与页码定位' })
   await expect(drawer).toBeVisible()
   await expect(drawer.getByText('html-p-0042', { exact: false })).toBeVisible()
+  await expect(drawer.getByText('a'.repeat(64), { exact: true })).toBeVisible()
+  await expect(drawer).not.toContainText(investigationItem.original_url)
 })
 
 test('@a11y safety case event path has no axe violations at 768px', async ({ page }) => {
@@ -272,6 +258,8 @@ test('@a11y safety case event path has no axe violations at 768px', async ({ pag
   await mockSafetyCasePath(page)
   await page.goto(`/events/${eventId}`)
   await expect(page.getByTestId('event-stage')).toHaveCount(5)
+  await page.getByTestId('fact-evidence-trigger').click()
+  await expect(page.getByRole('dialog', { name: '原文段落与页码定位' })).toBeVisible()
 
   const results = await new AxeBuilder({ page }).analyze()
   expect(results.violations).toEqual([])

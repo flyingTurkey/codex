@@ -1,13 +1,31 @@
 """Bounded, non-rendering validation for manually uploaded fixtures."""
 
+import json
 import re
 import unicodedata
 from dataclasses import dataclass
+from html import unescape
 from pathlib import Path, PurePath
+from xml.etree import ElementTree
+
+from defusedxml import ElementTree as DefusedElementTree  # type: ignore[import-untyped]
+from defusedxml.common import DefusedXmlException  # type: ignore[import-untyped]
 
 
 class UploadRejected(ValueError):
-    """Raised before untrusted bytes enter object storage."""
+    """Raised before untrusted bytes can become CLEAN, READY, or otherwise usable."""
+
+
+class MalwareDetected(UploadRejected):
+    """A scanner definitively identified malware in these immutable bytes."""
+
+    code = "MALWARE_DETECTED"
+
+
+class MalwareScanInconclusive(UploadRejected):
+    """The scanner could not establish a clean or infected result."""
+
+    code = "MALWARE_SCAN_INCONCLUSIVE"
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +44,20 @@ _ACTIVE_PDF_MARKERS = (
     b"/EmbeddedFile",
     b"/AA",
 )
+_ACTIVE_HTML_TAG = re.compile(
+    rb"<\s*(?:script|iframe|object|embed|svg|math|form|link|style|base)\b",
+    re.IGNORECASE,
+)
+_ACTIVE_HTML_HANDLER = re.compile(rb"\son[a-z0-9_-]+\s*=", re.IGNORECASE)
+_ACTIVE_HTML_REFRESH = re.compile(
+    rb"<\s*meta\b[^>]*\bhttp-equiv\s*=\s*['\"]?refresh\b",
+    re.IGNORECASE,
+)
+_ACTIVE_HTML_URL = re.compile(
+    rb"\b(?:href|src|action|formaction|xlink:href)\s*=\s*['\"]?\s*javascript\s*:",
+    re.IGNORECASE,
+)
+_ACTIVE_HTML_CSS = re.compile(rb"(?:@import\b|url\s*\()", re.IGNORECASE)
 _WINDOWS_RESERVED = {
     "CON",
     "PRN",
@@ -33,6 +65,14 @@ _WINDOWS_RESERVED = {
     "NUL",
     *(f"COM{i}" for i in range(1, 10)),
     *(f"LPT{i}" for i in range(1, 10)),
+}
+_STRUCTURED_NODE_LIMIT = 20_000
+_STRUCTURED_DEPTH_LIMIT = 64
+_XML_MIME_TYPES = {
+    "application/atom+xml",
+    "application/rss+xml",
+    "application/xml",
+    "text/xml",
 }
 
 
@@ -42,12 +82,20 @@ def validate_filename(filename: str) -> str:
         raise UploadRejected("invalid filename")
     if any(char in normalized for char in ("/", "\\", "\x00")):
         raise UploadRejected("invalid filename")
-    if any(ord(char) < 32 for char in normalized):
+    if any(ord(char) < 32 or ord(char) == 127 for char in normalized):
         raise UploadRejected("invalid filename")
     path = Path(normalized)
     if path.stem.upper() in _WINDOWS_RESERVED:
         raise UploadRejected("invalid filename")
-    if path.suffix.lower() not in {".html", ".htm", ".pdf"}:
+    if path.suffix.lower() not in {
+        ".atom",
+        ".htm",
+        ".html",
+        ".json",
+        ".pdf",
+        ".rss",
+        ".xml",
+    }:
         raise UploadRejected("unsupported filename extension")
     return normalized
 
@@ -109,5 +157,65 @@ def inspect_fixture_bytes(
     if suffix in {".html", ".htm"}:
         if declared_mime != "text/html" or not is_html or is_pdf:
             raise UploadRejected("declared MIME does not match file bytes")
+        if has_active_html_content(data):
+            raise UploadRejected("HTML active content is not allowed")
         return InspectedFixture("text/html", "HTML", _html_title(data), size)
+    if suffix in {".atom", ".rss", ".xml"}:
+        if declared_mime not in _XML_MIME_TYPES or is_pdf or is_html:
+            raise UploadRejected("declared MIME does not match XML fixture bytes")
+        try:
+            root = DefusedElementTree.fromstring(
+                data,
+                forbid_dtd=True,
+                forbid_entities=True,
+                forbid_external=True,
+            )
+        except (ElementTree.ParseError, DefusedXmlException, ValueError) as error:
+            raise UploadRejected("XML fixture is malformed or unsafe") from error
+        pending = [(root, 1)]
+        node_count = 0
+        while pending:
+            node, depth = pending.pop()
+            node_count += 1
+            if node_count > _STRUCTURED_NODE_LIMIT or depth > _STRUCTURED_DEPTH_LIMIT:
+                raise UploadRejected("XML fixture exceeds structural limits")
+            pending.extend((child, depth + 1) for child in node)
+        return InspectedFixture("application/xml", "DISCOVERY_XML", None, size)
+    if suffix == ".json":
+        if declared_mime != "application/json" or is_pdf or is_html:
+            raise UploadRejected("declared MIME does not match JSON fixture bytes")
+        try:
+            document: object = json.loads(data)
+        except (UnicodeDecodeError, ValueError, RecursionError) as error:
+            raise UploadRejected("JSON fixture is malformed") from error
+        if not isinstance(document, (dict, list)):
+            raise UploadRejected("JSON fixture must be an object or array")
+        pending_json: list[tuple[object, int]] = [(document, 1)]
+        node_count = 0
+        while pending_json:
+            value, depth = pending_json.pop()
+            node_count += 1
+            if node_count > _STRUCTURED_NODE_LIMIT or depth > _STRUCTURED_DEPTH_LIMIT:
+                raise UploadRejected("JSON fixture exceeds structural limits")
+            if isinstance(value, dict):
+                pending_json.extend((item, depth + 1) for item in value.values())
+            elif isinstance(value, list):
+                pending_json.extend((item, depth + 1) for item in value)
+        return InspectedFixture("application/json", "DISCOVERY_JSON", None, size)
     raise UploadRejected("unsupported file type")
+
+
+def has_active_html_content(data: bytes) -> bool:
+    """Use one case-insensitive active-content policy for uploads and ZIP entries."""
+
+    normalized = unescape(data.decode("utf-8", errors="replace")).encode()
+    return any(
+        bool(
+            _ACTIVE_HTML_TAG.search(candidate)
+            or _ACTIVE_HTML_HANDLER.search(candidate)
+            or _ACTIVE_HTML_REFRESH.search(candidate)
+            or _ACTIVE_HTML_URL.search(candidate)
+            or _ACTIVE_HTML_CSS.search(candidate)
+        )
+        for candidate in (data, normalized)
+    )

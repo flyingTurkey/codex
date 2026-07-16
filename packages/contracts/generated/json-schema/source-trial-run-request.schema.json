@@ -1,0 +1,42 @@
+{
+  "$defs": {
+    "SourceTrialKind": {
+      "enum": [
+        "FIXTURE_REPLAY",
+        "LIVE_TRIAL"
+      ],
+      "title": "SourceTrialKind",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "connector_config_version_id": {
+      "format": "uuid",
+      "title": "Connector Config Version Id",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/SourceTrialKind"
+    },
+    "policy_version_id": {
+      "format": "uuid",
+      "title": "Policy Version Id",
+      "type": "string"
+    },
+    "reason": {
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Reason",
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "policy_version_id",
+    "connector_config_version_id",
+    "reason"
+  ],
+  "title": "SourceTrialRunRequest",
+  "type": "object"
+}

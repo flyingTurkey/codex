@@ -152,13 +152,19 @@ async function mockDigital(page: Page): Promise<void> {
         prevention_measure_tags: [],
         topic_ids: [],
         independent_source_count: 1,
+        claims: [{
+          claim_id: claimId,
+          evidence_ids: [evidenceId],
+          field_name: 'CLAIMED_OUTCOME',
+          value: '发布方称可提高梁片生产协同效率',
+        }],
+        evidence: [{
+          content_sha256: 'a'.repeat(64),
+          evidence_id: evidenceId,
+          locator: 'pdf-page-64',
+        }],
+        type_detail: item.type_summary,
       }),
-    }),
-  )
-  await page.route(`**/api/v1/events/${itemId}/content`, (route) =>
-    route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({ item, claims, evidence, digital_case: digitalCase }),
     }),
   )
 }
@@ -186,17 +192,21 @@ test('digital feed filters shared cards and explains relevance without confidenc
   await expect.poll(() => page.url()).not.toContain('undefined')
 })
 
-test('digital detail separates attributed outcomes and opens their evidence', async ({ page }) => {
+test('digital detail keeps accepted publisher claims linked to Event evidence', async ({ page }) => {
   await mockDigital(page)
   await page.goto(`/events/${itemId}`)
 
   await expect(page.getByRole('heading', { level: 1, name: item.title })).toBeVisible()
   await expect(page.getByRole('heading', { name: '发布方声称的成效' })).toBeVisible()
-  await expect(page.getByText('暂无可独立验证的量化成效。')).toBeVisible()
+  await expect(page.getByText('厂商声明，未经独立验证', { exact: true })).toBeVisible()
+  await expect(page.getByText('发布方称可提高梁片生产协同效率', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: '查看成效证据（1）' }).click()
-  await expect(page.getByRole('dialog', { name: '原文段落与页码定位' })).toContainText(
-    '相关成效为发布方声明',
-  )
+  const drawer = page.getByRole('dialog', { name: '原文段落与页码定位' })
+  await expect(drawer).toContainText('pdf-page-64')
+  await expect(drawer).toContainText('a'.repeat(64))
+  await expect(drawer).toContainText('发布方称可提高梁片生产协同效率')
+  await expect(page.getByText('暂无可独立验证的量化成效。')).toBeVisible()
+  await expect(page.getByText('来源属性和成熟度摘要不替代具体事实证据。')).toBeVisible()
 })
 
 test('reviewer submits digital classifications, maturity, and attribution through one decision', async ({ page }) => {

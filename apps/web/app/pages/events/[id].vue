@@ -6,6 +6,7 @@ import { computed, ref } from 'vue'
 
 import EventTimeline from '../../components/EventTimeline.vue'
 import EventRelations from '../../components/EventRelations.vue'
+import EventEvidenceDrawer from '../../components/EventEvidenceDrawer.vue'
 import FactList from '../../components/FactList.vue'
 import { safetyEngineeringLabel, safetyHazardLabel } from '../../utils/safety-case-labels'
 import { createUuidV7 } from '../../utils/uuid-v7'
@@ -22,11 +23,35 @@ const { data: detail, error, refresh, status } = await useFetch<EventDetail>(
     timeout: 5_000,
   },
 )
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- narrowed by `kind` in template
-const content = computed<Record<string, any> | null>(() => detail.value?.type_detail ?? null)
+const content = computed(() => detail.value?.type_detail ?? null)
+type TypeDetail = NonNullable<EventDetail['type_detail']>
+type ProductTypeDetail = Extract<
+  TypeDetail,
+  { kind: 'AI_EQUIPMENT' | 'IOT_PRODUCT' | 'LOW_ALTITUDE_EQUIPMENT' | 'SOFTWARE_PRODUCT' }
+>
+const productContent = computed<ProductTypeDetail | null>(() => {
+  const value = content.value
+  if (!value) return null
+  return isProductTypeDetail(value) ? value : null
+})
 const evidenceOpen = ref(false)
-const evidenceLoading = ref(false)
-const evidenceError = ref(false)
+const selectedEvidenceIds = ref<string[]>([])
+const selectedEvidence = computed(() => {
+  const selected = new Set(selectedEvidenceIds.value)
+  return (detail.value?.evidence ?? []).filter((entry) => selected.has(entry.evidence_id))
+})
+const selectedClaims = computed(() => {
+  const selected = new Set(selectedEvidenceIds.value)
+  return (detail.value?.claims ?? []).filter((claim) =>
+    claim.evidence_ids.some((evidenceId) => selected.has(evidenceId)),
+  )
+})
+const digitalPublishedClaims = computed(() => {
+  if (content.value?.kind !== 'DIGITAL_CASE') return []
+  return (detail.value?.claims ?? []).filter(
+    claim => claim.field_name.toUpperCase() === 'CLAIMED_OUTCOME',
+  )
+})
 
 const eventStatusMap = {
   CLOSED: { label: '已结案', tone: 'verified' },
@@ -111,9 +136,23 @@ function preventionTagLabel(tag: EventDetail['prevention_measure_tags'][number])
   }[tag]
 }
 
-function openOutcomeEvidence(evidenceIds: string[]): void {
-  evidenceOpen.value = evidenceIds.length > 0
+function isProductTypeDetail(value: TypeDetail): value is ProductTypeDetail {
+  switch (value.kind) {
+    case 'AI_EQUIPMENT':
+    case 'IOT_PRODUCT':
+    case 'LOW_ALTITUDE_EQUIPMENT':
+    case 'SOFTWARE_PRODUCT':
+      return true
+    default:
+      return false
+  }
 }
+
+function openEvidence(evidenceIds: string[]): void {
+  selectedEvidenceIds.value = [...new Set(evidenceIds)]
+  evidenceOpen.value = true
+}
+
 </script>
 
 <template>
@@ -154,49 +193,52 @@ function openOutcomeEvidence(evidenceIds: string[]): void {
     />
 
     <template v-else-if="detail">
-      <section v-if="content?.digital_case" class="event-detail-page__type-detail">
+      <section v-if="content?.kind === 'DIGITAL_CASE'" class="event-detail-page__type-detail">
         <h2>发布方声称的成效</h2>
-        <ul>
-          <li v-for="outcome in content.digital_case.claimed_outcomes" :key="outcome.id">
-            {{ outcome.statement }}
+        <p>{{ content.publisher_claim_label ?? '未展示无 accepted claim 证据的发布方成效声明。' }}</p>
+        <ul v-if="digitalPublishedClaims.length" class="event-detail-page__claim-list">
+          <li v-for="claim in digitalPublishedClaims" :key="claim.claim_id">
+            <span>{{ claim.value }}</span>
             <button
+              v-if="claim.evidence_ids.length"
+              class="event-detail-page__evidence-button"
               type="button"
-              :aria-label="`查看成效证据（${outcome.evidence_ids.length}）`"
-              @click="openOutcomeEvidence(outcome.evidence_ids)"
-            >查看证据</button>
+              :aria-label="`查看成效证据（${claim.evidence_ids.length}）`"
+              @click="openEvidence(claim.evidence_ids)"
+            >
+              查看成效证据
+            </button>
           </li>
         </ul>
+        <p v-else>暂无带原文定位的已接受发布方成效声明。</p>
         <h2>独立证据支持的成效</h2>
-        <p v-if="content.digital_case.verified_outcomes.length === 0">暂无可独立验证的量化成效。</p>
-        <ul>
-          <li v-for="outcome in content.digital_case.verified_outcomes" :key="outcome.id">
-            {{ outcome.statement }}
-          </li>
-        </ul>
+        <p>暂无可独立验证的量化成效。</p>
         <h2>复制条件</h2>
-        <p>{{ content.digital_case.replication_conditions?.join('；') || '待证据补充' }}</p>
+        <p>类型摘要不投影复制条件；具体结论必须来自 Event accepted claims 与证据。</p>
         <h2>限制与风险</h2>
-        <p>{{ content.digital_case.limitations?.join('；') || '待证据补充' }}</p>
+        <p>来源属性和成熟度摘要不替代具体事实证据。</p>
         <p>仅供技术调研，不构成采购建议。</p>
       </section>
 
-      <section v-if="content?.paper" class="event-detail-page__type-detail">
+      <section v-if="content?.kind === 'JOURNAL_PAPER'" class="event-detail-page__type-detail">
         <h2>论文访问与证据边界</h2>
         <p>元数据可见</p>
-        <p v-if="!content.paper.abstract">许可不明确，未收录摘要。</p>
-        <p v-if="!content.paper.open_fulltext_url">平台未保存全文，仅提供题录与原文链接。</p>
+        <p v-if="content.access_level === 'METADATA_ONLY'">当前发布投影仅含题录，未收录摘要。</p>
+        <p v-if="content.access_level !== 'OPEN_FULLTEXT'">平台未保存全文，仅提供题录与原文链接。</p>
         <a :href="`/api/v1/events/${eventId}/citation?format=gb-t-7714`">复制 GB/T 7714</a>
         <a :href="`/api/v1/events/${eventId}/citation?format=ris`">导出 RIS</a>
         <a :href="`/api/v1/events/${eventId}/citation?format=bibtex`">导出 BibTeX</a>
         <h2>相似论文</h2>
       </section>
 
-      <section v-if="content?.technology_product" class="event-detail-page__type-detail">
+      <section v-if="productContent" class="event-detail-page__type-detail">
         <h2>产品能力</h2>
+        <p>{{ productContent.verified_capability_count }} 项独立验证能力；{{ productContent.promotional_claim_count }} 项厂商声明。</p>
         <h2>工程证据</h2>
+        <p>类型摘要不替代具体 claim 与 evidence。</p>
         <h2>许可与限制</h2>
         <p
-          v-if="content.item.content_type === 'LOW_ALTITUDE_EQUIPMENT'"
+          v-if="productContent.kind === 'LOW_ALTITUDE_EQUIPMENT'"
           class="item-detail-page__permit-boundary"
         >
           产品发布不代表空域、适航、飞手和项目许可。
@@ -242,6 +284,7 @@ function openOutcomeEvidence(evidenceIds: string[]): void {
           variant="confirmed"
           :facts="detail.confirmed_facts"
           empty-description="正式调查证据和人工审核完成后才会进入本区。"
+          @evidence="openEvidence"
         />
         <FactList
           title="待核实"
@@ -251,16 +294,11 @@ function openOutcomeEvidence(evidenceIds: string[]): void {
         />
       </div>
 
-      <p v-if="evidenceLoading" role="status">正在加载字段证据…</p>
-      <p v-if="evidenceError" class="event-detail-page__evidence-error" role="alert">
-        字段证据暂时无法加载，请稍后重试。
-      </p>
-
       <EventTimeline :items="detail.timeline.items" />
 
       <!-- SourceComparison is rendered from the complete Event detail projection. -->
       <section v-if="detail.source_comparison?.length" class="event-detail-page__type-detail">
-        <h2>鏉ユ簮瀵规瘮</h2>
+        <h2>来源对比</h2>
         <ul>
           <li v-for="source in detail.source_comparison" :key="source.document_id">
             <a :href="source.original_url">{{ source.source_name }}</a>
@@ -303,6 +341,13 @@ function openOutcomeEvidence(evidenceIds: string[]): void {
       icon="EmptyPage"
     />
 
+    <EventEvidenceDrawer
+      :open="evidenceOpen"
+      :claims="selectedClaims"
+      :evidence="selectedEvidence"
+      @close="evidenceOpen = false"
+    />
+
   </section>
 </template>
 
@@ -326,6 +371,37 @@ function openOutcomeEvidence(evidenceIds: string[]): void {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
+}
+
+.event-detail-page__claim-list {
+  display: grid;
+  margin: var(--spacing-3) 0 var(--spacing-5);
+  padding: 0;
+  list-style: none;
+  gap: var(--spacing-2);
+}
+
+.event-detail-page__claim-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-3);
+  color: var(--color-ink-900);
+  background: var(--color-surfaceMuted);
+  border-radius: var(--radius-sm);
+  gap: var(--spacing-3);
+}
+
+.event-detail-page__evidence-button {
+  min-height: var(--spacing-10);
+  flex: none;
+  padding: var(--spacing-2) var(--spacing-3);
+  color: var(--color-brand-700);
+  font-weight: var(--font-weight-semibold);
+  background: var(--color-surface);
+  border: 1px solid currentColor;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
 }
 
 .event-detail-page__notice {

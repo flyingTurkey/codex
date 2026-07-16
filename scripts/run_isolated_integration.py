@@ -477,6 +477,7 @@ def _migration_command(
         "verify_round11_migration.py",
         "verify_round13_migration.py",
         "verify_round14_migration.py",
+        "verify_round15_migration.py",
     }:
         raise ValueError("migration verifier is not approved")
     return (
@@ -507,6 +508,7 @@ def _suite_environment(
         {
             "SRBG_RUN_SAFETY_INTEGRATION": "1",
             "SRBG_RUN_ROUND13_INTEGRATION": "1",
+            "SRBG_RUN_SOURCE_INTEGRATION": "1",
             "SRBG_DATABASE_URL": config.database_url(
                 resources.runtime_role, resources.runtime_password, resources.database
             ),
@@ -602,6 +604,7 @@ def _parse_args(arguments: Sequence[str] | None) -> tuple[str, tuple[str, ...]]:
             "verify_round11_migration.py",
             "verify_round13_migration.py",
             "verify_round14_migration.py",
+            "verify_round15_migration.py",
         ),
         default="verify_round11_migration.py",
     )

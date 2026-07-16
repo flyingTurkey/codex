@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>公路安全更新</title>
+    <item>
+      <guid>rss-bridge-001</guid>
+      <title>桥梁施工安全通知</title>
+      <link>https://docs.example.test/rss-bridge-001.html</link>
+      <pubDate>Wed, 15 Jul 2026 02:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>

@@ -78,6 +78,52 @@ EVENT_IDENTITY_ROLLBACKS = Counter(
     "srbg_event_identity_rollbacks_total",
     "Reviewed Event merge/split rollbacks.",
 )
+SOURCE_LIFECYCLE_STATE = Gauge(
+    "srbg_source_lifecycle_state",
+    "Sources by authoritative V2 lifecycle state.",
+    ("state",),
+)
+SOURCE_RUNTIME_AUTHORIZATION_MISMATCHES = Gauge(
+    "srbg_source_runtime_authorization_mismatches",
+    "Stored ACTIVE sources that currently fail authoritative runtime authorization.",
+)
+SOURCE_POLICY_REJECTIONS = Counter(
+    "srbg_source_policy_rejections_total",
+    "Source policy decisions rejected by bounded reason code.",
+    ("reason",),
+)
+SOURCE_TRIAL_RUNS = Counter(
+    "srbg_source_trial_runs_total",
+    "Source trial runs by bounded mode and outcome.",
+    ("mode", "outcome"),
+)
+SOURCE_TRIAL_QUALITY_COUNT = Gauge(
+    "srbg_source_trial_quality_count",
+    "Database-derived bounded evidence counts for completed source trials.",
+    ("mode", "status", "measure"),
+)
+SOURCE_TRIAL_READY_RATIO_BPS = Gauge(
+    "srbg_source_trial_ready_ratio_basis_points",
+    (
+        "Database-derived READY ratio over distinct document-level raw objects; "
+        "discovery-only responses are excluded."
+    ),
+    ("mode", "status"),
+)
+SOURCE_PRODUCTION_SCHEDULING_BLOCKED = Counter(
+    "srbg_source_production_scheduling_blocked_total",
+    "Round 15 production scheduling blocks by bounded server reason.",
+    ("reason",),
+)
+CONNECTOR_CONFIG_VERSIONS = Counter(
+    "srbg_connector_config_versions_total",
+    "Connector configuration versions by definition and validation outcome.",
+    ("definition", "outcome"),
+)
+SOURCE_COVERAGE_GAP_CELLS = Gauge(
+    "srbg_source_coverage_gap_cells",
+    "Empty cells in the current bounded source coverage profile.",
+)
 
 
 def configure_observability(settings: Settings) -> None:

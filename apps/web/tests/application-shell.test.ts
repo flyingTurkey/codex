@@ -67,14 +67,15 @@ describe('application shell contract', () => {
       '运行中心',
       '质量看板',
       '管理入口',
+      '覆盖缺口',
       '审核工作台',
       '聚类工作台',
     ])
 
     const layoutSource = readAppFile('layouts/default.vue')
     expect(layoutSource.match(/<AppShell(?:\s|>)/g)).toHaveLength(1)
-    expect(layoutSource).toContain("route.path.startsWith('/admin')")
-    expect(layoutSource).toContain("['source_admin', 'reviewer', 'platform_admin'].includes(role)")
+    expect(layoutSource).toContain('adminNavigationForRoles')
+    expect(layoutSource).toContain('visibleAdminNavigation')
     expect(layoutSource).toContain(':show-admin="showAdmin"')
     expect(layoutSource).toContain('@navigate="handleNavigation"')
   })

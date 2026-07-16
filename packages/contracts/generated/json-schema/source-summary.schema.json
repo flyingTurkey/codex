@@ -7,9 +7,20 @@
         "B1",
         "B2",
         "C1",
-        "C2"
+        "C2",
+        "UNKNOWN"
       ],
       "title": "AuthorityLevel",
+      "type": "string"
+    },
+    "RuntimeAuthorization": {
+      "description": "Server-derived execution authorization; never accepted as client input.",
+      "enum": [
+        "DENIED",
+        "TRIAL_ONLY",
+        "PRODUCTION"
+      ],
+      "title": "RuntimeAuthorization",
       "type": "string"
     },
     "SourceChannel": {
@@ -21,7 +32,80 @@
       "title": "SourceChannel",
       "type": "string"
     },
+    "SourceContentDomain": {
+      "enum": [
+        "DIGITAL_TRANSFORMATION_CASE",
+        "RESEARCH_PAPER",
+        "SOFTWARE_PLATFORM",
+        "IOT_EQUIPMENT",
+        "LOW_ALTITUDE_EQUIPMENT",
+        "AI_APPLICATION",
+        "SAFETY_REGULATION",
+        "STANDARD_GUIDANCE",
+        "ACCIDENT_INVESTIGATION",
+        "OFFICIAL_NOTICE",
+        "PENALTY",
+        "RECTIFICATION",
+        "UNKNOWN"
+      ],
+      "title": "SourceContentDomain",
+      "type": "string"
+    },
+    "SourceDeclaredRole": {
+      "enum": [
+        "OFFICIAL_PRIMARY",
+        "OFFICIAL_SECONDARY",
+        "STANDARDS_PUBLISHER",
+        "RESEARCH_PUBLISHER",
+        "MANUFACTURER",
+        "INDEPENDENT_REPORTER",
+        "AGGREGATOR",
+        "UNKNOWN"
+      ],
+      "title": "SourceDeclaredRole",
+      "type": "string"
+    },
+    "SourceIndustry": {
+      "enum": [
+        "HIGHWAY",
+        "BRIDGE",
+        "TUNNEL",
+        "RAILWAY",
+        "RAIL_TRANSIT",
+        "GENERAL_TRANSPORT",
+        "UNKNOWN"
+      ],
+      "title": "SourceIndustry",
+      "type": "string"
+    },
+    "SourceLifecycleAction": {
+      "enum": [
+        "SUBMIT_COMPLIANCE",
+        "START_FIXTURE_TRIAL",
+        "START_LIVE_TRIAL",
+        "APPROVE_PRODUCTION",
+        "PAUSE",
+        "RESUME",
+        "RETIRE"
+      ],
+      "title": "SourceLifecycleAction",
+      "type": "string"
+    },
+    "SourceLifecycleState": {
+      "description": "Authoritative V2 source lifecycle computed by the server.",
+      "enum": [
+        "CANDIDATE",
+        "COMPLIANCE_REVIEW",
+        "TRIAL",
+        "ACTIVE",
+        "PAUSED",
+        "RETIRED"
+      ],
+      "title": "SourceLifecycleState",
+      "type": "string"
+    },
     "SourceState": {
+      "description": "Deprecated V1 source state retained only for compatibility projections.",
       "enum": [
         "CANDIDATE",
         "COMPLIANCE_REVIEW",
@@ -53,6 +137,13 @@
     "authority_level": {
       "$ref": "#/$defs/AuthorityLevel"
     },
+    "available_actions": {
+      "items": {
+        "$ref": "#/$defs/SourceLifecycleAction"
+      },
+      "title": "Available Actions",
+      "type": "array"
+    },
     "base_url": {
       "title": "Base Url",
       "type": "string"
@@ -60,10 +151,31 @@
     "channel": {
       "$ref": "#/$defs/SourceChannel"
     },
+    "content_domains": {
+      "items": {
+        "$ref": "#/$defs/SourceContentDomain"
+      },
+      "title": "Content Domains",
+      "type": "array"
+    },
+    "country_codes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Country Codes",
+      "type": "array"
+    },
     "created_at": {
       "format": "date-time",
       "title": "Created At",
       "type": "string"
+    },
+    "declared_roles": {
+      "items": {
+        "$ref": "#/$defs/SourceDeclaredRole"
+      },
+      "title": "Declared Roles",
+      "type": "array"
     },
     "effective_active": {
       "title": "Effective Active",
@@ -78,10 +190,40 @@
       "title": "Fixture Count",
       "type": "integer"
     },
+    "governance_owner_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Governance Owner Id"
+    },
     "id": {
       "format": "uuid",
       "title": "Id",
       "type": "string"
+    },
+    "industries": {
+      "items": {
+        "$ref": "#/$defs/SourceIndustry"
+      },
+      "title": "Industries",
+      "type": "array"
+    },
+    "language_tags": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Language Tags",
+      "type": "array"
+    },
+    "lifecycle_state": {
+      "$ref": "#/$defs/SourceLifecycleState"
     },
     "name": {
       "title": "Name",
@@ -90,6 +232,13 @@
     "priority": {
       "title": "Priority",
       "type": "string"
+    },
+    "region_codes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Region Codes",
+      "type": "array"
     },
     "registry_code": {
       "anyOf": [
@@ -101,6 +250,9 @@
         }
       ],
       "title": "Registry Code"
+    },
+    "runtime_authorization": {
+      "$ref": "#/$defs/RuntimeAuthorization"
     },
     "source_type": {
       "$ref": "#/$defs/SourceType"
@@ -122,7 +274,9 @@
     "enabled",
     "effective_active",
     "fixture_count",
-    "created_at"
+    "created_at",
+    "lifecycle_state",
+    "runtime_authorization"
   ],
   "title": "SourceSummary",
   "type": "object"

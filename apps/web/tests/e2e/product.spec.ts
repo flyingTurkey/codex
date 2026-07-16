@@ -79,13 +79,10 @@ async function mockProduct(page: Page): Promise<void> {
       id: itemId, title: item.title, event_type: 'PRODUCT_RELEASE', event_status: 'ACTIVE',
       canonical_event_id: itemId, event_version: 1, confirmed_facts: [], unverified_facts: [],
       timeline: { items: [] }, relations: [], similar_scenario_tags: [],
-      prevention_measure_tags: [], topic_ids: [], independent_source_count: 1,
-    }),
-  }))
-  await page.route(`**/api/v1/events/${itemId}/content`, (route) => route.fulfill({
-    contentType: 'application/json',
-    body: JSON.stringify({ item, claims: [], evidence: [], technology_product: technologyProduct }),
-  }))
+       prevention_measure_tags: [], topic_ids: [], independent_source_count: 1,
+       type_detail: item.type_summary,
+     }),
+   }))
 }
 
 test('four product tabs reuse the digital feed and expose product filters', async ({ page }) => {

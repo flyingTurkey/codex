@@ -310,7 +310,7 @@ def test_taxonomy_and_published_sample_use_controlled_round04_vocabulary() -> No
     items = json.loads(Path("docs/codex-kit/assets/sample_items.json").read_text(encoding="utf-8"))
     safety_case = next(item for item in items if item["item_type"] == "SAFETY_CASE")
 
-    assert 'version: "1.1.0"' in taxonomy
+    assert 'version: "1.2.0"' in taxonomy
     assert "safety_case_report_stages:" in taxonomy
     for stage in (
         "INITIAL_REPORT",

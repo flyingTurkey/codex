@@ -55,6 +55,7 @@ def _context(*, source_status: str = "ACTIVE", duties_separated: bool = True) ->
                 "lifecycle_status": "ACTIVE",
                 "hash_verified": True,
                 "url_policy_pass": True,
+                "execution_domain": "PRODUCTION",
                 "processing_state": "READY",
                 "raw_security_status": "CLEAN",
             },
@@ -283,6 +284,24 @@ def test_inactive_authoritative_source_denies_even_without_candidate_input() -> 
                 reviewer_id=REVIEWER_ID,
             )
         )
+    assert repository.transaction.published is False
+
+
+def test_non_production_document_domain_denies_before_publication_write() -> None:
+    context = _context()
+    context["server"]["document"]["execution_domain"] = "TRIAL"
+    repository = FakeRepository(context)
+
+    with pytest.raises(PublicationDenied, match="NON_PRODUCTION_EXECUTION_DOMAIN"):
+        asyncio.run(
+            _service(repository).decide_review(
+                REVIEW_TASK_ID,
+                action="APPROVE",
+                reason="trial evidence must never enter the production projection",
+                reviewer_id=REVIEWER_ID,
+            )
+        )
+
     assert repository.transaction.published is False
 
 

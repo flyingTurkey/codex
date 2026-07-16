@@ -66,3 +66,38 @@ groups:
         for: 1m
         labels: {severity: p1}
         annotations: {summary: "Event 身份合并或拆分发生审核回滚"}
+      - alert: SourceLifecycleAuthorizationMismatch
+        expr: srbg_source_runtime_authorization_mismatches > 0
+        for: 1m
+        labels: {severity: p0}
+        annotations: {summary: "来源生命周期与运行授权不一致，采集必须保持拒绝"}
+      - alert: SourcePolicyRejectionSpike
+        expr: increase(srbg_source_policy_rejections_total[15m]) > 5
+        for: 5m
+        labels: {severity: p1}
+        annotations: {summary: "来源策略拒绝在短时间内异常增加"}
+      - alert: SourceTrialSecurityFailure
+        expr: increase(srbg_source_trial_runs_total{outcome="security_failed"}[15m]) > 0
+        for: 1m
+        labels: {severity: p0}
+        annotations: {summary: "来源试运行触发安全失败"}
+      - alert: SourceTrialQualityDegraded
+        expr: (srbg_source_trial_ready_ratio_basis_points{status="succeeded"} < 8000) or (srbg_source_trial_quality_count{status="succeeded",measure=~"parse_failed_document_raw|security_failed_total|rejected_raw_attempt"} > 0)
+        for: 5m
+        labels: {severity: p1}
+        annotations: {summary: "成功试运行的 READY 比例低于 80%，需要人工复核"}
+      - alert: ConnectorConfigValidationFailure
+        expr: increase(srbg_connector_config_versions_total{outcome="rejected"}[30m]) > 5
+        for: 5m
+        labels: {severity: p1}
+        annotations: {summary: "声明式连接器配置连续校验失败"}
+      - alert: SourceCoverageGapDetected
+        expr: srbg_source_coverage_gap_cells > 0
+        for: 24h
+        labels: {severity: p2}
+        annotations: {summary: "核心来源覆盖矩阵仍存在缺口"}
+      - alert: SourceProductionSchedulingBlocked
+        expr: increase(srbg_source_production_scheduling_blocked_total[15m]) > 0
+        for: 1m
+        labels: {severity: p1}
+        annotations: {summary: "来源生产调度因未绑定受审执行器而保持拒绝"}

@@ -1,11 +1,21 @@
 """Canonical public contracts shared by API and Worker processes."""
 
-from datetime import date, datetime
+import ipaddress
+import re
+from datetime import UTC, date, datetime
 from enum import StrEnum
 from typing import Annotated, Final, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
+from pydantic import (
+    AfterValidator,
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    RootModel,
+    model_validator,
+)
 
 API_VERSION: Final[Literal["v1"]] = "v1"
 CONTENT_SCHEMA_VERSION: Final[Literal["1.1.0"]] = "1.1.0"
@@ -15,6 +25,74 @@ class ContractModel(BaseModel):
     """Base class that rejects fields not declared by the public contract."""
 
     model_config = ConfigDict(extra="forbid")
+
+
+def _validate_governance_reason(value: str) -> str:
+    lowered = value.casefold()
+    if (
+        any(ord(character) < 32 or ord(character) == 127 for character in value)
+        or re.search(r"(?:https?|vault)://|\S+@\S+", lowered)
+        or re.search(
+            r"(?:^|[^a-z])(?:api[_-]?key|authorization|bearer|cookie|credential|"
+            r"password|secret|token|vault)(?:[^a-z]|$)",
+            lowered,
+        )
+    ):
+        raise ValueError("governance reason contains forbidden sensitive material")
+    return value
+
+
+GovernanceReason = Annotated[
+    str,
+    Field(min_length=1, max_length=500),
+    AfterValidator(_validate_governance_reason),
+]
+
+
+def _validate_evidence_reference(value: str) -> str:
+    lowered = value.casefold()
+    if (
+        any(ord(character) < 33 or ord(character) == 127 for character in value)
+        or re.search(r"://[^/\s]+@", value)
+        or re.search(
+            r"[?&](?:api[_-]?key|access[_-]?key|auth(?:orization|_token)?|"
+            r"bearer|client[_-]?secret|cookie|credential|password|secret|session|"
+            r"signature|token)=[^&]+",
+            lowered,
+        )
+    ):
+        raise ValueError("evidence reference contains forbidden sensitive material")
+    return value
+
+
+CountryCode = Annotated[str, Field(pattern=r"^[A-Z]{2}$")]
+RegionCode = Annotated[
+    str,
+    Field(min_length=2, max_length=16, pattern=r"^[A-Z0-9]{2,3}(?:-[A-Z0-9]{1,6})?$"),
+]
+LanguageTag = Annotated[
+    str,
+    Field(min_length=2, max_length=35, pattern=r"^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$"),
+]
+AssessmentReasonCode = Annotated[
+    str,
+    Field(min_length=1, max_length=100, pattern=r"^[A-Z][A-Z0-9_]*$"),
+]
+EvidenceReference = Annotated[
+    str,
+    Field(min_length=1, max_length=500),
+    AfterValidator(_validate_evidence_reference),
+]
+
+
+def _normalize_to_utc(value: datetime) -> datetime:
+    return value.astimezone(UTC)
+
+
+AssessmentTimestamp = Annotated[
+    AwareDatetime,
+    AfterValidator(_normalize_to_utc),
+]
 
 
 class UserRole(StrEnum):
@@ -65,11 +143,47 @@ class SourceChannel(StrEnum):
 
 
 class SourceState(StrEnum):
+    """Deprecated V1 source state retained only for compatibility projections."""
+
     CANDIDATE = "CANDIDATE"
     COMPLIANCE_REVIEW = "COMPLIANCE_REVIEW"
     FIXTURE_TEST = "FIXTURE_TEST"
     APPROVED = "APPROVED"
     ACTIVE = "ACTIVE"
+
+
+class SourceLifecycleState(StrEnum):
+    """Authoritative V2 source lifecycle computed by the server."""
+
+    CANDIDATE = "CANDIDATE"
+    COMPLIANCE_REVIEW = "COMPLIANCE_REVIEW"
+    TRIAL = "TRIAL"
+    ACTIVE = "ACTIVE"
+    PAUSED = "PAUSED"
+    RETIRED = "RETIRED"
+
+
+class SourceTrialKind(StrEnum):
+    FIXTURE_REPLAY = "FIXTURE_REPLAY"
+    LIVE_TRIAL = "LIVE_TRIAL"
+
+
+class RuntimeAuthorization(StrEnum):
+    """Server-derived execution authorization; never accepted as client input."""
+
+    DENIED = "DENIED"
+    TRIAL_ONLY = "TRIAL_ONLY"
+    PRODUCTION = "PRODUCTION"
+
+
+class SourceLifecycleAction(StrEnum):
+    SUBMIT_COMPLIANCE = "SUBMIT_COMPLIANCE"
+    START_FIXTURE_TRIAL = "START_FIXTURE_TRIAL"
+    START_LIVE_TRIAL = "START_LIVE_TRIAL"
+    APPROVE_PRODUCTION = "APPROVE_PRODUCTION"
+    PAUSE = "PAUSE"
+    RESUME = "RESUME"
+    RETIRE = "RETIRE"
 
 
 class SourceType(StrEnum):
@@ -91,6 +205,51 @@ class AuthorityLevel(StrEnum):
     B2 = "B2"
     C1 = "C1"
     C2 = "C2"
+    UNKNOWN = "UNKNOWN"
+
+
+class SourceIndependenceLevel(StrEnum):
+    EDITORIALLY_INDEPENDENT = "EDITORIALLY_INDEPENDENT"
+    PARTIALLY_INDEPENDENT = "PARTIALLY_INDEPENDENT"
+    NOT_INDEPENDENT = "NOT_INDEPENDENT"
+    UNKNOWN = "UNKNOWN"
+
+
+class SourceIndustry(StrEnum):
+    HIGHWAY = "HIGHWAY"
+    BRIDGE = "BRIDGE"
+    TUNNEL = "TUNNEL"
+    RAILWAY = "RAILWAY"
+    RAIL_TRANSIT = "RAIL_TRANSIT"
+    GENERAL_TRANSPORT = "GENERAL_TRANSPORT"
+    UNKNOWN = "UNKNOWN"
+
+
+class SourceContentDomain(StrEnum):
+    DIGITAL_TRANSFORMATION_CASE = "DIGITAL_TRANSFORMATION_CASE"
+    RESEARCH_PAPER = "RESEARCH_PAPER"
+    SOFTWARE_PLATFORM = "SOFTWARE_PLATFORM"
+    IOT_EQUIPMENT = "IOT_EQUIPMENT"
+    LOW_ALTITUDE_EQUIPMENT = "LOW_ALTITUDE_EQUIPMENT"
+    AI_APPLICATION = "AI_APPLICATION"
+    SAFETY_REGULATION = "SAFETY_REGULATION"
+    STANDARD_GUIDANCE = "STANDARD_GUIDANCE"
+    ACCIDENT_INVESTIGATION = "ACCIDENT_INVESTIGATION"
+    OFFICIAL_NOTICE = "OFFICIAL_NOTICE"
+    PENALTY = "PENALTY"
+    RECTIFICATION = "RECTIFICATION"
+    UNKNOWN = "UNKNOWN"
+
+
+class SourceDeclaredRole(StrEnum):
+    OFFICIAL_PRIMARY = "OFFICIAL_PRIMARY"
+    OFFICIAL_SECONDARY = "OFFICIAL_SECONDARY"
+    STANDARDS_PUBLISHER = "STANDARDS_PUBLISHER"
+    RESEARCH_PUBLISHER = "RESEARCH_PUBLISHER"
+    MANUFACTURER = "MANUFACTURER"
+    INDEPENDENT_REPORTER = "INDEPENDENT_REPORTER"
+    AGGREGATOR = "AGGREGATOR"
+    UNKNOWN = "UNKNOWN"
 
 
 class SourcePolicyStatus(StrEnum):
@@ -117,6 +276,49 @@ class DisplayPolicy(StrEnum):
     METADATA_EXCERPT_LINK = "METADATA_EXCERPT_LINK"
     OFFICIAL_READER_LINK = "OFFICIAL_READER_LINK"
     LINK_ONLY = "LINK_ONLY"
+
+
+class DownloadPolicy(StrEnum):
+    DISABLED = "DISABLED"
+    ORIGINAL_LINK_ONLY = "ORIGINAL_LINK_ONLY"
+    SIGNED_INTERNAL_COPY = "SIGNED_INTERNAL_COPY"
+
+
+class LegalHoldPolicy(StrEnum):
+    SUPPORTED = "SUPPORTED"
+    NOT_APPLICABLE = "NOT_APPLICABLE"
+
+
+class AutomaticPublicationPolicy(StrEnum):
+    DISABLED = "DISABLED"
+    PUBLICATION_GATE_ELIGIBLE = "PUBLICATION_GATE_ELIGIBLE"
+
+
+class SloApplicability(StrEnum):
+    APPLICABLE = "APPLICABLE"
+    NOT_APPLICABLE = "NOT_APPLICABLE"
+
+
+class SourcePolicyDecisionOutcome(StrEnum):
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+
+
+class SourceTrialRunStatus(StrEnum):
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+
+
+class ConnectorType(StrEnum):
+    RSS_ATOM = "RSS_ATOM"
+    JSON_API = "JSON_API"
+    SITEMAP = "SITEMAP"
+    LIST_DETAIL = "LIST_DETAIL"
+    DIRECT_PDF = "DIRECT_PDF"
+    MANUAL_IMPORT = "MANUAL_IMPORT"
 
 
 class ScanStatus(StrEnum):
@@ -509,11 +711,35 @@ class CreateSourceRequest(ContractModel):
     collection_method: str = Field(min_length=1, max_length=50)
     poll_interval_minutes: int = Field(ge=1, le=10080)
     owner: str = Field(min_length=1, max_length=100)
+    governance_owner_id: UUID | None = None
+    country_codes: list[CountryCode] = Field(default_factory=list, max_length=20)
+    region_codes: list[RegionCode] = Field(default_factory=list, max_length=50)
+    language_tags: list[LanguageTag] = Field(default_factory=list, max_length=20)
+    industries: list[SourceIndustry] = Field(default_factory=list, max_length=20)
+    content_domains: list[SourceContentDomain] = Field(default_factory=list, max_length=30)
+    declared_roles: list[SourceDeclaredRole] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="after")
+    def require_unique_governance_values(self) -> "CreateSourceRequest":
+        fields = (
+            self.country_codes,
+            self.region_codes,
+            self.language_tags,
+            self.industries,
+            self.content_domains,
+            self.declared_roles,
+        )
+        if any(len(values) != len(set(values)) for values in fields):
+            raise ValueError("source governance metadata values must be unique")
+        return self
 
 
 class ReviewEvidence(ContractModel):
     result: ReviewEvidenceResult
-    evidence_url: HttpUrlString = Field(pattern=r"^https?://[^\s]+$", max_length=2048)
+    evidence_url: Annotated[
+        HttpUrlString,
+        AfterValidator(_validate_evidence_reference),
+    ] = Field(pattern=r"^https?://[^\s]+$", max_length=2048)
     evidence_sha256: Sha256String | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     checked_at: datetime
 
@@ -531,7 +757,9 @@ class SourceAccessPolicy(ContractModel):
     allowed_domains: list[str] = Field(min_length=1)
     requires_auth: bool
     rate_limit_per_minute: int = Field(ge=1, le=10000)
-    user_agent: str = Field(min_length=1, max_length=300)
+    user_agent: str = Field(
+        min_length=1, max_length=300, pattern=r"^[^\x00-\x1f\x7f]+$"
+    )
 
 
 class SourcePolicyReviewSubmission(ContractModel):
@@ -549,13 +777,366 @@ class SourcePolicySubmission(ContractModel):
     review: SourcePolicyReviewSubmission
 
 
+class SourceFetchPolicy(ContractModel):
+    allowed_domains: list[str] = Field(min_length=1, max_length=100)
+    minimum_interval_seconds: int = Field(ge=1, le=604800)
+    rate_limit_per_minute: int = Field(ge=1, le=10000)
+    user_agent: str = Field(
+        min_length=1, max_length=300, pattern=r"^[^\x00-\x1f\x7f]+$"
+    )
+
+    @model_validator(mode="after")
+    def validate_domains(self) -> "SourceFetchPolicy":
+        normalized = [domain.rstrip(".").lower() for domain in self.allowed_domains]
+        if any(
+            not domain
+            or "://" in domain
+            or "/" in domain
+            or "@" in domain
+            or "*" in domain
+            or domain == "localhost"
+            or re.fullmatch(
+                r"(?=.{1,253}\Z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}",
+                domain,
+            )
+            is None
+            for domain in normalized
+        ):
+            raise ValueError("allowed domains must be fixed host names")
+        for domain in normalized:
+            try:
+                ipaddress.ip_address(domain)
+            except ValueError:
+                continue
+            raise ValueError("allowed domains cannot be IP literals")
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("allowed domains must be unique")
+        self.allowed_domains = normalized
+        return self
+
+
+class SourceRetentionPolicy(ContractModel):
+    retention_days: int = Field(ge=1, le=36500)
+    delete_after_retention: bool
+
+
+class SourceSloPolicy(ContractModel):
+    applicability: SloApplicability
+    target_minutes: int | None = Field(default=None, ge=1, le=10080)
+    reason: str | None = Field(default=None, min_length=1, max_length=500)
+    authorization_confirmed: bool
+    technical_conditions_confirmed: bool
+
+    @model_validator(mode="after")
+    def validate_applicability(self) -> "SourceSloPolicy":
+        if self.applicability is SloApplicability.APPLICABLE:
+            if self.target_minutes is None:
+                raise ValueError("an applicable SLO requires a target")
+            if not self.authorization_confirmed or not self.technical_conditions_confirmed:
+                raise ValueError(
+                    "an applicable SLO requires authorization and technical confirmation"
+                )
+        if self.applicability is SloApplicability.NOT_APPLICABLE:
+            if self.target_minutes is not None or self.reason is None:
+                raise ValueError("a non-applicable SLO requires a reason and no target")
+            if self.authorization_confirmed or self.technical_conditions_confirmed:
+                raise ValueError(
+                    "a non-applicable SLO cannot claim authorization or technical confirmation"
+                )
+        return self
+
+
+class SourcePolicyV2Submission(ContractModel):
+    """Declarative policy input; status and approval are server-owned facts."""
+
+    schema_version: Literal["2.0.0"]
+    policy_version: str = Field(min_length=1, max_length=50)
+    valid_from: datetime
+    valid_until: datetime
+    robots_review: ReviewEvidence
+    terms_review: ReviewEvidence
+    copyright_review: ReviewEvidence
+    fetch: SourceFetchPolicy
+    storage_policy: StoragePolicy
+    display_policy: DisplayPolicy
+    download_policy: DownloadPolicy
+    retention: SourceRetentionPolicy
+    legal_hold_policy: LegalHoldPolicy
+    automatic_publication: AutomaticPublicationPolicy
+    slo: SourceSloPolicy
+    reason: GovernanceReason
+
+    @model_validator(mode="after")
+    def validate_governance_policy(self) -> "SourcePolicyV2Submission":
+        timestamps = (
+            self.valid_from,
+            self.valid_until,
+            self.robots_review.checked_at,
+            self.terms_review.checked_at,
+            self.copyright_review.checked_at,
+        )
+        if any(value.tzinfo is None or value.utcoffset() is None for value in timestamps):
+            raise ValueError("policy timestamps must include a UTC offset")
+        if self.valid_until <= self.valid_from:
+            raise ValueError("policy validity window must be positive")
+        reviews = (self.robots_review, self.terms_review, self.copyright_review)
+        if any(review.result is not ReviewEvidenceResult.ALLOWED for review in reviews):
+            raise ValueError("robots, terms and copyright evidence must explicitly allow use")
+        if any(review.evidence_sha256 is None for review in reviews):
+            raise ValueError("governance evidence requires a server-verifiable SHA-256")
+        self.valid_from = self.valid_from.astimezone(UTC)
+        self.valid_until = self.valid_until.astimezone(UTC)
+        self.robots_review = self.robots_review.model_copy(
+            update={"checked_at": self.robots_review.checked_at.astimezone(UTC)}
+        )
+        self.terms_review = self.terms_review.model_copy(
+            update={"checked_at": self.terms_review.checked_at.astimezone(UTC)}
+        )
+        self.copyright_review = self.copyright_review.model_copy(
+            update={"checked_at": self.copyright_review.checked_at.astimezone(UTC)}
+        )
+        return self
+
+
+class SourcePolicyDecisionRequest(ContractModel):
+    outcome: SourcePolicyDecisionOutcome
+    reason: GovernanceReason
+
+
+class SourcePolicyVersionView(ContractModel):
+    id: UUID
+    source_id: UUID
+    schema_version: str
+    policy_version: str
+    status: str
+    valid_from: datetime
+    valid_until: datetime
+    document_sha256: Sha256String = Field(pattern=r"^[a-f0-9]{64}$")
+    document: dict[str, object]
+    submitted_by: UUID
+    decided_by: UUID | None = None
+    created_at: datetime
+
+
+class SourceTrialRunRequest(ContractModel):
+    kind: SourceTrialKind
+    policy_version_id: UUID
+    connector_config_version_id: UUID
+    reason: GovernanceReason
+
+
+class SourceTrialQualitySummary(ContractModel):
+    raw_count: int = Field(ge=0)
+    ready_count: int = Field(ge=0)
+    parse_failed_count: int = Field(ge=0)
+    security_failed_count: int = Field(ge=0)
+    rejected_raw_attempt_count: int = Field(ge=0)
+    ready_ratio_bps: int = Field(ge=0, le=10000)
+
+    @model_validator(mode="after")
+    def validate_database_derived_ratio(self) -> "SourceTrialQualitySummary":
+        if self.rejected_raw_attempt_count > self.security_failed_count:
+            raise ValueError(
+                "rejected raw attempts must be a subset of security failures"
+            )
+        document_security_failures = (
+            self.security_failed_count - self.rejected_raw_attempt_count
+        )
+        classified_count = (
+            self.ready_count + self.parse_failed_count + document_security_failures
+        )
+        if classified_count > self.raw_count:
+            raise ValueError("document outcome counts cannot exceed raw_count")
+        expected_ratio = 0
+        if self.raw_count:
+            expected_ratio = (
+                self.ready_count * 10000 + self.raw_count // 2
+            ) // self.raw_count
+        if self.ready_ratio_bps != expected_ratio:
+            raise ValueError(
+                "READY ratio must be the nearest basis-point ratio of READY "
+                "document raw objects to document-level raw objects"
+            )
+        return self
+
+
+class SourceTrialRunView(ContractModel):
+    id: UUID
+    source_id: UUID
+    kind: SourceTrialKind
+    status: SourceTrialRunStatus
+    policy_version_id: UUID
+    connector_config_version_id: UUID
+    requested_by: UUID
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    quality_summary: SourceTrialQualitySummary | None = None
+    created_at: datetime
+
+
+class SourceProductionApprovalRequest(ContractModel):
+    policy_version_id: UUID
+    connector_config_version_id: UUID
+    trial_run_id: UUID
+    reason: GovernanceReason
+
+
+class SourceLifecycleActionRequest(ContractModel):
+    reason: GovernanceReason
+
+
+class SourceLifecycleEventView(ContractModel):
+    id: UUID
+    source_id: UUID
+    from_state: SourceLifecycleState | None
+    to_state: SourceLifecycleState
+    action: SourceLifecycleAction | None
+    reason_code: str = Field(min_length=1, max_length=100)
+    reason: str = Field(min_length=1, max_length=500)
+    actor_id: UUID | None
+    policy_version_id: UUID | None = None
+    governance_decision_id: UUID | None = None
+    migration_rule_version: str | None = None
+    created_at: datetime
+
+
+class SourceAuthorityAssessment(ContractModel):
+    level: AuthorityLevel
+    rule_version: str = Field(min_length=1, max_length=50)
+    reason_codes: list[AssessmentReasonCode] = Field(min_length=1, max_length=20)
+    evidence_refs: list[EvidenceReference] = Field(default_factory=list, max_length=50)
+    assessed_at: AssessmentTimestamp
+
+
+class SourceIndependenceAssessment(ContractModel):
+    level: SourceIndependenceLevel
+    rule_version: str = Field(min_length=1, max_length=50)
+    reason_codes: list[AssessmentReasonCode] = Field(min_length=1, max_length=20)
+    evidence_refs: list[EvidenceReference] = Field(default_factory=list, max_length=50)
+    assessed_at: AssessmentTimestamp
+
+
+class SourceGovernanceMetadataUpdate(ContractModel):
+    """Governance-owned coverage metadata; lifecycle authority is intentionally absent."""
+
+    governance_owner_id: UUID
+    country_codes: list[CountryCode] = Field(min_length=1, max_length=20)
+    region_codes: list[RegionCode] = Field(min_length=1, max_length=50)
+    language_tags: list[LanguageTag] = Field(min_length=1, max_length=20)
+    industries: list[SourceIndustry] = Field(min_length=1, max_length=20)
+    content_domains: list[SourceContentDomain] = Field(min_length=1, max_length=30)
+    declared_roles: list[SourceDeclaredRole] = Field(min_length=1, max_length=20)
+    reason: GovernanceReason
+
+    @model_validator(mode="after")
+    def require_unique_values(self) -> "SourceGovernanceMetadataUpdate":
+        fields = (
+            self.country_codes,
+            self.region_codes,
+            self.language_tags,
+            self.industries,
+            self.content_domains,
+            self.declared_roles,
+        )
+        if any(len(values) != len(set(values)) for values in fields):
+            raise ValueError("governance metadata values must be unique")
+        return self
+
+
+class SourceAssessmentSubmission(ContractModel):
+    """Append-only explainable authority and independence assessments."""
+
+    authority: SourceAuthorityAssessment
+    independence: SourceIndependenceAssessment
+    reason: GovernanceReason
+
+
+class ConnectorDefinitionView(ContractModel):
+    id: UUID
+    connector_type: ConnectorType
+    definition_version: str
+    schema_version: str
+    schema_document: dict[str, object]
+    schema_sha256: Sha256String = Field(pattern=r"^[a-f0-9]{64}$")
+    executor_key: str
+    capabilities: list[str]
+
+
+class ConnectorConfigPreviewRequest(ContractModel):
+    connector_type: ConnectorType
+    definition_version: str = Field(min_length=1, max_length=30)
+    config: dict[str, object]
+
+
+class ConnectorConfigRequest(ConnectorConfigPreviewRequest):
+    reason: GovernanceReason
+
+
+class ConnectorConfigPreview(ContractModel):
+    connector_type: ConnectorType
+    definition_version: str
+    schema_version: str
+    schema_sha256: Sha256String = Field(pattern=r"^[a-f0-9]{64}$")
+    config: dict[str, object]
+    network_io_performed: Literal[False]
+
+
+class ConnectorConfigVersionView(ContractModel):
+    id: UUID
+    source_id: UUID
+    policy_version_id: UUID
+    connector_type: ConnectorType
+    definition_version: str
+    version_number: int = Field(ge=1)
+    config_sha256: Sha256String = Field(pattern=r"^[a-f0-9]{64}$")
+    config: dict[str, object]
+    allowed_hosts: list[str]
+    credential_configured: bool
+    validation_status: Literal["VALID", "INVALID"]
+    created_by: UUID
+    created_at: datetime
+
+
+class SourceAuditEventView(ContractModel):
+    id: UUID
+    event_type: str
+    actor_id: UUID
+    reason: str
+    request_id: str
+    created_at: datetime
+
+
+class SourceCoverageCell(ContractModel):
+    industry: SourceIndustry
+    content_domain: SourceContentDomain
+    source_type: SourceType
+    region: str
+    language: str
+    candidate_count: int = Field(ge=0)
+    trial_count: int = Field(ge=0)
+    active_count: int = Field(ge=0)
+    gap: bool
+
+    @model_validator(mode="after")
+    def active_defines_gap(self) -> "SourceCoverageCell":
+        if self.gap is not (self.active_count == 0):
+            raise ValueError("coverage gaps are defined by the absence of ACTIVE sources")
+        return self
+
+
+class SourceCoverageMatrix(ContractModel):
+    generated_at: datetime
+    cells: list[SourceCoverageCell]
+    gap_cell_count: int = Field(ge=0)
+
+
 class SourceTransitionRequest(ContractModel):
     target_state: SourceState
-    reason: str = Field(min_length=1, max_length=500)
+    reason: GovernanceReason
 
 
 class SourceActionRequest(ContractModel):
-    reason: str = Field(min_length=1, max_length=500)
+    reason: GovernanceReason
 
 
 class OnboardingCheckEvidence(ContractModel):
@@ -583,6 +1164,16 @@ class SourceSummary(ContractModel):
     effective_active: bool
     fixture_count: int = Field(ge=0)
     created_at: datetime
+    lifecycle_state: SourceLifecycleState
+    runtime_authorization: RuntimeAuthorization
+    available_actions: list[SourceLifecycleAction] = Field(default_factory=list)
+    governance_owner_id: UUID | None = None
+    country_codes: list[str] = Field(default_factory=list)
+    region_codes: list[str] = Field(default_factory=list)
+    language_tags: list[str] = Field(default_factory=list)
+    industries: list[SourceIndustry] = Field(default_factory=list)
+    content_domains: list[SourceContentDomain] = Field(default_factory=list)
+    declared_roles: list[SourceDeclaredRole] = Field(default_factory=list)
 
 
 class SourceEligibility(ContractModel):
@@ -602,12 +1193,22 @@ class SourceDetail(SourceSummary):
     poll_interval_minutes: int
     owner: str
     eligibility: SourceEligibility
+    source_authority: SourceAuthorityAssessment | None = None
+    source_independence: SourceIndependenceAssessment | None = None
+    current_policy_version_id: UUID | None = None
+    current_connector_config_version_id: UUID | None = None
+    current_trial_run_id: UUID | None = None
 
 
 class RawObjectSummary(ContractModel):
     id: UUID
     sha256: Sha256String = Field(pattern=r"^[a-f0-9]{64}$")
-    detected_mime: Literal["text/html", "application/pdf"]
+    detected_mime: Literal[
+        "text/html",
+        "application/pdf",
+        "application/xml",
+        "application/json",
+    ]
     byte_size: int = Field(ge=0)
     scan_status: ScanStatus
 
@@ -626,7 +1227,7 @@ class DocumentDetail(ContractModel):
     source_id: UUID
     source_name: str
     canonical_url: str
-    document_kind: Literal["HTML", "PDF"]
+    document_kind: Literal["HTML", "PDF", "DISCOVERY_XML", "DISCOVERY_JSON"]
     first_discovered_at: datetime
     current_version: DocumentVersionSummary
     raw_object: RawObjectSummary

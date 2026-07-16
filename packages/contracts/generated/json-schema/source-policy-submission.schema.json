@@ -123,6 +123,7 @@
         "user_agent": {
           "maxLength": 300,
           "minLength": 1,
+          "pattern": "^[^\\x00-\\x1f\\x7f]+$",
           "title": "User Agent",
           "type": "string"
         }

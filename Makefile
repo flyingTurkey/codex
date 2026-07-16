@@ -31,13 +31,6 @@ SRBG_EXTERNAL_IO_TIMEOUT_SECONDS ?= 5
 
 COMPOSE = docker compose --project-directory . -f infra/compose/compose.yaml
 TRIVY_IMAGE = aquasec/trivy:0.69.3
-ifeq ($(OS),Windows_NT)
-SOURCE_DB_ENV = set "SRBG_DATABASE_URL=postgresql+asyncpg://srbg:srbg_local_only@127.0.0.1:$(POSTGRES_PORT)/srbg" &&
-SOURCE_TEST_ENV = set "SRBG_RUN_SOURCE_INTEGRATION=1" && set "SRBG_DATABASE_URL=postgresql+asyncpg://srbg:srbg_local_only@127.0.0.1:$(POSTGRES_PORT)/srbg" && set "SRBG_S3_ENDPOINT_URL=http://127.0.0.1:$(MINIO_PORT)" &&
-else
-SOURCE_DB_ENV = SRBG_DATABASE_URL=postgresql+asyncpg://srbg:srbg_local_only@127.0.0.1:$(POSTGRES_PORT)/srbg
-SOURCE_TEST_ENV = SRBG_RUN_SOURCE_INTEGRATION=1 SRBG_DATABASE_URL=postgresql+asyncpg://srbg:srbg_local_only@127.0.0.1:$(POSTGRES_PORT)/srbg SRBG_S3_ENDPOINT_URL=http://127.0.0.1:$(MINIO_PORT)
-endif
 UV_CACHE_DIR ?= $(CURDIR)/.cache/uv
 UV_PYTHON_INSTALL_DIR ?= $(CURDIR)/.tools/python
 PLAYWRIGHT_BROWSERS_PATH ?= $(CURDIR)/.cache/ms-playwright
@@ -52,7 +45,7 @@ export PLAYWRIGHT_BROWSERS_PATH
 	round08-test round08-eval round09-test round09-eval round10-test round10-eval \
 	round11-test observability-test golden-replay load-test recovery-drill runbook-test \
 	round11-evidence-test readiness-evidence slo-weekly-report \
-	phase2-round13-test phase2-round14-test
+	phase2-round13-test phase2-round14-test phase2-round15-test
 
 setup:
 	$(UV) sync --frozen --all-packages
@@ -110,8 +103,12 @@ fixture-replay:
 	$(UV) run python -m pytest \
 		apps/api/tests/test_upload_security.py \
 		apps/api/tests/test_document_vault_service.py \
+		apps/api/tests/test_round15_object_store_security.py \
 		apps/api/tests/test_clamav_scanner.py \
 		apps/api/tests/test_acquisition_security.py \
+		apps/api/tests/test_round15_connector_contracts.py \
+		apps/api/tests/test_round15_connector_replay.py \
+		apps/api/tests/test_round15_http_security.py \
 		apps/api/tests/test_safety_regulation_parser.py \
 		apps/api/tests/test_safety_regulation_pipeline.py \
 		apps/api/tests/test_publication_gate.py \
@@ -146,9 +143,9 @@ quality-gate: lint typecheck test contract-test security-check
 
 source-fixture-test:
 	$(COMPOSE) up --detach --wait postgres minio
-	$(COMPOSE) run --rm minio-init
-	$(SOURCE_DB_ENV) $(UV) run alembic -c apps/api/alembic.ini upgrade head
-	$(SOURCE_TEST_ENV) $(UV) run python -m pytest apps/api/tests/test_source_fixture_integration.py -q
+	$(UV) run python scripts/run_isolated_integration.py \
+		--migration-verifier verify_round15_migration.py -- \
+		apps/api/tests/test_source_fixture_integration.py -q
 
 safety-regulation-test:
 	$(COMPOSE) up --detach --wait postgres minio
@@ -302,6 +299,36 @@ phase2-round14-test:
 		apps/api/tests/test_round13_projection_policy.py \
 		apps/api/tests/test_publication_rbac_integration.py -q
 	$(UV) run python scripts/audit_publication_paths.py
+
+phase2-round15-test:
+	$(COMPOSE) up --detach --wait postgres minio
+	$(UV) run python scripts/run_isolated_integration.py \
+		--migration-verifier verify_round15_migration.py -- \
+		apps/api/tests/test_round15_migration.py \
+		apps/api/tests/test_round15_source_lifecycle.py \
+		apps/api/tests/test_round15_source_api.py \
+		apps/api/tests/test_round15_source_metrics.py \
+		apps/api/tests/test_logging.py \
+		apps/api/tests/test_round15_scheduled_source_gate.py \
+		apps/api/tests/test_round15_connector_contracts.py \
+		apps/api/tests/test_round15_connector_replay.py \
+		apps/api/tests/test_round15_http_security.py \
+		apps/api/tests/test_acquisition_security.py \
+		apps/api/tests/test_upload_security.py \
+		apps/api/tests/test_pdf_security.py \
+		apps/api/tests/test_document_vault_service.py \
+		apps/api/tests/test_round15_object_store_security.py \
+		apps/api/tests/test_source_admin_api.py \
+		apps/api/tests/test_source_fixture_integration.py \
+		packages/contracts/tests \
+		tests/infrastructure/test_round15_observability.py \
+		tests/infrastructure/test_round15_delivery.py -q
+	$(PNPM) --filter @srbg/web test -- round15-source-center-ui.test.ts
+	$(COMPOSE) up --build --detach --wait web
+	$(PNPM) --filter @srbg/web exec playwright test \
+		tests/e2e/round15-source-center.spec.ts --grep-invert @a11y
+	$(PNPM) --filter @srbg/web exec playwright test \
+		tests/e2e/round15-source-center.spec.ts --grep @a11y
 
 observability-test:
 	$(UV) run python -m pytest tests/infrastructure/test_round11_observability.py -q

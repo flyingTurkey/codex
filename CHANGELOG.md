@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+### Round 15 — 来源中心 V2 与声明式连接器契约
+
+- 新增服务端权威的 `CANDIDATE → COMPLIANCE_REVIEW → TRIAL → ACTIVE → PAUSED → RETIRED` 生命周期、治理责任人、五维覆盖属性、合规策略版本、职责分离审批、Fixture/真实试运行隔离、状态事件和可回滚的 Alembic 兼容迁移；旧 `FIXTURE_TEST`、`APPROVED`、`ACTIVE` 与 `enabled` 均保留迁移证据，任何旧行都不会自动获得 V2 生产授权。来源权威/独立性评估时间必须携带时区并归一为 UTC，迁移后任一治理元数据或权威引用变化都会阻止破坏性数据库降级。
+- 新增六类版本化声明式连接器定义与严格 JSON Schema：RSS/Atom、JSON API、Sitemap、列表/详情、PDF、人工 URL/文件导入；禁止脚本、模板表达式、动态目标与配置内明文凭据，V1 固定目标及逐跳重定向拒绝全部 URL query、API 分页固定为 `NONE`，纯预览只校验和脱敏、不写审计且不执行网络 I/O，凭据仅保存受控密钥系统引用。
+- 新增六类固定样本回放的统一 `DiscoveryRecord → FetchResult → RawObject → DocumentVersion` raw-first 契约，以及逐跳 DNS/IP/重定向校验、连接 IP 固定、DNS/连接/读取/对象存储超时、封顶重试退避/限速/User-Agent、跨源凭据重定向拒绝、上传聚合预算/MIME/压缩炸弹/嵌套危险 PDF/主动内容防护；固定回放不冒充真实联网执行，Fixture 永不形成生产审批证据。
+- 新增复用 AppShell 的来源列表、详情、策略、连接器配置、试运行、审批/暂停/退役、审计和五维覆盖缺口后台，以及来源治理指标、告警、Runbook 和 `make phase2-round15-test`。`ACTIVE` 仅是服务端权威生产 eligibility；本轮未交付生产执行器或动态数据库调度，旧 MEM 调度固定返回零任务并记录受控阻断指标。真实来源联网与正式试运行均为 0，未批准任何具体来源，也未激活具体来源；46 条种子保持 `CANDIDATE/enabled=false`。
+- 收口全站回归时保持 Round14 Event 详情单端点：类型详情按 tagged `type_detail` 安全渲染，安全案例证据抽屉只展示 Event 发布投影已有的定位、哈希与关联 claim；来源后台导航按服务端身份角色收敛，并以固定身份重建三张桌面视觉基线，未用 CSS 或快照阈值掩盖权限变化。
+- 独立验收以失败测试补齐来源登记、策略、配置、试运行、生命周期、覆盖缺口和调度阻断的字段白名单结构化日志，强化来源健康告警、仪表盘与可操作 Runbook；URL、配置正文、凭据引用、Cookie 和原始响应不会进入日志。配置回滚只追加新版本，保留全部历史事实。
+- 独立验收发现已记录开发版 `0015_source_center_v2` 的本地数据库存在同 revision 结构漂移；新增数据保留型 `0015b_source_center_convergence` 收敛迁移，事务内补齐 Fixture replay 表、Document kind、写入边界、执行域触发器和角色权限，并验证既有治理事件不丢失。除 API 的受控配置投影外，runtime/worker/publisher/model 均不能读取 `credential_ref`；伪造 `PRODUCTION` 文档版本由数据库默认拒绝。
+
 ### Round 14 — Event 统一身份、关系拆分与 Item 兼容迁移
 
 - 完成独立验收指出的收口项：`published_v1` 升级为 1.1.0 Event 修订投影，默认普通 Feed/Event/搜索/已发布日报/收藏读取装配到 `srbg_projection_reader_login`；搜索投影、日报快照、收藏、专题和反馈的新事实均携带或仅写入 `event_id`，Event 详情页由单一接口返回 claims、evidence、documents、来源对比与类型详情。新增 `0014b_event_consumer_switch` 的 `SHADOW/EVENT/ROLLBACK_READ_ONLY` 权威开关和只读回滚保护，并以非空 TEST PostgreSQL 数据对旧收藏、专题、日报、反馈、搜索、publication revision、event revision 与 R3 ACL 完成 1:1 对账。

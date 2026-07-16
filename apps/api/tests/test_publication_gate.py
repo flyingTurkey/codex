@@ -2,6 +2,7 @@ from copy import deepcopy
 from hashlib import sha256
 from pathlib import Path
 
+import pytest
 from srbg_api.publication.gate import PublicationGate
 
 POLICY = Path("docs/codex-kit/assets/validation/publication_gate.json")
@@ -38,6 +39,7 @@ def _context() -> dict[str, object]:
                 "lifecycle_status": "ACTIVE",
                 "hash_verified": True,
                 "url_policy_pass": True,
+                "execution_domain": "PRODUCTION",
                 "processing_state": "READY",
                 "raw_security_status": "CLEAN",
             },
@@ -233,3 +235,16 @@ def test_safety_cause_and_responsibility_content_always_requires_human_review() 
     result = gate.evaluate(context, action="PUBLISH")
 
     assert "HUMAN_REVIEW_REQUIRED" in result.reasons
+
+
+@pytest.mark.parametrize("execution_domain", ["FIXTURE", "TRIAL", "LEGACY"])
+def test_gate_explicitly_rejects_non_production_execution_domain(
+    execution_domain: str,
+) -> None:
+    context = _context()
+    context["server"]["document"]["execution_domain"] = execution_domain  # type: ignore[index]
+
+    result = PublicationGate.from_files(POLICY, SCHEMA).evaluate(context, action="PUBLISH")
+
+    assert result.allowed is False
+    assert "NON_PRODUCTION_EXECUTION_DOMAIN" in result.reasons

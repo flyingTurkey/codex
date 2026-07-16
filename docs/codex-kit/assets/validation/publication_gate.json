@@ -12,6 +12,7 @@
     {"code": "DOCUMENT_NOT_CURRENT", "field": "server.document.is_current", "eq": false},
     {"code": "DOCUMENT_WITHDRAWN_OR_SUPERSEDED", "field": "server.document.lifecycle_status", "in": ["WITHDRAWN", "SUPERSEDED"]},
     {"code": "DOCUMENT_HASH_OR_URL_INVALID", "any_false": ["server.document.hash_verified", "server.document.url_policy_pass"]},
+    {"code": "NON_PRODUCTION_EXECUTION_DOMAIN", "field": "server.document.execution_domain", "not_eq": "PRODUCTION"},
     {"code": "EMPTY_CLAIM_OR_EVIDENCE_SET", "any": [{"field": "server.evidence_integrity.claim_count", "lt": 1}, {"field": "server.evidence_integrity.evidence_count", "lt": 1}]},
     {"code": "EVIDENCE_REFERENTIAL_INTEGRITY_FAILED", "any_false": ["server.evidence_integrity.bidirectional_refs_valid", "server.evidence_integrity.locators_verified", "server.evidence_integrity.excerpts_match_source"]},
     {"code": "CRITICAL_CLAIM_COVERAGE_INCOMPLETE", "field": "server.evidence_integrity.accepted_critical_claim_coverage_percent", "lt": 100},

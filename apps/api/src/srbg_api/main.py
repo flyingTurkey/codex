@@ -197,6 +197,7 @@ def create_app(
             status_code=exc.status_code,
             content=problem.model_dump(mode="json"),
             media_type="application/problem+json",
+            headers=exc.headers,
         )
 
     @app.exception_handler(RequestValidationError)

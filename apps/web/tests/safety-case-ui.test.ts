@@ -178,7 +178,9 @@ describe('round 04 safety case UI', () => {
     expect(confirmed.text()).toContain('死亡人数')
     expect(confirmed.text()).toContain('52 人')
     await confirmed.get('[data-testid="fact-evidence-trigger"]').trigger('click')
-    expect(confirmed.emitted('evidence')).toEqual([[caseItem.id]])
+    expect(confirmed.emitted('evidence')).toEqual([[
+      ['019b0000-0000-7000-8000-000000004011'],
+    ]])
 
     const unverified = mount(FactList, {
       props: {
@@ -204,6 +206,36 @@ describe('round 04 safety case UI', () => {
     expect(unverified.text()).toContain('不同阶段正式通报数值不一致')
     expect(unverified.find('[data-testid="fact-evidence-trigger"]').exists()).toBe(false)
     expect(unverified.text()).not.toContain('9800 万元')
+  })
+
+  it('renders only published Event evidence references and their associated claims', () => {
+    const EventEvidenceDrawer = componentModules['../app/components/EventEvidenceDrawer.vue']?.default
+    expect(EventEvidenceDrawer, 'EventEvidenceDrawer.vue should exist').toBeDefined()
+    if (!EventEvidenceDrawer) return
+
+    const wrapper = mount(EventEvidenceDrawer, {
+      props: {
+        claims: [{
+          claim_id: '019b0000-0000-7000-8000-000000004010',
+          evidence_ids: ['019b0000-0000-7000-8000-000000004011'],
+          field_name: 'OFFICIAL_DIRECT_CAUSES',
+          value: '长时间持续性降水与多种因素叠加耦合作用',
+        }],
+        evidence: [{
+          content_sha256: 'a'.repeat(64),
+          evidence_id: '019b0000-0000-7000-8000-000000004011',
+          locator: 'html-p-0042',
+        }],
+        open: true,
+      },
+    })
+
+    expect(wrapper.text()).toContain('html-p-0042')
+    expect(wrapper.text()).toContain('a'.repeat(64))
+    expect(wrapper.text()).toContain('OFFICIAL_DIRECT_CAUSES')
+    expect(wrapper.text()).toContain('长时间持续性降水与多种因素叠加耦合作用')
+    expect(wrapper.text()).not.toContain('调查报告认定，')
+    expect(wrapper.text()).not.toContain('https://')
   })
 
   it('preserves every lifecycle stage in order and expresses state with text and icons', () => {

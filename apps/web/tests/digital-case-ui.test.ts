@@ -113,7 +113,11 @@ describe('round 05 digital case UI', () => {
 
     expect(page).toContain('发布方声称的成效')
     expect(page).toContain('独立证据支持的成效')
-    expect(page).toContain('openOutcomeEvidence')
+    expect(page).toContain("content?.kind === 'DIGITAL_CASE'")
+    expect(page).toContain('digitalPublishedClaims')
+    expect(page).toContain('查看成效证据')
+    expect(page).toContain('openEvidence(claim.evidence_ids)')
+    expect(page).toContain('来源属性和成熟度摘要不替代具体事实证据')
     expect(page).toContain('复制条件')
     expect(page).toContain('限制与风险')
     expect(page).toContain('技术调研')

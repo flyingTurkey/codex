@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import posixpath
 import stat
+import unicodedata
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import PurePosixPath
 from zipfile import BadZipFile, ZipFile
 
 import pymupdf  # type: ignore[import-untyped]
+
+from srbg_api.document_vault.security import has_active_html_content
 
 
 class SecurityViolation(ValueError):
@@ -67,6 +70,7 @@ def inspect_pdf_bytes(
     if not content.startswith(b"%PDF-"):
         raise SecurityViolation("MIME_MISMATCH")
 
+    _reject_pdf_polyglot(content)
     _reject_active_pdf_markers(content)
     try:
         document = pymupdf.open(stream=content, filetype="pdf")
@@ -105,9 +109,38 @@ def _reject_active_pdf_markers(content: bytes) -> None:
         raise SecurityViolation("PDF_ENCRYPTED")
     if b"/Launch" in content or b"/GoToR" in content:
         raise SecurityViolation("PDF_EXTERNAL_LAUNCH")
-    active_markers = (b"/JavaScript", b"/JS", b"/OpenAction", b"/AA")
+    active_markers = (
+        b"/JavaScript",
+        b"/JS",
+        b"/OpenAction",
+        b"/AA",
+        b"/AcroForm",
+        b"/XFA",
+        b"/Widget",
+        b"/SubmitForm",
+        b"/ResetForm",
+        b"/ImportData",
+        b"/URI",
+        b"/GoToE",
+        b"/RichMedia",
+        b"/Movie",
+        b"/Sound",
+        b"/3D",
+        b"/Rendition",
+        b"/Screen",
+        b"/FileAttachment",
+    )
     if any(marker in content for marker in active_markers):
         raise SecurityViolation("PDF_ACTIVE_ACTION")
+
+
+def _reject_pdf_polyglot(content: bytes) -> None:
+    final_eof = content.rfind(b"%%EOF")
+    if final_eof < 0:
+        raise SecurityViolation("PDF_MALFORMED")
+    trailing = content[final_eof + len(b"%%EOF") :].strip()
+    if trailing:
+        raise SecurityViolation("PDF_POLYGLOT")
 
 
 def inspect_zip_bytes(
@@ -123,6 +156,7 @@ def inspect_zip_bytes(
         raise SecurityViolation("MIME_MISMATCH")
     if not filename.casefold().endswith(".zip") or not content.startswith(b"PK"):
         raise SecurityViolation("MIME_MISMATCH")
+    _reject_zip_polyglot(content)
     try:
         archive = ZipFile(BytesIO(content))
     except BadZipFile as error:
@@ -155,13 +189,24 @@ def inspect_zip_bytes(
             total_uncompressed += info.file_size
             if total_uncompressed > policy.max_uncompressed_bytes:
                 raise SecurityViolation("ZIP_UNCOMPRESSED_LIMIT")
+            if info.file_size > policy.max_file_bytes:
+                raise SecurityViolation("FILE_SIZE_LIMIT")
             if info.file_size and (
                 info.compress_size == 0
                 or info.file_size / info.compress_size > policy.max_compression_ratio
             ):
                 raise SecurityViolation("ZIP_COMPRESSION_RATIO")
-            entry_content = archive.read(info)
-            detected_mime = _detect_allowed_entry_mime(normalized_path, entry_content)
+            try:
+                entry_content = archive.read(info)
+            except (BadZipFile, RuntimeError) as error:
+                raise SecurityViolation("ZIP_MALFORMED") from error
+            if len(entry_content) != info.file_size:
+                raise SecurityViolation("ZIP_MALFORMED")
+            detected_mime = _detect_allowed_entry_mime(
+                normalized_path,
+                entry_content,
+                policy=policy,
+            )
             result.append(
                 InspectedZipEntry(
                     normalized_path=normalized_path,
@@ -177,7 +222,12 @@ def inspect_zip_bytes(
 
 
 def _normalized_zip_path(value: str) -> str:
-    portable = value.replace("\\", "/")
+    normalized_value = unicodedata.normalize("NFC", value)
+    if not normalized_value or len(normalized_value) > 1000:
+        raise SecurityViolation("ZIP_PATH_LIMIT")
+    if any(ord(character) < 32 or ord(character) == 127 for character in normalized_value):
+        raise SecurityViolation("ZIP_PATH_INVALID")
+    portable = normalized_value.replace("\\", "/")
     if portable.startswith("/") or ":" in portable.split("/", maxsplit=1)[0]:
         raise SecurityViolation("ZIP_PATH_TRAVERSAL")
     parts = PurePosixPath(portable).parts
@@ -186,16 +236,54 @@ def _normalized_zip_path(value: str) -> str:
     normalized = posixpath.normpath(portable)
     if normalized in {"", "."} or normalized.startswith("../"):
         raise SecurityViolation("ZIP_PATH_TRAVERSAL")
+    if any(len(part) > 255 for part in PurePosixPath(normalized).parts):
+        raise SecurityViolation("ZIP_PATH_LIMIT")
     return normalized
 
 
-def _detect_allowed_entry_mime(filename: str, content: bytes) -> str:
+def _reject_zip_polyglot(content: bytes) -> None:
+    signature = b"PK\x05\x06"
+    end_of_central_directory = content.rfind(signature)
+    minimum_record_size = 22
+    if (
+        end_of_central_directory < 0
+        or end_of_central_directory + minimum_record_size > len(content)
+    ):
+        raise SecurityViolation("ZIP_MALFORMED")
+    comment_length_offset = end_of_central_directory + 20
+    comment_length = int.from_bytes(
+        content[comment_length_offset : comment_length_offset + 2],
+        byteorder="little",
+    )
+    declared_end = end_of_central_directory + minimum_record_size + comment_length
+    if declared_end < len(content):
+        raise SecurityViolation("ZIP_POLYGLOT")
+    if declared_end > len(content):
+        raise SecurityViolation("ZIP_MALFORMED")
+
+
+def _detect_allowed_entry_mime(
+    filename: str,
+    content: bytes,
+    *,
+    policy: FileSecurityPolicy,
+) -> str:
+    if len(content) > policy.max_file_bytes:
+        raise SecurityViolation("FILE_SIZE_LIMIT")
     lowered = filename.casefold()
     if lowered.endswith(".pdf") and content.startswith(b"%PDF-"):
+        inspect_pdf_bytes(
+            content,
+            filename=filename,
+            declared_mime="application/pdf",
+            policy=policy,
+        )
         return "application/pdf"
     html_prefix = content[:512].lstrip().lower()
     if lowered.endswith((".html", ".htm")) and (
         html_prefix.startswith(b"<!doctype html") or b"<html" in html_prefix
     ):
+        if has_active_html_content(content):
+            raise SecurityViolation("HTML_ACTIVE_CONTENT")
         return "text/html"
     raise SecurityViolation("ZIP_MIME_NOT_ALLOWED")

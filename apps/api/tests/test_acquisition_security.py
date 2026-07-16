@@ -17,7 +17,13 @@ class FakeResolver:
     def __init__(self, addresses: dict[str, tuple[str, ...]]) -> None:
         self.addresses = addresses
 
-    async def resolve(self, hostname: str) -> tuple[str, ...]:
+    async def resolve(
+        self,
+        hostname: str,
+        *,
+        timeout_seconds: float,
+    ) -> tuple[str, ...]:
+        assert timeout_seconds == 5.0
         return self.addresses[hostname]
 
 
@@ -27,8 +33,15 @@ class FakeTransport:
         self.calls: list[tuple[str, dict[str, str], float]] = []
 
     async def request(
-        self, url: str, *, headers: dict[str, str], timeout_seconds: float
+        self,
+        url: str,
+        *,
+        headers: dict[str, str],
+        timeout_seconds: float,
+        max_response_bytes: int,
+        validated_ips: frozenset[str],
     ) -> HttpResponse:
+        del max_response_bytes, validated_ips
         self.calls.append((url, headers, timeout_seconds))
         return self.responses.pop(0)
 
@@ -54,6 +67,7 @@ def _policy(**overrides: object) -> FetchPolicy:
         "max_attempts": 2,
         "base_backoff_seconds": 0.1,
         "rate_limit_per_minute": 60,
+        "minimum_interval_seconds": 1,
         "circuit_failure_threshold": 1,
         "circuit_reset_seconds": 30,
         "max_redirects": 2,
@@ -84,7 +98,13 @@ def test_private_dns_resolution_is_rejected_before_transport() -> None:
 
 def test_redirect_target_is_revalidated_and_private_destination_is_not_requested() -> None:
     transport = FakeTransport(
-        [HttpResponse(status_code=302, headers={"location": "http://127.0.0.1/admin"})]
+        [
+            HttpResponse(
+                status_code=302,
+                headers={"location": "http://127.0.0.1/admin"},
+                peer_ip="8.8.8.8",
+            )
+        ]
     )
     client = ResilientHttpClient(
         _policy(),
@@ -109,6 +129,7 @@ def test_conditional_request_returns_not_modified_without_content() -> None:
             HttpResponse(
                 status_code=304,
                 headers={"etag": 'W/"fixture"', "last-modified": "Mon, 13 Jul 2026 10:43:55 GMT"},
+                peer_ip="8.8.8.8",
             )
         ]
     )
@@ -140,8 +161,8 @@ def test_conditional_request_returns_not_modified_without_content() -> None:
 def test_retry_is_bounded_then_circuit_opens_for_subsequent_request() -> None:
     transport = FakeTransport(
         [
-            HttpResponse(status_code=503, headers={}),
-            HttpResponse(status_code=503, headers={}),
+            HttpResponse(status_code=503, headers={}, peer_ip="8.8.8.8"),
+            HttpResponse(status_code=503, headers={}, peer_ip="8.8.8.8"),
         ]
     )
     clock = FakeClock()
@@ -174,8 +195,12 @@ def test_retry_is_bounded_then_circuit_opens_for_subsequent_request() -> None:
 def test_retry_after_header_is_honored_for_rate_limited_source() -> None:
     transport = FakeTransport(
         [
-            HttpResponse(status_code=429, headers={"Retry-After": "15"}),
-            HttpResponse(status_code=200, headers={}, content=b"{}"),
+            HttpResponse(
+                status_code=429,
+                headers={"Retry-After": "15"},
+                peer_ip="8.8.8.8",
+            ),
+            HttpResponse(status_code=200, headers={}, content=b"{}", peer_ip="8.8.8.8"),
         ]
     )
     clock = FakeClock()

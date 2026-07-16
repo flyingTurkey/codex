@@ -1,11 +1,16 @@
 """Fail-closed HTTP acquisition with conditional requests and SSRF protection."""
 
+import asyncio
 import ipaddress
+import json
+import math
+from collections.abc import AsyncIterable
 from dataclasses import dataclass
 from datetime import datetime
 from email.utils import parsedate_to_datetime
+from hashlib import sha256
 from typing import Protocol
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import unquote, urljoin, urlsplit
 
 from srbg_api.acquisition.contracts import FetchResult, SourceCheckpoint
 
@@ -16,6 +21,13 @@ class SsrfRejected(ValueError):
 
 class CircuitOpen(RuntimeError):
     pass
+
+
+class ResponseTooLarge(OSError):
+    pass
+
+
+MAX_VALIDATED_DNS_ADDRESSES = 16
 
 
 class _RetryableResponse(OSError):
@@ -31,21 +43,51 @@ class FetchPolicy:
     max_attempts: int
     base_backoff_seconds: float
     rate_limit_per_minute: int
+    minimum_interval_seconds: int
     circuit_failure_threshold: int
     circuit_reset_seconds: float
     max_redirects: int
     user_agent: str
     max_response_bytes: int = 5 * 1024 * 1024
+    allowed_schemes: tuple[str, ...] = ("https",)
+    max_backoff_seconds: float = 60.0
 
     def __post_init__(self) -> None:
-        if not self.allowed_hosts or self.timeout_seconds <= 0 or self.max_attempts < 1:
+        if (
+            not self.allowed_hosts
+            or not math.isfinite(self.timeout_seconds)
+            or self.timeout_seconds <= 0
+            or self.max_attempts < 1
+        ):
             raise ValueError("invalid fail-closed fetch policy")
-        if self.rate_limit_per_minute < 1 or self.circuit_failure_threshold < 1:
+        if (
+            self.rate_limit_per_minute < 1
+            or self.minimum_interval_seconds < 1
+            or self.minimum_interval_seconds > 604800
+            or self.circuit_failure_threshold < 1
+            or not math.isfinite(self.circuit_reset_seconds)
+            or self.circuit_reset_seconds <= 0
+        ):
             raise ValueError("invalid resilience limits")
-        if self.max_redirects < 0 or not self.user_agent.strip():
+        if (
+            not math.isfinite(self.base_backoff_seconds)
+            or not math.isfinite(self.max_backoff_seconds)
+            or self.base_backoff_seconds < 0
+            or self.max_backoff_seconds <= 0
+            or (self.max_attempts > 1 and self.base_backoff_seconds > self.max_backoff_seconds)
+        ):
+            raise ValueError("invalid bounded backoff policy")
+        if (
+            self.max_redirects < 0
+            or not 1 <= len(self.user_agent) <= 300
+            or not self.user_agent.strip()
+            or any(ord(character) < 32 or ord(character) == 127 for character in self.user_agent)
+        ):
             raise ValueError("invalid redirect or user-agent policy")
         if self.max_response_bytes < 1:
             raise ValueError("invalid response size limit")
+        if not self.allowed_schemes or not set(self.allowed_schemes).issubset({"http", "https"}):
+            raise ValueError("invalid acquisition schemes")
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,7 +99,12 @@ class HttpResponse:
 
 
 class Resolver(Protocol):
-    async def resolve(self, hostname: str) -> tuple[str, ...]: ...
+    async def resolve(
+        self,
+        hostname: str,
+        *,
+        timeout_seconds: float,
+    ) -> tuple[str, ...]: ...
 
 
 class Transport(Protocol):
@@ -67,6 +114,8 @@ class Transport(Protocol):
         *,
         headers: dict[str, str],
         timeout_seconds: float,
+        max_response_bytes: int,
+        validated_ips: frozenset[str],
     ) -> HttpResponse: ...
 
 
@@ -94,6 +143,7 @@ class ResilientHttpClient:
         self._failure_count: dict[str, int] = {}
         self._circuit_open_until: dict[str, float] = {}
         self._last_request_at: dict[str, float] = {}
+        self._rate_limit_locks: dict[str, asyncio.Lock] = {}
 
     async def get(
         self,
@@ -101,6 +151,7 @@ class ResilientHttpClient:
         *,
         checkpoint: SourceCheckpoint,
         accept: str = "text/html",
+        credential_headers: dict[str, str] | None = None,
     ) -> FetchResult:
         hostname = _hostname(url)
         open_until = self._circuit_open_until.get(hostname, 0.0)
@@ -112,11 +163,17 @@ class ResilientHttpClient:
             headers["If-None-Match"] = checkpoint.etag
         if checkpoint.last_modified:
             headers["If-Modified-Since"] = checkpoint.last_modified
+        headers.update(_validated_credential_headers(credential_headers))
 
         last_error: OSError | None = None
+        resolution_pins: dict[str, frozenset[str]] = {}
         for attempt in range(self._policy.max_attempts):
             try:
-                response, final_url = await self._request_with_redirects(url, headers)
+                response, final_url, redirect_chain = await self._request_with_redirects(
+                    url,
+                    headers,
+                    resolution_pins,
+                )
                 if (
                     response.content is not None
                     and len(response.content) > self._policy.max_response_bytes
@@ -131,12 +188,26 @@ class ResilientHttpClient:
                     )
                 if response.status_code == 304:
                     self._record_success(hostname)
-                    return _fetch_result(response, final_url, self._clock.now(), True)
+                    return _fetch_result(
+                        response,
+                        url,
+                        final_url,
+                        redirect_chain,
+                        self._clock.now(),
+                        True,
+                    )
                 if not 200 <= response.status_code < 300:
                     raise OSError(f"upstream returned {response.status_code}")
                 self._record_success(hostname)
-                return _fetch_result(response, final_url, self._clock.now(), False)
-            except (CircuitOpen, SsrfRejected):
+                return _fetch_result(
+                    response,
+                    url,
+                    final_url,
+                    redirect_chain,
+                    self._clock.now(),
+                    False,
+                )
+            except (CircuitOpen, ResponseTooLarge, SsrfRejected):
                 raise
             except OSError as exc:
                 last_error = exc
@@ -144,7 +215,7 @@ class ResilientHttpClient:
                     backoff = self._policy.base_backoff_seconds * (2**attempt)
                     if isinstance(exc, _RetryableResponse):
                         backoff = max(backoff, exc.retry_after_seconds or 0.0)
-                    await self._clock.sleep(backoff)
+                    await self._clock.sleep(min(backoff, self._policy.max_backoff_seconds))
 
         self._record_failure(hostname)
         if last_error is None:
@@ -152,68 +223,111 @@ class ResilientHttpClient:
         raise last_error
 
     async def _request_with_redirects(
-        self, url: str, headers: dict[str, str]
-    ) -> tuple[HttpResponse, str]:
+        self,
+        url: str,
+        headers: dict[str, str],
+        resolution_pins: dict[str, frozenset[str]],
+    ) -> tuple[HttpResponse, str, tuple[str, ...]]:
         current_url = url
+        redirect_chain: list[str] = []
         for redirect_count in range(self._policy.max_redirects + 1):
-            resolved_addresses = await self._validate_url(current_url)
+            resolved_addresses = await self._validate_url(current_url, resolution_pins)
             hostname = _hostname(current_url)
             await self._respect_rate_limit(hostname)
             response = await self._transport.request(
                 current_url,
                 headers=dict(headers),
                 timeout_seconds=self._policy.timeout_seconds,
+                max_response_bytes=self._policy.max_response_bytes,
+                validated_ips=resolved_addresses,
             )
-            if response.peer_ip is not None and response.peer_ip not in resolved_addresses:
+            if response.peer_ip is None:
+                raise SsrfRejected("connected peer address is required")
+            peer_ip = _validated_ip(response.peer_ip)
+            if peer_ip not in resolved_addresses:
                 raise SsrfRejected("connected peer does not match validated public DNS results")
             if response.status_code not in {301, 302, 303, 307, 308}:
-                return response, current_url
+                return response, current_url, tuple(redirect_chain)
             location = _header(response.headers, "location")
             if not location:
                 raise OSError("redirect response has no location")
             if redirect_count >= self._policy.max_redirects:
                 raise OSError("redirect limit exceeded")
-            current_url = urljoin(current_url, location)
+            next_url = urljoin(current_url, location)
+            try:
+                current_scheme = urlsplit(current_url).scheme.casefold()
+                next_scheme = urlsplit(next_url).scheme.casefold()
+            except ValueError as error:
+                raise SsrfRejected("redirect target is malformed") from error
+            if current_scheme == "https" and next_scheme == "http":
+                raise SsrfRejected("HTTPS redirect downgrade is denied")
+            if _contains_credential_header(headers) and _origin(current_url) != _origin(next_url):
+                raise SsrfRejected("credentialed cross-origin redirect is denied")
+            redirect_chain.append(next_url)
+            current_url = next_url
         raise OSError("redirect limit exceeded")
 
-    async def _validate_url(self, url: str) -> frozenset[str]:
-        parsed = urlsplit(url)
+    async def _validate_url(
+        self,
+        url: str,
+        resolution_pins: dict[str, frozenset[str]],
+    ) -> frozenset[str]:
+        if any(ord(character) < 32 or ord(character) == 127 for character in unquote(url)):
+            raise SsrfRejected("invalid acquisition URL")
+        try:
+            parsed = urlsplit(url)
+            port = parsed.port
+        except ValueError as error:
+            raise SsrfRejected("invalid acquisition URL") from error
         hostname = parsed.hostname
         if (
-            parsed.scheme not in {"http", "https"}
+            parsed.scheme not in self._policy.allowed_schemes
             or hostname is None
             or parsed.username is not None
             or parsed.password is not None
+            or bool(parsed.fragment)
             or len(url) > 2048
         ):
             raise SsrfRejected("invalid acquisition URL")
-        if parsed.port not in {None, 80, 443}:
+        if (parsed.scheme == "https" and port not in {None, 443}) or (
+            parsed.scheme == "http" and port not in {None, 80}
+        ):
             raise SsrfRejected("non-standard acquisition port is denied")
+        if "?" in url:
+            raise SsrfRejected("query targets are denied by declarative source policy")
         normalized_host = hostname.rstrip(".").lower()
         if normalized_host not in {host.rstrip(".").lower() for host in self._policy.allowed_hosts}:
             raise SsrfRejected("redirect or host is outside the source allowlist")
         try:
-            addresses = await self._resolver.resolve(normalized_host)
+            addresses = await self._resolver.resolve(
+                normalized_host,
+                timeout_seconds=self._policy.timeout_seconds,
+            )
         except (OSError, KeyError) as exc:
             raise SsrfRejected("source hostname could not be resolved safely") from exc
         if not addresses:
             raise SsrfRejected("source hostname has no validated public address")
-        for address in addresses:
-            try:
-                parsed_address = ipaddress.ip_address(address)
-            except ValueError as exc:
-                raise SsrfRejected("source DNS result is not an IP address") from exc
-            if not parsed_address.is_global:
-                raise SsrfRejected("source DNS results must contain only public addresses")
-        return frozenset(addresses)
+        if len(addresses) > MAX_VALIDATED_DNS_ADDRESSES:
+            raise SsrfRejected("source hostname returned too many DNS addresses")
+        validated_addresses = frozenset(_validated_ip(address) for address in addresses)
+        previous = resolution_pins.get(normalized_host)
+        if previous is not None and previous != validated_addresses:
+            raise SsrfRejected("DNS rebinding changed the validated address set")
+        resolution_pins[normalized_host] = validated_addresses
+        return validated_addresses
 
     async def _respect_rate_limit(self, hostname: str) -> None:
-        minimum_interval = 60.0 / self._policy.rate_limit_per_minute
-        previous = self._last_request_at.get(hostname)
-        now = self._clock.monotonic()
-        if previous is not None and now - previous < minimum_interval:
-            await self._clock.sleep(minimum_interval - (now - previous))
-        self._last_request_at[hostname] = self._clock.monotonic()
+        lock = self._rate_limit_locks.setdefault(hostname, asyncio.Lock())
+        async with lock:
+            minimum_interval = max(
+                float(self._policy.minimum_interval_seconds),
+                60.0 / self._policy.rate_limit_per_minute,
+            )
+            previous = self._last_request_at.get(hostname)
+            now = self._clock.monotonic()
+            if previous is not None and now - previous < minimum_interval:
+                await self._clock.sleep(minimum_interval - (now - previous))
+            self._last_request_at[hostname] = self._clock.monotonic()
 
     def _record_success(self, hostname: str) -> None:
         self._failure_count[hostname] = 0
@@ -229,7 +343,10 @@ class ResilientHttpClient:
 
 
 def _hostname(url: str) -> str:
-    hostname = urlsplit(url).hostname
+    try:
+        hostname = urlsplit(url).hostname
+    except ValueError as error:
+        raise SsrfRejected("acquisition URL has an invalid hostname") from error
     if hostname is None:
         raise SsrfRejected("acquisition URL has no hostname")
     return hostname.rstrip(".").lower()
@@ -253,22 +370,129 @@ def _retry_after_seconds(value: str | None, now: datetime) -> float | None:
             seconds = (retry_at - now).total_seconds()
         except (TypeError, ValueError, OverflowError):
             return None
+    if not math.isfinite(seconds):
+        return None
     return max(0.0, seconds)
 
 
 def _fetch_result(
     response: HttpResponse,
-    url: str,
+    request_url: str,
+    final_url: str,
+    redirect_chain: tuple[str, ...],
     fetched_at: datetime,
     not_modified: bool,
 ) -> FetchResult:
+    content = None if not_modified else response.content
     return FetchResult(
-        url=url,
+        url=final_url,
         status_code=response.status_code,
-        content=None if not_modified else response.content,
+        content=content,
         content_type=_header(response.headers, "content-type"),
         etag=_header(response.headers, "etag"),
         last_modified=_header(response.headers, "last-modified"),
         fetched_at=fetched_at,
         not_modified=not_modified,
+        request_url=request_url,
+        redirect_chain=redirect_chain,
+        response_sha256=_response_sha256(response, content or b""),
     )
+
+
+async def read_bounded_body(
+    chunks: AsyncIterable[bytes],
+    *,
+    content_length: str | None,
+    max_response_bytes: int,
+) -> bytes:
+    """Read decoded response bytes without ever exceeding the configured budget."""
+
+    if max_response_bytes < 1:
+        raise ValueError("response byte budget must be positive")
+    if content_length is not None:
+        try:
+            declared_length = int(content_length)
+        except ValueError as error:
+            raise OSError("upstream Content-Length is invalid") from error
+        if declared_length < 0:
+            raise OSError("upstream Content-Length is invalid")
+        if declared_length > max_response_bytes:
+            raise ResponseTooLarge("upstream response exceeds the configured size limit")
+    body = bytearray()
+    async for chunk in chunks:
+        if len(body) + len(chunk) > max_response_bytes:
+            raise ResponseTooLarge("upstream response exceeds the configured size limit")
+        body.extend(chunk)
+    return bytes(body)
+
+
+_METADATA_ADDRESSES = {
+    ipaddress.ip_address("168.63.129.16"),
+    ipaddress.ip_address("169.254.169.254"),
+    ipaddress.ip_address("169.254.170.2"),
+    ipaddress.ip_address("100.100.100.200"),
+    ipaddress.ip_address("192.0.0.192"),
+}
+def _validated_ip(value: str) -> str:
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError as error:
+        raise SsrfRejected("source DNS result is not an IP address") from error
+    if (
+        not address.is_global
+        or address.is_multicast
+        or address.is_reserved
+        or address in _METADATA_ADDRESSES
+        or (isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None)
+        or (isinstance(address, ipaddress.IPv6Address) and address.sixtofour is not None)
+        or (isinstance(address, ipaddress.IPv6Address) and address.teredo is not None)
+        or getattr(address, "scope_id", None) is not None
+    ):
+        raise SsrfRejected("source DNS results must contain only direct public addresses")
+    return str(address)
+
+
+def _validated_credential_headers(value: dict[str, str] | None) -> dict[str, str]:
+    if value is None:
+        return {}
+    allowed = {"authorization", "x-api-key"}
+    result: dict[str, str] = {}
+    for name, secret in value.items():
+        if name.casefold() not in allowed or not secret or len(secret) > 4096:
+            raise ValueError("credential header is not allowed")
+        if any(character in name + secret for character in ("\r", "\n", "\x00")):
+            raise ValueError("credential header is not allowed")
+        result[name] = secret
+    return result
+
+
+def _contains_credential_header(headers: dict[str, str]) -> bool:
+    return any(name.casefold() in {"authorization", "x-api-key"} for name in headers)
+
+
+def _origin(url: str) -> tuple[str, str, int]:
+    try:
+        parsed = urlsplit(url)
+        hostname = parsed.hostname
+        port = parsed.port
+    except ValueError as error:
+        raise SsrfRejected("redirect target is malformed") from error
+    if hostname is None:
+        raise SsrfRejected("redirect target is malformed")
+    scheme = parsed.scheme.casefold()
+    effective_port = port if port is not None else (443 if scheme == "https" else 80)
+    return scheme, hostname.rstrip(".").casefold(), effective_port
+
+
+def _response_sha256(response: HttpResponse, content: bytes) -> str:
+    selected = {
+        name: _header(response.headers, name) or ""
+        for name in ("content-type", "etag", "last-modified")
+    }
+    evidence = (
+        f"{response.status_code}\n".encode()
+        + json.dumps(selected, sort_keys=True, separators=(",", ":")).encode()
+        + b"\n"
+        + content
+    )
+    return sha256(evidence).hexdigest()

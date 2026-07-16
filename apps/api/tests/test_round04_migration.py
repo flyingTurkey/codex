@@ -33,7 +33,7 @@ REQUIRED_TABLES = {
 def test_round04_migration_follows_round03_and_declares_lifecycle_tables() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
 
-    assert script.get_current_head() == "0014b_event_consumer_switch"
+    assert script.get_current_head() == "0015b_source_center_convergence"
     revision = script.get_revision("0005_safety_case_lifecycle")
     assert revision.down_revision == "0004_pdf_ocr_versioning"
 

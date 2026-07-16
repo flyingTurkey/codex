@@ -1,0 +1,30 @@
+{
+  "$defs": {
+    "SourcePolicyDecisionOutcome": {
+      "enum": [
+        "APPROVED",
+        "REJECTED"
+      ],
+      "title": "SourcePolicyDecisionOutcome",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "outcome": {
+      "$ref": "#/$defs/SourcePolicyDecisionOutcome"
+    },
+    "reason": {
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Reason",
+      "type": "string"
+    }
+  },
+  "required": [
+    "outcome",
+    "reason"
+  ],
+  "title": "SourcePolicyDecisionRequest",
+  "type": "object"
+}
