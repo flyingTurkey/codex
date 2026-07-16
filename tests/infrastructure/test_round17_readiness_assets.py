@@ -104,6 +104,7 @@ def test_round17_flat_readiness_is_honestly_blocked_without_real_window_evidence
     assert readiness["implementation_commits"] == [
         "d3b11cca0816f5c5da656af0fb4b28e60e87ae0e",
         "6a9ef67dfbbee05c0c1ad0f4b010fbbd3f57369a",
+        "ef8d80956d05e000c5e17d0570b9b9532a0b3134",
     ]
     assert readiness["authority"]["approval_document_sha256"] == signed[
         "approval_document_sha256"
