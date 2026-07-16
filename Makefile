@@ -28,8 +28,9 @@ SRBG_PROJECTION_DB_PASSWORD ?= srbg_projection_local_only
 SRBG_S3_BUCKET ?= srbg-raw
 SRBG_S3_REGION ?= us-east-1
 SRBG_EXTERNAL_IO_TIMEOUT_SECONDS ?= 5
-ROUND17_EVIDENCE ?= $(CURDIR)/docs/acceptance/assets/round17/round17-evidence.json
+ROUND17_EVIDENCE ?= $(CURDIR)/docs/acceptance/assets/round17/round17-flat-evidence.json
 ROUND17_GOLD_MANIFEST ?= $(CURDIR)/tests/gold/round17/manifest.json
+ROUND17_FLAT_REFERENCE ?= $(CURDIR)/tests/gold/round17/leo-reference-manifest.json
 ROUND17_TRUSTED_PUBLIC_KEY ?=
 ROUND17_TRUSTED_PUBLIC_KEY_SHA256 ?=
 ROUND17_EVAL_TRUST_ARGS = $(if $(strip $(ROUND17_TRUSTED_PUBLIC_KEY)),--trusted-public-key "$(ROUND17_TRUSTED_PUBLIC_KEY)",) $(if $(strip $(ROUND17_TRUSTED_PUBLIC_KEY_SHA256)),--trusted-public-key-sha256 "$(ROUND17_TRUSTED_PUBLIC_KEY_SHA256)",)
@@ -377,6 +378,7 @@ phase2-round17-test:
 		apps/worker/tests/test_round17_worker.py \
 		packages/contracts/tests/test_round17_contracts.py \
 		tests/infrastructure/test_round17_eval.py \
+		tests/infrastructure/test_round17_flat_eval.py \
 		tests/infrastructure/test_round17_migration_verifier.py \
 		tests/infrastructure/test_round17_observability.py \
 		tests/infrastructure/test_round17_readiness_assets.py \
@@ -385,9 +387,9 @@ phase2-round17-test:
 	$(UV) run python scripts/audit_publication_paths.py
 
 phase2-round17-eval:
-	$(UV) run python scripts/round17_eval.py \
+	$(UV) run python scripts/round17_flat_eval.py \
 		--evidence "$(ROUND17_EVIDENCE)" \
-		--gold-manifest "$(ROUND17_GOLD_MANIFEST)" $(ROUND17_EVAL_TRUST_ARGS)
+		--reference-manifest "$(ROUND17_FLAT_REFERENCE)"
 
 observability-test:
 	$(UV) run python -m pytest tests/infrastructure/test_round11_observability.py -q

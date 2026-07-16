@@ -143,10 +143,10 @@ not supersede any real-evidence or 168-hour requirement.
 - Database migration `0017c_round17_flat_pilot` was replayed and applied to the current test
   database. Exactly one signed-local LEO binding and one append-only atomic approval were
   installed and independently counted.
-- The current database still has only 19 of the 20 roster codes; `NRA-001` is absent. Every
-  present source lacks current policy, connector configuration and live-trial authority, and no
-  source is ACTIVE. Therefore atomic start was not attempted and the immutable 168-hour window
-  remains `NOT_STARTED` with zero proven days.
+- The signed installer automatically registered the initially missing `NRA-001`; the current
+  database now has all 20 roster codes. Every source still lacks current policy, connector
+  configuration and live-trial authority, and no source is ACTIVE. Therefore atomic start was
+  not attempted and the immutable 168-hour window remains `NOT_STARTED` with zero proven days.
 - Public approval evidence:
   `docs/acceptance/assets/round17/leo-signed-approval.json`, document SHA-256
   `74bca993ea052d27558bdaea42f993e975945b3848b70132d06a6bd165e67063`, public-key SHA-256
@@ -167,12 +167,12 @@ regression fixes).
 
 | Command | Exit/result |
 |---|---|
-| `make phase2-round17-test` | `0`; migration `0016 -> 0017c -> 0016 -> 0017c`, 305 Python/contract/security tests, 93 Web tests, publication-path audit passed |
+| `make phase2-round17-test` | `0`; migration `0016 -> 0017c -> 0016 -> 0017c`, 308 Python/contract/security tests, 93 Web tests, publication-path audit passed |
 | `make phase2-round17-eval` | `1`; `REQUIRED_EVIDENCE_MISSING`, decision `BLOCKED` |
 | `make phase2-round16-test` | `0`; 25 Python tests and 93 Web tests passed |
 | `make lint` | `0` |
 | `make typecheck` | `0`; strict mypy on 111 source files and Vue/Nuxt/contracts passed |
-| `make test` | first `1` reproduced root `.env` contamination; after the minimal isolation fix, `0`: 1068 passed, 29 skipped, UI 53 passed, Web 93 passed |
+| `make test` | first `1` reproduced root `.env` contamination; after the minimal isolation fix, final `0`: 1071 passed, 29 skipped, UI 53 passed, Web 93 passed |
 | `make contract-test` | `0`; 81 passed |
 | `make security-check` | `0`; no HIGH/CRITICAL result, pnpm reported one low-severity dependency issue |
 | `make fixture-replay` | `0`; 351 passed and mock evaluation passed |
@@ -184,8 +184,27 @@ regression fixes).
 Current honest blockers are: automatic registration of missing `NRA-001` has not completed;
 20/20 current source policies, connector configurations, live trials and eventization profiles
 do not exist; the 168-hour window is `NOT_STARTED`; no real window evidence, source health
-series, approved fault drill or LEO single-expert reference labels exist. The legacy evaluator
-also still encodes the superseded three-person/dual-label evidence contract, so no future
-single-expert evidence may be declared passing until that evaluator contract is versioned.
+series, approved fault drill or LEO single-expert reference labels exist. The versioned flat
+evaluator is ready but correctly remains nonzero until those real artifacts exist.
 
 **第17轮未完成/BLOCKED**。不开始第18轮。
+
+## 2026-07-17 automatic roster and flat-eval follow-up
+
+- Re-running the same signed installer automatically registered the missing `NRA-001` in the
+  same database transaction. Database evidence now shows 20/20 roster codes and one
+  `ROUND17_SIGNED_ROSTER_SOURCE_REGISTERED` audit event. The new source remains honestly
+  `CANDIDATE`, `enabled=false`; registration did not grant `ACTIVE` authority.
+- `make phase2-round17-eval` now executes the versioned LEO single-expert evaluator instead of
+  the superseded three-person evaluator. It binds the signed authority, 20 honest source
+  states, immutable 168-hour monitoring proof, approved metric thresholds, absolute safety
+  gates, 100% current critical evidence, direct north-star counts, and an approved test-only
+  drill. It contains no dual-annotator or individual-performance gate.
+- The current eval still exits nonzero, now with both `REQUIRED_EVIDENCE_MISSING` and
+  `REQUIRED_REFERENCE_MISSING`. This is the expected external-data blocker, not an evaluator
+  contract blocker.
+
+Remaining blockers are external/elapsed-time facts: 20 current policy approvals, 20 connector
+configurations, 20 successful live trials and eventization profiles; LEO reference labels; an
+approved non-destructive fault drill; and the completed immutable 168-hour window with real
+health/evidence exports.

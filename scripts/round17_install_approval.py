@@ -17,6 +17,17 @@ from srbg_api.operations.service import _round17_signed_approval_is_trusted
 
 PACKAGE = Path("docs/acceptance/assets/round17/leo-signed-approval.json")
 HEAD = "0017c_round17_flat_pilot"
+NRA_SOURCE = {
+    "source_code": "NRA-001",
+    "name": "国家铁路局",
+    "base_url": "https://www.nra.gov.cn/",
+    "channel": "BOTH",
+    "source_type": "government",
+    "authority_level": "A1",
+    "priority": "P0",
+    "collection_method": "html_pdf",
+    "poll_interval_minutes": 360,
+}
 
 
 def _timestamp(value: object) -> datetime:
@@ -165,6 +176,64 @@ async def install(*, loopback_port: int | None = None) -> str:
                         "now": now,
                     },
                 )
+            registered_codes = set(
+                (
+                    await connection.execute(
+                        text("SELECT registry_code FROM source WHERE registry_code = ANY(:codes)"),
+                        {"codes": list(source_codes)},
+                    )
+                ).scalars()
+            )
+            missing_codes = set(source_codes) - registered_codes
+            if missing_codes - {NRA_SOURCE["source_code"]}:
+                raise RuntimeError(
+                    "ROUND17_SIGNED_ROSTER_INCOMPLETE: unsupported missing source codes "
+                    + ",".join(sorted(missing_codes))
+                )
+            if NRA_SOURCE["source_code"] in missing_codes:
+                source_id = uuid7()
+                await connection.execute(
+                    text(
+                        """INSERT INTO source (
+                             id,registry_code,name,base_url,channel,source_type,
+                             authority_level,priority,collection_method,poll_interval_minutes,
+                             owner,state,enabled,created_at,updated_at,lifecycle_state,
+                             registered_by,governance_owner_id
+                           ) VALUES (
+                             :id,:source_code,:name,:base_url,:channel,:source_type,
+                             :authority_level,:priority,:collection_method,:poll_interval_minutes,
+                             'LEO','CANDIDATE',false,:now,:now,'CANDIDATE',:actor,:actor
+                           )"""
+                    ),
+                    {
+                        **NRA_SOURCE,
+                        "id": source_id,
+                        "actor": row["approved_by"],
+                        "now": now,
+                    },
+                )
+                await connection.execute(
+                    text(
+                        "SELECT append_audit_event(:id,'ROUND17_SIGNED_ROSTER_SOURCE_REGISTERED',"
+                        ":actor,'SOURCE',:source,NULL,"
+                        "jsonb_build_object('registry_code','NRA-001','lifecycle_state','CANDIDATE',"
+                        "'enabled',false),:reason,:request,:now)"
+                    ),
+                    {
+                        "id": uuid7(),
+                        "actor": row["approved_by"],
+                        "source": source_id,
+                        "reason": "register the missing source from the signed Round17 roster",
+                        "request": f"round17-roster:{package['approval_document_sha256']}:NRA-001",
+                        "now": now,
+                    },
+                )
+            final_count = await connection.scalar(
+                text("SELECT count(*) FROM source WHERE registry_code = ANY(:codes)"),
+                {"codes": list(source_codes)},
+            )
+            if final_count != len(source_codes):
+                raise RuntimeError("ROUND17_SIGNED_ROSTER_INCOMPLETE")
     finally:
         await engine.dispose()
     return str(package["approval_document_sha256"])

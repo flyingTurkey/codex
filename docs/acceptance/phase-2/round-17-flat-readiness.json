@@ -2,7 +2,7 @@
   "schema_version": "1.0.0",
   "record_type": "ENGINEERING_READINESS_NOT_PILOT_EVIDENCE",
   "round": 17,
-  "recorded_at": "2026-07-16T15:49:00Z",
+  "recorded_at": "2026-07-16T16:26:48Z",
   "decision": "BLOCKED",
   "implementation_commits": [
     "d3b11cca0816f5c5da656af0fb4b28e60e87ae0e",
@@ -39,12 +39,12 @@
   },
   "source_preflight": {
     "expected_count": 20,
-    "registered_count": 19,
+    "registered_count": 20,
     "active_count": 0,
     "current_policy_count": 0,
     "current_connector_config_count": 0,
     "live_trial_count": 0,
-    "missing_source_codes": ["NRA-001"]
+    "missing_source_codes": []
   },
   "real_evidence": {
     "window_evidence_manifest_present": false,
@@ -54,14 +54,12 @@
     "source_health_series_present": false
   },
   "blockers": [
-    "NRA_001_NOT_REGISTERED",
     "SOURCE_POLICIES_NOT_CURRENT_20_OF_20",
     "SOURCE_CONNECTOR_CONFIGS_NOT_CURRENT_20_OF_20",
     "LIVE_TRIALS_NOT_SUCCEEDED_20_OF_20",
     "SOURCE_EVENTIZATION_PROFILES_NOT_READY_20_OF_20",
     "OBSERVATION_WINDOW_NOT_STARTED",
     "REAL_168_HOUR_EVIDENCE_MISSING",
-    "LEO_SINGLE_EXPERT_REFERENCE_SET_NOT_LABELED",
-    "LEO_SINGLE_EXPERT_EVALUATOR_CONTRACT_NOT_VERSIONED"
+    "LEO_SINGLE_EXPERT_REFERENCE_SET_NOT_LABELED"
   ]
 }

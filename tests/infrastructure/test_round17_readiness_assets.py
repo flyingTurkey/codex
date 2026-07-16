@@ -119,7 +119,8 @@ def test_round17_flat_readiness_is_honestly_blocked_without_real_window_evidence
         "continuous_days_proven": 0,
     }
     assert readiness["source_preflight"]["expected_count"] == 20
-    assert readiness["source_preflight"]["registered_count"] == 19
+    assert readiness["source_preflight"]["registered_count"] == 20
+    assert readiness["source_preflight"]["missing_source_codes"] == []
     assert readiness["source_preflight"]["active_count"] == 0
     assert readiness["real_evidence"] == {
         "window_evidence_manifest_present": False,
@@ -130,4 +131,4 @@ def test_round17_flat_readiness_is_honestly_blocked_without_real_window_evidence
     }
     assert "REAL_168_HOUR_EVIDENCE_MISSING" in readiness["blockers"]
     assert "LEO_SINGLE_EXPERT_REFERENCE_SET_NOT_LABELED" in readiness["blockers"]
-    assert "LEO_SINGLE_EXPERT_EVALUATOR_CONTRACT_NOT_VERSIONED" in readiness["blockers"]
+    assert "LEO_SINGLE_EXPERT_EVALUATOR_CONTRACT_NOT_VERSIONED" not in readiness["blockers"]

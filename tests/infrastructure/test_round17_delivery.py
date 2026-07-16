@@ -32,7 +32,8 @@ def test_round17_make_targets_are_separate_and_eval_is_not_a_ci_dependency() -> 
     assert "phase2-round17-eval:" in makefile
     assert "python scripts/round17_eval.py" not in test_recipe
     eval_recipe = makefile.split("phase2-round17-eval:", 1)[1].split("\n\n", 1)[0]
-    assert "round17_eval.py" in eval_recipe
+    assert "round17_flat_eval.py" in eval_recipe
+    assert "scripts/round17_eval.py" not in eval_recipe
     assert "curl" not in eval_recipe
     assert "http://" not in eval_recipe
     assert "https://" not in eval_recipe
