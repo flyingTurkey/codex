@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+### Round 16 — PostgreSQL 权威调度、来源健康与安全重放
+
+- 新增 `0016_scheduling_health_replay`：引入来源计划、分层健康、异常与保留执行事实，扩展 `fetch_run/failed_task/replay_request`；PostgreSQL 以 `FOR UPDATE SKIP LOCKED` 完成并发领取与租约恢复，并在存在 R16 事实时拒绝破坏性降级。迁移兼容修复早期 `failed_task(target_id)` 漂移结构，未验证的 Celery ID 不再被当作业务引用。
+- Celery Beat 仅保留一个数据库调度唤醒任务；来源执行消息固定为 `{source_id, run_id}`。Worker 执行租约、重复投递和 Redis 清空恢复均以 PostgreSQL 事实收口，执行前重新校验来源、计划、策略、配置、生产审批、预算和熔断。
+- 新增有界指数退避与全抖动、`Retry-After`、熔断开启/半开/恢复、手工暂停优先级，并将传输成功、发现成功、解析质量和业务 freshness 分层；零发现、发布停滞、正文长度突变、必填缺失、DOM 指纹、重复率和队列积压可生成受控异常。
+- 失败与重放仅保存权威引用、处理版本、错误分类和幂等边界，旧策略、已删除证据、未知类型和无法重建任务不会恢复丢失 Payload。重放执行限 `platform_admin`，计划管理支持版本、幂等键、step-up 与审计理由。
+- 复用现有 OperationsDashboard/来源详情增加计划、健康、异常与重放视图；增加低基数调度延迟、freshness、积压、分类失败、解析质量、熔断、重放、保留与 SLO 指标、Prometheus 告警、Grafana 面板和故障恢复 Runbook。
+- 新增 `make phase2-round16-test`，使用隔离 PostgreSQL/MinIO 和实际 Redis/Celery 验证迁移回放、并发领取、重复投递、Redis 丢失重建、安全重放、保留顺序、观测和管理页面。该证据不代表真实来源连续运行或生产告警路由。
+
 ### Round 15 — 来源中心 V2 与声明式连接器契约
 
 - 新增服务端权威的 `CANDIDATE → COMPLIANCE_REVIEW → TRIAL → ACTIVE → PAUSED → RETIRED` 生命周期、治理责任人、五维覆盖属性、合规策略版本、职责分离审批、Fixture/真实试运行隔离、状态事件和可回滚的 Alembic 兼容迁移；旧 `FIXTURE_TEST`、`APPROVED`、`ACTIVE` 与 `enabled` 均保留迁移证据，任何旧行都不会自动获得 V2 生产授权。来源权威/独立性评估时间必须携带时区并归一为 UTC，迁移后任一治理元数据或权威引用变化都会阻止破坏性数据库降级。

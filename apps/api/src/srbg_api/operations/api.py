@@ -6,20 +6,37 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from srbg_contracts import (
     FeedbackRequest,
+    FetchScheduleUpdate,
+    FetchScheduleView,
     OperationsOverview,
     PilotMetrics,
     ReplayRequest,
     ReplayResult,
+    ReplayTaskView,
+    SourceHealthView,
     UserRole,
 )
 
-from srbg_api.auth import Principal, get_current_principal, require_roles
+from srbg_api.auth import (
+    Principal,
+    get_current_principal,
+    require_roles,
+    require_roles_with_step_up,
+)
 
 ReadPrincipal = Annotated[
     Principal,
     Depends(require_roles(UserRole.PLATFORM_ADMIN, UserRole.AUDITOR)),
 ]
 WritePrincipal = Annotated[Principal, Depends(require_roles(UserRole.PLATFORM_ADMIN))]
+ScheduleReadPrincipal = Annotated[
+    Principal,
+    Depends(require_roles(UserRole.SOURCE_ADMIN, UserRole.PLATFORM_ADMIN, UserRole.AUDITOR)),
+]
+ScheduleWritePrincipal = Annotated[
+    Principal,
+    Depends(require_roles_with_step_up(UserRole.SOURCE_ADMIN, UserRole.PLATFORM_ADMIN)),
+]
 CurrentPrincipal = Annotated[Principal, Depends(get_current_principal)]
 IdempotencyKey = Annotated[str, Header(alias="Idempotency-Key", min_length=8, max_length=128)]
 
@@ -34,6 +51,21 @@ class OperationsService(Protocol):
         actor_id: UUID,
         idempotency_key: str,
     ) -> ReplayResult: ...
+
+    async def get_schedule(self, source_id: UUID) -> FetchScheduleView: ...
+
+    async def update_schedule(
+        self,
+        source_id: UUID,
+        payload: FetchScheduleUpdate,
+        *,
+        actor_id: UUID,
+        idempotency_key: str,
+    ) -> FetchScheduleView: ...
+
+    async def source_health(self) -> list[SourceHealthView]: ...
+
+    async def list_replays(self) -> list[ReplayTaskView]: ...
 
     async def record_feedback(
         self,
@@ -87,6 +119,39 @@ async def replay(
         actor_id=principal.user_id,
         idempotency_key=idempotency_key,
     )
+
+
+@router.get("/admin/sources/{source_id}/schedule", response_model=FetchScheduleView)
+async def get_schedule(
+    source_id: UUID, request: Request, _: ScheduleReadPrincipal
+) -> FetchScheduleView:
+    return await _service(request).get_schedule(source_id)
+
+
+@router.put("/admin/sources/{source_id}/schedule", response_model=FetchScheduleView)
+async def update_schedule(
+    source_id: UUID,
+    payload: FetchScheduleUpdate,
+    request: Request,
+    principal: ScheduleWritePrincipal,
+    idempotency_key: IdempotencyKey,
+) -> FetchScheduleView:
+    return await _service(request).update_schedule(
+        source_id,
+        payload,
+        actor_id=principal.user_id,
+        idempotency_key=idempotency_key,
+    )
+
+
+@router.get("/admin/operations/source-health", response_model=list[SourceHealthView])
+async def source_health(request: Request, _: ScheduleReadPrincipal) -> list[SourceHealthView]:
+    return await _service(request).source_health()
+
+
+@router.get("/admin/operations/replays", response_model=list[ReplayTaskView])
+async def list_replays(request: Request, _: ReadPrincipal) -> list[ReplayTaskView]:
+    return await _service(request).list_replays()
 
 
 @router.post("/feedback", status_code=status.HTTP_204_NO_CONTENT)

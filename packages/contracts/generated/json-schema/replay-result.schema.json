@@ -22,7 +22,9 @@
         "QUEUED",
         "RUNNING",
         "SUCCEEDED",
-        "FAILED"
+        "FAILED",
+        "BLOCKED",
+        "NON_REPLAYABLE"
       ],
       "title": "Status",
       "type": "string"

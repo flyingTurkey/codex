@@ -2,7 +2,16 @@
 
 四川路桥内部使用的行业数智与安全情报平台。仓库已形成 Round 00—13 的工程切片，覆盖来源与原始文档、证据化内容处理、统一信息流、搜索/日报/收藏、质量运维安全门禁，以及 Event-keyed 内部发布投影的安全影子基线。各项能力的真实联网和生产等级仍须按验收证据判断，不能由本说明直接推定。
 
-当前第 14 轮工程验收已通过：默认普通用户 Feed、Event 详情、搜索、已发布日报和收藏内容通过 `srbg_projection_reader_login` 读取 `published_v1`，Event 收藏、专题和反馈的新写入只使用 `event_id`；旧 `item_id` 仅作为可空、不可变的兼容溯源。隔离 PostgreSQL TEST 数据已对旧收藏、日报、专题、revision 与 R3 ACL 引用完成非空对账。第 11 轮生产证据状态仍为 `BLOCKED`：真实业务金标、连续运行窗口、生产 PITR 和真实告警路由等证据尚未完整，因此仓库仍不应被表述为生产就绪。
+当前第 16 轮工程切片以 PostgreSQL 作为来源计划、运行、租约、退避、熔断、预算和重放的唯一业务事实；Celery Beat 只唤醒数据库调度器，任务消息只含 `source_id/run_id`。运维后台可管理动态计划、查看假成功与分层健康、审核安全重放。本轮没有激活真实来源，也不将隔离 Fixture/故障注入结果冒充生产连续运行证据。第 11 轮生产证据状态仍为 `BLOCKED`。
+
+## 第 16 轮数据库权威调度
+
+- `fetch_schedule` 保存计划、下次执行、租约、退避、熔断、freshness SLO、速率与日预算；并发领取使用 PostgreSQL `FOR UPDATE SKIP LOCKED`。
+- Worker 在外部 I/O 前重新校验 ACTIVE 来源、当前有效策略/配置、生产审批、计划、预算与熔断；人工暂停后未执行运行以 `CANCELLED` 收口。
+- 来源健康区分传输、发现、解析、内容质量与业务时效；304、429/`Retry-After`、5xx、超时、DNS、解析、对象存储和数据库失败均映射为受控状态。
+- 失败事实不保存正文、Cookie、令牌或模型输入；重放只从当前有效的 source/run/document/event/outbox/projection 事实重建，不可重建时标记 `NON_REPLAYABLE/BLOCKED`。
+
+详细状态机、故障矩阵与本次命令证据见 [第 16 轮验收记录](docs/acceptance/phase-2/round-16-scheduling-health-replay.md)。
 
 ## 第 14 轮 Event 统一身份
 
@@ -98,6 +107,7 @@ make fixture-replay
 make quality-gate
 make phase2-round13-test
 make phase2-round14-test
+make phase2-round16-test
 make web-e2e
 make web-a11y
 ```

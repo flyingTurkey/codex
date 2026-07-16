@@ -95,6 +95,14 @@ const publicExports = {
   'readiness-response.schema.json': ['DependencyCheck', 'ReadinessResponse'],
   'replay-request.schema.json': ['ReplayRequest'],
   'replay-result.schema.json': ['ReplayResult'],
+  'replay-task-view.schema.json': ['ReplayTaskView'],
+  'fetch-schedule-update.schema.json': ['FetchScheduleUpdate'],
+  'fetch-schedule-view.schema.json': [
+    'FetchScheduleView',
+    'FetchScheduleStatus',
+    'CircuitState',
+  ],
+  'source-health-view.schema.json': ['SourceHealthView', 'SourceAnomalyView'],
   'score-override-request.schema.json': ['ScoreOverrideRequest'],
   'score-summary.schema.json': [
     'ScoreSummary',

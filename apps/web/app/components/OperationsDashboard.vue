@@ -10,6 +10,10 @@ const props = defineProps<{
 }>()
 
 const labels: Record<string, string> = {
+  FETCH_BACKLOG_AGE_SECONDS: '抓取积压时长',
+  SOURCE_SLO_VIOLATIONS: '来源 SLO 违反',
+  BLOCKED_REPLAYS: '阻断重放',
+  RETENTION_FAILURES: '保留执行失败',
   UNHEALTHY_SOURCES: '异常来源',
   OPEN_SOURCE_CIRCUITS: '已熔断来源',
   PENDING_REVIEWS: '待审核',

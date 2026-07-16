@@ -68,10 +68,14 @@ class S3ObjectStore:
                     raise OSError("object exceeds bounded read limit")
                 body = result["Body"]
                 content = bytes(
-                    await body.read()
-                    if max_bytes is None
-                    else await body.read(max_bytes + 1)
+                    await body.read() if max_bytes is None else await body.read(max_bytes + 1)
                 )
                 if max_bytes is not None and len(content) > max_bytes:
                     raise OSError("object exceeds bounded read limit")
                 return content
+
+    async def erase(self, object_key: str) -> None:
+        """Delete one content-addressed object under the bounded S3 policy."""
+        async with asyncio.timeout(self._timeout_seconds):
+            async with self._client() as client:
+                await client.delete_object(Bucket=self._bucket, Key=object_key)

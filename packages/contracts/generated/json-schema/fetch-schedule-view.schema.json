@@ -1,0 +1,118 @@
+{
+  "$defs": {
+    "CircuitState": {
+      "enum": [
+        "CLOSED",
+        "OPEN",
+        "HALF_OPEN"
+      ],
+      "title": "CircuitState",
+      "type": "string"
+    },
+    "FetchScheduleStatus": {
+      "enum": [
+        "ACTIVE",
+        "PAUSED",
+        "RETIRED"
+      ],
+      "title": "FetchScheduleStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "authority_level": {
+      "title": "Authority Level",
+      "type": "string"
+    },
+    "bytes_used": {
+      "title": "Bytes Used",
+      "type": "integer"
+    },
+    "circuit_open_until": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Circuit Open Until"
+    },
+    "circuit_state": {
+      "$ref": "#/$defs/CircuitState"
+    },
+    "consecutive_failures": {
+      "title": "Consecutive Failures",
+      "type": "integer"
+    },
+    "daily_byte_budget": {
+      "title": "Daily Byte Budget",
+      "type": "integer"
+    },
+    "daily_request_budget": {
+      "title": "Daily Request Budget",
+      "type": "integer"
+    },
+    "freshness_slo_seconds": {
+      "title": "Freshness Slo Seconds",
+      "type": "integer"
+    },
+    "interval_seconds": {
+      "title": "Interval Seconds",
+      "type": "integer"
+    },
+    "next_run_at": {
+      "format": "date-time",
+      "title": "Next Run At",
+      "type": "string"
+    },
+    "rate_limit_per_minute": {
+      "title": "Rate Limit Per Minute",
+      "type": "integer"
+    },
+    "requests_used": {
+      "title": "Requests Used",
+      "type": "integer"
+    },
+    "source_id": {
+      "format": "uuid",
+      "title": "Source Id",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/FetchScheduleStatus"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "source_id",
+    "authority_level",
+    "status",
+    "interval_seconds",
+    "next_run_at",
+    "circuit_state",
+    "consecutive_failures",
+    "freshness_slo_seconds",
+    "rate_limit_per_minute",
+    "daily_request_budget",
+    "daily_byte_budget",
+    "requests_used",
+    "bytes_used",
+    "version",
+    "updated_at"
+  ],
+  "title": "FetchScheduleView",
+  "type": "object"
+}

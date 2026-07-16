@@ -45,7 +45,7 @@ export PLAYWRIGHT_BROWSERS_PATH
 	round08-test round08-eval round09-test round09-eval round10-test round10-eval \
 	round11-test observability-test golden-replay load-test recovery-drill runbook-test \
 	round11-evidence-test readiness-evidence slo-weekly-report \
-	phase2-round13-test phase2-round14-test phase2-round15-test
+	phase2-round13-test phase2-round14-test phase2-round15-test phase2-round16-test
 
 setup:
 	$(UV) sync --frozen --all-packages
@@ -328,7 +328,23 @@ phase2-round15-test:
 	$(PNPM) --filter @srbg/web exec playwright test \
 		tests/e2e/round15-source-center.spec.ts --grep-invert @a11y
 	$(PNPM) --filter @srbg/web exec playwright test \
-		tests/e2e/round15-source-center.spec.ts --grep @a11y
+		 tests/e2e/round15-source-center.spec.ts --grep @a11y
+
+phase2-round16-test:
+	$(COMPOSE) up --detach --wait postgres redis minio
+	$(UV) run python scripts/run_isolated_integration.py \
+		--migration-verifier verify_round16_migration.py -- \
+		apps/api/tests/test_round16_migration.py \
+		apps/api/tests/test_round16_scheduling.py \
+		apps/api/tests/test_round16_scheduling_integration.py \
+		apps/api/tests/test_round16_failure_records.py \
+		apps/api/tests/test_round16_replay_integration.py \
+		apps/api/tests/test_round16_retention.py \
+		apps/api/tests/test_round16_operations_api.py \
+		apps/worker/tests/test_round16_worker.py \
+		tests/infrastructure/test_round16_observability.py \
+		tests/infrastructure/test_round16_delivery.py -q
+	$(PNPM) --filter @srbg/web test -- round16-operations-ui.test.ts
 
 observability-test:
 	$(UV) run python -m pytest tests/infrastructure/test_round11_observability.py -q

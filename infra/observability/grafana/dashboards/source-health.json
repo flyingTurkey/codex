@@ -1,4 +1,5 @@
 {
+  "description": "srbg_schedule_dispatch_delay_seconds srbg_source_freshness_seconds srbg_fetch_backlog_age_seconds srbg_fetch_failures_total srbg_source_parse_quality_basis_points srbg_source_circuit_state srbg_replay_results_total srbg_retention_results_total srbg_source_slo_violations_total",
   "title": "来源健康与治理",
   "uid": "srbg-source-health",
   "schemaVersion": 41,
@@ -62,6 +63,43 @@
         {"expr": "sum by (reason) (rate(srbg_source_production_scheduling_blocked_total[15m]))"}
       ],
       "gridPos": {"h": 8, "w": 24, "x": 0, "y": 32}
+    },
+    {
+      "type": "timeseries",
+      "title": "调度延迟与队列积压",
+      "targets": [
+        {"expr": "srbg_schedule_dispatch_delay_seconds"},
+        {"expr": "srbg_fetch_backlog_age_seconds"}
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 40}
+    },
+    {
+      "type": "timeseries",
+      "title": "内容时效与解析质量",
+      "targets": [
+        {"expr": "srbg_source_freshness_seconds"},
+        {"expr": "srbg_source_parse_quality_basis_points"}
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 40}
+    },
+    {
+      "type": "timeseries",
+      "title": "分类失败、SLO 与熔断",
+      "targets": [
+        {"expr": "sum by (kind) (rate(srbg_fetch_failures_total[15m]))"},
+        {"expr": "sum by (dimension) (increase(srbg_source_slo_violations_total[15m]))"},
+        {"expr": "srbg_source_circuit_state"}
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 48}
+    },
+    {
+      "type": "timeseries",
+      "title": "安全重放与保留执行",
+      "targets": [
+        {"expr": "sum by (kind, outcome) (increase(srbg_replay_results_total[30m]))"},
+        {"expr": "sum by (outcome) (increase(srbg_retention_results_total[30m]))"}
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 48}
     }
   ]
 }

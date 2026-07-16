@@ -8,17 +8,26 @@ from uuid import UUID
 from celery import Celery
 from celery.signals import task_failure
 from redis.asyncio import Redis, from_url
+from sqlalchemy.ext.asyncio import AsyncEngine
 from srbg_api.config import get_settings
 from srbg_api.database import create_database_engine, create_publication_engine
 from srbg_api.discovery.projections import PostgresDiscoveryProjectionWriter
 from srbg_api.internal_projection.audit_anchor import anchor_latest_audit_root
 from srbg_api.logging import configure_logging
+from srbg_api.observability import REPLAY_RESULTS
 from srbg_api.operations.failures import FailureRecord, failure_record, persist_failure
-from srbg_api.operations.replays import ClaimedReplay, claim_replay, finish_replay
+from srbg_api.operations.replays import (
+    ClaimedReplay,
+    claim_replay,
+    finish_replay,
+    prepare_source_fetch_replay,
+)
 from srbg_api.publication.gate import PublicationGate
 from srbg_api.publication.repository import PostgresPublicationRepository
 from srbg_api.publication.service import PublicationService
 from srbg_api.safety_regulations.runner import run_scheduled_mem_discovery
+from srbg_api.scheduling.domain import build_fetch_message
+from srbg_api.scheduling.service import PostgresSchedulingService
 
 configure_logging()
 settings = get_settings()
@@ -36,9 +45,9 @@ celery_app.conf.update(
     task_default_priority=5,
     broker_transport_options={"priority_steps": list(range(10)), "visibility_timeout": 3600},
     beat_schedule={
-        "discover-mem-safety-regulations": {
-            "task": "srbg.safety_regulations.discover",
-            "schedule": 900.0,
+        "dispatch-due-source-schedules": {
+            "task": "srbg.schedules.dispatch",
+            "schedule": 30.0,
         },
         "publish-version-lifecycle-events": {
             "task": "srbg.publication.outbox",
@@ -63,6 +72,8 @@ celery_app.conf.update(
     },
     task_routes={
         "srbg.safety_regulations.discover": {"queue": "parser"},
+        "srbg.schedules.dispatch": {"queue": "celery"},
+        "srbg.source.fetch": {"queue": "parser"},
         "srbg.publication.outbox": {"queue": "publisher"},
         "srbg.publication.projections": {"queue": "publisher"},
         "srbg.operations.replay": {"queue": "publisher"},
@@ -115,6 +126,50 @@ def discover_safety_regulations() -> dict[str, object]:
     return asyncio.run(run_scheduled_mem_discovery(settings))
 
 
+@celery_app.task(name="srbg.schedules.dispatch")  # type: ignore[untyped-decorator]
+def dispatch_due_schedules() -> dict[str, int]:
+    return asyncio.run(_dispatch_due_schedules())
+
+
+@celery_app.task(name="srbg.source.fetch")  # type: ignore[untyped-decorator]
+def execute_source_fetch(*, source_id: str, run_id: str) -> dict[str, object]:
+    return asyncio.run(_acquire_source_fetch(UUID(source_id), UUID(run_id)))
+
+
+async def _dispatch_due_schedules() -> dict[str, int]:
+    service = PostgresSchedulingService(create_database_engine(settings))
+    dispatched = 0
+    try:
+        while dispatched < 100:
+            claimed = await service.claim_due()
+            if claimed is None:
+                break
+            message = build_fetch_message(source_id=claimed.source_id, run_id=claimed.run_id)
+            celery_app.send_task("srbg.source.fetch", kwargs=message)
+            await service.mark_dispatched(claimed.run_id)
+            dispatched += 1
+        return {"dispatched": dispatched}
+    finally:
+        await service.close()
+
+
+async def _acquire_source_fetch(source_id: UUID, run_id: UUID) -> dict[str, object]:
+    service = PostgresSchedulingService(create_database_engine(settings))
+    try:
+        acquired = await service.acquire_execution(source_id=source_id, run_id=run_id)
+        cancelled = False
+        if not acquired:
+            cancelled = await service.cancel_ineligible(source_id=source_id, run_id=run_id)
+        return {
+            "acquired": acquired,
+            "cancelled": cancelled,
+            "source_id": str(source_id),
+            "run_id": str(run_id),
+        }
+    finally:
+        await service.close()
+
+
 @celery_app.task(name="srbg.publication.outbox")  # type: ignore[untyped-decorator]
 def publish_version_lifecycle_events() -> dict[str, int]:
     return asyncio.run(_drain_publication_outbox())
@@ -155,17 +210,31 @@ async def _execute_priority_replay() -> dict[str, object]:
         return {"processed": 0}
     succeeded = False
     try:
-        await _execute_replay_kind(replay)
+        await _execute_replay_kind(replay, engine)
         succeeded = True
         return {"processed": 1, "status": "SUCCEEDED", "kind": replay.task_kind}
     finally:
         await finish_replay(engine, replay, succeeded=succeeded)
+        metric_kind = (
+            replay.task_kind
+            if replay.task_kind
+            in {"SOURCE_FETCH", "PARSER", "AI", "PUBLICATION_OUTBOX", "PROJECTION"}
+            else "UNKNOWN"
+        )
+        REPLAY_RESULTS.labels(
+            kind=metric_kind,
+            outcome="SUCCEEDED" if succeeded else "FAILED",
+        ).inc()
         await engine.dispose()
 
 
-async def _execute_replay_kind(replay: ClaimedReplay) -> None:
+async def _execute_replay_kind(replay: ClaimedReplay, engine: AsyncEngine) -> None:
     if replay.task_kind == "SOURCE_FETCH":
-        await run_scheduled_mem_discovery(settings)
+        source_id, run_id = await prepare_source_fetch_replay(engine, replay)
+        celery_app.send_task(
+            "srbg.source.fetch",
+            kwargs=build_fetch_message(source_id=source_id, run_id=run_id),
+        )
         return
     if replay.task_kind == "PUBLICATION_OUTBOX":
         await _drain_publication_outbox()
@@ -219,6 +288,7 @@ async def _drain_publication_projections() -> dict[str, int]:
     projection_writer = PostgresDiscoveryProjectionWriter(create_publication_engine(settings))
     processed = 0
     try:
+
         async def advance(publication_id: UUID, generation: int, visible: bool) -> None:
             await _advance_cache_generation(cache, publication_id, generation, visible)
 

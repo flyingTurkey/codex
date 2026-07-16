@@ -2,18 +2,27 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import text
+from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncEngine
 from srbg_contracts import (
+    CircuitState,
+    FetchScheduleStatus,
+    FetchScheduleUpdate,
+    FetchScheduleView,
     MetricSample,
     OperationsOverview,
     PilotMetrics,
     ReplayRequest,
     ReplayResult,
+    ReplayTaskView,
+    SourceAnomalyView,
+    SourceHealthView,
 )
 
 from srbg_api.identifiers import uuid7
@@ -21,6 +30,27 @@ from srbg_api.identifiers import uuid7
 
 class OperationsRejected(RuntimeError):
     pass
+
+
+def _schedule_view(row: Mapping[str, Any] | RowMapping) -> FetchScheduleView:
+    return FetchScheduleView(
+        source_id=row["source_id"],
+        authority_level=row["authority_level"],
+        status=FetchScheduleStatus(row["status"]),
+        interval_seconds=row["interval_seconds"],
+        next_run_at=row["next_run_at"],
+        circuit_state=CircuitState(row["circuit_state"]),
+        circuit_open_until=row["circuit_open_until"],
+        consecutive_failures=row["consecutive_failures"],
+        freshness_slo_seconds=row["freshness_slo_seconds"],
+        rate_limit_per_minute=row["rate_limit_per_minute"],
+        daily_request_budget=row["daily_request_budget"],
+        daily_byte_budget=row["daily_byte_budget"],
+        requests_used=row["requests_used"],
+        bytes_used=row["bytes_used"],
+        version=row["version"],
+        updated_at=row["updated_at"],
+    )
 
 
 class PostgresOperationsService:
@@ -59,6 +89,20 @@ class PostgresOperationsService:
                             WHERE resolved_at IS NULL) AS failed_tasks,
                           (SELECT count(*) FROM replay_request
                             WHERE status = 'QUEUED') AS queued_replays,
+                          (SELECT COALESCE(EXTRACT(epoch FROM now() - min(started_at)), 0)
+                             FROM fetch_run
+                            WHERE status IN (
+                              'PENDING_DISPATCH','DISPATCHED','RETRY_WAIT'
+                            ))
+                             AS fetch_backlog_age_seconds,
+                          (SELECT count(*) FROM source_health_snapshot
+                             WHERE freshness_status='VIOLATED' OR discovery_status='FALSE_SUCCESS')
+                             AS source_slo_violations,
+                          (SELECT count(*) FROM failed_task WHERE resolved_at IS NULL
+                             AND reconstruction_status IN ('BLOCKED','NON_REPLAYABLE'))
+                             AS blocked_replays,
+                          (SELECT count(*) FROM retention_execution WHERE status='FAILED')
+                             AS retention_failures,
                           (SELECT count(*) FROM ai_step_run
                             WHERE status = 'FAILED'
                               AND created_at >= now() - interval '24 hours') AS ai_failures,
@@ -108,6 +152,30 @@ class PostgresOperationsService:
             ),
             MetricSample(
                 code="QUEUED_REPLAYS", value=row["queued_replays"], unit="count", status="UNKNOWN"
+            ),
+            MetricSample(
+                code="FETCH_BACKLOG_AGE_SECONDS",
+                value=float(row["fetch_backlog_age_seconds"]),
+                unit="seconds",
+                status="PASS" if row["fetch_backlog_age_seconds"] <= 900 else "FAIL",
+            ),
+            MetricSample(
+                code="SOURCE_SLO_VIOLATIONS",
+                value=row["source_slo_violations"],
+                unit="count",
+                status="PASS" if row["source_slo_violations"] == 0 else "FAIL",
+            ),
+            MetricSample(
+                code="BLOCKED_REPLAYS",
+                value=row["blocked_replays"],
+                unit="count",
+                status="PASS" if row["blocked_replays"] == 0 else "FAIL",
+            ),
+            MetricSample(
+                code="RETENTION_FAILURES",
+                value=row["retention_failures"],
+                unit="count",
+                status="PASS" if row["retention_failures"] == 0 else "FAIL",
             ),
             MetricSample(
                 code="AI_FAILURES_24H",
@@ -164,14 +232,16 @@ class PostgresOperationsService:
             failed = (
                 (
                     await connection.execute(
-                    text(
-                        """SELECT id, task_kind FROM failed_task
+                        text(
+                            """SELECT id, task_kind FROM failed_task
                             WHERE id = :failed_task_id
                               AND replayable IS TRUE
                               AND resolved_at IS NULL
+                              AND (reconstruction_status='REPLAYABLE'
+                                   OR task_kind IN ('PUBLICATION_OUTBOX','PROJECTION'))
                             """
-                    ),
-                    {"failed_task_id": payload.failed_task_id},
+                        ),
+                        {"failed_task_id": payload.failed_task_id},
                     )
                 )
                 .mappings()
@@ -205,6 +275,223 @@ class PostgresOperationsService:
             status="QUEUED",
         )
 
+    async def get_schedule(self, source_id: UUID) -> FetchScheduleView:
+        async with self._engine.connect() as connection:
+            row = (
+                (
+                    await connection.execute(
+                        text("SELECT * FROM fetch_schedule WHERE source_id=:source_id"),
+                        {"source_id": source_id},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        if row is None:
+            raise OperationsRejected("source schedule does not exist")
+        return _schedule_view(row)
+
+    async def update_schedule(
+        self,
+        source_id: UUID,
+        payload: FetchScheduleUpdate,
+        *,
+        actor_id: UUID,
+        idempotency_key: str,
+    ) -> FetchScheduleView:
+        now = self._now()
+        async with self._engine.begin() as connection:
+            source = (
+                (
+                    await connection.execute(
+                        text(
+                            """SELECT s.authority_level, s.lifecycle_state,
+                                  s.poll_interval_minutes,
+                                  p.status AS policy_status, p.valid_from, p.valid_until,
+                                  COALESCE(
+                                    (p.document #>> '{fetch,rate_limit_per_minute}')::int,
+                                    1
+                                  ) AS policy_rate
+                           FROM source s JOIN source_policy_version p
+                             ON p.id=s.current_policy_version_id
+                           WHERE s.id=:source_id FOR UPDATE"""
+                        ),
+                        {"source_id": source_id},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if source is None:
+                raise OperationsRejected("source or current policy does not exist")
+            if (
+                source["lifecycle_state"] != "ACTIVE"
+                or source["policy_status"] != "APPROVED"
+                or source["valid_from"] > now
+                or source["valid_until"] <= now
+            ):
+                raise OperationsRejected(
+                    "only an ACTIVE source with a valid policy may be scheduled"
+                )
+            if payload.interval_seconds < int(source["poll_interval_minutes"]) * 60:
+                raise OperationsRejected(
+                    "schedule is more frequent than the approved source interval"
+                )
+            if payload.rate_limit_per_minute > int(source["policy_rate"]):
+                raise OperationsRejected("schedule rate exceeds the approved source policy")
+            existing = (
+                (
+                    await connection.execute(
+                        text("SELECT * FROM fetch_schedule WHERE source_id=:source_id FOR UPDATE"),
+                        {"source_id": source_id},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if existing is None and payload.expected_version != 0:
+                raise OperationsRejected("schedule version conflict")
+            if existing is not None and existing["last_idempotency_key"] == idempotency_key:
+                return _schedule_view(existing)
+            if existing is not None and existing["version"] != payload.expected_version:
+                raise OperationsRejected("schedule version conflict")
+            schedule_id = uuid7() if existing is None else existing["id"]
+            next_run_at = now if existing is None else existing["next_run_at"]
+            await connection.execute(
+                text(
+                    """INSERT INTO fetch_schedule
+                       (id,source_id,authority_level,status,interval_seconds,next_run_at,
+                        backoff_base_seconds,backoff_cap_seconds,max_attempts,consecutive_failures,
+                        circuit_state,freshness_slo_seconds,rate_limit_per_minute,
+                        daily_request_budget,daily_byte_budget,requests_used,bytes_used,
+                        budget_window_started_at,version,last_idempotency_key,updated_at)
+                       VALUES (:id,:source,:authority,:status,:interval,:next_run,30,21600,3,0,
+                               'CLOSED',:slo,:rate,:request_budget,:byte_budget,0,0,:now,1,:key,:now)
+                       ON CONFLICT (source_id) DO UPDATE SET
+                         status=EXCLUDED.status, interval_seconds=EXCLUDED.interval_seconds,
+                         freshness_slo_seconds=EXCLUDED.freshness_slo_seconds,
+                         rate_limit_per_minute=EXCLUDED.rate_limit_per_minute,
+                         daily_request_budget=EXCLUDED.daily_request_budget,
+                         daily_byte_budget=EXCLUDED.daily_byte_budget,
+                         last_idempotency_key=EXCLUDED.last_idempotency_key,
+                         version=fetch_schedule.version+1, updated_at=EXCLUDED.updated_at"""
+                ),
+                {
+                    "id": schedule_id,
+                    "source": source_id,
+                    "authority": source["authority_level"],
+                    "status": payload.status.value,
+                    "interval": payload.interval_seconds,
+                    "next_run": next_run_at,
+                    "slo": payload.freshness_slo_seconds,
+                    "rate": payload.rate_limit_per_minute,
+                    "request_budget": payload.daily_request_budget,
+                    "byte_budget": payload.daily_byte_budget,
+                    "key": idempotency_key,
+                    "now": now,
+                },
+            )
+            await connection.execute(
+                text(
+                    "SELECT append_audit_event("
+                    ":id,'FETCH_SCHEDULE_UPDATED',:actor,'fetch_schedule',:target,NULL,"
+                    "jsonb_build_object('source_id',:source,'status',:status,"
+                    "'idempotency_key',:key),"
+                    ":reason,:key,:now)"
+                ),
+                {
+                    "id": uuid7(),
+                    "actor": actor_id,
+                    "target": schedule_id,
+                    "source": str(source_id),
+                    "status": payload.status.value,
+                    "key": idempotency_key,
+                    "reason": payload.reason,
+                    "now": now,
+                },
+            )
+            row = (
+                (
+                    await connection.execute(
+                        text("SELECT * FROM fetch_schedule WHERE id=:id"), {"id": schedule_id}
+                    )
+                )
+                .mappings()
+                .one()
+            )
+        return _schedule_view(row)
+
+    async def source_health(self) -> list[SourceHealthView]:
+        async with self._engine.connect() as connection:
+            snapshots = (
+                (
+                    await connection.execute(
+                        text(
+                            """SELECT DISTINCT ON (source_id) * FROM source_health_snapshot
+                           ORDER BY source_id, observed_at DESC"""
+                        )
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            anomalies = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT id,source_id,code,severity,status,detected_at "
+                            "FROM source_anomaly WHERE status <> 'RESOLVED' "
+                            "ORDER BY detected_at DESC"
+                        )
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        by_source: dict[UUID, list[SourceAnomalyView]] = {}
+        for anomaly in anomalies:
+            by_source.setdefault(anomaly["source_id"], []).append(
+                SourceAnomalyView.model_validate(anomaly)
+            )
+        return [
+            SourceHealthView(
+                source_id=row["source_id"],
+                fetch_run_id=row["fetch_run_id"],
+                transport_status=row["transport_status"],
+                discovery_status=row["discovery_status"],
+                parse_status=row["parse_status"],
+                quality_status=row["quality_status"],
+                freshness_status=row["freshness_status"],
+                rule_version=row["rule_version"],
+                observed_at=row["observed_at"],
+                anomalies=by_source.get(row["source_id"], []),
+            )
+            for row in snapshots
+        ]
+
+    async def list_replays(self) -> list[ReplayTaskView]:
+        async with self._engine.connect() as connection:
+            rows = (
+                (
+                    await connection.execute(
+                        text(
+                            """SELECT f.id,f.task_kind,f.error_code,f.priority,
+                                  f.reconstruction_status,f.blocked_reason,f.source_id,f.run_id,
+                                  f.document_version_id,f.event_id,f.failed_at,
+                                  r.status AS replay_status
+                           FROM failed_task f LEFT JOIN LATERAL (
+                             SELECT status FROM replay_request rr WHERE rr.failed_task_id=f.id
+                             ORDER BY requested_at DESC LIMIT 1
+                           ) r ON TRUE WHERE f.resolved_at IS NULL
+                           ORDER BY f.priority DESC,f.failed_at"""
+                        )
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return [ReplayTaskView.model_validate(row) for row in rows]
+
     async def record_feedback(
         self,
         *,
@@ -220,8 +507,7 @@ class PostgresOperationsService:
             async with self._projection_engine.connect() as projection_connection:
                 visible = await projection_connection.scalar(
                     text(
-                        "SELECT 1 FROM published_v1.current_event_summary "
-                        "WHERE event_id=:event_id"
+                        "SELECT 1 FROM published_v1.current_event_summary WHERE event_id=:event_id"
                     ),
                     {"event_id": event_id},
                 )

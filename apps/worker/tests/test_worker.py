@@ -18,9 +18,13 @@ def test_worker_uses_utc_and_json_serialization() -> None:
     assert worker.celery_app.conf.task_serializer == "json"
 
 
-def test_worker_schedules_the_single_mem_connector_discovery_task() -> None:
+def test_worker_only_schedules_the_database_source_dispatcher() -> None:
     assert "srbg.safety_regulations.discover" in worker.celery_app.tasks
-    schedule = worker.celery_app.conf.beat_schedule["discover-mem-safety-regulations"]
+    schedule = worker.celery_app.conf.beat_schedule["dispatch-due-source-schedules"]
 
-    assert schedule["task"] == "srbg.safety_regulations.discover"
-    assert schedule["schedule"] == 900.0
+    assert schedule["task"] == "srbg.schedules.dispatch"
+    assert schedule["schedule"] == 30.0
+    assert all(
+        entry["task"] != "srbg.safety_regulations.discover"
+        for entry in worker.celery_app.conf.beat_schedule.values()
+    )

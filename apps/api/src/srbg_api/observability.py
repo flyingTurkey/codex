@@ -124,6 +124,52 @@ SOURCE_COVERAGE_GAP_CELLS = Gauge(
     "srbg_source_coverage_gap_cells",
     "Empty cells in the current bounded source coverage profile.",
 )
+SCHEDULE_DISPATCH_DELAY = Histogram(
+    "srbg_schedule_dispatch_delay_seconds",
+    "Delay between a due schedule and durable dispatch.",
+    ("outcome",),
+    buckets=(1, 5, 15, 30, 60, 300, 900),
+)
+SOURCE_FRESHNESS = Gauge(
+    "srbg_source_freshness_seconds",
+    "Business freshness by bounded health status.",
+    ("status",),
+)
+FETCH_BACKLOG_AGE = Gauge(
+    "srbg_fetch_backlog_age_seconds",
+    "Age of the oldest durable fetch run by bounded state.",
+    ("state",),
+)
+FETCH_FAILURES = Counter(
+    "srbg_fetch_failures_total",
+    "Fetch failures by bounded classification.",
+    ("kind",),
+)
+SOURCE_PARSE_QUALITY_BPS = Gauge(
+    "srbg_source_parse_quality_basis_points",
+    "Source parse quality by bounded result.",
+    ("status",),
+)
+SOURCE_CIRCUIT_STATE = Gauge(
+    "srbg_source_circuit_state",
+    "Source schedules by circuit state.",
+    ("state",),
+)
+REPLAY_RESULTS = Counter(
+    "srbg_replay_results_total",
+    "Safe replay results by kind and bounded outcome.",
+    ("kind", "outcome"),
+)
+RETENTION_RESULTS = Counter(
+    "srbg_retention_results_total",
+    "Retention executions by bounded outcome.",
+    ("outcome",),
+)
+SOURCE_SLO_VIOLATIONS = Counter(
+    "srbg_source_slo_violations_total",
+    "Source SLO violations by bounded dimension.",
+    ("dimension",),
+)
 
 
 def configure_observability(settings: Settings) -> None:
@@ -152,8 +198,6 @@ def set_operations_metrics(metrics: list[MetricSample]) -> None:
 
 
 def set_internal_projection_metrics(metrics: dict[str, float]) -> None:
-    INTERNAL_PROJECTION_RECONCILIATION_DIFFERENCES.set(
-        metrics["reconciliation_differences"]
-    )
+    INTERNAL_PROJECTION_RECONCILIATION_DIFFERENCES.set(metrics["reconciliation_differences"])
     INTERNAL_PROJECTION_LAST_SUCCESS.set(metrics["last_projection_success_timestamp"])
     AUDIT_CHAIN_ANCHOR_LAST_SUCCESS.set(metrics["last_anchor_success_timestamp"])

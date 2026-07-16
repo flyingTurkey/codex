@@ -1,7 +1,12 @@
 <script setup lang="ts">
-import type { MeResponse } from '@srbg/contracts'
+import type {
+  FetchScheduleStatus,
+  FetchScheduleUpdate,
+  FetchScheduleView,
+  MeResponse,
+} from '@srbg/contracts'
 import { PageHeader, ResponsiveDrawer, StatusBadge } from '@srbg/ui'
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 
 import ConnectorConfigEditor from '../../../components/ConnectorConfigEditor.vue'
 import SourceFixtureTrialControls from '../../../components/SourceFixtureTrialControls.vue'
@@ -84,6 +89,67 @@ const {
   () => `/api/v1/admin/sources/${sourceId.value}/policy-versions`,
   { default: () => [], retry: 0, timeout: 5_000 },
 )
+
+const {
+  data: schedule,
+  error: scheduleError,
+  refresh: refreshSchedule,
+} = await useFetch<FetchScheduleView>(
+  () => `/api/v1/admin/sources/${sourceId.value}/schedule`,
+  { retry: 0, timeout: 5_000 },
+)
+const scheduleForm = reactive({
+  status: 'ACTIVE' as FetchScheduleStatus,
+  intervalSeconds: 3600,
+  freshnessSloSeconds: 86400,
+  rateLimitPerMinute: 1,
+  dailyRequestBudget: 24,
+  dailyByteBudget: 1000000,
+  reason: '',
+})
+watch(schedule, (value) => {
+  if (!value) return
+  scheduleForm.status = value.status
+  scheduleForm.intervalSeconds = value.interval_seconds
+  scheduleForm.freshnessSloSeconds = value.freshness_slo_seconds
+  scheduleForm.rateLimitPerMinute = value.rate_limit_per_minute
+  scheduleForm.dailyRequestBudget = value.daily_request_budget
+  scheduleForm.dailyByteBudget = value.daily_byte_budget
+}, { immediate: true })
+
+async function saveSchedule(): Promise<void> {
+  if (!scheduleForm.reason.trim()) return
+  busy.value = true
+  actionError.value = null
+  const payload: FetchScheduleUpdate = {
+    status: scheduleForm.status,
+    interval_seconds: scheduleForm.intervalSeconds,
+    freshness_slo_seconds: scheduleForm.freshnessSloSeconds,
+    rate_limit_per_minute: scheduleForm.rateLimitPerMinute,
+    daily_request_budget: scheduleForm.dailyRequestBudget,
+    daily_byte_budget: scheduleForm.dailyByteBudget,
+    expected_version: schedule.value?.version ?? 0,
+    reason: scheduleForm.reason,
+  }
+  try {
+    await $fetch(`/api/v1/admin/sources/${sourceId.value}/schedule`, {
+      method: 'PUT',
+      body: payload,
+      headers: {
+        'Idempotency-Key': crypto.randomUUID(),
+        'X-SRBG-Local-Step-Up': 'true',
+      },
+    })
+    scheduleForm.reason = ''
+    await refreshSchedule()
+  }
+  catch (problem) {
+    actionError.value = apiProblemMessage(problem)
+  }
+  finally {
+    busy.value = false
+  }
+}
 
 const {
   data: connectorVersions,
@@ -746,6 +812,52 @@ function isCurrentPendingFixture(run: SourceTrialRunView): boolean {
       aria-labelledby="source-tab-overview"
     >
       <div class="detail-grid">
+        <article class="panel schedule-panel">
+          <h2>PostgreSQL 权威抓取计划</h2>
+          <p v-if="scheduleError" role="status">计划尚未建立；有权管理员可按当前批准策略创建。</p>
+          <form v-if="schedule || (scheduleError && canManage)" class="schedule-form" @submit.prevent="saveSchedule">
+            <label>
+              计划状态
+              <select v-model="scheduleForm.status" :disabled="!canManage || busy">
+                <option value="ACTIVE">ACTIVE</option>
+                <option value="PAUSED">PAUSED</option>
+                <option value="RETIRED">RETIRED</option>
+              </select>
+            </label>
+            <label>
+              固定间隔（秒）
+              <input v-model.number="scheduleForm.intervalSeconds" type="number" min="60" :disabled="!canManage || busy">
+            </label>
+            <label>
+              新鲜度 SLO（秒）
+              <input v-model.number="scheduleForm.freshnessSloSeconds" type="number" min="300" :disabled="!canManage || busy">
+            </label>
+            <label>
+              每分钟允许请求
+              <input v-model.number="scheduleForm.rateLimitPerMinute" type="number" min="1" :disabled="!canManage || busy">
+            </label>
+            <label>
+              每日请求预算
+              <input v-model.number="scheduleForm.dailyRequestBudget" type="number" min="1" :disabled="!canManage || busy">
+            </label>
+            <label>
+              每日字节预算
+              <input v-model.number="scheduleForm.dailyByteBudget" type="number" min="1" :disabled="!canManage || busy">
+            </label>
+            <label v-if="canManage" class="schedule-reason">
+              调整理由
+              <input v-model.trim="scheduleForm.reason" required minlength="10" maxlength="500" :disabled="busy">
+            </label>
+            <button v-if="canManage" class="primary-button" type="submit" :disabled="busy || scheduleForm.reason.trim().length < 10">
+              保存计划
+            </button>
+          </form>
+          <p v-if="schedule">
+            熔断 {{ schedule.circuit_state }} · 连续失败 {{ schedule.consecutive_failures }} ·
+            预算 {{ schedule.requests_used }}/{{ schedule.daily_request_budget }} 次、
+            {{ schedule.bytes_used }}/{{ schedule.daily_byte_budget }} 字节 · 版本 {{ schedule.version }}
+          </p>
+        </article>
         <article class="panel">
           <h2>权威运行授权</h2>
           <dl class="metadata-list">
@@ -1124,6 +1236,12 @@ function isCurrentPendingFixture(run: SourceTrialRunView): boolean {
 .section-heading h2,
 .version-card h3,
 .preview-result h3 { margin: 0; color: var(--color-ink-900); }
+.schedule-panel { grid-column: 1 / -1; }
+.schedule-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--spacing-3); margin-top: var(--spacing-4); }
+.schedule-form label { display: grid; gap: var(--spacing-1); color: var(--color-ink-700); font-size: var(--text-sm); }
+.schedule-form input,
+.schedule-form select { min-height: var(--spacing-10); padding: var(--spacing-2) var(--spacing-3); border: 1px solid var(--color-borderStrong); border-radius: var(--radius-sm); background: var(--color-surface); }
+.schedule-reason { grid-column: span 2; }
 .section-heading { display: flex; align-items: end; justify-content: space-between; gap: var(--spacing-4); }
 .section-heading p { margin: var(--spacing-1) 0 0; color: var(--color-ink-600); }
 .metadata-list { display: grid; gap: 0; margin: var(--spacing-3) 0 0; }
@@ -1182,7 +1300,9 @@ button:disabled { cursor: wait; opacity: 0.6; }
   .detail-grid,
   .audit-grid,
   .version-cards,
-  .policy-evidence-grid { grid-template-columns: 1fr; }
+  .policy-evidence-grid,
+  .schedule-form { grid-template-columns: 1fr; }
+  .schedule-reason { grid-column: auto; }
 }
 
 @media (max-width: 42rem) {

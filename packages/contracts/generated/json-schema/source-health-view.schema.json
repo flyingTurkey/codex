@@ -1,0 +1,118 @@
+{
+  "$defs": {
+    "SourceAnomalyView": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "detected_at": {
+          "format": "date-time",
+          "title": "Detected At",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "INFO",
+            "WARNING",
+            "CRITICAL"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "source_id": {
+          "format": "uuid",
+          "title": "Source Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "OPEN",
+            "ACKNOWLEDGED",
+            "RESOLVED"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "source_id",
+        "code",
+        "severity",
+        "status",
+        "detected_at"
+      ],
+      "title": "SourceAnomalyView",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "anomalies": {
+      "items": {
+        "$ref": "#/$defs/SourceAnomalyView"
+      },
+      "title": "Anomalies",
+      "type": "array"
+    },
+    "discovery_status": {
+      "title": "Discovery Status",
+      "type": "string"
+    },
+    "fetch_run_id": {
+      "format": "uuid",
+      "title": "Fetch Run Id",
+      "type": "string"
+    },
+    "freshness_status": {
+      "title": "Freshness Status",
+      "type": "string"
+    },
+    "observed_at": {
+      "format": "date-time",
+      "title": "Observed At",
+      "type": "string"
+    },
+    "parse_status": {
+      "title": "Parse Status",
+      "type": "string"
+    },
+    "quality_status": {
+      "title": "Quality Status",
+      "type": "string"
+    },
+    "rule_version": {
+      "title": "Rule Version",
+      "type": "string"
+    },
+    "source_id": {
+      "format": "uuid",
+      "title": "Source Id",
+      "type": "string"
+    },
+    "transport_status": {
+      "title": "Transport Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "source_id",
+    "fetch_run_id",
+    "transport_status",
+    "discovery_status",
+    "parse_status",
+    "quality_status",
+    "freshness_status",
+    "rule_version",
+    "observed_at"
+  ],
+  "title": "SourceHealthView",
+  "type": "object"
+}

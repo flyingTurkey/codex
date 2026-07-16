@@ -29,3 +29,11 @@
 所有查询和日志只允许 `event_name/action/outcome/reason_code/request_id/source_id/object_id` 等受控字段；do not log URLs, credentials, or response bodies。
 
 恢复演练运行 `make recovery-drill`；该目标显式传入 `--isolated-only`，脚本仍会拒绝预生产和生产环境，并且只使用随机数据库、桶和 Redis DB 15。
+# Round 16 scheduling, health and replay
+
+- `source_false_success`: pause the schedule, compare the latest health snapshot with raw evidence, and resume only after discovery, parser and policy checks pass.
+- `queue_backlog`: inspect PostgreSQL `fetch_run` and leases first; reclaim expired leases with the same run id and never manufacture work from Redis.
+- `redis_rebuild`: stop consumers, enumerate durable pending runs and replay requests, republish only `source_id/run_id`, then verify idempotent completion.
+- `object_storage_unavailable`: retain the database run with bounded backoff, open the circuit when retries are exhausted, and create no document version without durable raw evidence.
+- `retention_mistake`: stop retention workers, preserve hashes and metadata, restore only from an approved private backup, reconcile through PublicationService, and audit the recovery.
+- `safe_replay`: require platform-admin authorization, reason and idempotency key; re-read current policy and authoritative references, otherwise mark `NON_REPLAYABLE` or `BLOCKED`.

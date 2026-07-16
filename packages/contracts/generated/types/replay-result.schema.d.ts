@@ -1,7 +1,7 @@
 export type FailedTaskId = string
 export type Id = string
 export type Priority = number
-export type Status = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED'
+export type Status = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'BLOCKED' | 'NON_REPLAYABLE'
 export type TaskKind = string
 
 export interface ReplayResult {

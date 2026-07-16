@@ -1,0 +1,124 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "blocked_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Blocked Reason"
+    },
+    "document_version_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Document Version Id"
+    },
+    "error_code": {
+      "title": "Error Code",
+      "type": "string"
+    },
+    "event_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Event Id"
+    },
+    "failed_at": {
+      "format": "date-time",
+      "title": "Failed At",
+      "type": "string"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "priority": {
+      "maximum": 9,
+      "minimum": 0,
+      "title": "Priority",
+      "type": "integer"
+    },
+    "reconstruction_status": {
+      "enum": [
+        "REPLAYABLE",
+        "NON_REPLAYABLE",
+        "BLOCKED"
+      ],
+      "title": "Reconstruction Status",
+      "type": "string"
+    },
+    "replay_status": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Replay Status"
+    },
+    "run_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Run Id"
+    },
+    "source_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Id"
+    },
+    "task_kind": {
+      "title": "Task Kind",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "task_kind",
+    "error_code",
+    "priority",
+    "reconstruction_status",
+    "failed_at"
+  ],
+  "title": "ReplayTaskView",
+  "type": "object"
+}

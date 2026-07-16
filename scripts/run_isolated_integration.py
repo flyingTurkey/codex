@@ -80,9 +80,7 @@ class IntegrationConfig:
             raise ValueError("s3_endpoint_url must be an absolute HTTP(S) URL")
         if self.allow_remote_integration:
             return
-        if not _is_loopback_host(self.postgres_host) or not _is_loopback_host(
-            endpoint.hostname
-        ):
+        if not _is_loopback_host(self.postgres_host) or not _is_loopback_host(endpoint.hostname):
             raise ValueError(
                 "isolated integration services must use loopback addresses; "
                 "set SRBG_ALLOW_REMOTE_INTEGRATION=1 only for an explicitly approved remote stack"
@@ -97,17 +95,13 @@ class IntegrationConfig:
             postgres_host=os.environ.get("POSTGRES_HOST", "127.0.0.1"),
             postgres_port=postgres_port,
             postgres_admin_user=os.environ.get("POSTGRES_USER", "srbg"),
-            postgres_admin_password=os.environ.get(
-                "POSTGRES_PASSWORD", "srbg_local_only"
-            ),
+            postgres_admin_password=os.environ.get("POSTGRES_PASSWORD", "srbg_local_only"),
             postgres_admin_database=os.environ.get("POSTGRES_DB", "srbg"),
             s3_endpoint_url=os.environ.get(
                 "SRBG_ISOLATED_S3_ENDPOINT_URL", f"http://127.0.0.1:{minio_port}"
             ),
             s3_access_key=os.environ.get("MINIO_ROOT_USER", "srbg_local"),
-            s3_secret_key=os.environ.get(
-                "MINIO_ROOT_PASSWORD", "srbg_local_storage_only"
-            ),
+            s3_secret_key=os.environ.get("MINIO_ROOT_PASSWORD", "srbg_local_storage_only"),
             s3_region=os.environ.get("SRBG_S3_REGION", "us-east-1"),
             shared_s3_bucket=os.environ.get("SRBG_S3_BUCKET", "srbg-raw"),
             external_io_timeout_seconds=_environment_timeout(
@@ -276,26 +270,22 @@ class LocalResourceBackend:
         try:
             async with connection.transaction():
                 runtime_create = await connection.fetchval(
-                    "SELECT format("
-                    "'CREATE ROLE %I LOGIN PASSWORD %L', $1::text, $2::text)",
+                    "SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', $1::text, $2::text)",
                     resources.runtime_role,
                     resources.runtime_password,
                 )
                 publication_create = await connection.fetchval(
-                    "SELECT format("
-                    "'CREATE ROLE %I LOGIN PASSWORD %L', $1::text, $2::text)",
+                    "SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', $1::text, $2::text)",
                     resources.publication_role,
                     resources.publication_password,
                 )
                 worker_create = await connection.fetchval(
-                    "SELECT format("
-                    "'CREATE ROLE %I LOGIN PASSWORD %L', $1::text, $2::text)",
+                    "SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', $1::text, $2::text)",
                     resources.worker_role,
                     resources.worker_password,
                 )
                 projection_reader_create = await connection.fetchval(
-                    "SELECT format("
-                    "'CREATE ROLE %I LOGIN PASSWORD %L', $1::text, $2::text)",
+                    "SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', $1::text, $2::text)",
                     resources.projection_reader_role,
                     resources.projection_reader_password,
                 )
@@ -478,6 +468,7 @@ def _migration_command(
         "verify_round13_migration.py",
         "verify_round14_migration.py",
         "verify_round15_migration.py",
+        "verify_round16_migration.py",
     }:
         raise ValueError("migration verifier is not approved")
     return (
@@ -498,9 +489,7 @@ def _migration_environment(
     return environment
 
 
-def _suite_environment(
-    config: IntegrationConfig, resources: TemporaryResources
-) -> dict[str, str]:
+def _suite_environment(config: IntegrationConfig, resources: TemporaryResources) -> dict[str, str]:
     environment = dict(os.environ)
     for name in _BOOTSTRAP_CREDENTIAL_KEYS:
         environment.pop(name, None)
@@ -522,6 +511,9 @@ def _suite_environment(
                 resources.worker_password,
                 resources.database,
             ),
+            "SRBG_REDIS_URL": (
+                f"redis://127.0.0.1:{_environment_port('REDIS_PORT', 6379)}/0"
+            ),
             "SRBG_PROJECTION_DATABASE_URL": config.database_url(
                 resources.projection_reader_role,
                 resources.projection_reader_password,
@@ -535,9 +527,7 @@ def _suite_environment(
             "SRBG_BACKUP_S3_ENDPOINT_URL": (
                 f"http://127.0.0.1:{_environment_port('ANCHOR_MINIO_PORT', 9002)}"
             ),
-            "SRBG_BACKUP_S3_BUCKET": os.environ.get(
-                "SRBG_BACKUP_S3_BUCKET", "srbg-audit-anchors"
-            ),
+            "SRBG_BACKUP_S3_BUCKET": os.environ.get("SRBG_BACKUP_S3_BUCKET", "srbg-audit-anchors"),
             "SRBG_BACKUP_S3_ACCESS_KEY": os.environ.get(
                 "ANCHOR_MINIO_ROOT_USER", "srbg_anchor_local"
             ),
@@ -605,6 +595,7 @@ def _parse_args(arguments: Sequence[str] | None) -> tuple[str, tuple[str, ...]]:
             "verify_round13_migration.py",
             "verify_round14_migration.py",
             "verify_round15_migration.py",
+            "verify_round16_migration.py",
         ),
         default="verify_round11_migration.py",
     )
@@ -630,6 +621,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
             migration_verifier=migration_verifier,
         )
     except Exception:
+        if os.environ.get("SRBG_DEBUG_ISOLATED_SETUP") == "1":
+            raise
         print("Isolated integration setup failed; details redacted.", file=sys.stderr)
         return SETUP_FAILURE_EXIT_CODE
 

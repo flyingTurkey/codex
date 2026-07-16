@@ -1,4 +1,31 @@
 groups:
+  - name: srbg-round16
+    rules:
+      - alert: SourceFalseSuccess
+        expr: increase(srbg_source_slo_violations_total{dimension="discovery"}[15m]) > 0
+        for: 1m
+        labels: {severity: p1}
+        annotations: {summary: "HTTP success without usable discovery"}
+      - alert: SourceFreshnessSLOViolation
+        expr: increase(srbg_source_slo_violations_total{dimension="freshness"}[15m]) > 0
+        for: 5m
+        labels: {severity: p1}
+        annotations: {summary: "Source freshness exceeded its policy-constrained SLO"}
+      - alert: FetchQueueBacklog
+        expr: srbg_fetch_backlog_age_seconds > 900
+        for: 5m
+        labels: {severity: p1}
+        annotations: {summary: "PostgreSQL fetch backlog is stale"}
+      - alert: SafeReplayBlocked
+        expr: increase(srbg_replay_results_total{outcome=~"blocked|non_replayable"}[15m]) > 0
+        for: 1m
+        labels: {severity: p2}
+        annotations: {summary: "A replay could not be safely reconstructed"}
+      - alert: RetentionExecutionFailure
+        expr: increase(srbg_retention_results_total{outcome="failed"}[15m]) > 0
+        for: 1m
+        labels: {severity: p0}
+        annotations: {summary: "Evidence retention execution failed"}
   - name: srbg-slo
     rules:
       - alert: SourceCircuitOpen

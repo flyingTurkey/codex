@@ -645,6 +645,85 @@ class OperationsOverview(ContractModel):
     metrics: list[MetricSample]
 
 
+class FetchScheduleStatus(StrEnum):
+    ACTIVE = "ACTIVE"
+    PAUSED = "PAUSED"
+    RETIRED = "RETIRED"
+
+
+class CircuitState(StrEnum):
+    CLOSED = "CLOSED"
+    OPEN = "OPEN"
+    HALF_OPEN = "HALF_OPEN"
+
+
+class FetchScheduleUpdate(ContractModel):
+    status: FetchScheduleStatus
+    interval_seconds: int = Field(ge=60, le=2_592_000)
+    freshness_slo_seconds: int = Field(ge=300, le=31_536_000)
+    rate_limit_per_minute: int = Field(ge=1, le=600)
+    daily_request_budget: int = Field(ge=1, le=1_000_000)
+    daily_byte_budget: int = Field(ge=1, le=10_000_000_000_000)
+    expected_version: int = Field(ge=0)
+    reason: GovernanceReason
+
+
+class FetchScheduleView(ContractModel):
+    source_id: UUID
+    authority_level: str
+    status: FetchScheduleStatus
+    interval_seconds: int
+    next_run_at: datetime
+    circuit_state: CircuitState
+    circuit_open_until: datetime | None = None
+    consecutive_failures: int
+    freshness_slo_seconds: int
+    rate_limit_per_minute: int
+    daily_request_budget: int
+    daily_byte_budget: int
+    requests_used: int
+    bytes_used: int
+    version: int
+    updated_at: datetime
+
+
+class SourceAnomalyView(ContractModel):
+    id: UUID
+    source_id: UUID
+    code: str
+    severity: Literal["INFO", "WARNING", "CRITICAL"]
+    status: Literal["OPEN", "ACKNOWLEDGED", "RESOLVED"]
+    detected_at: datetime
+
+
+class SourceHealthView(ContractModel):
+    source_id: UUID
+    fetch_run_id: UUID
+    transport_status: str
+    discovery_status: str
+    parse_status: str
+    quality_status: str
+    freshness_status: str
+    rule_version: str
+    observed_at: datetime
+    anomalies: list[SourceAnomalyView] = Field(default_factory=list)
+
+
+class ReplayTaskView(ContractModel):
+    id: UUID
+    task_kind: str
+    error_code: str
+    priority: int = Field(ge=0, le=9)
+    reconstruction_status: Literal["REPLAYABLE", "NON_REPLAYABLE", "BLOCKED"]
+    blocked_reason: str | None = None
+    source_id: UUID | None = None
+    run_id: UUID | None = None
+    document_version_id: UUID | None = None
+    event_id: UUID | None = None
+    failed_at: datetime
+    replay_status: str | None = None
+
+
 class ReplayRequest(ContractModel):
     failed_task_id: UUID
     reason: str = Field(min_length=10, max_length=500)
@@ -656,7 +735,7 @@ class ReplayResult(ContractModel):
     failed_task_id: UUID
     task_kind: str
     priority: int = Field(ge=0, le=9)
-    status: Literal["QUEUED", "RUNNING", "SUCCEEDED", "FAILED"]
+    status: Literal["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "BLOCKED", "NON_REPLAYABLE"]
 
 
 class FeedbackRequest(ContractModel):
@@ -757,9 +836,7 @@ class SourceAccessPolicy(ContractModel):
     allowed_domains: list[str] = Field(min_length=1)
     requires_auth: bool
     rate_limit_per_minute: int = Field(ge=1, le=10000)
-    user_agent: str = Field(
-        min_length=1, max_length=300, pattern=r"^[^\x00-\x1f\x7f]+$"
-    )
+    user_agent: str = Field(min_length=1, max_length=300, pattern=r"^[^\x00-\x1f\x7f]+$")
 
 
 class SourcePolicyReviewSubmission(ContractModel):
@@ -781,9 +858,7 @@ class SourceFetchPolicy(ContractModel):
     allowed_domains: list[str] = Field(min_length=1, max_length=100)
     minimum_interval_seconds: int = Field(ge=1, le=604800)
     rate_limit_per_minute: int = Field(ge=1, le=10000)
-    user_agent: str = Field(
-        min_length=1, max_length=300, pattern=r"^[^\x00-\x1f\x7f]+$"
-    )
+    user_agent: str = Field(min_length=1, max_length=300, pattern=r"^[^\x00-\x1f\x7f]+$")
 
     @model_validator(mode="after")
     def validate_domains(self) -> "SourceFetchPolicy":
@@ -936,22 +1011,14 @@ class SourceTrialQualitySummary(ContractModel):
     @model_validator(mode="after")
     def validate_database_derived_ratio(self) -> "SourceTrialQualitySummary":
         if self.rejected_raw_attempt_count > self.security_failed_count:
-            raise ValueError(
-                "rejected raw attempts must be a subset of security failures"
-            )
-        document_security_failures = (
-            self.security_failed_count - self.rejected_raw_attempt_count
-        )
-        classified_count = (
-            self.ready_count + self.parse_failed_count + document_security_failures
-        )
+            raise ValueError("rejected raw attempts must be a subset of security failures")
+        document_security_failures = self.security_failed_count - self.rejected_raw_attempt_count
+        classified_count = self.ready_count + self.parse_failed_count + document_security_failures
         if classified_count > self.raw_count:
             raise ValueError("document outcome counts cannot exceed raw_count")
         expected_ratio = 0
         if self.raw_count:
-            expected_ratio = (
-                self.ready_count * 10000 + self.raw_count // 2
-            ) // self.raw_count
+            expected_ratio = (self.ready_count * 10000 + self.raw_count // 2) // self.raw_count
         if self.ready_ratio_bps != expected_ratio:
             raise ValueError(
                 "READY ratio must be the nearest basis-point ratio of READY "
