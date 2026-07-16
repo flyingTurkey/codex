@@ -418,9 +418,7 @@ async def test_excessive_dns_answer_count_is_rejected_before_transport() -> None
     transport = RecordingTransport([])
     client = ResilientHttpClient(
         _policy(),
-        resolver=SequenceResolver(
-            {"source.example.test": [("8.8.8.8",) * 17]}
-        ),
+        resolver=SequenceResolver({"source.example.test": [("8.8.8.8",) * 17]}),
         transport=transport,
         clock=FakeClock(),
     )
@@ -561,6 +559,92 @@ async def test_timeout_size_limit_user_agent_backoff_and_rate_limit_are_transpor
     assert all(call[3] == 64 for call in transport.calls)
     assert all(call[1]["User-Agent"] == "SRBG-Connector/2.0" for call in transport.calls)
     assert clock.sleeps == [0.25, 1.75]
+
+
+async def test_before_request_counts_every_physical_retry_and_redirect_hop() -> None:
+    transport = RecordingTransport(
+        [
+            HttpResponse(
+                status_code=302,
+                headers={"Location": "https://source.example.test/detail"},
+                peer_ip="8.8.8.8",
+            ),
+            HttpResponse(status_code=503, headers={}, peer_ip="8.8.8.8"),
+            HttpResponse(
+                status_code=302,
+                headers={"Location": "https://source.example.test/detail"},
+                peer_ip="8.8.8.8",
+            ),
+            HttpResponse(status_code=200, headers={}, content=b"ok", peer_ip="8.8.8.8"),
+        ]
+    )
+    physical_requests: list[str] = []
+    physical_responses: list[tuple[str, int]] = []
+
+    async def before_request(url: str) -> None:
+        physical_requests.append(url)
+
+    async def after_response(url: str, response_bytes: int) -> None:
+        physical_responses.append((url, response_bytes))
+
+    client = ResilientHttpClient(
+        _policy(),
+        resolver=SequenceResolver({"source.example.test": [("8.8.8.8",)]}),
+        transport=transport,
+        clock=FakeClock(),
+        before_request=before_request,
+        after_response=after_response,
+    )
+
+    result = await client.get(
+        "https://source.example.test/list",
+        checkpoint=SourceCheckpoint(),
+    )
+
+    assert result.content == b"ok"
+    assert physical_requests == [
+        "https://source.example.test/list",
+        "https://source.example.test/detail",
+        "https://source.example.test/list",
+        "https://source.example.test/detail",
+    ]
+    assert physical_responses == [
+        ("https://source.example.test/list", 0),
+        ("https://source.example.test/detail", 0),
+        ("https://source.example.test/list", 0),
+        ("https://source.example.test/detail", 2),
+    ]
+    assert len(transport.calls) == 4
+
+
+async def test_before_request_budget_rejection_happens_before_next_transport_call() -> None:
+    class BudgetExhausted(RuntimeError):
+        pass
+
+    transport = RecordingTransport([HttpResponse(status_code=503, headers={}, peer_ip="8.8.8.8")])
+    reservations: list[str] = []
+
+    async def before_request(url: str) -> None:
+        reservations.append(url)
+        if len(reservations) > 1:
+            raise BudgetExhausted
+
+    client = ResilientHttpClient(
+        _policy(),
+        resolver=SequenceResolver({"source.example.test": [("8.8.8.8",)]}),
+        transport=transport,
+        clock=FakeClock(),
+        before_request=before_request,
+    )
+
+    with pytest.raises(BudgetExhausted):
+        await client.get(
+            "https://source.example.test/list",
+            checkpoint=SourceCheckpoint(),
+        )
+
+    assert len(reservations) == 2
+    assert len(transport.calls) == 1
 
 
 async def test_retry_after_cannot_override_the_server_owned_backoff_ceiling() -> None:

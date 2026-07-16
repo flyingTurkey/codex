@@ -51,6 +51,9 @@ from srbg_api.document_vault.service import (
 )
 from srbg_api.identifiers import uuid7
 
+ROUND17_TWO_PERSON_GOVERNANCE_SCHEME = "R17_TWO_PERSON_MAKER_CHECKER_V1"
+LEGACY_GOVERNANCE_SCHEME = "FOUR_PERSON_SEPARATION_V1"
+
 
 class SourceNotFound(LookupError):
     pass
@@ -58,6 +61,24 @@ class SourceNotFound(LookupError):
 
 class RepositoryConflict(RuntimeError):
     pass
+
+
+def _governance_separation_actor_ids(
+    *,
+    scheme: str,
+    maker_actor_ids: frozenset[UUID],
+    prior_approver_actor_ids: frozenset[UUID],
+) -> frozenset[UUID]:
+    """Return actors forbidden from the next approval.
+
+    The bounded R17 cohort permits one independent checker to perform separate
+    approval actions.  It never permits a maker to approve.  Unknown schemes
+    deliberately inherit the stricter legacy rule.
+    """
+
+    if scheme == ROUND17_TWO_PERSON_GOVERNANCE_SCHEME:
+        return maker_actor_ids
+    return maker_actor_ids | prior_approver_actor_ids
 
 
 @dataclass(frozen=True, slots=True)
@@ -298,8 +319,37 @@ class SourceVaultRepository:
                               ) AS production_approval_current,
                               s.registered_by, p.submitted_by AS policy_submitter,
                               c.created_by AS config_submitter,
-                              r.requested_by AS trial_requester
+                              r.requested_by AS trial_requester,
+                              COALESCE(
+                                assignment.scheme, :legacy_governance_scheme
+                              ) AS governance_scheme,
+                              (
+                                SELECT d.decided_by
+                                  FROM source_governance_decision d
+                                 WHERE d.source_id=s.id
+                                   AND d.policy_version_id=s.current_policy_version_id
+                                   AND d.decision_type='COMPLIANCE'
+                                 ORDER BY d.created_at DESC,d.id DESC LIMIT 1
+                              ) AS compliance_approver,
+                              (
+                                SELECT d.decided_by
+                                  FROM source_governance_decision d
+                                 WHERE d.id=r.authorization_decision_id
+                                   AND d.source_id=s.id
+                                   AND d.decision_type='LIVE_TRIAL_AUTHORIZATION'
+                              ) AS trial_authorizer,
+                              ARRAY(
+                                SELECT DISTINCT audit.actor_id
+                                  FROM fetch_schedule schedule
+                                  JOIN audit_log audit
+                                    ON audit.target_type='fetch_schedule'
+                                   AND audit.target_id=schedule.id
+                                   AND audit.event_type='FETCH_SCHEDULE_UPDATED'
+                                 WHERE schedule.source_id=s.id
+                              ) AS schedule_maker_ids
                             FROM source s
+                            LEFT JOIN source_governance_scheme_assignment assignment
+                              ON assignment.source_id=s.id
                             LEFT JOIN source_policy_version p
                               ON p.id = s.current_policy_version_id AND p.source_id = s.id
                             LEFT JOIN connector_config_version c
@@ -313,7 +363,11 @@ class SourceVaultRepository:
                             WHERE s.id = :source_id
                             """
                         ),
-                        {"source_id": source_id, "now": now},
+                        {
+                            "source_id": source_id,
+                            "now": now,
+                            "legacy_governance_scheme": LEGACY_GOVERNANCE_SCHEME,
+                        },
                     )
                 )
                 .mappings()
@@ -321,15 +375,30 @@ class SourceVaultRepository:
             )
         if row is None:
             raise SourceNotFound("source does not exist")
-        actors = frozenset(
+        schedule_makers = row["schedule_maker_ids"]
+        maker_actors = frozenset(
             value
             for value in (
                 row["registered_by"],
                 row["policy_submitter"],
                 row["config_submitter"],
                 row["trial_requester"],
+                *(schedule_makers if isinstance(schedule_makers, list | tuple) else ()),
             )
             if isinstance(value, UUID)
+        )
+        prior_approvers = frozenset(
+            value
+            for value in (
+                row["compliance_approver"],
+                row["trial_authorizer"],
+            )
+            if isinstance(value, UUID)
+        )
+        actors = _governance_separation_actor_ids(
+            scheme=str(row["governance_scheme"]),
+            maker_actor_ids=maker_actors,
+            prior_approver_actor_ids=prior_approvers,
         )
         return LifecycleFacts(
             policy_valid=bool(row["policy_valid"]),
@@ -346,6 +415,74 @@ class SourceVaultRepository:
             separation_actor_ids=actors,
             current_trial_pending=bool(row["current_trial_pending"]),
         )
+
+    async def assign_round17_governance_scheme(
+        self,
+        source_id: UUID,
+        *,
+        cohort_key: str,
+        actor_id: UUID,
+        reason: str,
+        request_id: str,
+        now: datetime,
+    ) -> None:
+        assignment_id, audit_id = uuid7(), uuid7()
+        async with self._engine.begin() as connection:
+            await connection.execute(
+                text(
+                    """
+                    SELECT assign_round17_two_person_governance(
+                      :assignment_id,:source_id,:cohort_key,:actor_id,
+                      :reason,:request_id,:audit_id,:now
+                    )
+                    """
+                ),
+                {
+                    "assignment_id": assignment_id,
+                    "source_id": source_id,
+                    "cohort_key": cohort_key,
+                    "actor_id": actor_id,
+                    "reason": reason,
+                    "request_id": request_id,
+                    "audit_id": audit_id,
+                    "now": now,
+                },
+            )
+
+    async def round17_source_approver_binding_matches(
+        self,
+        *,
+        actor_id: UUID,
+        display_name: str,
+        oidc_issuer_sha256: str,
+        oidc_subject_sha256: str,
+    ) -> bool:
+        async with self._engine.connect() as connection:
+            matched = (
+                await connection.execute(
+                    text(
+                        """
+                        SELECT EXISTS (
+                          SELECT 1
+                            FROM round17_staff_binding
+                           WHERE actor_id=:actor_id
+                             AND display_name=:display_name
+                             AND responsibility='SOURCE_APPROVER'
+                             AND local_identity=false
+                             AND oidc_issuer_sha256=:oidc_issuer_sha256
+                             AND oidc_subject_sha256=:oidc_subject_sha256
+                        )
+                        """
+                    ),
+                    {
+                        "actor_id": actor_id,
+                        "display_name": display_name,
+                        "oidc_issuer_sha256": oidc_issuer_sha256,
+                        "oidc_subject_sha256": oidc_subject_sha256,
+                    },
+                )
+            ).scalar_one()
+        return bool(matched)
 
     async def submit_policy_version(
         self,

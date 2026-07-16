@@ -23,6 +23,7 @@ def test_oidc_token_requires_approved_audience_issuer_roles_and_uuid7() -> None:
             'exp': now + timedelta(minutes=5),
             'nbf': now - timedelta(seconds=1),
             'iat': now,
+            'sub': 'leo-subject',
             'srbg_user_id': str(user_id),
             'name': '内测用户',
             'roles': ['viewer', 'platform_admin'],
@@ -41,6 +42,8 @@ def test_oidc_token_requires_approved_audience_issuer_roles_and_uuid7() -> None:
     assert principal.user_id == user_id
     assert principal.roles == frozenset({UserRole.VIEWER, UserRole.PLATFORM_ADMIN})
     assert principal.local_identity is False
+    assert principal.oidc_issuer == 'https://id.example.test'
+    assert principal.oidc_subject == 'leo-subject'
 
 
 @pytest.mark.parametrize(

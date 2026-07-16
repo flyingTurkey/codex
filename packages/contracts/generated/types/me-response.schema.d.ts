@@ -1,6 +1,14 @@
 export type DisplayName = string
 export type LocalIdentity = boolean
-export type UserRole = 'viewer' | 'editor' | 'reviewer' | 'source_admin' | 'platform_admin' | 'auditor'
+export type UserRole =
+  | 'viewer'
+  | 'editor'
+  | 'reviewer'
+  | 'source_admin'
+  | 'platform_admin'
+  | 'auditor'
+  | 'gold_annotator'
+  | 'gold_arbitrator'
 export type Roles = UserRole[]
 export type UserId = string
 

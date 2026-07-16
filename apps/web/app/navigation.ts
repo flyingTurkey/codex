@@ -47,11 +47,15 @@ export const adminNavigation = [
   { id: 'source-coverage', label: '覆盖缺口', to: '/admin/sources/coverage', icon: 'Reports' },
   { id: 'review', label: '审核工作台', to: '/admin/review', icon: 'ShieldCheck' },
   { id: 'clusters', label: '聚类工作台', to: '/admin/clusters', icon: 'List' },
+  { id: 'pilot', label: 'R17观察门禁', to: '/admin/pilot', icon: 'Reports' },
+  { id: 'gold', label: '金标工作台', to: '/admin/gold', icon: 'ShieldCheck' },
 ] as const satisfies readonly AppNavigationItem[]
 
 type NavigationRole
   = | 'auditor'
     | 'editor'
+    | 'gold_annotator'
+    | 'gold_arbitrator'
     | 'platform_admin'
     | 'reviewer'
     | 'source_admin'
@@ -65,6 +69,8 @@ const adminNavigationRoles: Readonly<Record<(typeof adminNavigation)[number]['id
   'source-coverage': ['source_admin', 'platform_admin', 'auditor'],
   'source-health': ['platform_admin', 'auditor'],
   sources: ['source_admin', 'platform_admin', 'auditor'],
+  pilot: ['source_admin', 'platform_admin', 'auditor', 'gold_arbitrator'],
+  gold: ['gold_annotator', 'gold_arbitrator', 'auditor'],
 }
 
 export function adminNavigationForRoles(roles: readonly string[]): readonly AppNavigationItem[] {

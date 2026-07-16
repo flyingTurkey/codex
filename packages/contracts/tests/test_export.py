@@ -43,6 +43,14 @@ def test_exported_json_schemas_are_deterministic(tmp_path: Path) -> None:
         "feed-page.schema.json",
         "fingerprint-response.schema.json",
         "feedback-request.schema.json",
+        "gold-annotation-request.schema.json",
+        "gold-annotation-view.schema.json",
+        "gold-arbitration-packet.schema.json",
+        "gold-arbitration-request.schema.json",
+        "gold-release-request.schema.json",
+        "gold-release-view.schema.json",
+        "gold-task-create-request.schema.json",
+        "gold-task-view.schema.json",
         "fetch-schedule-update.schema.json",
         "fetch-schedule-view.schema.json",
         "hot-topic-page.schema.json",
@@ -53,11 +61,24 @@ def test_exported_json_schemas_are_deterministic(tmp_path: Path) -> None:
         "me-response.schema.json",
         "metric-sample.schema.json",
         "operations-overview.schema.json",
+        "operator-task-complete-request.schema.json",
+        "operator-task-create-request.schema.json",
+        "operator-task-view.schema.json",
+        "operator-work-session-correction-request.schema.json",
+        "operator-work-session-heartbeat-request.schema.json",
+        "operator-work-session-start.schema.json",
+        "operator-work-session-stop-request.schema.json",
+        "operator-work-session-view.schema.json",
         "paper-detail.schema.json",
         "product-normalization-candidate.schema.json",
         "product-normalization-decision-request.schema.json",
         "problem-details.schema.json",
-        "pilot-metrics.schema.json",
+            "pilot-metrics.schema.json",
+            "pilot-source-resume-request.schema.json",
+            "pilot-window-complete-request.schema.json",
+            "pilot-window-create-request.schema.json",
+        "pilot-window-start-request.schema.json",
+        "pilot-window-view.schema.json",
         "publication-revision-request.schema.json",
         "publication-withdrawal-request.schema.json",
         "published-event-summary-v1.schema.json",
@@ -138,6 +159,10 @@ def test_generated_types_expose_health_and_version_contracts() -> None:
     assert "export type { ScoreSummary }" in generated_types
     assert "export type { HotTopicPage }" in generated_types
     assert "export type { ClaimConflict }" in generated_types
+    assert "export type { PilotWindowView }" in generated_types
+    assert "export type { GoldTaskView }" in generated_types
+    assert "export type { OperatorWorkSessionView }" in generated_types
+    assert "export type { OperatorTaskView }" in generated_types
     assert "export type { ClaimConflictDecisionRequest }" in generated_types
     assert "export type { ReadinessResponse }" in generated_types
     assert "export type { VersionResponse }" in generated_types

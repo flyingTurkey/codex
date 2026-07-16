@@ -2,7 +2,16 @@
 
 四川路桥内部使用的行业数智与安全情报平台。仓库已形成 Round 00—13 的工程切片，覆盖来源与原始文档、证据化内容处理、统一信息流、搜索/日报/收藏、质量运维安全门禁，以及 Event-keyed 内部发布投影的安全影子基线。各项能力的真实联网和生产等级仍须按验收证据判断，不能由本说明直接推定。
 
-当前第 16 轮工程切片以 PostgreSQL 作为来源计划、运行、租约、退避、熔断、预算和重放的唯一业务事实；Celery Beat 只唤醒数据库调度器，任务消息只含 `source_id/run_id`。运维后台可管理动态计划、查看假成功与分层健康、审核安全重放。本轮没有激活真实来源，也不将隔离 Fixture/故障注入结果冒充生产连续运行证据。第 11 轮生产证据状态仍为 `BLOCKED`。
+当前第17轮已完成20来源试运行和第一阶段人工金标的工程准备门禁，但真实试运行仍为 `BLOCKED`：候选20来源、候选阈值和168小时窗口均未获 LEO 最终确认，三名人员的受信任 OIDC 绑定、逐源合规审批、来源事件化配置、真人金标和真实证据导出也不存在。仓库没有激活来源、抓取真实内容或用 Fixture/重放冒充连续观察；AI观察、付费模型、语义搜索和外部通知保持关闭。
+
+## 第17轮真实试运行准备
+
+- `phase2-round17-test` 只执行确定性契约、Fixture、故障、安全、Event/投影边界和发布路径测试；不会实时抓网。
+- `phase2-round17-eval` 只读取外部签名的真实窗口 evidence 和真人金标；缺审批、身份、168小时窗口、20源逐源状态或金标时必须非零 `BLOCKED`。
+- 真实运行只允许 PostgreSQL 权威 ACTIVE 来源，逐次物理请求在 I/O 前执行域名、租约和预算校验；重试/重定向计入频率，回放固定为无网络 `FIXTURE + REPLAY`。
+- R17 运行时目前只到 raw-first Document。来源特定的 accepted Claim/Evidence→Event→PublicationService 配置不能在来源/DOM 未批准时编造；T0 必须由数据库权威事件化准备事实逐源放行。
+
+完整的逐源诚实状态、工程命令和外部阻断见[第17轮验收记录](docs/acceptance/phase-2/round-17-20-source-pilot.md)。
 
 ## 第 16 轮数据库权威调度
 
@@ -108,6 +117,8 @@ make quality-gate
 make phase2-round13-test
 make phase2-round14-test
 make phase2-round16-test
+make phase2-round17-test
+make phase2-round17-eval
 make web-e2e
 make web-a11y
 ```
@@ -136,6 +147,7 @@ make resilience-test
 - 第 11 轮工程与生产证据状态：[Round 11 验收记录](docs/acceptance/round-11-quality-operations-security.md)
 - 第 13 轮内部发布投影与 Event 身份：[Round 13 验收记录](docs/acceptance/phase-2/round-13-internal-projection-event-identity.md)
 - 第 14 轮 Event 统一身份与 Item 兼容迁移：[Round 14 验收记录](docs/acceptance/phase-2/round-14-event-unification.md)
+- 第17轮20来源真实试运行准备与阻断：[Round 17 验收记录](docs/acceptance/phase-2/round-17-20-source-pilot.md)
 - 二阶段产品与架构基线：[二阶段实施总规范](docs/codex-kit/docs/phase-2/SRBG-Phase-2-Optimization-Codex-Spec.md)
 - 二阶段执行顺序：[11F、11P 及第 12—21 轮指令](docs/codex-kit/docs/phase-2/SRBG-Phase-2-Rounds-11F-21-Codex-Commands.md)
 - 初始工程证据：[Round 00 验收记录](docs/acceptance/round-00-foundation.md)

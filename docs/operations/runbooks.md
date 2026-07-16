@@ -37,3 +37,35 @@
 - `object_storage_unavailable`: retain the database run with bounded backoff, open the circuit when retries are exhausted, and create no document version without durable raw evidence.
 - `retention_mistake`: stop retention workers, preserve hashes and metadata, restore only from an approved private backup, reconcile through PublicationService, and audit the recovery.
 - `safe_replay`: require platform-admin authorization, reason and idempotency key; re-read current policy and authoritative references, otherwise mark `NON_REPLAYABLE` or `BLOCKED`.
+
+# Round 17 real-pilot observation
+
+- `round17_preflight`: keep `SRBG_ROUND17_LEO_APPROVER_ACTOR_ID`, baseline commit,
+  config version and exact 20-code roster unset until the corresponding external approvals exist.
+  The LEO actor value must be the approved non-local OIDC UUIDv7; a matching display name or role
+  alone is insufficient. Window lifecycle, gold arbitration/release and operator-time correction
+  all fail closed when that actor attestation is missing or different.
+- `round17_source_pause`: keep the affected source segment `PAUSED`, retain its immutable
+  policy/config/schedule pins, and verify the other nineteen source segments remain scheduled.
+  yinzi records only the source ID, bounded reason code, versions and elapsed work category. A
+  connector, DOM, policy, schedule or approval change requires a new version and separately
+  reported observation segment; never edit the running segment or silently fill the gap. Replay
+  is diagnostic only and cannot enter the real-window numerator.
+- `round17_evidence_contamination`: immediately stop acceptance evaluation when
+  `srbg_round17_contaminated_runs` is non-zero. Identify the run by PostgreSQL IDs, remove it from
+  the immutable evidence export, and prove its `run_origin`/`execution_domain` classification.
+  Do not delete raw facts or relabel Fixture, replay, backfill, drill or TEST runs as scheduled real
+  responses. Resume evaluation only after an independent query shows zero linked contamination.
+- `round17_operator_timer`: a timer must reference the active UUIDv7 window and the controlled
+  OIDC identity bound as `SOURCE_OPERATOR`. The UI heartbeats every 60 seconds; the server counts
+  no more than 15 minutes between heartbeats and never records notes, URLs or content. For a stale
+  timer, stop it, use one bounded correction reason code if needed, retain the correction audit,
+  and report source maintenance, exception handling, R3 review and copyright/correction
+  separately.
+- `round17_fault_drill`: use only an approved source pause or an isolated TEST transport/DNS/
+  object-store fault. Record approval, T0/T1, alert, pause, replay, recovery and yinzi's actual
+  handling time. Never degrade, flood or alter a real external source to manufacture the drill.
+
+Round 17 cannot be marked complete until LEO has confirmed the exact roster, metric/gold
+definitions and immutable 168-hour window, all twenty sources have honest evidence or explicit
+no-update health, and the offline eval passes. Missing external facts remain `BLOCKED`.

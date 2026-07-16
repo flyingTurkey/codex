@@ -42,6 +42,8 @@ def test_user_roles_include_auditor_and_required_operational_roles() -> None:
         "source_admin",
         "platform_admin",
         "auditor",
+        "gold_annotator",
+        "gold_arbitrator",
     }
 
 

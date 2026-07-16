@@ -1,0 +1,302 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srbg.example/schemas/round17_gold.schema.json",
+  "title": "Round 17 phase-one human gold manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "version",
+    "roster_version",
+    "metrics_definition_version",
+    "gold_release_id",
+    "db_manifest_sha256",
+    "release_audit_ref",
+    "actors",
+    "released_by_subject",
+    "released_at",
+    "documents",
+    "duplicate_pairs",
+    "event_clusters",
+    "claim_evidence_annotations",
+    "search_questions",
+    "agreement_statistics",
+    "manifest_sha256"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "version": {"const": "phase2-round17-gold-v1.0.0"},
+    "roster_version": {"const": "r17-sources-v0.1"},
+    "metrics_definition_version": {"const": "phase2-round17-metrics-v1.0.0"},
+    "gold_release_id": {"type": "string", "format": "uuid"},
+    "db_manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "release_audit_ref": {"$ref": "#/$defs/ref"},
+    "actors": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["LEO", "yinzi", "baixuejiao"],
+      "properties": {
+        "LEO": {"$ref": "#/$defs/actor"},
+        "yinzi": {"$ref": "#/$defs/actor"},
+        "baixuejiao": {"$ref": "#/$defs/actor"}
+      }
+    },
+    "released_by_subject": {"type": "string", "format": "uuid"},
+    "released_at": {"type": "string", "format": "date-time"},
+    "documents": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/document_record"}
+    },
+    "duplicate_pairs": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/duplicate_pair_record"}
+    },
+    "event_clusters": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/event_cluster_record"}
+    },
+    "claim_evidence_annotations": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/claim_evidence_record"}
+    },
+    "search_questions": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/search_question_record"}
+    },
+    "agreement_statistics": {"$ref": "#/$defs/agreement_statistics"},
+    "manifest_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uri", "sha256"],
+      "properties": {
+        "uri": {"type": "string", "minLength": 1, "maxLength": 512},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["display_name", "subject", "issuer", "identity_provider", "is_local", "roles"],
+      "properties": {
+        "display_name": {"enum": ["LEO", "yinzi", "baixuejiao"]},
+        "subject": {"type": "string", "format": "uuid"},
+        "issuer": {"type": "string", "format": "uri", "maxLength": 512},
+        "identity_provider": {"const": "OIDC"},
+        "is_local": {"const": false},
+        "roles": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 64}
+        }
+      }
+    },
+    "label": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["annotator_subject", "label_code", "label_sha256", "annotated_at"],
+      "properties": {
+        "annotator_subject": {"type": "string", "format": "uuid"},
+        "label_code": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,79}$"},
+        "label_sha256": {"$ref": "#/$defs/sha256"},
+        "annotated_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "secondary_label": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "annotator_subject",
+        "label_code",
+        "label_sha256",
+        "annotated_at",
+        "blinded"
+      ],
+      "properties": {
+        "annotator_subject": {"type": "string", "format": "uuid"},
+        "label_code": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,79}$"},
+        "label_sha256": {"$ref": "#/$defs/sha256"},
+        "annotated_at": {"type": "string", "format": "date-time"},
+        "blinded": {"const": true}
+      }
+    },
+    "arbitration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "arbitrator_subject",
+        "resolved_label_code",
+        "resolved_label_sha256",
+        "arbitrated_at"
+      ],
+      "properties": {
+        "arbitrator_subject": {"type": "string", "format": "uuid"},
+        "resolved_label_code": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,79}$"},
+        "resolved_label_sha256": {"$ref": "#/$defs/sha256"},
+        "arbitrated_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "annotation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primary", "secondary", "arbitration"],
+      "properties": {
+        "primary": {"$ref": "#/$defs/label"},
+        "secondary": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/secondary_label"}
+          ]
+        },
+        "arbitration": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/arbitration"}
+          ]
+        }
+      }
+    },
+    "common_record": {
+      "type": "object",
+      "required": [
+        "id",
+        "sample_kind",
+        "source_key",
+        "domain",
+        "key_safety",
+        "content_sha256",
+        "authorization_ref",
+        "gold_release_id",
+        "annotation",
+        "created_at"
+      ],
+      "properties": {
+        "id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "sample_kind": {
+          "enum": [
+            "DOCUMENT",
+            "DUPLICATE_PAIR",
+            "EVENT_CLUSTER",
+            "CLAIM_EVIDENCE",
+            "SEARCH_QUESTION"
+          ]
+        },
+        "source_key": {"type": "string", "pattern": "^[A-Z]{3}-[0-9]{3}$"},
+        "domain": {"enum": ["DIGITAL", "SAFETY"]},
+        "key_safety": {"type": "boolean"},
+        "content_sha256": {"$ref": "#/$defs/sha256"},
+        "authorization_ref": {"$ref": "#/$defs/ref"},
+        "gold_release_id": {"type": "string", "format": "uuid"},
+        "annotation": {"$ref": "#/$defs/annotation"},
+        "created_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "document_record": {
+      "unevaluatedProperties": false,
+      "allOf": [
+        {"$ref": "#/$defs/common_record"},
+        {
+          "type": "object",
+          "required": ["document_id"],
+          "properties": {
+            "sample_kind": {"const": "DOCUMENT"},
+            "document_id": {"type": "string", "format": "uuid"}
+          }
+        }
+      ]
+    },
+    "duplicate_pair_record": {
+      "unevaluatedProperties": false,
+      "allOf": [
+        {"$ref": "#/$defs/common_record"},
+        {
+          "type": "object",
+          "required": ["left_document_id", "right_document_id", "relationship_code"],
+          "properties": {
+            "sample_kind": {"const": "DUPLICATE_PAIR"},
+            "left_document_id": {"type": "string", "format": "uuid"},
+            "right_document_id": {"type": "string", "format": "uuid"},
+            "relationship_code": {"enum": ["SAME_EVENT", "DIFFERENT_EVENT", "FOLLOW_UP"]}
+          }
+        }
+      ]
+    },
+    "event_cluster_record": {
+      "unevaluatedProperties": false,
+      "allOf": [
+        {"$ref": "#/$defs/common_record"},
+        {
+          "type": "object",
+          "required": ["member_document_ids", "high_value"],
+          "properties": {
+            "sample_kind": {"const": "EVENT_CLUSTER"},
+            "member_document_ids": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {"type": "string", "format": "uuid"}
+            },
+            "high_value": {"const": true}
+          }
+        }
+      ]
+    },
+    "claim_evidence_record": {
+      "unevaluatedProperties": false,
+      "allOf": [
+        {"$ref": "#/$defs/common_record"},
+        {
+          "type": "object",
+          "required": ["claim_id", "evidence_id", "fact_kind"],
+          "properties": {
+            "sample_kind": {"const": "CLAIM_EVIDENCE"},
+            "claim_id": {"type": "string", "format": "uuid"},
+            "evidence_id": {"type": "string", "format": "uuid"},
+            "fact_kind": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,79}$"}
+          }
+        }
+      ]
+    },
+    "search_question_record": {
+      "unevaluatedProperties": false,
+      "allOf": [
+        {"$ref": "#/$defs/common_record"},
+        {
+          "type": "object",
+          "required": ["question_id", "expected_event_cluster_ids"],
+          "properties": {
+            "sample_kind": {"const": "SEARCH_QUESTION"},
+            "question_id": {"type": "string", "format": "uuid"},
+            "expected_event_cluster_ids": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {"type": "string", "minLength": 1, "maxLength": 128}
+            }
+          }
+        }
+      ]
+    },
+    "agreement_statistics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key_safety_count",
+        "raw_agreement",
+        "coefficient_name",
+        "coefficient",
+        "evidence_ref"
+      ],
+      "properties": {
+        "key_safety_count": {"type": "integer", "minimum": 0},
+        "raw_agreement": {"type": "number", "minimum": 0, "maximum": 1},
+        "coefficient_name": {"enum": ["COHEN_KAPPA", "GWET_AC1"]},
+        "coefficient": {"type": "number", "minimum": -1, "maximum": 1},
+        "evidence_ref": {"$ref": "#/$defs/ref"}
+      }
+    }
+  }
+}

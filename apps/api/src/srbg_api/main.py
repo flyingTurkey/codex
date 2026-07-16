@@ -57,6 +57,7 @@ from srbg_api.observability import (
     render_metrics,
     set_internal_projection_metrics,
     set_operations_metrics,
+    set_round17_metrics,
 )
 from srbg_api.operations.api import OperationsService
 from srbg_api.operations.api import router as operations_router
@@ -507,6 +508,8 @@ def create_app(
         if operations is not None:
             overview = await operations.overview()
             set_operations_metrics(overview.metrics)
+            if hasattr(operations, "round17_observability"):
+                set_round17_metrics(await operations.round17_observability())
         publication = app.state.publication_service
         if publication is not None and hasattr(publication, "internal_projection_metrics"):
             projection_metrics = await publication.internal_projection_metrics()
@@ -593,6 +596,27 @@ def build_default_app() -> FastAPI:
         operations_service=PostgresOperationsService(
             create_database_engine(settings),
             projection_engine=create_projection_reader_engine(settings),
+            environment=settings.environment,
+            ai_enabled=False,
+            semantic_search_enabled=settings.semantic_search_enabled,
+            external_notifications_enabled=False,
+            round17_baseline_commit_attestation=(
+                settings.round17_baseline_commit_attestation
+            ),
+            round17_config_version_attestation=(
+                settings.round17_config_version_attestation
+            ),
+            round17_roster_source_codes=settings.round17_roster_source_codes,
+            round17_source_schedule_attestations=(
+                settings.round17_source_schedule_attestations
+            ),
+            round17_leo_approver_actor_id=settings.round17_leo_approver_actor_id,
+            round17_eventization_trusted_public_key_base64=(
+                settings.round17_eventization_trusted_public_key_base64
+            ),
+            round17_eventization_trusted_public_key_sha256=(
+                settings.round17_eventization_trusted_public_key_sha256
+            ),
         ),
     )
 

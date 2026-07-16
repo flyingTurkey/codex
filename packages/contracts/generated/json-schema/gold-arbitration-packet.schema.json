@@ -1,0 +1,163 @@
+{
+  "$defs": {
+    "Channel": {
+      "enum": [
+        "DIGITAL",
+        "SAFETY"
+      ],
+      "title": "Channel",
+      "type": "string"
+    },
+    "GoldArbitrationOption": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "decision_code": {
+          "title": "Decision Code",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "label_value": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label Value"
+        },
+        "related_sample_refs": {
+          "items": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Related Sample Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "annotation_id",
+        "decision_code"
+      ],
+      "title": "GoldArbitrationOption",
+      "type": "object"
+    },
+    "GoldSampleKind": {
+      "enum": [
+        "DOCUMENT",
+        "PAIR",
+        "EVENT",
+        "CLAIM_EVIDENCE",
+        "SEARCH_QUESTION"
+      ],
+      "title": "GoldSampleKind",
+      "type": "string"
+    },
+    "GoldTaskView": {
+      "additionalProperties": false,
+      "properties": {
+        "assigned_at": {
+          "format": "date-time",
+          "title": "Assigned At",
+          "type": "string"
+        },
+        "critical_safety": {
+          "title": "Critical Safety",
+          "type": "boolean"
+        },
+        "domain": {
+          "$ref": "#/$defs/Channel"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "production_decision_id": {
+          "format": "uuid",
+          "title": "Production Decision Id",
+          "type": "string"
+        },
+        "sample_kind": {
+          "$ref": "#/$defs/GoldSampleKind"
+        },
+        "sample_ref": {
+          "title": "Sample Ref",
+          "type": "string"
+        },
+        "secondary_review_required": {
+          "title": "Secondary Review Required",
+          "type": "boolean"
+        },
+        "source_code": {
+          "title": "Source Code",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "ASSIGNED",
+            "SUBMITTED",
+            "DISAGREEMENT",
+            "ARBITRATED",
+            "FROZEN"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "sample_kind",
+        "sample_ref",
+        "source_code",
+        "domain",
+        "production_decision_id",
+        "critical_safety",
+        "secondary_review_required",
+        "status",
+        "assigned_at"
+      ],
+      "title": "GoldTaskView",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "options": {
+      "items": {
+        "$ref": "#/$defs/GoldArbitrationOption"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "title": "Options",
+      "type": "array"
+    },
+    "task": {
+      "$ref": "#/$defs/GoldTaskView"
+    }
+  },
+  "required": [
+    "task",
+    "options"
+  ],
+  "title": "GoldArbitrationPacket",
+  "type": "object"
+}

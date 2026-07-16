@@ -1,0 +1,128 @@
+{
+  "$defs": {
+    "PilotWindowState": {
+      "enum": [
+        "PREPARING",
+        "READY",
+        "RUNNING",
+        "COMPLETED",
+        "BLOCKED"
+      ],
+      "title": "PilotWindowState",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "baseline_commit": {
+      "pattern": "^[0-9a-f]{40}$",
+      "title": "Baseline Commit",
+      "type": "string"
+    },
+    "blocker_codes": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Blocker Codes",
+      "type": "array"
+    },
+    "config_version": {
+      "title": "Config Version",
+      "type": "string"
+    },
+    "database_revision": {
+      "title": "Database Revision",
+      "type": "string"
+    },
+    "duration_hours": {
+      "const": 168,
+      "title": "Duration Hours",
+      "type": "integer"
+    },
+    "ends_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ends At"
+    },
+    "environment": {
+      "const": "PREPRODUCTION",
+      "title": "Environment",
+      "type": "string"
+    },
+    "gold_definition_version": {
+      "title": "Gold Definition Version",
+      "type": "string"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "metric_definition_version": {
+      "title": "Metric Definition Version",
+      "type": "string"
+    },
+    "prepared_at": {
+      "format": "date-time",
+      "title": "Prepared At",
+      "type": "string"
+    },
+    "roster_version": {
+      "title": "Roster Version",
+      "type": "string"
+    },
+    "source_count": {
+      "maximum": 20,
+      "minimum": 0,
+      "title": "Source Count",
+      "type": "integer"
+    },
+    "started_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Started At"
+    },
+    "state": {
+      "$ref": "#/$defs/PilotWindowState"
+    },
+    "version": {
+      "minimum": 1,
+      "title": "Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "id",
+    "roster_version",
+    "metric_definition_version",
+    "gold_definition_version",
+    "baseline_commit",
+    "config_version",
+    "database_revision",
+    "environment",
+    "duration_hours",
+    "source_count",
+    "state",
+    "version",
+    "prepared_at"
+  ],
+  "title": "PilotWindowView",
+  "type": "object"
+}

@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from base64 import b64decode
+from binascii import Error as BinasciiError
 from datetime import UTC, datetime
 from functools import lru_cache
+from hashlib import sha256
+from uuid import UUID
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, StrictInt, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -60,6 +64,15 @@ class Settings(BaseSettings):
     oidc_step_up_max_age_seconds: int = Field(default=900, ge=60, le=3600)
     cors_allowed_origins: list[str] = Field(default_factory=list)
     alert_webhook_url: SecretStr | None = None
+    round17_baseline_commit_attestation: str | None = None
+    round17_config_version_attestation: str | None = None
+    round17_roster_source_codes: list[str] | None = None
+    round17_source_schedule_attestations: dict[
+        str, tuple[StrictInt, StrictInt]
+    ] | None = None
+    round17_leo_approver_actor_id: UUID | None = None
+    round17_eventization_trusted_public_key_base64: str | None = None
+    round17_eventization_trusted_public_key_sha256: str | None = None
     backup_s3_endpoint_url: str | None = None
     backup_s3_bucket: str | None = None
     backup_s3_access_key: str | None = None
@@ -69,6 +82,66 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def reject_demo_cursor_key_in_production(self) -> Settings:
+        eventization_key_values = (
+            self.round17_eventization_trusted_public_key_base64,
+            self.round17_eventization_trusted_public_key_sha256,
+        )
+        if any(value is not None for value in eventization_key_values):
+            if any(value is None for value in eventization_key_values):
+                raise ValueError(
+                    "Round 17 eventization trust key and fingerprint must be configured together"
+                )
+            try:
+                public_key = b64decode(
+                    str(self.round17_eventization_trusted_public_key_base64),
+                    validate=True,
+                )
+            except (BinasciiError, ValueError) as error:
+                raise ValueError("Round 17 eventization trust key is not valid base64") from error
+            if len(public_key) != 32 or sha256(public_key).hexdigest() != str(
+                self.round17_eventization_trusted_public_key_sha256
+            ):
+                raise ValueError("Round 17 eventization trust key fingerprint mismatch")
+        if (
+            self.round17_leo_approver_actor_id is not None
+            and self.round17_leo_approver_actor_id.version != 7
+        ):
+            raise ValueError("Round 17 LEO actor must be UUIDv7")
+        schedule_attestations = self.round17_source_schedule_attestations
+        if schedule_attestations is not None:
+            if len(schedule_attestations) != 20:
+                raise ValueError(
+                    "Round 17 schedule attestation requires exactly 20 source schedules"
+                )
+            if any(not code or code.strip() != code for code in schedule_attestations):
+                raise ValueError("Round 17 schedule attestation source codes are invalid")
+            for interval_seconds, freshness_slo_seconds in schedule_attestations.values():
+                if not 60 <= interval_seconds <= 604_800:
+                    raise ValueError(
+                        "Round 17 schedule interval seconds must be between 60 and 604800"
+                    )
+                if interval_seconds % 60:
+                    raise ValueError(
+                        "Round 17 schedule interval seconds must be whole minutes"
+                    )
+                if not 60 <= freshness_slo_seconds <= 604_800:
+                    raise ValueError(
+                        "Round 17 schedule SLO seconds must be between 60 and 604800"
+                    )
+                if freshness_slo_seconds % 60:
+                    raise ValueError("Round 17 schedule SLO seconds must be whole minutes")
+            if (
+                self.round17_roster_source_codes is not None
+                and (
+                    len(self.round17_roster_source_codes) != 20
+                    or len(set(self.round17_roster_source_codes)) != 20
+                    or set(schedule_attestations)
+                    != set(self.round17_roster_source_codes)
+                )
+            ):
+                raise ValueError(
+                    "Round 17 schedule attestation must exactly match the roster"
+                )
         if any("*" in origin for origin in self.cors_allowed_origins):
             raise ValueError("CORS origins must be an exact allowlist without wildcards")
         key = self.cursor_signing_key.get_secret_value()

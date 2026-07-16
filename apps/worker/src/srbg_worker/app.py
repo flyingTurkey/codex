@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from srbg_api.config import get_settings
 from srbg_api.database import create_database_engine, create_publication_engine
 from srbg_api.discovery.projections import PostgresDiscoveryProjectionWriter
+from srbg_api.document_vault.storage import S3ObjectStore
 from srbg_api.internal_projection.audit_anchor import anchor_latest_audit_root
 from srbg_api.logging import configure_logging
 from srbg_api.observability import REPLAY_RESULTS
@@ -19,8 +20,8 @@ from srbg_api.operations.failures import FailureRecord, failure_record, persist_
 from srbg_api.operations.replays import (
     ClaimedReplay,
     claim_replay,
+    execute_source_fetch_replay,
     finish_replay,
-    prepare_source_fetch_replay,
 )
 from srbg_api.publication.gate import PublicationGate
 from srbg_api.publication.repository import PostgresPublicationRepository
@@ -28,6 +29,13 @@ from srbg_api.publication.service import PublicationService
 from srbg_api.safety_regulations.runner import run_scheduled_mem_discovery
 from srbg_api.scheduling.domain import build_fetch_message
 from srbg_api.scheduling.service import PostgresSchedulingService
+
+from srbg_worker.source_runtime import (
+    LiveRuntimeTransport,
+    PostgresRuntimeGateway,
+    RuntimeBinding,
+    RuntimeFetchExecutor,
+)
 
 configure_logging()
 settings = get_settings()
@@ -133,7 +141,7 @@ def dispatch_due_schedules() -> dict[str, int]:
 
 @celery_app.task(name="srbg.source.fetch")  # type: ignore[untyped-decorator]
 def execute_source_fetch(*, source_id: str, run_id: str) -> dict[str, object]:
-    return asyncio.run(_acquire_source_fetch(UUID(source_id), UUID(run_id)))
+    return asyncio.run(_execute_source_fetch(UUID(source_id), UUID(run_id)))
 
 
 async def _dispatch_due_schedules() -> dict[str, int]:
@@ -153,21 +161,37 @@ async def _dispatch_due_schedules() -> dict[str, int]:
         await service.close()
 
 
-async def _acquire_source_fetch(source_id: UUID, run_id: UUID) -> dict[str, object]:
-    service = PostgresSchedulingService(create_database_engine(settings))
-    try:
-        acquired = await service.acquire_execution(source_id=source_id, run_id=run_id)
-        cancelled = False
-        if not acquired:
-            cancelled = await service.cancel_ineligible(source_id=source_id, run_id=run_id)
-        return {
-            "acquired": acquired,
-            "cancelled": cancelled,
-            "source_id": str(source_id),
-            "run_id": str(run_id),
-        }
-    finally:
-        await service.close()
+async def _execute_source_fetch(source_id: UUID, run_id: UUID) -> dict[str, object]:
+    gateway = PostgresRuntimeGateway(settings)
+
+    def live_transport(binding: RuntimeBinding) -> LiveRuntimeTransport:
+        return LiveRuntimeTransport(
+            binding,
+            before_request=lambda url: gateway.reserve_request(binding, url=url),
+            after_response=lambda url, response_bytes: gateway.record_response_bytes(
+                binding,
+                url=url,
+                response_bytes=response_bytes,
+            ),
+        )
+
+    executor = RuntimeFetchExecutor(
+        gateway=gateway,
+        transport_factory=live_transport,
+        max_document_bytes=settings.fixture_max_bytes,
+    )
+    result = await executor.run(source_id=source_id, run_id=run_id)
+    return {
+        "acquired": result.acquired,
+        "cancelled": result.cancelled,
+        "source_id": str(source_id),
+        "run_id": str(run_id),
+        "discovered_count": result.discovered_count,
+        "fetched_count": result.fetched_count,
+        "failed_count": result.failed_count,
+        "request_count": result.request_count,
+        "response_bytes": result.response_bytes,
+    }
 
 
 @celery_app.task(name="srbg.publication.outbox")  # type: ignore[untyped-decorator]
@@ -209,12 +233,21 @@ async def _execute_priority_replay() -> dict[str, object]:
         await engine.dispose()
         return {"processed": 0}
     succeeded = False
+    outcome_reason: str | None = None
     try:
         await _execute_replay_kind(replay, engine)
         succeeded = True
         return {"processed": 1, "status": "SUCCEEDED", "kind": replay.task_kind}
+    except Exception as error:
+        outcome_reason = type(error).__name__.upper()[:80]
+        raise
     finally:
-        await finish_replay(engine, replay, succeeded=succeeded)
+        await finish_replay(
+            engine,
+            replay,
+            succeeded=succeeded,
+            outcome_reason=outcome_reason,
+        )
         metric_kind = (
             replay.task_kind
             if replay.task_kind
@@ -230,10 +263,11 @@ async def _execute_priority_replay() -> dict[str, object]:
 
 async def _execute_replay_kind(replay: ClaimedReplay, engine: AsyncEngine) -> None:
     if replay.task_kind == "SOURCE_FETCH":
-        source_id, run_id = await prepare_source_fetch_replay(engine, replay)
-        celery_app.send_task(
-            "srbg.source.fetch",
-            kwargs=build_fetch_message(source_id=source_id, run_id=run_id),
+        await execute_source_fetch_replay(
+            engine,
+            replay,
+            S3ObjectStore(settings),
+            max_bytes=settings.fixture_max_bytes,
         )
         return
     if replay.task_kind == "PUBLICATION_OUTBOX":

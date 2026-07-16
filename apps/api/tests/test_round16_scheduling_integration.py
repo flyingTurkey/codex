@@ -8,6 +8,7 @@ from redis.asyncio import from_url
 from sqlalchemy import text
 from srbg_api.config import Settings
 from srbg_api.database import create_database_engine
+from srbg_api.scheduling.domain import HealthObservation
 from srbg_api.scheduling.service import PostgresSchedulingService
 
 pytestmark = pytest.mark.skipif(
@@ -59,6 +60,92 @@ async def test_concurrent_claim_execution_lease_and_redis_rebuild_are_authoritat
 
         async with first._engine.begin() as connection:
             await connection.execute(
+                text(
+                    """UPDATE fetch_schedule
+                          SET daily_request_budget=1,requests_used=0,
+                              budget_window_started_at=:now
+                        WHERE source_id=:source"""
+                ),
+                {"source": run.source_id, "now": now},
+            )
+        reservations = await asyncio.gather(
+            first.reserve_request(source_id=run.source_id, run_id=run.run_id, now=now),
+            second.reserve_request(source_id=run.source_id, run_id=run.run_id, now=now),
+        )
+        assert reservations.count(True) == 1
+        async with first._engine.connect() as connection:
+            round17_accounting = bool(
+                await connection.scalar(
+                    text(
+                        """SELECT EXISTS (
+                               SELECT 1 FROM information_schema.columns
+                                WHERE table_schema='public'
+                                  AND table_name='fetch_run'
+                                  AND column_name='request_count'
+                           )"""
+                    )
+                )
+            )
+            assert (
+                await connection.scalar(
+                    text("SELECT requests_used FROM fetch_schedule WHERE source_id=:source"),
+                    {"source": run.source_id},
+                )
+                == 1
+            )
+            if round17_accounting:
+                assert (
+                    await connection.scalar(
+                        text("SELECT request_count FROM fetch_run WHERE id=:run"),
+                        {"run": run.run_id},
+                    )
+                    == 1
+                )
+
+        assert await first.record_response_bytes(
+            source_id=run.source_id,
+            run_id=run.run_id,
+            response_bytes=17,
+        )
+
+        await first.record_outcome(
+            source_id=run.source_id,
+            run_id=run.run_id,
+            observation=HealthObservation(transport_succeeded=True),
+            discovered_count=0,
+            parsed_count=0,
+            request_count=1,
+            response_bytes=17,
+            now=now,
+        )
+        async with first._engine.connect() as connection:
+            assert (
+                await connection.scalar(
+                    text("SELECT requests_used FROM fetch_schedule WHERE source_id=:source"),
+                    {"source": run.source_id},
+                )
+                == 1
+            )
+            if round17_accounting:
+                persisted = (
+                    await connection.execute(
+                        text(
+                            "SELECT request_count,response_bytes FROM fetch_run WHERE id=:run"
+                        ),
+                        {"run": run.run_id},
+                    )
+                ).one()
+                assert tuple(persisted) == (1, 17)
+            assert (
+                await connection.scalar(
+                    text("SELECT bytes_used FROM fetch_schedule WHERE source_id=:source"),
+                    {"source": run.source_id},
+                )
+                == 17
+            )
+
+        async with first._engine.begin() as connection:
+            await connection.execute(
                 text("UPDATE fetch_run SET status='DISPATCHED' WHERE id=:run"),
                 {"run": run.run_id},
             )
@@ -99,9 +186,12 @@ async def test_concurrent_claim_execution_lease_and_redis_rebuild_are_authoritat
             now=now,
         )
         async with first._engine.connect() as connection:
-            assert await connection.scalar(
-                text("SELECT status FROM fetch_run WHERE id=:run"), {"run": run.run_id}
-            ) == "CANCELLED"
+            assert (
+                await connection.scalar(
+                    text("SELECT status FROM fetch_run WHERE id=:run"), {"run": run.run_id}
+                )
+                == "CANCELLED"
+            )
     finally:
         await first.close()
         await second.close()

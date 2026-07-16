@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+### Round 17 — 20来源真实试运行与第一阶段金标门禁（工程准备，真实试运行 BLOCKED）
+
+- 新增第17轮 PostgreSQL 权威治理与试运行事实：精确20源窗口、不可变来源段和版本固定、来源变更自动暂停/新段恢复、到期完成检查、真实运行来源隔离、运营计时、人工金标双标/仲裁/冻结，以及由服务端配置钉死的 LEO 唯一 UUIDv7 批准人和受信任 OIDC/MFA 绑定门禁；同名第二主体不能启动窗口、仲裁/冻结或纠正工时。仓库未建立真实人员绑定、未插入事件化通过事实、未批准或激活候选来源。
+- 新增统一 `SourceAdapter` 的真实调度运行时，按 raw-first 保存响应并生成 Document；逐跳 SSRF/域名/频率/预算/租约约束在每次物理 HTTP 尝试前重新执行，重试和重定向均计入请求预算。当前来源特定的 accepted Claim/Evidence→Event→PublicationService 链路尚无获准配置，窗口启动因此保持默认拒绝。
+- 修复 `SOURCE_FETCH` 重放假成功：失败运行不再转回实时生产调度，而是从哈希一致的既有原始对象进行无网络、`FIXTURE + REPLAY` 诊断回放；执行前再次校验当前策略、连接器和生产审批，回放/Fixture/回填/演练均不能污染真实窗口指标。
+- 新增版本化候选20源覆盖矩阵、候选指标/金标定义、真实证据 Schema 和只读离线 eval；evidence 必须由外部 Ed25519 信任锚验证，缺审批、OIDC、168小时窗口、逐源健康、真人金标或真实证据时均非零 `BLOCKED`。候选清单与阈值不构成 LEO 批准事实。
+- 新增 `make phase2-round17-test` 与 `make phase2-round17-eval`：前者只运行确定性契约、Fixture、故障、安全、Event/投影和发布旁路测试，可进入普通 CI；后者只读经批准的真实证据与真人金标，不实时抓网，也不提供默认生产公钥。AI观察、付费模型、语义搜索、邮件和企业微信继续关闭。
+- 新增 `round-17-20-source-pilot.md` 和机器可读 readiness 记录，逐源诚实标记20个候选均未准入、真实窗口未启动、连续天数为0。由于外部准入、人员身份、真人金标、指标确认和观察证据缺失，本轮结论保持“第17轮未完成/BLOCKED”，不进入第18轮。
+
 ### Round 16 — PostgreSQL 权威调度、来源健康与安全重放
 
 - 新增 `0016_scheduling_health_replay`：引入来源计划、分层健康、异常与保留执行事实，扩展 `fetch_run/failed_task/replay_request`；PostgreSQL 以 `FOR UPDATE SKIP LOCKED` 完成并发领取与租约恢复，并在存在 R16 事实时拒绝破坏性降级。迁移兼容修复早期 `failed_task(target_id)` 漂移结构，未验证的 Celery ID 不再被当作业务引用。

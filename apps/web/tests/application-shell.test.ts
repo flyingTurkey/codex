@@ -70,6 +70,8 @@ describe('application shell contract', () => {
       '覆盖缺口',
       '审核工作台',
       '聚类工作台',
+      'R17观察门禁',
+      '金标工作台',
     ])
 
     const layoutSource = readAppFile('layouts/default.vue')

@@ -28,6 +28,11 @@ SRBG_PROJECTION_DB_PASSWORD ?= srbg_projection_local_only
 SRBG_S3_BUCKET ?= srbg-raw
 SRBG_S3_REGION ?= us-east-1
 SRBG_EXTERNAL_IO_TIMEOUT_SECONDS ?= 5
+ROUND17_EVIDENCE ?= $(CURDIR)/docs/acceptance/assets/round17/round17-evidence.json
+ROUND17_GOLD_MANIFEST ?= $(CURDIR)/tests/gold/round17/manifest.json
+ROUND17_TRUSTED_PUBLIC_KEY ?=
+ROUND17_TRUSTED_PUBLIC_KEY_SHA256 ?=
+ROUND17_EVAL_TRUST_ARGS = $(if $(strip $(ROUND17_TRUSTED_PUBLIC_KEY)),--trusted-public-key "$(ROUND17_TRUSTED_PUBLIC_KEY)",) $(if $(strip $(ROUND17_TRUSTED_PUBLIC_KEY_SHA256)),--trusted-public-key-sha256 "$(ROUND17_TRUSTED_PUBLIC_KEY_SHA256)",)
 
 COMPOSE = docker compose --project-directory . -f infra/compose/compose.yaml
 TRIVY_IMAGE = aquasec/trivy:0.69.3
@@ -45,7 +50,8 @@ export PLAYWRIGHT_BROWSERS_PATH
 	round08-test round08-eval round09-test round09-eval round10-test round10-eval \
 	round11-test observability-test golden-replay load-test recovery-drill runbook-test \
 	round11-evidence-test readiness-evidence slo-weekly-report \
-	phase2-round13-test phase2-round14-test phase2-round15-test phase2-round16-test
+	phase2-round13-test phase2-round14-test phase2-round15-test phase2-round16-test \
+	phase2-round17-test phase2-round17-eval
 
 setup:
 	$(UV) sync --frozen --all-packages
@@ -273,7 +279,6 @@ phase2-round13-test:
 	$(COMPOSE) run --rm anchor-minio-init
 	$(UV) run python scripts/run_isolated_integration.py \
 		--migration-verifier verify_round13_migration.py -- \
-		apps/api/tests/test_safety_case_integration.py \
 		apps/api/tests/test_round13_access_boundary.py \
 		apps/api/tests/test_round13_auth.py \
 		apps/api/tests/test_round13_migration.py \
@@ -345,6 +350,40 @@ phase2-round16-test:
 		tests/infrastructure/test_round16_observability.py \
 		tests/infrastructure/test_round16_delivery.py -q
 	$(PNPM) --filter @srbg/web test -- round16-operations-ui.test.ts
+
+phase2-round17-test:
+	$(COMPOSE) up --detach --wait postgres redis minio anchor-minio
+	$(COMPOSE) run --rm anchor-minio-init
+	$(UV) run python scripts/run_isolated_integration.py \
+		--migration-verifier verify_round17_migration.py -- \
+		apps/api/tests/test_round17_governance.py \
+		apps/api/tests/test_round17_governance_migration.py \
+		apps/api/tests/test_round17_pilot_domain.py \
+		apps/api/tests/test_round17_pilot_api.py \
+		apps/api/tests/test_round17_pilot_migration.py \
+		apps/api/tests/test_round17_operations_service.py \
+		apps/api/tests/test_round17_replay_origin.py \
+		apps/api/tests/test_round16_replay_integration.py \
+		apps/api/tests/test_round15_http_security.py \
+		apps/api/tests/test_round14_event_unification.py \
+		apps/api/tests/test_round14_identity_changes.py \
+		apps/api/tests/test_round13_access_boundary.py \
+		apps/api/tests/test_round13_projection_permissions.py \
+		apps/api/tests/test_round09_publication_paths.py \
+		apps/worker/tests/test_round17_worker.py \
+		packages/contracts/tests/test_round17_contracts.py \
+		tests/infrastructure/test_round17_eval.py \
+		tests/infrastructure/test_round17_migration_verifier.py \
+		tests/infrastructure/test_round17_observability.py \
+		tests/infrastructure/test_round17_readiness_assets.py \
+		tests/infrastructure/test_round17_delivery.py -q
+	$(PNPM) --filter @srbg/web test -- round17-pilot-ui.test.ts
+	$(UV) run python scripts/audit_publication_paths.py
+
+phase2-round17-eval:
+	$(UV) run python scripts/round17_eval.py \
+		--evidence "$(ROUND17_EVIDENCE)" \
+		--gold-manifest "$(ROUND17_GOLD_MANIFEST)" $(ROUND17_EVAL_TRUST_ARGS)
 
 observability-test:
 	$(UV) run python -m pytest tests/infrastructure/test_round11_observability.py -q

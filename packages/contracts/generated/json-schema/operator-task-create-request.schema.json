@@ -1,0 +1,51 @@
+{
+  "$defs": {
+    "OperatorWorkCategory": {
+      "enum": [
+        "SOURCE_MAINTENANCE",
+        "EXCEPTION_HANDLING",
+        "R3_REVIEW",
+        "COPYRIGHT_CORRECTION"
+      ],
+      "title": "OperatorWorkCategory",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "category": {
+      "$ref": "#/$defs/OperatorWorkCategory"
+    },
+    "reason": {
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Reason",
+      "type": "string"
+    },
+    "source_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Id"
+    },
+    "window_id": {
+      "format": "uuid",
+      "title": "Window Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "window_id",
+    "category",
+    "reason"
+  ],
+  "title": "OperatorTaskCreateRequest",
+  "type": "object"
+}

@@ -7,7 +7,9 @@
         "reviewer",
         "source_admin",
         "platform_admin",
-        "auditor"
+        "auditor",
+        "gold_annotator",
+        "gold_arbitrator"
       ],
       "title": "UserRole",
       "type": "string"

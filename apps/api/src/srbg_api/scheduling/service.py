@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from srbg_api.identifiers import uuid7
 from srbg_api.observability import (
@@ -34,6 +34,24 @@ from srbg_api.scheduling.domain import (
 class ClaimedFetchRun:
     source_id: UUID
     run_id: UUID
+
+
+async def _round17_accounting_available(connection: AsyncConnection) -> bool:
+    return bool(
+        await connection.scalar(
+            text(
+                """SELECT count(*)=4
+                     FROM information_schema.columns
+                    WHERE table_schema='public'
+                      AND (
+                        (table_name='fetch_run' AND column_name IN
+                          ('pilot_window_source_id','request_count','response_bytes'))
+                        OR (table_name='source_health_snapshot'
+                            AND column_name='discovery_body_bytes')
+                      )"""
+            )
+        )
+    )
 
 
 class PostgresSchedulingService:
@@ -202,6 +220,218 @@ class PostgresSchedulingService:
             )
             return bool(updated.rowcount)
 
+    async def reserve_request(
+        self,
+        *,
+        source_id: UUID,
+        run_id: UUID,
+        now: datetime | None = None,
+    ) -> bool:
+        """Atomically reserve one physical HTTP request before transport I/O."""
+
+        observed_at = now or datetime.now(UTC)
+        async with self._engine.begin() as connection:
+            if not await _round17_accounting_available(connection):
+                updated = await connection.execute(
+                    text(
+                        """UPDATE fetch_schedule fs
+                              SET requests_used=CASE
+                                    WHEN fs.budget_window_started_at <=
+                                         CAST(:now AS timestamptz) - interval '1 day'
+                                    THEN 1 ELSE fs.requests_used+1
+                                  END,
+                                  bytes_used=CASE
+                                    WHEN fs.budget_window_started_at <=
+                                         CAST(:now AS timestamptz) - interval '1 day'
+                                    THEN 0 ELSE fs.bytes_used
+                                  END,
+                                  budget_window_started_at=CASE
+                                    WHEN fs.budget_window_started_at <=
+                                         CAST(:now AS timestamptz) - interval '1 day'
+                                    THEN :now ELSE fs.budget_window_started_at
+                                  END,
+                                  updated_at=:now
+                             FROM fetch_run r
+                            WHERE r.id=:run_id AND r.source_id=:source_id
+                              AND r.schedule_id=fs.id AND r.status='RUNNING'
+                              AND r.execution_lease_until>=:now
+                              AND fs.status='ACTIVE'
+                              AND fs.circuit_state IN ('CLOSED','HALF_OPEN')
+                              AND (
+                                fs.budget_window_started_at <=
+                                  CAST(:now AS timestamptz) - interval '1 day'
+                                OR (
+                                  fs.requests_used < fs.daily_request_budget
+                                  AND fs.bytes_used < fs.daily_byte_budget
+                                )
+                              )
+                         RETURNING fs.id"""
+                    ),
+                    {"source_id": source_id, "run_id": run_id, "now": observed_at},
+                )
+                return bool(updated.rowcount)
+            updated = await connection.execute(
+                text(
+                    """WITH reserved AS (
+                         UPDATE fetch_schedule fs
+                          SET requests_used=CASE
+                                WHEN fs.budget_window_started_at <=
+                                     CAST(:now AS timestamptz) - interval '1 day'
+                                THEN 1 ELSE fs.requests_used+1
+                              END,
+                              bytes_used=CASE
+                                WHEN fs.budget_window_started_at <=
+                                     CAST(:now AS timestamptz) - interval '1 day'
+                                THEN 0 ELSE fs.bytes_used
+                              END,
+                              budget_window_started_at=CASE
+                                WHEN fs.budget_window_started_at <=
+                                     CAST(:now AS timestamptz) - interval '1 day'
+                                THEN :now ELSE fs.budget_window_started_at
+                              END,
+                              updated_at=:now
+                         FROM fetch_run r,source s,source_policy_version p,
+                              connector_config_version c
+                        WHERE r.id=:run_id AND r.source_id=:source_id
+                          AND r.schedule_id=fs.id AND r.status='RUNNING'
+                          AND r.execution_lease_until>=:now
+                          AND s.id=r.source_id AND s.lifecycle_state='ACTIVE'
+                          AND p.id=s.current_policy_version_id
+                          AND p.id=r.policy_version_id AND p.status='APPROVED'
+                          AND p.valid_from<=:now AND p.valid_until>:now
+                          AND p.document->>'storage_policy'='RAW_EVIDENCE_ALLOWED'
+                          AND c.id=s.current_connector_config_version_id
+                          AND c.id=r.connector_config_version_id
+                          AND c.validation_status='VALID'
+                          AND fs.status='ACTIVE'
+                          AND fs.interval_seconds=s.poll_interval_minutes*60
+                          AND fs.freshness_slo_seconds=
+                              (p.document #>> '{slo,target_minutes}')::int*60
+                          AND fs.circuit_state IN ('CLOSED','HALF_OPEN')
+                          AND EXISTS (
+                            SELECT 1 FROM source_governance_decision decision
+                             WHERE decision.source_id=s.id
+                               AND decision.policy_version_id=p.id
+                               AND decision.connector_config_version_id=c.id
+                               AND decision.trial_run_id=s.current_trial_run_id
+                               AND decision.decision_type='PRODUCTION_APPROVAL'
+                               AND decision.outcome='APPROVED'
+                               AND (decision.valid_until IS NULL
+                                    OR decision.valid_until>:now)
+                          )
+                          AND (
+                            (
+                              r.pilot_window_source_id IS NULL
+                              AND NOT EXISTS (
+                                SELECT 1
+                                  FROM round17_pilot_window_source cohort
+                                  JOIN round17_pilot_window cohort_window
+                                    ON cohort_window.id=cohort.window_id
+                                 WHERE cohort.source_id=r.source_id
+                                   AND cohort_window.state='RUNNING'
+                              )
+                            ) OR EXISTS (
+                              SELECT 1
+                                FROM round17_pilot_window_source segment
+                                JOIN round17_pilot_window window_row
+                                  ON window_row.id=segment.window_id
+                               WHERE segment.id=r.pilot_window_source_id
+                                 AND segment.source_id=r.source_id
+                                 AND segment.schedule_id=r.schedule_id
+                                 AND segment.policy_version_id=r.policy_version_id
+                                 AND segment.connector_config_version_id=
+                                     r.connector_config_version_id
+                                 AND segment.status='RUNNING'
+                                 AND window_row.state='RUNNING'
+                                 AND :now>=segment.segment_started_at
+                                 AND :now<segment.segment_ends_at
+                                 AND :now>=window_row.started_at
+                                 AND :now<window_row.ends_at
+                                 AND fs.version=segment.schedule_version
+                                 AND fs.interval_seconds=segment.interval_seconds
+                                 AND fs.freshness_slo_seconds=
+                                     segment.freshness_slo_seconds
+                            )
+                          )
+                          AND (
+                            fs.budget_window_started_at <=
+                              CAST(:now AS timestamptz) - interval '1 day'
+                            OR (
+                              fs.requests_used < fs.daily_request_budget
+                              AND fs.bytes_used < fs.daily_byte_budget
+                            )
+                          )
+                        RETURNING fs.id
+                    )
+                    UPDATE fetch_run r
+                       SET request_count=r.request_count+1
+                      FROM reserved
+                     WHERE r.id=:run_id AND r.source_id=:source_id
+                       AND r.schedule_id=reserved.id
+                    RETURNING r.id"""
+                ),
+                {"source_id": source_id, "run_id": run_id, "now": observed_at},
+            )
+        return bool(updated.rowcount)
+
+    async def record_response_bytes(
+        self,
+        *,
+        source_id: UUID,
+        run_id: UUID,
+        response_bytes: int,
+    ) -> bool:
+        """Persist each physical response immediately, before parsing or raw storage."""
+
+        if response_bytes < 0:
+            raise ValueError("response bytes cannot be negative")
+        async with self._engine.begin() as connection:
+            if not await _round17_accounting_available(connection):
+                updated = await connection.execute(
+                    text(
+                        """UPDATE fetch_schedule fs
+                              SET bytes_used=fs.bytes_used+:response_bytes,
+                                  updated_at=:now
+                             FROM fetch_run r
+                            WHERE r.id=:run_id AND r.source_id=:source_id
+                              AND r.schedule_id=fs.id
+                              AND r.status IN ('RUNNING','CANCELLED')
+                         RETURNING fs.id"""
+                    ),
+                    {
+                        "source_id": source_id,
+                        "run_id": run_id,
+                        "response_bytes": response_bytes,
+                        "now": datetime.now(UTC),
+                    },
+                )
+                return bool(updated.rowcount)
+            updated = await connection.execute(
+                text(
+                    """WITH counted AS (
+                         UPDATE fetch_run r
+                            SET response_bytes=r.response_bytes+:response_bytes
+                          WHERE r.id=:run_id AND r.source_id=:source_id
+                            AND r.request_count>0
+                            AND r.status IN ('RUNNING','CANCELLED')
+                         RETURNING r.schedule_id
+                       )
+                       UPDATE fetch_schedule fs
+                          SET bytes_used=fs.bytes_used+:response_bytes,
+                              updated_at=:now
+                         FROM counted
+                        WHERE fs.id=counted.schedule_id
+                       RETURNING fs.id"""
+                ),
+                {
+                    "source_id": source_id,
+                    "run_id": run_id,
+                    "response_bytes": response_bytes,
+                    "now": datetime.now(UTC),
+                },
+            )
+        return bool(updated.rowcount)
+
     async def pending_messages(self) -> list[ClaimedFetchRun]:
         async with self._engine.connect() as connection:
             rows = (
@@ -267,31 +497,55 @@ class PostgresSchedulingService:
         observation: HealthObservation,
         discovered_count: int,
         parsed_count: int,
+        request_count: int = 0,
         response_bytes: int = 0,
         failure: FetchFailure | None = None,
         now: datetime | None = None,
         random_fraction: Callable[[], float] = lambda: 0.5,
     ) -> str:
+        if request_count < 0:
+            raise ValueError("request count cannot be negative")
+        if response_bytes < 0:
+            raise ValueError("response bytes cannot be negative")
         observed_at = now or datetime.now(UTC)
         health = evaluate_health(observation, observed_at=observed_at)
         async with self._engine.begin() as connection:
+            round17_accounting = await _round17_accounting_available(connection)
+            run_query = (
+                text(
+                    """SELECT r.attempt_count,r.schedule_id,r.request_count,
+                              r.response_bytes,fs.interval_seconds,
+                              fs.backoff_base_seconds,fs.backoff_cap_seconds,
+                              fs.max_attempts,fs.consecutive_failures,
+                              fs.circuit_state
+                       FROM fetch_run r JOIN fetch_schedule fs ON fs.id=r.schedule_id
+                       WHERE r.id=:run_id AND r.source_id=:source_id FOR UPDATE OF r,fs"""
+                )
+                if round17_accounting
+                else text(
+                    """SELECT r.attempt_count,r.schedule_id,fs.interval_seconds,
+                              fs.backoff_base_seconds,fs.backoff_cap_seconds,
+                              fs.max_attempts,fs.consecutive_failures,
+                              fs.circuit_state
+                       FROM fetch_run r JOIN fetch_schedule fs ON fs.id=r.schedule_id
+                       WHERE r.id=:run_id AND r.source_id=:source_id FOR UPDATE OF r,fs"""
+                )
+            )
             row = (
                 (
                     await connection.execute(
-                        text(
-                            """SELECT r.attempt_count,r.schedule_id,fs.interval_seconds,
-                                  fs.backoff_base_seconds,fs.backoff_cap_seconds,
-                                  fs.max_attempts,fs.consecutive_failures,
-                                  fs.circuit_state
-                           FROM fetch_run r JOIN fetch_schedule fs ON fs.id=r.schedule_id
-                           WHERE r.id=:run_id AND r.source_id=:source_id FOR UPDATE OF r,fs"""
-                        ),
+                        run_query,
                         {"run_id": run_id, "source_id": source_id},
                     )
                 )
                 .mappings()
                 .one()
             )
+            if round17_accounting:
+                if request_count > int(row["request_count"]):
+                    raise ValueError("request count exceeds the authoritative run total")
+                if response_bytes > int(row["response_bytes"]):
+                    raise ValueError("response bytes exceed the authoritative run total")
             terminal = "SUCCEEDED"
             retry_at = None
             failure_code = None
@@ -327,8 +581,40 @@ class PostgresSchedulingService:
                         circuit_state = "OPEN"
                         circuit_until = observed_at + timedelta(minutes=30)
             snapshot_id = uuid7()
-            await connection.execute(
+            snapshot_parameters = {
+                "id": snapshot_id,
+                "source": source_id,
+                "run": run_id,
+                "transport": health.transport_status,
+                "discovery": health.discovery_status,
+                "parse": health.parse_status,
+                "quality": health.quality_status,
+                "freshness": health.freshness_status,
+                "latest": observation.latest_published_at,
+                "discovered": discovered_count,
+                "parsed": parsed_count,
+                "fields": int(observation.required_field_ratio * 10_000),
+                "duplicates": int(observation.duplicate_ratio * 10_000),
+                "backlog": observation.oldest_queue_age_seconds,
+                "body_bytes": observation.discovery_body_bytes,
+                "structure_sha256": observation.structure_fingerprint_sha256,
+                "now": observed_at,
+            }
+            snapshot_query = (
                 text(
+                    """INSERT INTO source_health_snapshot
+                       (id,source_id,fetch_run_id,transport_status,discovery_status,
+                        parse_status,quality_status,freshness_status,latest_published_at,
+                        discovered_count,parsed_count,required_field_basis_points,
+                        duplicate_basis_points,oldest_queue_age_seconds,
+                        discovery_body_bytes,structure_fingerprint_sha256,
+                        rule_version,observed_at)
+                       VALUES (:id,:source,:run,:transport,:discovery,:parse,:quality,:freshness,
+                               :latest,:discovered,:parsed,:fields,:duplicates,:backlog,
+                               :body_bytes,:structure_sha256,'round16-health-v1',:now)"""
+                )
+                if round17_accounting
+                else text(
                     """INSERT INTO source_health_snapshot
                        (id,source_id,fetch_run_id,transport_status,discovery_status,
                         parse_status,quality_status,freshness_status,latest_published_at,
@@ -337,25 +623,9 @@ class PostgresSchedulingService:
                        VALUES (:id,:source,:run,:transport,:discovery,:parse,:quality,:freshness,
                                :latest,:discovered,:parsed,:fields,:duplicates,:backlog,
                                'round16-health-v1',:now)"""
-                ),
-                {
-                    "id": snapshot_id,
-                    "source": source_id,
-                    "run": run_id,
-                    "transport": health.transport_status,
-                    "discovery": health.discovery_status,
-                    "parse": health.parse_status,
-                    "quality": health.quality_status,
-                    "freshness": health.freshness_status,
-                    "latest": observation.latest_published_at,
-                    "discovered": discovered_count,
-                    "parsed": parsed_count,
-                    "fields": int(observation.required_field_ratio * 10_000),
-                    "duplicates": int(observation.duplicate_ratio * 10_000),
-                    "backlog": observation.oldest_queue_age_seconds,
-                    "now": observed_at,
-                },
+                )
             )
+            await connection.execute(snapshot_query, snapshot_parameters)
             for code in health.anomaly_codes:
                 await connection.execute(
                     text(
@@ -378,9 +648,10 @@ class PostgresSchedulingService:
                 )
             await connection.execute(
                 text(
-                    """UPDATE fetch_run SET status=:status,
+                    """UPDATE fetch_run SET status=CAST(:status AS varchar),
                            completed_at=CASE
-                             WHEN :status='RETRY_WAIT' THEN NULL ELSE :now
+                             WHEN CAST(:status AS varchar)='RETRY_WAIT'
+                             THEN NULL ELSE CAST(:now AS timestamptz)
                            END,
                            next_retry_at=:retry,failure_class=:failure,transport_status=:transport,
                            discovery_status=:discovery,parse_status=:parse,quality_status=:quality,
@@ -407,9 +678,7 @@ class PostgresSchedulingService:
                     """UPDATE fetch_schedule SET next_run_at=:next_run,
                            leased_until=NULL,lease_token=NULL,
                            consecutive_failures=:failures,circuit_state=:circuit,
-                           circuit_open_until=:circuit_until,updated_at=:now,
-                           requests_used=requests_used+1,
-                           bytes_used=bytes_used+:response_bytes
+                           circuit_open_until=:circuit_until,updated_at=:now
                        WHERE id=:schedule"""
                 ),
                 {
@@ -420,7 +689,6 @@ class PostgresSchedulingService:
                     "circuit_until": circuit_until,
                     "now": observed_at,
                     "schedule": row["schedule_id"],
-                    "response_bytes": max(0, response_bytes),
                 },
             )
             circuit_rows = (

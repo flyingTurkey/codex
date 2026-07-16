@@ -37,6 +37,8 @@ class Principal:
     amr: frozenset[str] = frozenset()
     authenticated_at: datetime | None = None
     local_step_up: bool = False
+    oidc_issuer: str | None = None
+    oidc_subject: str | None = None
 
 
 async def get_current_principal(request: Request) -> Principal:
@@ -156,6 +158,14 @@ def decode_oidc_token(token: str, jwks: object, settings: Settings) -> Principal
         if isinstance(raw_auth_time, (int, float))
         else None
     )
+    raw_issuer = claims.get("iss")
+    if not isinstance(raw_issuer, str) or not raw_issuer or len(raw_issuer) > 2048:
+        raise ValueError("OIDC issuer is invalid")
+    raw_subject = claims.get("sub")
+    if raw_subject is not None and (
+        not isinstance(raw_subject, str) or not raw_subject or len(raw_subject) > 255
+    ):
+        raise ValueError("OIDC subject is invalid")
     return Principal(
         user_id=user_id,
         display_name=display_name,
@@ -164,6 +174,8 @@ def decode_oidc_token(token: str, jwks: object, settings: Settings) -> Principal
         acr=raw_acr,
         amr=frozenset(raw_amr),
         authenticated_at=authenticated_at,
+        oidc_issuer=raw_issuer,
+        oidc_subject=raw_subject,
     )
 
 

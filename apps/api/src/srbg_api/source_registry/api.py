@@ -43,13 +43,15 @@ from srbg_api.auth import (
     require_roles,
     require_roles_with_step_up,
 )
-from srbg_api.config import get_settings
+from srbg_api.config import Settings, get_settings
+from srbg_api.source_registry.service import ROUND17_ROSTER_COHORT
 
 READ_ROLES = (UserRole.SOURCE_ADMIN, UserRole.PLATFORM_ADMIN, UserRole.AUDITOR)
 WRITE_ROLES = (UserRole.SOURCE_ADMIN, UserRole.PLATFORM_ADMIN)
 CurrentPrincipal = Annotated[Principal, Depends(get_current_principal)]
 ReadPrincipal = Annotated[Principal, Depends(require_roles(*READ_ROLES))]
 WritePrincipal = Annotated[Principal, Depends(require_roles_with_step_up(*WRITE_ROLES))]
+CurrentSettings = Annotated[Settings, Depends(get_settings)]
 FixtureFilename = Annotated[
     str,
     Header(alias="X-Filename", min_length=1, max_length=255),
@@ -107,6 +109,19 @@ class AdminSourceService(Protocol):
     async def get_source(self, source_id: UUID) -> SourceDetail: ...
 
     async def get_eligibility(self, source_id: UUID) -> SourceEligibility: ...
+
+    async def assign_round17_governance_scheme(
+        self,
+        source_id: UUID,
+        *,
+        cohort_key: str,
+        reason: str,
+        actor_id: UUID,
+        actor_display_name: str,
+        oidc_issuer: str,
+        oidc_subject: str,
+        request_id: str,
+    ) -> None: ...
 
     async def save_policy(
         self,
@@ -337,6 +352,42 @@ async def get_source(
     _: ReadPrincipal,
 ) -> SourceDetail:
     return await _service(request).get_source(source_id)
+
+
+@router.post(
+    "/admin/sources/{source_id}/round17-governance-assignment",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def assign_round17_governance_scheme(
+    source_id: UUID,
+    payload: SourceLifecycleActionRequest,
+    request: Request,
+    principal: WritePrincipal,
+    settings: CurrentSettings,
+) -> None:
+    trusted_actor_id = settings.round17_leo_approver_actor_id
+    if (
+        principal.local_identity
+        or trusted_actor_id is None
+        or principal.user_id != trusted_actor_id
+        or principal.display_name != "LEO"
+        or principal.oidc_issuer is None
+        or principal.oidc_subject is None
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Round 17 governance requires the attested LEO source approver",
+        )
+    await _service(request).assign_round17_governance_scheme(
+        source_id,
+        cohort_key=ROUND17_ROSTER_COHORT,
+        reason=payload.reason,
+        actor_id=principal.user_id,
+        actor_display_name=principal.display_name,
+        oidc_issuer=principal.oidc_issuer,
+        oidc_subject=principal.oidc_subject,
+        request_id=request.state.request_id,
+    )
 
 
 @router.put(

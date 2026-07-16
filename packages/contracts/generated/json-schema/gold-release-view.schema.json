@@ -1,0 +1,44 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "frozen_at": {
+      "format": "date-time",
+      "title": "Frozen At",
+      "type": "string"
+    },
+    "frozen_by": {
+      "format": "uuid",
+      "title": "Frozen By",
+      "type": "string"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "manifest_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Manifest Sha256",
+      "type": "string"
+    },
+    "status": {
+      "const": "FROZEN",
+      "default": "FROZEN",
+      "title": "Status",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "version",
+    "manifest_sha256",
+    "frozen_by",
+    "frozen_at"
+  ],
+  "title": "GoldReleaseView",
+  "type": "object"
+}

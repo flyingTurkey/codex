@@ -40,6 +40,8 @@ class HealthObservation:
     dom_fingerprint_changed: bool = False
     duplicate_ratio: float = 0.0
     oldest_queue_age_seconds: int = 0
+    discovery_body_bytes: int = 0
+    structure_fingerprint_sha256: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

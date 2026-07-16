@@ -3,6 +3,7 @@
 import logging
 from dataclasses import replace
 from datetime import UTC, datetime
+from hashlib import sha256
 from typing import Any
 from uuid import UUID
 
@@ -101,6 +102,7 @@ from srbg_api.source_registry.domain import (
     transition_source,
 )
 from srbg_api.source_registry.repository import (
+    ROUND17_TWO_PERSON_GOVERNANCE_SCHEME,
     FixtureReplayBundle,
     FixtureReplayCapture,
     OnboardingRow,
@@ -151,14 +153,20 @@ class SourceServiceRejected(ValueError):
         self.status_code = status_code
 
 
+ROUND17_ROSTER_COHORT = "r17-sources-v0.1"
+
+
 class SourceRegistryService:
     def __init__(
         self,
         repository: SourceVaultRepository,
         document_vault: DocumentVaultService,
+        *,
+        round17_leo_approver_actor_id: UUID | None = None,
     ) -> None:
         self._repository = repository
         self._document_vault = document_vault
+        self._round17_leo_approver_actor_id = round17_leo_approver_actor_id
         self.metrics = document_vault.metrics
 
     @property
@@ -215,6 +223,94 @@ class SourceRegistryService:
         # effective flag use the same V2 server-authoritative calculation as the
         # source detail and scheduler-facing projection.
         return (await self._detail(await self._repository.get_source(source_id))).eligibility
+
+    async def assign_round17_governance_scheme(
+        self,
+        source_id: UUID,
+        *,
+        cohort_key: str,
+        reason: str,
+        actor_id: UUID,
+        actor_display_name: str,
+        oidc_issuer: str,
+        oidc_subject: str,
+        request_id: str,
+    ) -> None:
+        """Bind a source to the narrowly approved R17 two-person cohort.
+
+        This is an internal preparation operation.  The public pilot-window
+        boundary calls it only after roster validation; ordinary source writes
+        cannot select a governance scheme.
+        """
+
+        if cohort_key != ROUND17_ROSTER_COHORT:
+            raise SourceServiceRejected("round17 governance cohort key is invalid", 422)
+        if (
+            self._round17_leo_approver_actor_id is None
+            or actor_id != self._round17_leo_approver_actor_id
+            or actor_display_name != "LEO"
+            or not oidc_issuer
+            or not oidc_subject
+        ):
+            raise SourceServiceRejected(
+                "round17 trusted LEO actor attestation is missing",
+                403,
+            )
+        binding_matches = await self._repository.round17_source_approver_binding_matches(
+            actor_id=actor_id,
+            display_name="LEO",
+            oidc_issuer_sha256=sha256(oidc_issuer.encode("utf-8")).hexdigest(),
+            oidc_subject_sha256=sha256(oidc_subject.encode("utf-8")).hexdigest(),
+        )
+        if not binding_matches:
+            raise SourceServiceRejected(
+                "round17 LEO source approver staff binding is missing",
+                403,
+            )
+        source = await self._repository.get_source(source_id)
+        if source.lifecycle_state not in {
+            SourceLifecycleState.CANDIDATE,
+            SourceLifecycleState.COMPLIANCE_REVIEW,
+        }:
+            raise SourceServiceRejected(
+                "round17 governance must be assigned before governance decisions"
+            )
+        if actor_id in {source.registered_by, source.governance_owner_id}:
+            raise SourceServiceRejected("a source maker cannot assign its governance scheme")
+        try:
+            await self._repository.assign_round17_governance_scheme(
+                source_id,
+                cohort_key=cohort_key,
+                actor_id=actor_id,
+                reason=reason,
+                request_id=request_id,
+                now=_now(),
+            )
+        except Exception as exc:
+            if _is_repository_rejection(exc):
+                _log_governance_action(
+                    event_name="source_governance_scheme_assigned",
+                    action="ASSIGN_R17_GOVERNANCE",
+                    outcome="REJECTED",
+                    reason_code="DATABASE_GATE_REJECTED",
+                    request_id=request_id,
+                    source_id=source_id,
+                    level=logging.WARNING,
+                    governance_scheme=ROUND17_TWO_PERSON_GOVERNANCE_SCHEME,
+                )
+                raise SourceServiceRejected(
+                    "round17 governance assignment was rejected"
+                ) from exc
+            raise
+        _log_governance_action(
+            event_name="source_governance_scheme_assigned",
+            action="ASSIGN_R17_GOVERNANCE",
+            outcome="SUCCEEDED",
+            reason_code="R17_GOVERNANCE_ASSIGNED",
+            request_id=request_id,
+            source_id=source_id,
+            governance_scheme=ROUND17_TWO_PERSON_GOVERNANCE_SCHEME,
+        )
 
     async def save_policy(
         self,
@@ -1190,7 +1286,11 @@ def build_default_source_service(settings: Settings) -> SourceRegistryService:
         max_pdf_pages=settings.fixture_max_pdf_pages,
         file_security_policy=_file_security_policy(settings),
     )
-    return SourceRegistryService(repository, vault)
+    return SourceRegistryService(
+        repository,
+        vault,
+        round17_leo_approver_actor_id=settings.round17_leo_approver_actor_id,
+    )
 
 
 def _file_security_policy(settings: Settings) -> FileSecurityPolicy:

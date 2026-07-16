@@ -553,9 +553,9 @@ INSERT INTO published_v1.event_projection_revision
      projection_version, publication_risk_tier, content_severity, projection_level,
      allowed_surfaces, summary_payload, detail_payload, state, generated_at, audit_log_id)
 VALUES
-    (:id, :id, CASE WHEN :publication_revision_id IS NULL THEN '{}'::uuid[]
+    (:id, :id, CASE WHEN CAST(:publication_revision_id AS uuid) IS NULL THEN '{}'::uuid[]
      ELSE ARRAY[CAST(:publication_revision_id AS uuid)] END, :event_id, :item_id,
-     :publication_revision_id, :build_run_id, :generation,
+     CAST(:publication_revision_id AS uuid), :build_run_id, :generation,
      :version, :risk, :severity, :level, :surfaces, CAST(:summary AS jsonb),
      CAST(:detail AS jsonb), 'ACTIVE', :now, :audit_id)
 """

@@ -102,6 +102,8 @@ class UserRole(StrEnum):
     SOURCE_ADMIN = "source_admin"
     PLATFORM_ADMIN = "platform_admin"
     AUDITOR = "auditor"
+    GOLD_ANNOTATOR = "gold_annotator"
+    GOLD_ARBITRATOR = "gold_arbitrator"
 
 
 class Channel(StrEnum):
@@ -759,6 +761,302 @@ class PilotMetrics(ContractModel):
     total_votes: int = Field(ge=0)
     identity_metrics_available: Literal[False] = False
     sufficient_window: bool
+
+
+class PilotWindowState(StrEnum):
+    PREPARING = "PREPARING"
+    READY = "READY"
+    RUNNING = "RUNNING"
+    COMPLETED = "COMPLETED"
+    BLOCKED = "BLOCKED"
+
+
+class PilotRunOrigin(StrEnum):
+    SCHEDULED = "SCHEDULED"
+    REPLAY = "REPLAY"
+    BACKFILL = "BACKFILL"
+    DRILL = "DRILL"
+
+
+class PilotWindowCreateRequest(ContractModel):
+    roster_version: str = Field(pattern=r"^r17-sources-v\d+\.\d+$", max_length=80)
+    metric_definition_version: str = Field(
+        pattern=r"^phase2-round17-metrics-v\d+\.\d+\.\d+$", max_length=80
+    )
+    gold_definition_version: str = Field(
+        pattern=r"^phase2-round17-gold-v\d+\.\d+\.\d+$", max_length=80
+    )
+    baseline_commit: str = Field(pattern=r"^[0-9a-f]{40}$")
+    config_version: str = Field(min_length=1, max_length=80, pattern=r"^[a-zA-Z0-9._-]+$")
+    database_revision: str = Field(min_length=1, max_length=80, pattern=r"^[a-zA-Z0-9._-]+$")
+    source_codes: list[str] = Field(min_length=20, max_length=20)
+    environment: Literal["PREPRODUCTION"] = "PREPRODUCTION"
+    duration_hours: Literal[168] = 168
+    reason: GovernanceReason
+
+    @model_validator(mode="after")
+    def require_exact_unique_source_cohort(self) -> "PilotWindowCreateRequest":
+        if len(set(self.source_codes)) != 20:
+            raise ValueError("the pilot cohort must contain 20 unique source codes")
+        if any(re.fullmatch(r"[A-Z]{3}-[0-9]{3}", code) is None for code in self.source_codes):
+            raise ValueError("source codes must use the canonical registry format")
+        return self
+
+
+class PilotWindowStartRequest(ContractModel):
+    expected_version: int = Field(ge=1)
+    reason: GovernanceReason
+
+
+class PilotSourceResumeRequest(ContractModel):
+    expected_version: int = Field(ge=1)
+    reason: GovernanceReason
+
+
+class PilotWindowCompleteRequest(ContractModel):
+    expected_version: int = Field(ge=1)
+    reason: GovernanceReason
+
+
+class PilotWindowView(ContractModel):
+    id: UUID
+    roster_version: str
+    metric_definition_version: str
+    gold_definition_version: str
+    baseline_commit: str = Field(pattern=r"^[0-9a-f]{40}$")
+    config_version: str
+    database_revision: str
+    environment: Literal["PREPRODUCTION"]
+    duration_hours: Literal[168]
+    source_count: int = Field(ge=0, le=20)
+    state: PilotWindowState
+    version: int = Field(ge=1)
+    prepared_at: datetime
+    started_at: datetime | None = None
+    ends_at: datetime | None = None
+    blocker_codes: list[str] = Field(default_factory=list, max_length=100)
+
+
+class OperatorWorkCategory(StrEnum):
+    SOURCE_MAINTENANCE = "SOURCE_MAINTENANCE"
+    EXCEPTION_HANDLING = "EXCEPTION_HANDLING"
+    R3_REVIEW = "R3_REVIEW"
+    COPYRIGHT_CORRECTION = "COPYRIGHT_CORRECTION"
+
+
+class OperatorTaskStatus(StrEnum):
+    PENDING = "PENDING"
+    IN_PROGRESS = "IN_PROGRESS"
+    COMPLETED = "COMPLETED"
+
+
+class OperatorTaskCreateRequest(ContractModel):
+    window_id: UUID
+    source_id: UUID | None = None
+    category: OperatorWorkCategory
+    reason: GovernanceReason
+
+    @model_validator(mode="after")
+    def require_uuid7_references(self) -> "OperatorTaskCreateRequest":
+        if self.window_id.version != 7:
+            raise ValueError("operator tasks must reference a UUIDv7 pilot window")
+        if self.source_id is not None and self.source_id.version != 7:
+            raise ValueError("operator tasks must reference a UUIDv7 source")
+        return self
+
+
+class OperatorTaskCompleteRequest(ContractModel):
+    expected_version: int = Field(ge=2)
+    reason: GovernanceReason
+
+
+class OperatorTaskView(ContractModel):
+    id: UUID
+    window_id: UUID
+    source_id: UUID | None = None
+    category: OperatorWorkCategory
+    assigned_to: UUID
+    status: OperatorTaskStatus
+    created_by: UUID
+    created_at: datetime
+    started_at: datetime | None = None
+    completed_by: UUID | None = None
+    completed_at: datetime | None = None
+    version: int = Field(default=1, ge=1)
+
+
+class OperatorWorkSessionStart(ContractModel):
+    task_id: UUID
+
+    @model_validator(mode="after")
+    def require_uuid7_task(self) -> "OperatorWorkSessionStart":
+        if self.task_id.version != 7:
+            raise ValueError("operator work must reference a UUIDv7 operator task")
+        return self
+
+
+class OperatorWorkSessionHeartbeatRequest(ContractModel):
+    expected_version: int = Field(ge=1)
+
+
+class OperatorWorkSessionStopRequest(ContractModel):
+    expected_version: int = Field(ge=1)
+
+
+class OperatorWorkSessionCorrectionRequest(ContractModel):
+    expected_version: int = Field(ge=1)
+    active_seconds: int = Field(ge=0, le=43_200)
+    reason_code: Literal[
+        "TIMER_INTERRUPTED",
+        "MISSED_STOP",
+        "DUPLICATE_SESSION",
+        "ADMINISTRATIVE_CORRECTION",
+    ]
+
+
+class OperatorWorkSessionView(ContractModel):
+    id: UUID
+    task_id: UUID
+    window_id: UUID
+    actor_id: UUID
+    category: OperatorWorkCategory
+    started_at: datetime
+    last_activity_at: datetime
+    stopped_at: datetime | None = None
+    active_seconds: int | None = Field(default=None, ge=0, le=43_200)
+    corrected: bool = False
+    version: int = Field(default=1, ge=1)
+
+
+class GoldSampleKind(StrEnum):
+    DOCUMENT = "DOCUMENT"
+    PAIR = "PAIR"
+    EVENT = "EVENT"
+    CLAIM_EVIDENCE = "CLAIM_EVIDENCE"
+    SEARCH_QUESTION = "SEARCH_QUESTION"
+
+
+class GoldTaskCreateRequest(ContractModel):
+    sample_kind: GoldSampleKind
+    sample_ref: str = Field(
+        pattern=(
+            r"^urn:srbg:(document|pair|event|claim-evidence|search-question):"
+            r"[0-9a-f-]{36}(?::[0-9a-f-]{36})?$"
+        ),
+        max_length=140,
+    )
+    source_code: str = Field(pattern=r"^[A-Z]{3}-[0-9]{3}$")
+    domain: Channel
+    production_decision_id: UUID
+    assigned_annotator_ids: list[UUID] = Field(min_length=1, max_length=2)
+    critical_safety: bool = False
+    secondary_review_required: bool = False
+    reason: GovernanceReason
+
+    @model_validator(mode="after")
+    def require_distinct_assignments(self) -> "GoldTaskCreateRequest":
+        if len(set(self.assigned_annotator_ids)) != len(self.assigned_annotator_ids):
+            raise ValueError("gold task annotators must be distinct")
+        if any(actor.version != 7 for actor in self.assigned_annotator_ids):
+            raise ValueError("gold annotator identities must be UUIDv7")
+        if self.production_decision_id.version != 7:
+            raise ValueError("gold production decision must be UUIDv7")
+        prefix, *identities = self.sample_ref.removeprefix("urn:srbg:").split(":")
+        expected_prefix = {
+            GoldSampleKind.DOCUMENT: "document",
+            GoldSampleKind.PAIR: "pair",
+            GoldSampleKind.EVENT: "event",
+            GoldSampleKind.CLAIM_EVIDENCE: "claim-evidence",
+            GoldSampleKind.SEARCH_QUESTION: "search-question",
+        }[self.sample_kind]
+        expected_identity_count = 2 if self.sample_kind in {
+            GoldSampleKind.PAIR,
+            GoldSampleKind.CLAIM_EVIDENCE,
+        } else 1
+        if prefix != expected_prefix or len(identities) != expected_identity_count:
+            raise ValueError("gold sample reference does not match its sample kind")
+        try:
+            parsed_identities = [UUID(value) for value in identities]
+        except ValueError as error:
+            raise ValueError("gold sample references require UUID identities") from error
+        if any(identity.version != 7 for identity in parsed_identities):
+            raise ValueError("gold sample references require UUIDv7 identities")
+        if self.critical_safety and (
+            self.domain is not Channel.SAFETY
+            or not self.secondary_review_required
+            or len(self.assigned_annotator_ids) != 2
+        ):
+            raise ValueError("critical safety tasks require two independent annotators")
+        if self.secondary_review_required and len(self.assigned_annotator_ids) != 2:
+            raise ValueError("secondary review requires two independent annotators")
+        if not self.secondary_review_required and len(self.assigned_annotator_ids) != 1:
+            raise ValueError("single review tasks require exactly one annotator")
+        return self
+
+
+class GoldTaskView(ContractModel):
+    id: UUID
+    sample_kind: GoldSampleKind
+    sample_ref: str
+    source_code: str
+    domain: Channel
+    production_decision_id: UUID
+    critical_safety: bool
+    secondary_review_required: bool
+    status: Literal["ASSIGNED", "SUBMITTED", "DISAGREEMENT", "ARBITRATED", "FROZEN"]
+    assigned_at: datetime
+
+
+class GoldArbitrationOption(ContractModel):
+    annotation_id: UUID
+    decision_code: str
+    label_value: str | None = Field(default=None, max_length=2000)
+    evidence_ids: list[UUID] = Field(default_factory=list, max_length=100)
+    related_sample_refs: list[EvidenceReference] = Field(default_factory=list, max_length=100)
+
+
+class GoldArbitrationPacket(ContractModel):
+    task: GoldTaskView
+    options: list[GoldArbitrationOption] = Field(min_length=2, max_length=2)
+
+
+class GoldAnnotationRequest(ContractModel):
+    task_id: UUID
+    sample_kind: GoldSampleKind
+    decision_code: str = Field(pattern=r"^[A-Z][A-Z0-9_]{1,79}$")
+    label_value: str | None = Field(default=None, max_length=2000)
+    evidence_ids: list[UUID] = Field(default_factory=list, max_length=100)
+    related_sample_refs: list[EvidenceReference] = Field(default_factory=list, max_length=100)
+
+
+class GoldAnnotationView(ContractModel):
+    id: UUID
+    task_id: UUID
+    annotator_id: UUID
+    sample_kind: GoldSampleKind
+    decision_code: str
+    submitted_at: datetime
+    status: Literal["SUBMITTED", "SUPERSEDED"]
+
+
+class GoldArbitrationRequest(ContractModel):
+    task_id: UUID
+    selected_annotation_id: UUID
+    reason: GovernanceReason
+
+
+class GoldReleaseRequest(ContractModel):
+    version: str = Field(pattern=r"^phase2-round17-gold-v\d+\.\d+\.\d+$", max_length=80)
+    reason: GovernanceReason
+
+
+class GoldReleaseView(ContractModel):
+    id: UUID
+    version: str
+    manifest_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    frozen_by: UUID
+    frozen_at: datetime
+    status: Literal["FROZEN"] = "FROZEN"
 
 
 class ProblemDetails(ContractModel):

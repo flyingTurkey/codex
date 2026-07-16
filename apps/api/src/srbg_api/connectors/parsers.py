@@ -23,6 +23,14 @@ class DeclarativeParseError(ValueError):
     pass
 
 
+class EmptyDiscoveryError(DeclarativeParseError):
+    """The discovery document is valid but contains no current records."""
+
+
+class RequiredFieldMissingError(DeclarativeParseError):
+    """A discovered candidate cannot be represented without a required field."""
+
+
 MAX_DISCOVERY_RECORDS = 500
 MAX_STRUCTURED_NODES = 20_000
 MAX_STRUCTURED_DEPTH = 64
@@ -77,7 +85,7 @@ class RssAtomConnector:
             title = _child_text(entry, ("title",))
             link = _rss_link(entry)
             if not title or not link:
-                raise DeclarativeParseError("feed entry lacks a title or link")
+                raise RequiredFieldMissingError("feed entry lacks a title or link")
             url = urljoin(fetched.url, link)
             external_id = _child_text(entry, ("guid", "id")) or _stable_id(url)
             published = _parse_datetime(_child_text(entry, ("pubDate", "published")))
@@ -93,7 +101,7 @@ class RssAtomConnector:
                 )
             )
         if not records:
-            raise DeclarativeParseError("feed contains no discoverable entries")
+            raise EmptyDiscoveryError("feed contains no discoverable entries")
         return tuple(records)
 
     def direct_record(
@@ -125,8 +133,10 @@ class JsonApiConnector:
             raise DeclarativeParseError("JSON API response is malformed") from error
         _validate_structured_shape(document)
         items = _resolve_pointer(document, _string(config, "items_pointer"))
-        if not isinstance(items, list) or not items:
-            raise DeclarativeParseError("JSON API items pointer is not a non-empty array")
+        if not isinstance(items, list):
+            raise DeclarativeParseError("JSON API items pointer is not an array")
+        if not items:
+            raise EmptyDiscoveryError("JSON API items pointer is an empty array")
         _enforce_record_limit(len(items))
         pointers = config.get("field_pointers")
         if not isinstance(pointers, dict):
@@ -184,7 +194,7 @@ class SitemapConnector:
             _enforce_record_limit(len(records) + 1)
             loc = _child_text(node, ("loc",))
             if not loc:
-                raise DeclarativeParseError("sitemap URL entry has no location")
+                raise RequiredFieldMissingError("sitemap URL entry has no location")
             url = urljoin(fetched.url, loc)
             source_modified_at = _parse_datetime(_child_text(node, ("lastmod",)))
             records.append(
@@ -198,7 +208,7 @@ class SitemapConnector:
                 )
             )
         if not records:
-            raise DeclarativeParseError("sitemap contains no URL entries")
+            raise EmptyDiscoveryError("sitemap contains no URL entries")
         return tuple(records)
 
     def direct_record(
@@ -286,7 +296,9 @@ class ListDetailConnector:
             href = link_node.attrs.get("href") if link_node is not None else None
             title = _node_text(title_node) if title_node is not None else ""
             if not href or not title:
-                raise DeclarativeParseError("list item lacks a declarative link or title")
+                raise RequiredFieldMissingError(
+                    "list item lacks a declarative link or title"
+                )
             url = urljoin(fetched.url, href)
             published = None
             if isinstance(published_selector, str):
@@ -304,7 +316,7 @@ class ListDetailConnector:
                 )
             )
         if not records:
-            raise DeclarativeParseError("list contains no matching items")
+            raise EmptyDiscoveryError("list contains no matching items")
         return tuple(records)
 
     def direct_record(
@@ -442,10 +454,13 @@ def _resolve_pointer(document: object, pointer: str) -> object:
 def _pointer_string(item: object, pointers: dict[object, object], field_name: str) -> str:
     pointer = pointers.get(field_name)
     if not isinstance(pointer, str):
-        raise DeclarativeParseError("JSON field pointer is missing")
-    value = _resolve_pointer(item, pointer)
+        raise RequiredFieldMissingError("JSON field pointer is missing")
+    try:
+        value = _resolve_pointer(item, pointer)
+    except DeclarativeParseError as error:
+        raise RequiredFieldMissingError("JSON required field does not resolve") from error
     if not isinstance(value, str) or not value.strip():
-        raise DeclarativeParseError("JSON field pointer does not resolve to text")
+        raise RequiredFieldMissingError("JSON field pointer does not resolve to text")
     return value.strip()
 
 

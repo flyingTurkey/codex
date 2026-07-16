@@ -1,0 +1,15 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "task_id": {
+      "format": "uuid",
+      "title": "Task Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "task_id"
+  ],
+  "title": "OperatorWorkSessionStart",
+  "type": "object"
+}

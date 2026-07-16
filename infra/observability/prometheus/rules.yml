@@ -1,4 +1,21 @@
 groups:
+  - name: srbg-round17
+    rules:
+      - alert: Round17PilotSourcePaused
+        expr: srbg_round17_source_segments{state=~"PAUSED|FAILED"} > 0
+        for: 1m
+        labels: {severity: p0}
+        annotations: {summary: "Round 17 source segment paused; unaffected sources remain scheduled"}
+      - alert: Round17PilotEvidenceContamination
+        expr: srbg_round17_contaminated_runs > 0
+        for: 1m
+        labels: {severity: p0}
+        annotations: {summary: "Non-SCHEDULED or non-PRODUCTION run was linked to the real pilot"}
+      - alert: Round17OperatorTimerStale
+        expr: srbg_round17_stale_work_timers > 0
+        for: 1m
+        labels: {severity: p2}
+        annotations: {summary: "Round 17 operator timer heartbeat is stale"}
   - name: srbg-round16
     rules:
       - alert: SourceFalseSuccess

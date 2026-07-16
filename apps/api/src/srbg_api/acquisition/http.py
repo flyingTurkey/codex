@@ -4,7 +4,7 @@ import asyncio
 import ipaddress
 import json
 import math
-from collections.abc import AsyncIterable
+from collections.abc import AsyncIterable, Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
 from email.utils import parsedate_to_datetime
@@ -135,11 +135,15 @@ class ResilientHttpClient:
         resolver: Resolver,
         transport: Transport,
         clock: Clock,
+        before_request: Callable[[str], Awaitable[None]] | None = None,
+        after_response: Callable[[str, int], Awaitable[None]] | None = None,
     ) -> None:
         self._policy = policy
         self._resolver = resolver
         self._transport = transport
         self._clock = clock
+        self._before_request = before_request
+        self._after_response = after_response
         self._failure_count: dict[str, int] = {}
         self._circuit_open_until: dict[str, float] = {}
         self._last_request_at: dict[str, float] = {}
@@ -234,6 +238,8 @@ class ResilientHttpClient:
             resolved_addresses = await self._validate_url(current_url, resolution_pins)
             hostname = _hostname(current_url)
             await self._respect_rate_limit(hostname)
+            if self._before_request is not None:
+                await self._before_request(current_url)
             response = await self._transport.request(
                 current_url,
                 headers=dict(headers),
@@ -241,6 +247,8 @@ class ResilientHttpClient:
                 max_response_bytes=self._policy.max_response_bytes,
                 validated_ips=resolved_addresses,
             )
+            if self._after_response is not None:
+                await self._after_response(current_url, len(response.content or b""))
             if response.peer_ip is None:
                 raise SsrfRejected("connected peer address is required")
             peer_ip = _validated_ip(response.peer_ip)
@@ -433,6 +441,8 @@ _METADATA_ADDRESSES = {
     ipaddress.ip_address("100.100.100.200"),
     ipaddress.ip_address("192.0.0.192"),
 }
+
+
 def _validated_ip(value: str) -> str:
     try:
         address = ipaddress.ip_address(value)
