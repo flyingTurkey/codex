@@ -1,0 +1,103 @@
+{
+  "schema_version": "1.0.0",
+  "record_type": "ENGINEERING_READINESS_NOT_PILOT_EVIDENCE",
+  "round": 17,
+  "recorded_at": "2026-07-16T13:40:40.0947786Z",
+  "decision": "BLOCKED",
+  "baseline_commit": "b08513965e931f363283384037fc1c1f068a1b1c",
+  "implementation_commits": ["ed570a56074aca51926c5f25d1cd565d9c2b8959"],
+  "candidate_roster_version": "r17-sources-v0.1",
+  "candidate_metrics_version": "phase2-round17-metrics-v1.0.0",
+  "candidate_gold_version": "phase2-round17-gold-v1.0.0",
+  "people": [
+    {
+      "display_name": "LEO",
+      "confirmed_role": "SOLE_APPROVER",
+      "suggested_roles": ["SOURCE_APPROVER", "GOLD_ARBITRATOR", "WINDOW_STARTER"],
+      "oidc_binding_state": "MISSING"
+    },
+    {
+      "display_name": "yinzi",
+      "confirmed_role": "OPERATIONS_ADMIN",
+      "suggested_roles": ["SOURCE_OPERATOR", "SAFETY_ANNOTATOR_A", "DIGITAL_SECONDARY"],
+      "oidc_binding_state": "MISSING"
+    },
+    {
+      "display_name": "baixuejiao",
+      "confirmed_role": "BUSINESS_STANDARD_B",
+      "suggested_roles": ["SAFETY_ANNOTATOR_B", "DIGITAL_PRIMARY"],
+      "oidc_binding_state": "MISSING"
+    }
+  ],
+  "observation_window": {
+    "suggested_duration_hours": 168,
+    "confirmed_duration_hours": null,
+    "state": "NOT_STARTED",
+    "started_at": null,
+    "ended_at": null,
+    "continuous_days_proven": 0
+  },
+  "real_evidence": {
+    "authority": false,
+    "evidence_manifest_present": false,
+    "gold_manifest_present": false,
+    "trusted_signature_present": false,
+    "north_star_computed": false,
+    "fault_drill_present": false,
+    "operator_time_records_present": false
+  },
+  "sources": [
+    {"source_code": "GOV-002", "pilot_state": "PENDING_HUMAN_ADMISSION", "real_chain_evidence": "ABSENT"},
+    {"source_code": "GOV-003", "pilot_state": "PENDING_HUMAN_ADMISSION", "real_chain_evidence": "ABSENT"},
+    {"source_code": "GOV-004", "pilot_state": "PENDING_HUMAN_ADMISSION", "real_chain_evidence": "ABSENT"},
+    {"source_code": "GOV-005", "pilot_state": "PENDING_HUMAN_ADMISSION", "real_chain_evidence": "ABSENT"},
+    {"source_code": "GOV-006", "pilot_state": "PENDING_HUMAN_ADMISSION", "real_chain_evidence": "ABSENT"},
+    {"source_code": "GOV-007", "pilot_state": "PENDING_HUMAN_ADMISSION", "real_chain_evidence": "ABSENT"},
+    {"source_code": "GOV-014", "pilot_state": "PENDING_HUMAN_ADMISSION", "real_chain_evidence": "ABSENT"},
+    {"source_code": "GOV-015", "pilot_state": "PENDING_HUMAN_ADMISSION", "real_chain_evidence": "ABSENT"},
+    {"source_code": "GOV-016", "pilot_state": "PENDING_HUMAN_ADMISSION", "real_chain_evidence": "ABSENT"},
+    {"source_code": "GOV-017", "pilot_state": "PENDING_HUMAN_ADMISSION", "real_chain_evidence": "ABSENT"},
+    {"source_code": "GOV-020", "pilot_state": "PENDING_HUMAN_ADMISSION", "real_chain_evidence": "ABSENT"},
+    {"source_code": "NRA-001", "pilot_state": "PENDING_HUMAN_ADMISSION", "real_chain_evidence": "ABSENT", "registry_presence": "MISSING"},
+    {"source_code": "GOV-010", "pilot_state": "PENDING_HUMAN_ADMISSION", "real_chain_evidence": "ABSENT"},
+    {"source_code": "RES-004", "pilot_state": "PENDING_HUMAN_ADMISSION", "real_chain_evidence": "ABSENT"},
+    {"source_code": "GOV-008", "pilot_state": "PENDING_HUMAN_ADMISSION", "real_chain_evidence": "ABSENT"},
+    {"source_code": "RES-001", "pilot_state": "PENDING_HUMAN_ADMISSION", "real_chain_evidence": "ABSENT"},
+    {"source_code": "ENT-005", "pilot_state": "PENDING_HUMAN_ADMISSION", "real_chain_evidence": "ABSENT"},
+    {"source_code": "ENT-006", "pilot_state": "PENDING_HUMAN_ADMISSION", "real_chain_evidence": "ABSENT"},
+    {"source_code": "ENT-007", "pilot_state": "PENDING_HUMAN_ADMISSION", "real_chain_evidence": "ABSENT"},
+    {"source_code": "ENT-008", "pilot_state": "PENDING_HUMAN_ADMISSION", "real_chain_evidence": "ABSENT"}
+  ],
+  "blockers": [
+    {"code": "SOURCE_ROSTER_APPROVAL_MISSING", "owner": "LEO", "external": true},
+    {"code": "SOURCE_COMPLIANCE_APPROVALS_MISSING", "owner": "LEO", "external": true},
+    {"code": "SOURCE_ACCESS_SLO_APPROVALS_MISSING", "owner": "LEO", "external": true},
+    {"code": "OIDC_STAFF_BINDINGS_MISSING", "owner": "platform_identity_admin", "external": true},
+    {"code": "LEO_ACTOR_ATTESTATION_MISSING", "owner": "platform_identity_admin", "external": true},
+    {"code": "GOLD_LABELS_MISSING", "owner": "business_annotators", "external": true},
+    {"code": "METRICS_APPROVAL_MISSING", "owner": "LEO", "external": true},
+    {"code": "OBSERVATION_WINDOW_NOT_CONFIRMED", "owner": "LEO", "external": true},
+    {"code": "REAL_EVIDENCE_EXPORT_MISSING", "owner": "pilot_operations", "external": true},
+    {"code": "TRUSTED_EVIDENCE_SIGNING_KEY_MISSING", "owner": "security_operations", "external": true},
+    {"code": "SEARCH_QUESTION_AUTHORITY_MISSING", "owner": "product_data_governance", "external": true},
+    {"code": "SOURCE_EVENTIZATION_PROFILES_MISSING", "owner": "source_and_business_owners", "external": true}
+  ],
+  "engineering_verification": {
+    "state": "PASSED_WITH_EXTERNAL_BLOCKERS",
+    "commands": [
+      {"command": "make phase2-round17-test", "exit_code": 0, "summary": "migration replay; 285 pytest; 93 web; publication audit"},
+      {"command": "make phase2-round17-eval", "exit_code": 1, "summary": "expected fail-closed: approved real evidence and gold absent"},
+      {"command": "make phase2-round16-test", "exit_code": 0, "summary": "migration replay; 25 pytest; 93 web"},
+      {"command": "make lint", "exit_code": 0},
+      {"command": "make typecheck", "exit_code": 0},
+      {"command": "make test", "exit_code": 0, "summary": "1048 pytest passed; 29 skipped; 53 ui; 93 web"},
+      {"command": "make contract-test", "exit_code": 0, "summary": "81 passed"},
+      {"command": "make security-check", "exit_code": 0, "summary": "HIGH/CRITICAL clean; one low pnpm finding"},
+      {"command": "make fixture-replay", "exit_code": 0},
+      {"command": "make quality-gate", "exit_code": 0},
+      {"command": "make web-e2e", "exit_code": 0},
+      {"command": "make web-a11y", "exit_code": 0, "summary": "15 passed"},
+      {"command": "make golden-replay", "exit_code": 2, "summary": "expected fail-closed: real gold sample counts are zero"}
+    ]
+  }
+}
