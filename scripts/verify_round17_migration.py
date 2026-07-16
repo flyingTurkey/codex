@@ -21,7 +21,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 BASE_REVISION = "0016_scheduling_health_replay"
-HEAD_REVISION = "0017b_round17_pilot"
+HEAD_REVISION = "0017c_round17_flat_pilot"
 _DISPOSABLE_DATABASE = re.compile(r"srbg_it_[0-9a-f]{24}\Z")
 _GUARD_WINDOW_ID = "019b1700-0000-7000-8000-00000000d017"
 
@@ -40,12 +40,15 @@ EXPECTED_TABLES = (
     "round17_operator_work_session",
     "round17_operator_work_correction",
     "round17_metric_snapshot",
+    "round17_signed_approval",
+    "round17_reference_annotation",
 )
 EXPECTED_CONSTRAINTS = (
     "ck_source_governance_scheme_round17",
     "ck_round17_staff_responsibility",
-    "ck_round17_staff_oidc_hashes",
-    "ck_round17_staff_not_local",
+    "ck_round17_staff_authority_mode",
+    "ck_round17_staff_identity_assurance",
+    "ck_round17_staff_identity_hashes",
     "ck_round17_window_environment",
     "ck_round17_window_duration",
     "ck_round17_window_state",
@@ -77,6 +80,14 @@ EXPECTED_CONSTRAINTS = (
     "ck_round17_eventization_manifest_ref",
     "ck_round17_metric_hash",
     "fk_fetch_run_round17_window_source",
+    "ck_round17_signed_approval_type",
+    "ck_round17_signed_approval_authority",
+    "ck_round17_signed_approval_crypto",
+    "ck_round17_signed_approval_document",
+    "ck_round17_signed_approval_validity",
+    "ck_round17_reference_annotation_model",
+    "ck_round17_reference_kind",
+    "ck_round17_reference_hashes",
 )
 EXPECTED_INDEXES = ("uq_round17_single_running_window",)
 EXPECTED_TRIGGERS = (
@@ -87,6 +98,8 @@ EXPECTED_TRIGGERS = (
     "trg_round17_gold_arbitration_immutable",
     "trg_round17_gold_release_immutable",
     "trg_round17_metric_snapshot_immutable",
+    "trg_round17_signed_approval_immutable",
+    "trg_round17_reference_annotation_immutable",
     "trg_round17_window_pins",
     "trg_round17_source_segment_pins",
     "trg_fetch_run_origin_immutable",
@@ -326,6 +339,10 @@ async def _verify_role_boundaries(connection: AsyncConnection) -> None:
         ("round17_operator_task", "UPDATE", False),
         ("round17_operator_task", "DELETE", False),
         ("round17_operator_work_session", "INSERT", False),
+        ("round17_signed_approval", "SELECT", True),
+        ("round17_signed_approval", "INSERT", False),
+        ("round17_reference_annotation", "SELECT", True),
+        ("round17_reference_annotation", "INSERT", False),
     )
     for table, privilege, expected in api_expected:
         actual = await _has_table_privilege(connection, "srbg_api_role", table, privilege)
@@ -427,7 +444,7 @@ async def _verify_window_state_guards(connection: AsyncConnection) -> None:
                       'phase2-round17-metrics-v1.0.0',
                       'phase2-round17-gold-v1.0.0',
                       'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','r17-config-v0.1',
-                      '0017b_round17_pilot','PREPRODUCTION',168,'PREPARING',1,
+                      '0017c_round17_flat_pilot','PREPRODUCTION',168,'PREPARING',1,
                       '{}'::text[],'019b1700-0000-7000-8000-00000000e000',
                       statement_timestamp(),:key
                     )"""
@@ -489,7 +506,7 @@ async def _verify_window_state_guards(connection: AsyncConnection) -> None:
               '019b1700-0000-7000-8000-00000000e003',
               'r17-sources-v0.1','phase2-round17-metrics-v1.0.0',
               'phase2-round17-gold-v1.0.0','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-              'r17-config-v0.1','0017b_round17_pilot','PREPRODUCTION',168,
+              'r17-config-v0.1','0017c_round17_flat_pilot','PREPRODUCTION',168,
               'RUNNING',1,'{}'::text[],
               '019b1700-0000-7000-8000-00000000e000',statement_timestamp(),
               '019b1700-0000-7000-8000-00000000e000',statement_timestamp(),
@@ -762,7 +779,7 @@ async def _verify_scheduled_runtime_functions(database_url: str) -> None:
                           '019b1700-0000-7000-8000-00000000d140','r17-sources-v0.1',
                           'phase2-round17-metrics-v1.0.0','phase2-round17-gold-v1.0.0',
                           'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','r17-dynamic-v1',
-                          '0017b_round17_pilot','PREPRODUCTION',168,'PREPARING',1,
+                          '0017c_round17_flat_pilot','PREPRODUCTION',168,'PREPARING',1,
                           '{}'::text[],'019b1700-0000-7000-8000-00000000da07',now(),
                           'r17-dynamic-runtime-window'
                         );
@@ -1271,7 +1288,7 @@ async def _seed_guard_fact(database_url: str) -> None:
                     ) VALUES (
                       CAST(:id AS uuid),'r17-migration-guard','round17-migration-guard',
                       'round17-migration-guard','b08513965e931f363283384037fc1c1f068a1b1c',
-                      'r17-migration-guard','0017b_round17_pilot','PREPRODUCTION',168,
+                      'r17-migration-guard','0017c_round17_flat_pilot','PREPRODUCTION',168,
                       'PREPARING',1,ARRAY['ISOLATED_MIGRATION_GUARD']::text[],
                       '019b1700-0000-7000-8000-00000000a017',now(),
                       'round17-isolated-migration-guard'
@@ -1522,7 +1539,7 @@ def main() -> None:
     asyncio.run(_seed_projection_contract_fixture(database_url))
 
     print(
-        "Round17 migration replay passed: 0016 -> 0017b -> 0016 -> 0017b; "
+        "Round17 migration replay passed: 0016 -> 0017c -> 0016 -> 0017c; "
         "single head, role boundaries, signatures, constraints, scheduled raw/document "
         "runtime chain, adversarial denials, guarded downgrade, and isolated projection "
         "contract fixture verified"

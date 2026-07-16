@@ -1,0 +1,57 @@
+{
+  "schema_version": "round17-authority-v1",
+  "authority_state": "LEO_CONFIRMED_AND_FROZEN",
+  "runtime_authority": false,
+  "runtime_authority_rule": "Only a verified Ed25519 signature persisted by the server is runtime authority",
+  "authority_mode": "SIGNED_LOCAL_PILOT",
+  "approver": {
+    "display_name": "LEO",
+    "actor_id": "019f6b65-4cf5-71d1-b75c-a6c908912f58",
+    "responsibility": "SOURCE_APPROVER",
+    "administrator_count": 1
+  },
+  "roster_version": "r17-sources-v0.1",
+  "metric_definition_version": "phase2-round17-metrics-v1.0.0",
+  "reference_definition_version": "phase2-round17-leo-reference-v1.0.0",
+  "reference_model": "LEO_SINGLE_EXPERT_REFERENCE_SET",
+  "reference_assurance": "LOWER_THAN_DUAL_EXPERT_GOLD",
+  "window": {"duration_hours": 168, "confirmed": true, "automatic_start": false},
+  "administration": {
+    "source_registration": "PLATFORM_AUTOMATIC_FROM_SIGNED_ROSTER",
+    "source_control": "LEO_DESIRED_ENABLE_DISABLE_ONLY",
+    "individual_performance_targets": false,
+    "workload_measurement": "ANONYMOUS_AGGREGATE_CAPACITY_DIAGNOSTIC_ONLY"
+  },
+  "compliance_defaults": {
+    "approval_valid_days": 30,
+    "robots_refresh_hours": 24,
+    "robots_absent_meaning": "NOT_FOUND_NOT_PERMISSION",
+    "change_action": "ALERT_PAUSE_VERSION_SEGMENT_REPLAY",
+    "raw_response_storage": "PRIVATE_OBJECT_STORAGE_30_DAYS",
+    "display": "METADATA_ACCEPTED_CLAIMS_SHORT_SUMMARY_EVIDENCE_AND_ORIGINAL_LINK",
+    "full_text_redistribution": false,
+    "bypass_login_captcha_paywall_or_access_control": false
+  },
+  "sources": [
+    {"source_code":"GOV-002","base_url":"https://www.gov.cn/zhengce/","poll_hours":6,"discovery_slo_hours":8,"access":"HTML","display_policy":"DEFAULT"},
+    {"source_code":"GOV-003","base_url":"https://www.mot.gov.cn/","poll_hours":6,"discovery_slo_hours":8,"access":"HTML","display_policy":"DEFAULT"},
+    {"source_code":"GOV-004","base_url":"https://xxgk.mot.gov.cn/","poll_hours":6,"discovery_slo_hours":8,"access":"HTML_PDF","display_policy":"DEFAULT"},
+    {"source_code":"GOV-005","base_url":"https://www.mohurd.gov.cn/","poll_hours":6,"discovery_slo_hours":8,"access":"HTML_PDF","display_policy":"DEFAULT"},
+    {"source_code":"GOV-006","base_url":"https://www.mem.gov.cn/","poll_hours":6,"discovery_slo_hours":8,"access":"HTML_PDF","display_policy":"DEFAULT"},
+    {"source_code":"GOV-007","base_url":"https://www.mem.gov.cn/gk/sgcc/tbzdsgdcbg/","poll_hours":6,"discovery_slo_hours":8,"access":"HTML_PDF","display_policy":"DEFAULT"},
+    {"source_code":"GOV-014","base_url":"https://www.caac.gov.cn/","poll_hours":6,"discovery_slo_hours":8,"access":"HTML_PDF","display_policy":"DEFAULT"},
+    {"source_code":"GOV-015","base_url":"https://jtt.sc.gov.cn/","poll_hours":6,"discovery_slo_hours":8,"access":"HTML_PDF","display_policy":"DEFAULT"},
+    {"source_code":"GOV-016","base_url":"https://yjt.sc.gov.cn/","poll_hours":6,"discovery_slo_hours":8,"access":"HTML_PDF","display_policy":"DEFAULT"},
+    {"source_code":"GOV-017","base_url":"https://jst.sc.gov.cn/","poll_hours":6,"discovery_slo_hours":8,"access":"HTML_PDF","display_policy":"DEFAULT"},
+    {"source_code":"GOV-020","base_url":"https://yjgl.gd.gov.cn/","poll_hours":6,"discovery_slo_hours":8,"access":"HTML_PDF","display_policy":"DEFAULT"},
+    {"source_code":"NRA-001","base_url":"https://www.nra.gov.cn/","poll_hours":6,"discovery_slo_hours":8,"access":"HTML_PDF","display_policy":"DEFAULT","minimum_intra_site_delay_seconds":15},
+    {"source_code":"GOV-010","base_url":"https://www.miit.gov.cn/","poll_hours":12,"discovery_slo_hours":18,"access":"HTML_PDF","display_policy":"DEFAULT"},
+    {"source_code":"RES-004","base_url":"https://zgglxb.chd.edu.cn/","poll_hours":12,"discovery_slo_hours":18,"access":"RSS_OR_HTML","display_policy":"BIBLIOGRAPHY_PUBLIC_ABSTRACT_DOI_AND_LINK_ONLY"},
+    {"source_code":"GOV-008","base_url":"https://std.samr.gov.cn/","poll_hours":24,"discovery_slo_hours":30,"access":"PUBLIC_SEARCH","display_policy":"METADATA_STATUS_AND_LINK_ONLY","forbidden":"CAPTCHA_STANDARD_TEXT_IEC_COPY_OR_DOWNLOAD"},
+    {"source_code":"RES-001","base_url":"https://www.chts.cn/","poll_hours":24,"discovery_slo_hours":30,"access":"HTML","display_policy":"DEFAULT"},
+    {"source_code":"ENT-005","base_url":"https://www.shudaojt.com/","poll_hours":24,"discovery_slo_hours":30,"access":"HTML","display_policy":"PUBLIC_NEWS_CASE_METADATA_SHORT_FACTS_AND_LINK_ONLY"},
+    {"source_code":"ENT-006","base_url":"https://e.huawei.com/cn/industries/transportation","poll_hours":24,"discovery_slo_hours":30,"access":"HTML","display_policy":"PUBLIC_NEWS_CASE_METADATA_SHORT_FACTS_AND_LINK_ONLY","forbidden":"MARKETING_PDF_MEDIA_SEARCH_ACCOUNT_OR_DOWNLOAD"},
+    {"source_code":"ENT-007","base_url":"https://www.glodon.com/","poll_hours":24,"discovery_slo_hours":30,"access":"HTML","display_policy":"PUBLIC_NEWS_CASE_METADATA_SHORT_FACTS_AND_LINK_ONLY"},
+    {"source_code":"ENT-008","base_url":"https://enterprise.dji.com/cn","poll_hours":24,"discovery_slo_hours":30,"access":"HTML","display_policy":"PUBLIC_NEWS_CASE_METADATA_SHORT_FACTS_AND_LINK_ONLY"}
+  ]
+}

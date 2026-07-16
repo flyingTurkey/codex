@@ -358,6 +358,10 @@ phase2-round17-test:
 		--migration-verifier verify_round17_migration.py -- \
 		apps/api/tests/test_round17_governance.py \
 		apps/api/tests/test_round17_governance_migration.py \
+		apps/api/tests/test_round17_flat_pilot_migration.py \
+		apps/api/tests/test_round17_keygen.py \
+		apps/api/tests/test_round17_approval_signing.py \
+		apps/api/tests/test_round17_install_approval.py \
 		apps/api/tests/test_round17_pilot_domain.py \
 		apps/api/tests/test_round17_pilot_api.py \
 		apps/api/tests/test_round17_pilot_migration.py \

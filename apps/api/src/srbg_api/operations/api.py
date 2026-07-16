@@ -283,7 +283,15 @@ def _service(request: Request) -> OperationsService:
 
 
 def _require_attested_round17_leo(principal: Principal, settings: Settings) -> None:
-    _require_controlled_round17_identity(principal)
+    signed_local = settings.round17_authority_mode == "SIGNED_LOCAL_PILOT"
+    if signed_local:
+        if settings.environment.lower() != "test" or not principal.local_identity:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Signed local Round 17 authority is restricted to the test environment",
+            )
+    else:
+        _require_controlled_round17_identity(principal)
     if (
         settings.round17_leo_approver_actor_id is None
         or principal.user_id != settings.round17_leo_approver_actor_id

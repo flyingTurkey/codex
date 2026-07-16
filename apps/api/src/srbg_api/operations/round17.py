@@ -35,6 +35,9 @@ class PilotReadinessFacts:
     ai_enabled: bool
     semantic_search_enabled: bool
     external_notifications_enabled: bool
+    authority_mode: str = "OIDC"
+    leo_super_admin_count: int = 0
+    single_expert_reference_definition_frozen: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,12 +112,18 @@ def evaluate_window_readiness(
             blockers.add("NON_PRODUCTION_SOURCE_EVIDENCE")
     if duration_hours != 168:
         blockers.add("WINDOW_DURATION_NOT_168_HOURS")
-    if facts.controlled_oidc_actor_count < 3:
-        blockers.add("CONTROLLED_OIDC_IDENTITIES_MISSING")
-    if facts.local_identity_count:
-        blockers.add("LOCAL_IDENTITY_PRESENT")
-    if not facts.gold_release_frozen:
-        blockers.add("GOLD_RELEASE_NOT_FROZEN")
+    if facts.authority_mode == "SIGNED_LOCAL_PILOT":
+        if facts.leo_super_admin_count != 1 or facts.local_identity_count != 1:
+            blockers.add("SIGNED_LOCAL_LEO_AUTHORITY_NOT_UNIQUE")
+        if not facts.single_expert_reference_definition_frozen:
+            blockers.add("SINGLE_EXPERT_REFERENCE_DEFINITION_NOT_FROZEN")
+    else:
+        if facts.controlled_oidc_actor_count < 3:
+            blockers.add("CONTROLLED_OIDC_IDENTITIES_MISSING")
+        if facts.local_identity_count:
+            blockers.add("LOCAL_IDENTITY_PRESENT")
+        if not facts.gold_release_frozen:
+            blockers.add("GOLD_RELEASE_NOT_FROZEN")
     if not facts.metric_definition_frozen:
         blockers.add("METRIC_DEFINITION_NOT_FROZEN")
     if facts.ai_enabled:

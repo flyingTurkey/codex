@@ -192,6 +192,21 @@ class StubRound17Operations:
         )
 
 
+class SignedLocalRound17Operations(StubRound17Operations):
+    async def start_pilot_window(
+        self,
+        window_id: UUID,
+        payload: PilotWindowStartRequest,
+        *,
+        actor_id: UUID,
+        idempotency_key: str,
+    ) -> PilotWindowView:
+        assert window_id == WINDOW_ID
+        assert actor_id == UUID("019f6b65-4cf5-71d1-b75c-a6c908912f58")
+        assert idempotency_key == "round17-start"
+        return _window(PilotWindowState.RUNNING, version=2, running=True)
+
+
 def _window(
     state: PilotWindowState, *, version: int = 1, running: bool = False
 ) -> PilotWindowView:
@@ -262,6 +277,7 @@ def _leo_client(*, mfa: bool = True, trusted_actor: bool = True) -> TestClient:
     leo_actor_id = UUID("019b1700-0000-7000-8000-000000000098")
     settings = get_settings().model_copy(
         update={
+            "round17_authority_mode": "OIDC",
             "oidc_step_up_acr_values": ["urn:srbg:mfa"],
             "round17_leo_approver_actor_id": (
                 leo_actor_id
@@ -321,6 +337,35 @@ def test_local_identity_cannot_start_a_real_window_even_with_role_and_step_up() 
         json={"expected_version": 1, "reason": "start approved 168 hour observation"},
     )
     assert response.status_code == 403
+
+
+def test_signed_local_pilot_allows_only_the_frozen_local_leo_to_start() -> None:
+    app = create_app(checkers={}, operations_service=SignedLocalRound17Operations())
+    leo_actor_id = UUID("019f6b65-4cf5-71d1-b75c-a6c908912f58")
+    settings = get_settings().model_copy(
+        update={
+            "environment": "test",
+            "round17_authority_mode": "SIGNED_LOCAL_PILOT",
+            "round17_leo_approver_actor_id": leo_actor_id,
+        }
+    )
+    app.dependency_overrides[get_settings] = lambda: settings
+    client = TestClient(app)
+
+    response = client.post(
+        f"/api/v1/admin/pilot-windows/{WINDOW_ID}/start",
+        headers={
+            "X-SRBG-Local-User-ID": str(leo_actor_id),
+            "X-SRBG-Local-User": "LEO",
+            "X-SRBG-Local-Roles": "gold_arbitrator,source_admin",
+            "X-SRBG-Local-Step-Up": "true",
+            "Idempotency-Key": "round17-start",
+        },
+        json={"expected_version": 1, "reason": "start signed 168 hour observation"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["state"] == "RUNNING"
 
 
 def test_controlled_mfa_leo_can_resume_a_paused_source_and_complete_window() -> None:

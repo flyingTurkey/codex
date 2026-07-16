@@ -79,6 +79,7 @@ _GOLD_REQUIRED_COUNTS: dict[str, int] = {
 _ROUND17_ROSTER_VERSION = "r17-sources-v0.1"
 _ROUND17_METRIC_DEFINITION_VERSION = "phase2-round17-metrics-v1.0.0"
 _ROUND17_GOLD_DEFINITION_VERSION = "phase2-round17-gold-v1.0.0"
+_ROUND17_SINGLE_EXPERT_DEFINITION_VERSION = "phase2-round17-leo-reference-v1.0.0"
 _DIGITAL_SOURCE_CONTENT_DOMAINS = frozenset(
     {
         "DIGITAL_TRANSFORMATION_CASE",
@@ -180,6 +181,92 @@ def _eventization_manifest_is_trusted(
     return True
 
 
+def _round17_signed_approval_is_trusted(
+    approval: Mapping[str, Any] | RowMapping | None,
+    *,
+    source_codes: Sequence[str],
+    leo_actor_id: UUID | None,
+    trusted_public_key_base64: str | None,
+    trusted_public_key_sha256: str | None,
+    now: datetime,
+) -> bool:
+    """Verify the one-signature authority without trusting client or database flags."""
+
+    if (
+        approval is None
+        or leo_actor_id is None
+        or trusted_public_key_base64 is None
+        or trusted_public_key_sha256 is None
+        or approval.get("approval_type")
+        != "ROUND17_ATOMIC_AUTHORITY"
+        or approval.get("authority_mode") != "SIGNED_LOCAL_PILOT"
+        or approval.get("approved_by") != leo_actor_id
+        or approval.get("approved_by_display_name") != "LEO"
+        or approval.get("approved_by_responsibility") != "SOURCE_APPROVER"
+        or not isinstance(approval.get("valid_from"), datetime)
+        or not isinstance(approval.get("valid_until"), datetime)
+        or not approval["valid_from"] <= now <= approval["valid_until"]
+    ):
+        return False
+    document = approval.get("approval_document")
+    if not isinstance(document, Mapping):
+        return False
+    approver = document.get("approver")
+    window = document.get("window")
+    sources = document.get("sources")
+    if (
+        document.get("schema_version") != "round17-authority-v1"
+        or document.get("authority_state") != "LEO_CONFIRMED_AND_FROZEN"
+        or document.get("authority_mode") != "SIGNED_LOCAL_PILOT"
+        or document.get("roster_version") != _ROUND17_ROSTER_VERSION
+        or document.get("metric_definition_version") != _ROUND17_METRIC_DEFINITION_VERSION
+        or document.get("reference_definition_version")
+        != _ROUND17_SINGLE_EXPERT_DEFINITION_VERSION
+        or document.get("reference_model") != "LEO_SINGLE_EXPERT_REFERENCE_SET"
+        or not isinstance(approver, Mapping)
+        or approver.get("display_name") != "LEO"
+        or approver.get("actor_id") != str(leo_actor_id)
+        or not isinstance(window, Mapping)
+        or window.get("duration_hours") != 168
+        or window.get("confirmed") is not True
+        or window.get("automatic_start") is not False
+        or not isinstance(sources, Sequence)
+        or isinstance(sources, (str, bytes))
+    ):
+        return False
+    document_source_codes = tuple(
+        str(source.get("source_code"))
+        for source in sources
+        if isinstance(source, Mapping)
+    )
+    if (
+        len(document_source_codes) != 20
+        or len(set(document_source_codes)) != 20
+        or set(document_source_codes) != set(source_codes)
+    ):
+        return False
+    canonical = json.dumps(
+        document, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode()
+    if sha256(canonical).hexdigest() != approval.get("approval_document_sha256"):
+        return False
+    try:
+        public_bytes = b64decode(trusted_public_key_base64, validate=True)
+        signature = b64decode(str(approval.get("approval_signature")), validate=True)
+        fingerprint = sha256(public_bytes).hexdigest()
+        if (
+            len(public_bytes) != 32
+            or len(signature) != 64
+            or fingerprint != trusted_public_key_sha256
+            or fingerprint != approval.get("signer_public_key_sha256")
+        ):
+            return False
+        Ed25519PublicKey.from_public_bytes(public_bytes).verify(signature, canonical)
+    except (BinasciiError, InvalidSignature, TypeError, ValueError):
+        return False
+    return True
+
+
 def _round17_snapshot_blockers(
     window: Mapping[str, Any] | RowMapping,
     *,
@@ -188,6 +275,7 @@ def _round17_snapshot_blockers(
     baseline_commit_attestation: str | None,
     config_version_attestation: str | None,
     authoritative_source_codes: Sequence[str] | None,
+    authority_mode: str = "OIDC",
 ) -> set[str]:
     """Compare a client-prepared snapshot with server and database authority facts."""
 
@@ -215,7 +303,12 @@ def _round17_snapshot_blockers(
         blockers.add("ROUND17_ROSTER_VERSION_MISMATCH")
     if window["metric_definition_version"] != _ROUND17_METRIC_DEFINITION_VERSION:
         blockers.add("ROUND17_METRIC_DEFINITION_VERSION_MISMATCH")
-    if window["gold_definition_version"] != _ROUND17_GOLD_DEFINITION_VERSION:
+    expected_gold_definition = (
+        _ROUND17_SINGLE_EXPERT_DEFINITION_VERSION
+        if authority_mode == "SIGNED_LOCAL_PILOT"
+        else _ROUND17_GOLD_DEFINITION_VERSION
+    )
+    if window["gold_definition_version"] != expected_gold_definition:
         blockers.add("ROUND17_GOLD_DEFINITION_VERSION_MISMATCH")
     if window["database_revision"] != current_database_revision:
         blockers.add("ROUND17_DATABASE_REVISION_MISMATCH")
@@ -728,6 +821,9 @@ class PostgresOperationsService:
             str, tuple[int, int]
         ] | None = None,
         round17_leo_approver_actor_id: UUID | None = None,
+        round17_authority_mode: str = "OIDC",
+        round17_leo_signing_public_key_base64: str | None = None,
+        round17_leo_signing_public_key_sha256: str | None = None,
         round17_eventization_trusted_public_key_base64: str | None = None,
         round17_eventization_trusted_public_key_sha256: str | None = None,
     ) -> None:
@@ -751,6 +847,13 @@ class PostgresOperationsService:
             else None
         )
         self._round17_leo_approver_actor_id = round17_leo_approver_actor_id
+        self._round17_authority_mode = round17_authority_mode
+        self._round17_leo_signing_public_key_base64 = (
+            round17_leo_signing_public_key_base64
+        )
+        self._round17_leo_signing_public_key_sha256 = (
+            round17_leo_signing_public_key_sha256
+        )
         self._round17_eventization_trusted_public_key_base64 = (
             round17_eventization_trusted_public_key_base64
         )
@@ -1842,6 +1945,7 @@ class PostgresOperationsService:
                     ),
                     config_version_attestation=self._round17_config_version_attestation,
                     authoritative_source_codes=self._round17_roster_source_codes,
+                    authority_mode=self._round17_authority_mode,
                 )
             )
             observed_schedules: dict[str, _Round17ScheduleValues] = {
@@ -1868,6 +1972,50 @@ class PostgresOperationsService:
                     authoritative_source_schedules=authoritative_source_schedules,
                 )
             )
+            signed_local = self._round17_authority_mode == "SIGNED_LOCAL_PILOT"
+            signed_leo_bindings = {
+                row["actor_id"]
+                for row in actor_rows
+                if row["display_name"] == "LEO"
+                and row["responsibility"] == "SOURCE_APPROVER"
+                and row["local_identity"]
+            }
+            if signed_local:
+                leo_ids = signed_leo_bindings
+                required_duties = {("LEO", "SOURCE_APPROVER")}
+                bound_duties = {
+                    (row["display_name"], row["responsibility"])
+                    for row in actor_rows
+                    if row["local_identity"]
+                }
+                signed_approval = (
+                    (
+                        await connection.execute(
+                            text(
+                                """SELECT * FROM round17_signed_approval
+                                    WHERE approval_type=
+                                      'ROUND17_ATOMIC_AUTHORITY'
+                                    ORDER BY created_at DESC,id DESC
+                                    LIMIT 1"""
+                            )
+                        )
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
+                if not _round17_signed_approval_is_trusted(
+                    signed_approval,
+                    source_codes=tuple(str(row["source_code"]) for row in source_rows),
+                    leo_actor_id=self._round17_leo_approver_actor_id,
+                    trusted_public_key_base64=(
+                        self._round17_leo_signing_public_key_base64
+                    ),
+                    trusted_public_key_sha256=(
+                        self._round17_leo_signing_public_key_sha256
+                    ),
+                    now=now,
+                ):
+                    blockers.add("SIGNED_LOCAL_ATOMIC_APPROVAL_MISSING_OR_INVALID")
             if actor_id not in leo_ids:
                 blockers.add("WINDOW_STARTER_NOT_BOUND_APPROVER")
             if not required_duties.issubset(bound_duties):
@@ -1965,12 +2113,19 @@ class PostgresOperationsService:
                 ai_enabled=self._ai_enabled,
                 semantic_search_enabled=self._semantic_search_enabled,
                 external_notifications_enabled=self._external_notifications_enabled,
+                authority_mode=self._round17_authority_mode,
+                leo_super_admin_count=len(signed_leo_bindings),
+                single_expert_reference_definition_frozen=(
+                    window["gold_definition_version"]
+                    == _ROUND17_SINGLE_EXPERT_DEFINITION_VERSION
+                ),
             )
             readiness = evaluate_window_readiness(
                 facts, starts_at=now, duration_hours=window["duration_hours"]
             )
             blockers.update(readiness.blocker_codes)
-            if self._environment != "preproduction":
+            expected_environment = "test" if signed_local else "preproduction"
+            if self._environment != expected_environment:
                 blockers.add("ENVIRONMENT_NOT_PREPRODUCTION")
             if blockers:
                 await connection.execute(
@@ -2212,7 +2367,8 @@ class PostgresOperationsService:
                                    ON leo.actor_id=:actor
                                   AND leo.display_name='LEO'
                                   AND leo.responsibility='SOURCE_APPROVER'
-                                  AND leo.local_identity=false
+                                  AND leo.authority_mode=:authority_mode
+                                  AND leo.local_identity=:local_identity
                                  JOIN round17_eventization_readiness readiness
                                    ON readiness.source_id=source_row.id
                                   AND readiness.policy_version_id=policy.id
@@ -2274,6 +2430,10 @@ class PostgresOperationsService:
                         ),
                         {
                             "actor": actor_id,
+                            "authority_mode": self._round17_authority_mode,
+                            "local_identity": (
+                                self._round17_authority_mode == "SIGNED_LOCAL_PILOT"
+                            ),
                             "source": previous["source_id"],
                             "source_code": source_code,
                             "now": now,
@@ -2424,9 +2584,16 @@ class PostgresOperationsService:
                     """SELECT 1 FROM round17_staff_binding
                         WHERE actor_id=:actor AND display_name='LEO'
                           AND responsibility='SOURCE_APPROVER'
-                          AND local_identity=false"""
+                          AND authority_mode=:authority_mode
+                          AND local_identity=:local_identity"""
                 ),
-                {"actor": actor_id},
+                {
+                    "actor": actor_id,
+                    "authority_mode": self._round17_authority_mode,
+                    "local_identity": (
+                        self._round17_authority_mode == "SIGNED_LOCAL_PILOT"
+                    ),
+                },
             )
             if not leo_bound:
                 raise OperationsRejected("pilot completion requires the bound LEO approver")

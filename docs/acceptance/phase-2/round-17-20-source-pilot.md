@@ -127,3 +127,61 @@ UUIDv7 actor 绑定；LEO 的来源批准和窗口启动还必须满足近期 MF
 - 实现与验收提交哈希、最终显式暂存清单将在全部工程门禁复跑后补录。
 
 不开始第18轮。
+# 2026-07-16 signed-local authority addendum
+
+This addendum supersedes the earlier OIDC/three-person assumptions in this record. It does
+not supersede any real-evidence or 168-hour requirement.
+
+- LEO is the only administrator and approver (`019f6b65-4cf5-71d1-b75c-a6c908912f58`).
+- The test-only authority mode is `SIGNED_LOCAL_PILOT`. Production still rejects it.
+- The private Ed25519 key exists only in the ignored root `.env`. The checked-in approval
+  package contains only the authority document, public key, signature, hashes and validity.
+- The exact roster, source schedules, restrictive copyright/display policy, 168-hour window,
+  metrics v1.0 and `LEO_SINGLE_EXPERT_REFERENCE_SET` were confirmed and frozen by LEO.
+- Dual annotation, arbitration, individual workload targets and the yinzi/baixuejiao
+  administrator assumptions are cancelled. Single-expert results must disclose lower assurance.
+- Database migration `0017c_round17_flat_pilot` was replayed and applied to the current test
+  database. Exactly one signed-local LEO binding and one append-only atomic approval were
+  installed and independently counted.
+- The current database still has only 19 of the 20 roster codes; `NRA-001` is absent. Every
+  present source lacks current policy, connector configuration and live-trial authority, and no
+  source is ACTIVE. Therefore atomic start was not attempted and the immutable 168-hour window
+  remains `NOT_STARTED` with zero proven days.
+- Public approval evidence:
+  `docs/acceptance/assets/round17/leo-signed-approval.json`, document SHA-256
+  `74bca993ea052d27558bdaea42f993e975945b3848b70132d06a6bd165e67063`, public-key SHA-256
+  `f4d66573573e830008df11d227731a6284fb831785ac445dc4720b932abcc386`.
+- Current machine-readable state:
+  `docs/acceptance/phase-2/round-17-flat-readiness.json`.
+
+Decision: **Round 17 incomplete/BLOCKED**. Do not start Round 18.
+
+## 2026-07-17 independent acceptance rerun
+
+The commands below were executed from the current worktree after installing the signed
+authority. Cached logs were not used.
+
+| Command | Exit/result |
+|---|---|
+| `make phase2-round17-test` | `0`; migration `0016 -> 0017c -> 0016 -> 0017c`, 305 Python/contract/security tests, 93 Web tests, publication-path audit passed |
+| `make phase2-round17-eval` | `1`; `REQUIRED_EVIDENCE_MISSING`, decision `BLOCKED` |
+| `make phase2-round16-test` | `0`; 25 Python tests and 93 Web tests passed |
+| `make lint` | `0` |
+| `make typecheck` | `0`; strict mypy on 111 source files and Vue/Nuxt/contracts passed |
+| `make test` | first `1` reproduced root `.env` contamination; after the minimal isolation fix, `0`: 1068 passed, 29 skipped, UI 53 passed, Web 93 passed |
+| `make contract-test` | `0`; 81 passed |
+| `make security-check` | `0`; no HIGH/CRITICAL result, pnpm reported one low-severity dependency issue |
+| `make fixture-replay` | `0`; 351 passed and mock evaluation passed |
+| `make quality-gate` | `0` |
+| `make web-e2e` | first `1` reproduced stale-image migration and R17 navigation baseline issues; rebuilt current images and fixed the missing focus assertions; final `0`, 46 passed |
+| `make web-a11y` | `0`; 15 passed |
+| `make golden-replay` | `1`; all five real reference-set categories remain zero, decision `BLOCKED` |
+
+Current honest blockers are: automatic registration of missing `NRA-001` has not completed;
+20/20 current source policies, connector configurations, live trials and eventization profiles
+do not exist; the 168-hour window is `NOT_STARTED`; no real window evidence, source health
+series, approved fault drill or LEO single-expert reference labels exist. The legacy evaluator
+also still encodes the superseded three-person/dual-label evidence contract, so no future
+single-expert evidence may be declared passing until that evaluator contract is versioned.
+
+**第17轮未完成/BLOCKED**。不开始第18轮。

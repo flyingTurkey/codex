@@ -118,8 +118,8 @@ class AdminSourceService(Protocol):
         reason: str,
         actor_id: UUID,
         actor_display_name: str,
-        oidc_issuer: str,
-        oidc_subject: str,
+        oidc_issuer: str | None,
+        oidc_subject: str | None,
         request_id: str,
     ) -> None: ...
 
@@ -366,13 +366,15 @@ async def assign_round17_governance_scheme(
     settings: CurrentSettings,
 ) -> None:
     trusted_actor_id = settings.round17_leo_approver_actor_id
+    signed_local = settings.round17_authority_mode == "SIGNED_LOCAL_PILOT"
     if (
-        principal.local_identity
+        (signed_local and (settings.environment.lower() != "test" or not principal.local_identity))
+        or (not signed_local and principal.local_identity)
         or trusted_actor_id is None
         or principal.user_id != trusted_actor_id
         or principal.display_name != "LEO"
-        or principal.oidc_issuer is None
-        or principal.oidc_subject is None
+        or (not signed_local and principal.oidc_issuer is None)
+        or (not signed_local and principal.oidc_subject is None)
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

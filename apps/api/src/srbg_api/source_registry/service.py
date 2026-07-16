@@ -163,10 +163,12 @@ class SourceRegistryService:
         document_vault: DocumentVaultService,
         *,
         round17_leo_approver_actor_id: UUID | None = None,
+        round17_authority_mode: str = "OIDC",
     ) -> None:
         self._repository = repository
         self._document_vault = document_vault
         self._round17_leo_approver_actor_id = round17_leo_approver_actor_id
+        self._round17_authority_mode = round17_authority_mode
         self.metrics = document_vault.metrics
 
     @property
@@ -232,8 +234,8 @@ class SourceRegistryService:
         reason: str,
         actor_id: UUID,
         actor_display_name: str,
-        oidc_issuer: str,
-        oidc_subject: str,
+        oidc_issuer: str | None,
+        oidc_subject: str | None,
         request_id: str,
     ) -> None:
         """Bind a source to the narrowly approved R17 two-person cohort.
@@ -245,12 +247,12 @@ class SourceRegistryService:
 
         if cohort_key != ROUND17_ROSTER_COHORT:
             raise SourceServiceRejected("round17 governance cohort key is invalid", 422)
+        signed_local = self._round17_authority_mode == "SIGNED_LOCAL_PILOT"
         if (
             self._round17_leo_approver_actor_id is None
             or actor_id != self._round17_leo_approver_actor_id
             or actor_display_name != "LEO"
-            or not oidc_issuer
-            or not oidc_subject
+            or (not signed_local and (not oidc_issuer or not oidc_subject))
         ):
             raise SourceServiceRejected(
                 "round17 trusted LEO actor attestation is missing",
@@ -259,8 +261,13 @@ class SourceRegistryService:
         binding_matches = await self._repository.round17_source_approver_binding_matches(
             actor_id=actor_id,
             display_name="LEO",
-            oidc_issuer_sha256=sha256(oidc_issuer.encode("utf-8")).hexdigest(),
-            oidc_subject_sha256=sha256(oidc_subject.encode("utf-8")).hexdigest(),
+            authority_mode=self._round17_authority_mode,
+            oidc_issuer_sha256=(
+                None if oidc_issuer is None else sha256(oidc_issuer.encode()).hexdigest()
+            ),
+            oidc_subject_sha256=(
+                None if oidc_subject is None else sha256(oidc_subject.encode()).hexdigest()
+            ),
         )
         if not binding_matches:
             raise SourceServiceRejected(
@@ -1290,6 +1297,7 @@ def build_default_source_service(settings: Settings) -> SourceRegistryService:
         repository,
         vault,
         round17_leo_approver_actor_id=settings.round17_leo_approver_actor_id,
+        round17_authority_mode=settings.round17_authority_mode,
     )
 
 

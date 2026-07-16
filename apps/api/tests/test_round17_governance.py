@@ -5,6 +5,8 @@ from hashlib import sha256
 from uuid import UUID
 
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi.testclient import TestClient
 from srbg_api.auth import Principal, get_current_principal
 from srbg_api.config import Settings, get_settings
@@ -30,20 +32,86 @@ def test_round17_sole_approver_configuration_requires_uuid7() -> None:
         Settings(round17_leo_approver_actor_id=UUID("12345678-1234-4234-8234-123456789abc"))
 
 
+def _signed_local_key_material() -> tuple[str, str, str]:
+    private_key = Ed25519PrivateKey.generate()
+    private_bytes = private_key.private_bytes(
+        serialization.Encoding.Raw,
+        serialization.PrivateFormat.Raw,
+        serialization.NoEncryption(),
+    )
+    public_bytes = private_key.public_key().public_bytes(
+        serialization.Encoding.Raw,
+        serialization.PublicFormat.Raw,
+    )
+    return (
+        b64encode(private_bytes).decode(),
+        b64encode(public_bytes).decode(),
+        sha256(public_bytes).hexdigest(),
+    )
+
+
+def test_signed_local_pilot_requires_test_environment_key_and_frozen_leo_actor() -> None:
+    private_key, public_key, fingerprint = _signed_local_key_material()
+
+    settings = Settings(
+        environment="test",
+        round17_authority_mode="SIGNED_LOCAL_PILOT",
+        round17_leo_approver_actor_id=LEO_ID,
+        round17_leo_signing_private_key_base64=private_key,
+        round17_leo_signing_public_key_base64=public_key,
+        round17_leo_signing_public_key_sha256=fingerprint,
+    )
+
+    assert settings.round17_authority_mode == "SIGNED_LOCAL_PILOT"
+    assert settings.round17_leo_signing_private_key_base64 is not None
+    assert (
+        settings.round17_leo_signing_private_key_base64.get_secret_value()
+        == private_key
+    )
+
+
+def test_signed_local_pilot_is_rejected_in_production_or_with_mismatched_key() -> None:
+    private_key, public_key, fingerprint = _signed_local_key_material()
+
+    with pytest.raises(ValueError, match="test environments only"):
+        Settings(
+            environment="production",
+            round17_authority_mode="SIGNED_LOCAL_PILOT",
+            round17_leo_approver_actor_id=LEO_ID,
+            round17_leo_signing_private_key_base64=private_key,
+            round17_leo_signing_public_key_base64=public_key,
+            round17_leo_signing_public_key_sha256=fingerprint,
+        )
+    with pytest.raises(ValueError, match="key pair mismatch"):
+        Settings(
+            environment="test",
+            round17_authority_mode="SIGNED_LOCAL_PILOT",
+            round17_leo_approver_actor_id=LEO_ID,
+            round17_leo_signing_private_key_base64=private_key,
+            round17_leo_signing_public_key_base64=b64encode(b"x" * 32).decode(),
+            round17_leo_signing_public_key_sha256=sha256(b"x" * 32).hexdigest(),
+        )
+
+
 def test_round17_eventization_trust_anchor_requires_exact_ed25519_fingerprint() -> None:
     public_key = b"k" * 32
     encoded = b64encode(public_key).decode()
 
     settings = Settings(
+        _env_file=None,
         round17_eventization_trusted_public_key_base64=encoded,
         round17_eventization_trusted_public_key_sha256=sha256(public_key).hexdigest(),
     )
     assert settings.round17_eventization_trusted_public_key_base64 == encoded
 
     with pytest.raises(ValueError, match="configured together"):
-        Settings(round17_eventization_trusted_public_key_base64=encoded)
+        Settings(
+            _env_file=None,
+            round17_eventization_trusted_public_key_base64=encoded,
+        )
     with pytest.raises(ValueError, match="fingerprint mismatch"):
         Settings(
+            _env_file=None,
             round17_eventization_trusted_public_key_base64=encoded,
             round17_eventization_trusted_public_key_sha256="f" * 64,
         )
@@ -136,13 +204,15 @@ class AssignmentRepository:
         *,
         actor_id: UUID,
         display_name: str,
-        oidc_issuer_sha256: str,
-        oidc_subject_sha256: str,
+        authority_mode: str = "OIDC",
+        oidc_issuer_sha256: str | None = None,
+        oidc_subject_sha256: str | None = None,
     ) -> bool:
         self.staff_binding_checks.append(
             {
                 "actor_id": actor_id,
                 "display_name": display_name,
+                "authority_mode": authority_mode,
                 "oidc_issuer_sha256": oidc_issuer_sha256,
                 "oidc_subject_sha256": oidc_subject_sha256,
             }
@@ -210,6 +280,7 @@ async def test_round17_staff_binding_query_requires_exact_non_local_source_appro
     assert await repository.round17_source_approver_binding_matches(
         actor_id=LEO_ID,
         display_name="LEO",
+        authority_mode="OIDC",
         oidc_issuer_sha256=issuer_hash,
         oidc_subject_sha256=subject_hash,
     )
@@ -220,9 +291,28 @@ async def test_round17_staff_binding_query_requires_exact_non_local_source_appro
     assert engine.connection.params == {
         "actor_id": LEO_ID,
         "display_name": "LEO",
+        "authority_mode": "OIDC",
         "oidc_issuer_sha256": issuer_hash,
         "oidc_subject_sha256": subject_hash,
     }
+
+
+@pytest.mark.asyncio
+async def test_round17_staff_binding_query_supports_only_signed_local_leo() -> None:
+    engine = _BindingEngine()
+    repository = SourceVaultRepository(engine)  # type: ignore[arg-type]
+
+    assert await repository.round17_source_approver_binding_matches(
+        actor_id=LEO_ID,
+        display_name="LEO",
+        authority_mode="SIGNED_LOCAL_PILOT",
+        oidc_issuer_sha256=None,
+        oidc_subject_sha256=None,
+    )
+
+    assert "authority_mode=:authority_mode" in engine.connection.sql
+    assert "local_identity=true" in engine.connection.sql
+    assert engine.connection.params["actor_id"] == LEO_ID
 
 
 @pytest.mark.asyncio
@@ -256,6 +346,38 @@ async def test_round17_scheme_assignment_is_explicit_and_precedes_governance_dec
     assert repository.staff_binding_checks[0]["oidc_subject_sha256"] == sha256(
         b"leo-subject"
     ).hexdigest()
+
+
+@pytest.mark.asyncio
+async def test_signed_local_leo_can_assign_the_frozen_roster_without_oidc() -> None:
+    repository = AssignmentRepository(SourceLifecycleState.CANDIDATE)
+    service = SourceRegistryService(  # type: ignore[arg-type]
+        repository,
+        DummyVault(),
+        round17_leo_approver_actor_id=LEO_ID,
+        round17_authority_mode="SIGNED_LOCAL_PILOT",
+    )
+
+    await service.assign_round17_governance_scheme(
+        SOURCE_ID,
+        cohort_key="r17-sources-v0.1",
+        reason="apply the one-signature frozen roster",
+        actor_id=LEO_ID,
+        actor_display_name="LEO",
+        oidc_issuer=None,
+        oidc_subject=None,
+        request_id="round17-signed-governance-assignment",
+    )
+
+    assert repository.staff_binding_checks == [
+        {
+            "actor_id": LEO_ID,
+            "display_name": "LEO",
+            "authority_mode": "SIGNED_LOCAL_PILOT",
+            "oidc_issuer_sha256": None,
+            "oidc_subject_sha256": None,
+        }
+    ]
 
 
 @pytest.mark.asyncio
@@ -390,6 +512,8 @@ def _controlled_assignment_client(stub: AssignmentApiStub) -> TestClient:
         oidc_subject="leo-subject",
     )
     app.dependency_overrides[get_settings] = lambda: Settings(
+        _env_file=None,
+        round17_authority_mode="OIDC",
         oidc_step_up_acr_values=["urn:srbg:mfa"],
         round17_leo_approver_actor_id=LEO_ID,
     )

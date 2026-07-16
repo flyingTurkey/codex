@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from base64 import b64encode
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
@@ -19,6 +20,7 @@ from srbg_api.operations.service import (
     _round17_schedule_attestation_blockers,
     _round17_schedule_values_from_authority,
     _round17_schedule_write_blockers,
+    _round17_signed_approval_is_trusted,
     _round17_snapshot_blockers,
     _source_supports_gold_domain,
 )
@@ -320,6 +322,74 @@ def test_round17_schedule_attestation_is_exact_and_fails_closed() -> None:
         observed,
         authoritative_source_schedules=wrong_authority,
     ) == {"ROUND17_SOURCE_SCHEDULE_AUTHORITY_MISMATCH"}
+
+
+def test_signed_local_start_requires_the_exact_valid_leo_atomic_approval() -> None:
+    private_key = Ed25519PrivateKey.generate()
+    public_bytes = private_key.public_key().public_bytes_raw()
+    actor_id = UUID("019f6b65-4cf5-71d1-b75c-a6c908912f58")
+    now = datetime(2026, 7, 16, tzinfo=UTC)
+    document = {
+        "schema_version": "round17-authority-v1",
+        "authority_state": "LEO_CONFIRMED_AND_FROZEN",
+        "authority_mode": "SIGNED_LOCAL_PILOT",
+        "approver": {"display_name": "LEO", "actor_id": str(actor_id)},
+        "roster_version": "r17-sources-v0.1",
+        "metric_definition_version": "phase2-round17-metrics-v1.0.0",
+        "reference_definition_version": "phase2-round17-leo-reference-v1.0.0",
+        "reference_model": "LEO_SINGLE_EXPERT_REFERENCE_SET",
+        "window": {"duration_hours": 168, "confirmed": True, "automatic_start": False},
+        "sources": [
+            {"source_code": f"SRC-{number:03d}"} for number in range(1, 21)
+        ],
+    }
+    canonical = json.dumps(
+        document, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode()
+    row = {
+        "approval_type": "ROUND17_ATOMIC_AUTHORITY",
+        "authority_mode": "SIGNED_LOCAL_PILOT",
+        "approval_document": document,
+        "approval_document_sha256": sha256(canonical).hexdigest(),
+        "approval_signature": b64encode(private_key.sign(canonical)).decode(),
+        "signer_public_key_sha256": sha256(public_bytes).hexdigest(),
+        "approved_by": actor_id,
+        "approved_by_display_name": "LEO",
+        "approved_by_responsibility": "SOURCE_APPROVER",
+        "valid_from": now - timedelta(minutes=1),
+        "valid_until": now + timedelta(days=30),
+    }
+
+    assert _round17_signed_approval_is_trusted(
+        row,
+        source_codes=tuple(f"SRC-{number:03d}" for number in range(1, 21)),
+        leo_actor_id=actor_id,
+        trusted_public_key_base64=b64encode(public_bytes).decode(),
+        trusted_public_key_sha256=sha256(public_bytes).hexdigest(),
+        now=now,
+    )
+    row["approval_document_sha256"] = "0" * 64
+    assert not _round17_signed_approval_is_trusted(
+        row,
+        source_codes=tuple(f"SRC-{number:03d}" for number in range(1, 21)),
+        leo_actor_id=actor_id,
+        trusted_public_key_base64=b64encode(public_bytes).decode(),
+        trusted_public_key_sha256=sha256(public_bytes).hexdigest(),
+        now=now,
+    )
+
+
+def test_signed_local_start_queries_the_persisted_atomic_approval() -> None:
+    service = Path("apps/api/src/srbg_api/operations/service.py").read_text(
+        encoding="utf-8"
+    )
+    start = service.split("async def start_pilot_window", 1)[1].split(
+        "async def resume_pilot_source", 1
+    )[0]
+
+    assert "FROM round17_signed_approval" in start
+    assert "_round17_signed_approval_is_trusted" in start
+    assert "SIGNED_LOCAL_ATOMIC_APPROVAL_MISSING_OR_INVALID" in start
 
 
 def test_round17_schedule_interval_and_slo_keep_distinct_authorities() -> None:

@@ -611,6 +611,13 @@ def build_default_app() -> FastAPI:
                 settings.round17_source_schedule_attestations
             ),
             round17_leo_approver_actor_id=settings.round17_leo_approver_actor_id,
+            round17_authority_mode=settings.round17_authority_mode,
+            round17_leo_signing_public_key_base64=(
+                settings.round17_leo_signing_public_key_base64
+            ),
+            round17_leo_signing_public_key_sha256=(
+                settings.round17_leo_signing_public_key_sha256
+            ),
             round17_eventization_trusted_public_key_base64=(
                 settings.round17_eventization_trusted_public_key_base64
             ),

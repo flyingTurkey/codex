@@ -1,3 +1,4 @@
+from pathlib import Path
 from uuid import UUID
 
 from fastapi.testclient import TestClient
@@ -8,7 +9,9 @@ from srbg_api.main import create_app
 
 def test_staging_ignores_local_identity_headers_for_all_internal_reader_channels(
     monkeypatch,
+    tmp_path: Path,
 ) -> None:
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("SRBG_ENVIRONMENT", "staging")
     monkeypatch.setenv("SRBG_OIDC_ISSUER", "https://id.example.test")
     monkeypatch.setenv("SRBG_OIDC_AUDIENCE", "srbg-platform")

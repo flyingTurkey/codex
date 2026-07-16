@@ -1,0 +1,63 @@
+{
+  "schema_version": "1.0.0",
+  "record_type": "ENGINEERING_READINESS_NOT_PILOT_EVIDENCE",
+  "round": 17,
+  "recorded_at": "2026-07-16T15:49:00Z",
+  "decision": "BLOCKED",
+  "authority": {
+    "mode": "SIGNED_LOCAL_PILOT",
+    "environment": "test",
+    "leo_actor_id": "019f6b65-4cf5-71d1-b75c-a6c908912f58",
+    "administrator_count": 1,
+    "atomic_approval_installed": true,
+    "approval_document_sha256": "74bca993ea052d27558bdaea42f993e975945b3848b70132d06a6bd165e67063",
+    "public_key_sha256": "f4d66573573e830008df11d227731a6284fb831785ac445dc4720b932abcc386",
+    "valid_until": "2026-08-15T15:47:40.043188Z"
+  },
+  "definitions": {
+    "roster": "r17-sources-v0.1",
+    "metrics": "phase2-round17-metrics-v1.0.0",
+    "reference": "phase2-round17-leo-reference-v1.0.0",
+    "reference_model": "LEO_SINGLE_EXPERT_REFERENCE_SET",
+    "reference_assurance": "LOWER_THAN_DUAL_EXPERT_GOLD"
+  },
+  "database": {
+    "revision": "0017c_round17_flat_pilot",
+    "signed_local_leo_binding_count": 1,
+    "atomic_approval_count": 1
+  },
+  "observation_window": {
+    "confirmed_duration_hours": 168,
+    "state": "NOT_STARTED",
+    "started_at": null,
+    "ended_at": null,
+    "continuous_days_proven": 0
+  },
+  "source_preflight": {
+    "expected_count": 20,
+    "registered_count": 19,
+    "active_count": 0,
+    "current_policy_count": 0,
+    "current_connector_config_count": 0,
+    "live_trial_count": 0,
+    "missing_source_codes": ["NRA-001"]
+  },
+  "real_evidence": {
+    "window_evidence_manifest_present": false,
+    "single_expert_reference_manifest_present": false,
+    "north_star_computed": false,
+    "fault_drill_present": false,
+    "source_health_series_present": false
+  },
+  "blockers": [
+    "NRA_001_NOT_REGISTERED",
+    "SOURCE_POLICIES_NOT_CURRENT_20_OF_20",
+    "SOURCE_CONNECTOR_CONFIGS_NOT_CURRENT_20_OF_20",
+    "LIVE_TRIALS_NOT_SUCCEEDED_20_OF_20",
+    "SOURCE_EVENTIZATION_PROFILES_NOT_READY_20_OF_20",
+    "OBSERVATION_WINDOW_NOT_STARTED",
+    "REAL_168_HOUR_EVIDENCE_MISSING",
+    "LEO_SINGLE_EXPERT_REFERENCE_SET_NOT_LABELED",
+    "LEO_SINGLE_EXPERT_EVALUATOR_CONTRACT_NOT_VERSIONED"
+  ]
+}

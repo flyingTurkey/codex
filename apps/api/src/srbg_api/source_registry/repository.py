@@ -454,8 +454,9 @@ class SourceVaultRepository:
         *,
         actor_id: UUID,
         display_name: str,
-        oidc_issuer_sha256: str,
-        oidc_subject_sha256: str,
+        authority_mode: str = "OIDC",
+        oidc_issuer_sha256: str | None = None,
+        oidc_subject_sha256: str | None = None,
     ) -> bool:
         async with self._engine.connect() as connection:
             matched = (
@@ -468,15 +469,24 @@ class SourceVaultRepository:
                            WHERE actor_id=:actor_id
                              AND display_name=:display_name
                              AND responsibility='SOURCE_APPROVER'
-                             AND local_identity=false
-                             AND oidc_issuer_sha256=:oidc_issuer_sha256
-                             AND oidc_subject_sha256=:oidc_subject_sha256
+                             AND authority_mode=:authority_mode
+                             AND (
+                               (:authority_mode='OIDC' AND local_identity=false
+                                AND oidc_issuer_sha256=:oidc_issuer_sha256
+                                AND oidc_subject_sha256=:oidc_subject_sha256)
+                               OR
+                               (:authority_mode='SIGNED_LOCAL_PILOT'
+                                AND local_identity=true
+                                AND oidc_issuer_sha256 IS NULL
+                                AND oidc_subject_sha256 IS NULL)
+                             )
                         )
                         """
                     ),
                     {
                         "actor_id": actor_id,
                         "display_name": display_name,
+                        "authority_mode": authority_mode,
                         "oidc_issuer_sha256": oidc_issuer_sha256,
                         "oidc_subject_sha256": oidc_subject_sha256,
                     },

@@ -104,6 +104,51 @@ def test_t0_requires_eventization_readiness_for_each_of_exactly_twenty_sources()
     assert "SOURCE_EVENTIZATION_PIPELINE_NOT_READY" in result.blocker_codes
 
 
+def test_signed_local_pilot_accepts_one_leo_super_admin_and_frozen_reference_scheme() -> None:
+    now = datetime(2026, 7, 16, 9, tzinfo=UTC)
+    facts = PilotReadinessFacts(
+        sources=tuple(_source(index, now) for index in range(1, 21)),
+        controlled_oidc_actor_count=0,
+        local_identity_count=1,
+        gold_release_frozen=False,
+        metric_definition_frozen=True,
+        ai_enabled=False,
+        semantic_search_enabled=False,
+        external_notifications_enabled=False,
+        authority_mode="SIGNED_LOCAL_PILOT",
+        leo_super_admin_count=1,
+        single_expert_reference_definition_frozen=True,
+    )
+
+    result = evaluate_window_readiness(facts, starts_at=now, duration_hours=168)
+
+    assert result.blocker_codes == ()
+
+
+def test_signed_local_pilot_rejects_multiple_or_missing_leo_authorities() -> None:
+    now = datetime(2026, 7, 16, 9, tzinfo=UTC)
+    facts = PilotReadinessFacts(
+        sources=tuple(_source(index, now) for index in range(1, 21)),
+        controlled_oidc_actor_count=0,
+        local_identity_count=1,
+        gold_release_frozen=False,
+        metric_definition_frozen=True,
+        ai_enabled=False,
+        semantic_search_enabled=False,
+        external_notifications_enabled=False,
+        authority_mode="SIGNED_LOCAL_PILOT",
+        leo_super_admin_count=2,
+        single_expert_reference_definition_frozen=False,
+    )
+
+    result = evaluate_window_readiness(facts, starts_at=now, duration_hours=168)
+
+    assert set(result.blocker_codes) >= {
+        "SIGNED_LOCAL_LEO_AUTHORITY_NOT_UNIQUE",
+        "SINGLE_EXPERT_REFERENCE_DEFINITION_NOT_FROZEN",
+    }
+
+
 def test_window_reset_scope_is_versioned_and_never_silent() -> None:
     assert reset_scope_for_change(WindowChangeKind.ROSTER) == "FULL_WINDOW"
     assert reset_scope_for_change(WindowChangeKind.METRIC_DEFINITION) == "FULL_WINDOW"

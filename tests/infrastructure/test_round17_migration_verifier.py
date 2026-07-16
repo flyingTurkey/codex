@@ -75,13 +75,17 @@ def test_round17_verifier_covers_tables_constraints_functions_and_roles() -> Non
         "round17_pilot_window_source",
         "round17_gold_annotation",
         "round17_metric_snapshot",
+        "round17_signed_approval",
+        "round17_reference_annotation",
     }
     assert set(EXPECTED_CONSTRAINTS) >= {
         "ck_source_governance_scheme_round17",
         "ck_round17_window_duration",
         "ck_round17_window_exact_period",
         "ck_fetch_run_origin",
-        "ck_round17_staff_not_local",
+        "ck_round17_staff_authority_mode",
+        "ck_round17_staff_identity_assurance",
+        "ck_round17_staff_identity_hashes",
         "uq_round17_window_source_segment",
         "uq_round17_window_source_code_segment",
         "ck_round17_source_schedule_pins",
@@ -107,7 +111,7 @@ def test_round17_verifier_covers_tables_constraints_functions_and_roles() -> Non
         assert role in source
     assert "0017B_DOWNGRADE_BLOCKED" in source
     assert "0016_scheduling_health_replay" in source
-    assert "0017b_round17_pilot" in source
+    assert "0017c_round17_flat_pilot" in source
     assert "expired lease accepted a backdated raw capture" in source
     assert "paused source segment accepted raw capture" in source
     assert "expired lease accepted document materialization" in source
