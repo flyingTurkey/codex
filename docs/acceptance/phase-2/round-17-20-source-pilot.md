@@ -161,6 +161,10 @@ Decision: **Round 17 incomplete/BLOCKED**. Do not start Round 18.
 The commands below were executed from the current worktree after installing the signed
 authority. Cached logs were not used.
 
+Implementation commits: `d3b11cca0816f5c5da656af0fb4b28e60e87ae0e` (signed flat
+authority) and `6a9ef67dfbbee05c0c1ad0f4b010fbbd3f57369a` (independent
+regression fixes).
+
 | Command | Exit/result |
 |---|---|
 | `make phase2-round17-test` | `0`; migration `0016 -> 0017c -> 0016 -> 0017c`, 305 Python/contract/security tests, 93 Web tests, publication-path audit passed |
