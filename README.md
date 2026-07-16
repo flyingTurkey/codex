@@ -1,17 +1,19 @@
 # 四川路桥·智安情报
 
-四川路桥内部使用的行业数智与安全情报平台。仓库已形成 Round 00—13 的工程切片，覆盖来源与原始文档、证据化内容处理、统一信息流、搜索/日报/收藏、质量运维安全门禁，以及 Event-keyed 内部发布投影的安全影子基线。各项能力的真实联网和生产等级仍须按验收证据判断，不能由本说明直接推定。
+四川路桥内部使用的行业数智与安全情报平台。仓库工程实现已推进至 Round 17，覆盖来源与原始文档、证据化内容处理、统一信息流、搜索/日报/收藏、Event 统一身份、内部发布投影、PostgreSQL 权威调度、来源健康、安全重放，以及20来源真实试运行的授权与离线验收门禁。各项能力的真实联网和生产等级仍须按验收证据判断，不能由本说明直接推定。
 
-当前第17轮已完成20来源试运行和第一阶段人工金标的工程准备门禁，但真实试运行仍为 `BLOCKED`：候选20来源、候选阈值和168小时窗口均未获 LEO 最终确认，三名人员的受信任 OIDC 绑定、逐源合规审批、来源事件化配置、真人金标和真实证据导出也不存在。仓库没有激活来源、抓取真实内容或用 Fixture/重放冒充连续观察；AI观察、付费模型、语义搜索和外部通知保持关闭。
+当前第17轮的工程准备门禁已经完成，但真实试运行仍为 `BLOCKED`。LEO 已作为唯一超级管理员确认并冻结20源清单、来源频率、展示边界、168小时窗口和单专家参考集方案；测试环境通过一次 Ed25519 签名原子安装授权，20/20来源已自动登记。当前仍为0个 ACTIVE、0个当前逐源策略、0个当前连接器配置、0个成功真实试运行，观察窗口尚未启动，LEO单专家参考集和真实证据导出均不存在。仓库没有用 Fixture、回填或测试日志冒充真实连续观察；AI观察、付费模型、语义搜索、邮件和企业微信保持关闭。
 
 ## 第17轮真实试运行准备
 
-- `phase2-round17-test` 只执行确定性契约、Fixture、故障、安全、Event/投影边界和发布路径测试；不会实时抓网。
-- `phase2-round17-eval` 只读取外部签名的真实窗口 evidence 和真人金标；缺审批、身份、168小时窗口、20源逐源状态或金标时必须非零 `BLOCKED`。
+- `phase2-round17-test` 只执行确定性契约、Fixture、故障、安全、Event/投影边界、签名授权和发布路径测试；不会实时抓网。当前结果为308项后端/契约/安全测试和93项Web测试通过。
+- `phase2-round17-eval` 使用版本化 `round17-flat-evidence-v1` 离线评估器，只读取哈希绑定的真实窗口 evidence 和 `LEO_SINGLE_EXPERT_REFERENCE_SET`。缺168小时窗口、20源逐源状态、LEO参考集或故障演练时必须非零 `BLOCKED`；它不再要求 yinzi/baixuejiao 双标，也不设置个人绩效指标。
+- R17 测试环境使用 `SIGNED_LOCAL_PILOT`：LEO（`019f6b65-4cf5-71d1-b75c-a6c908912f58`）是唯一批准人。私钥只允许保存在被 Git 忽略的根目录 `.env`；提交的批准包只包含签名、公钥、哈希和有效期。生产环境仍拒绝该模式并保持企业 OIDC/SSO。
+- 签名安装器会在同一事务中验证完整20源清单、安装LEO绑定和授权，并自动补录缺失的 `NRA-001`。自动登记只产生 `CANDIDATE/enabled=false` 和审计事实，不会绕过策略、配置、真实试运行或事件化门禁授予 ACTIVE。
 - 真实运行只允许 PostgreSQL 权威 ACTIVE 来源，逐次物理请求在 I/O 前执行域名、租约和预算校验；重试/重定向计入频率，回放固定为无网络 `FIXTURE + REPLAY`。
-- R17 运行时目前只到 raw-first Document。来源特定的 accepted Claim/Evidence→Event→PublicationService 配置不能在来源/DOM 未批准时编造；T0 必须由数据库权威事件化准备事实逐源放行。
+- R17 真实链路仍未启动。来源特定的 raw-first Document→accepted Claim/Evidence→Event→PublicationService 配置不能在来源/DOM 未验证时编造；T0 必须由数据库权威事件化准备事实逐源放行。
 
-完整的逐源诚实状态、工程命令和外部阻断见[第17轮验收记录](docs/acceptance/phase-2/round-17-20-source-pilot.md)。
+完整的逐源诚实状态、工程命令和外部阻断见[第17轮验收记录](docs/acceptance/phase-2/round-17-20-source-pilot.md)，机器可读状态见 [`round-17-flat-readiness.json`](docs/acceptance/phase-2/round-17-flat-readiness.json)。结论保持：**第17轮未完成/BLOCKED，不进入第18轮。**
 
 ## 第 16 轮数据库权威调度
 
@@ -47,7 +49,7 @@
 - 投影只保存发布题录、accepted claims 和证据定位，不复制原始全文。撤回、纠正及法律下架会使当前投影失效。
 - 审计边界为 append-only/tamper-evident：运行角色不能直接写 `audit_log`，链值由受控数据库函数生成，链根锚定到独立对象存储；这不等于数据库管理员绝对不可篡改。
 - publisher 每日锚定审计链根；`/metrics` 暴露由 PostgreSQL 计算的投影对账差异、最近成功回填和最近成功锚定时刻，Prometheus 对差异或陈旧状态告警，处置流程保持不切换消费者且不回退读取业务表。
-- 首期仍仅允许企业内部 OIDC/SSO，非开发环境不接受本地身份头，不开放匿名互联网访问。
+- 首期仍仅允许企业内部访问，不开放匿名互联网访问。生产环境采用 OIDC/SSO；R17 的签名本地身份仅限明确标记的 `test` 环境，配置成 production 时服务端启动即拒绝。
 
 本地验收影子数据为 32 个稳定 Event：23 条 `FULL`、9 条 R3 `METADATA_ONLY`、0 条 R4 投影，连续两代对账差异均为 0。该数量是固定验收数据证据，不代表生产内容规模。完整证据见[第 13 轮验收记录](docs/acceptance/phase-2/round-13-internal-projection-event-identity.md)。
 
@@ -89,6 +91,16 @@ API_PORT=18000
 make setup
 make dev
 ```
+
+R17 测试环境首次配置签名授权时执行以下命令。`round17_keygen.py` 会轮换根目录 `.env` 中的R17密钥，不应在已有有效窗口中重复运行；安装授权不会自动启动168小时窗口：
+
+```powershell
+.\tools\uv\uv.exe run python scripts/round17_keygen.py
+.\tools\uv\uv.exe run python scripts/round17_sign_approval.py
+.\tools\uv\uv.exe run python scripts/round17_install_approval.py --loopback-port 15432
+```
+
+若 `.env` 使用其他 `POSTGRES_PORT`，最后一条命令应传入对应宿主端口。一次签名安装只完成授权与20源自动登记，不创建策略、连接器、真实试运行证据，也不启动观察窗口。
 
 常用地址：
 
@@ -148,6 +160,7 @@ make resilience-test
 - 第 13 轮内部发布投影与 Event 身份：[Round 13 验收记录](docs/acceptance/phase-2/round-13-internal-projection-event-identity.md)
 - 第 14 轮 Event 统一身份与 Item 兼容迁移：[Round 14 验收记录](docs/acceptance/phase-2/round-14-event-unification.md)
 - 第17轮20来源真实试运行准备与阻断：[Round 17 验收记录](docs/acceptance/phase-2/round-17-20-source-pilot.md)
+- 第17轮机器可读工程准备状态：[Round 17 readiness](docs/acceptance/phase-2/round-17-flat-readiness.json)
 - 二阶段产品与架构基线：[二阶段实施总规范](docs/codex-kit/docs/phase-2/SRBG-Phase-2-Optimization-Codex-Spec.md)
 - 二阶段执行顺序：[11F、11P 及第 12—21 轮指令](docs/codex-kit/docs/phase-2/SRBG-Phase-2-Rounds-11F-21-Codex-Commands.md)
 - 初始工程证据：[Round 00 验收记录](docs/acceptance/round-00-foundation.md)
