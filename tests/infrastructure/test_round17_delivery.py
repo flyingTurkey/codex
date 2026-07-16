@@ -57,6 +57,7 @@ def test_round17_acceptance_is_machine_readable_and_honestly_blocked() -> None:
     assert record["round"] == 17
     assert record["decision"] == "BLOCKED"
     assert record["observation_window"]["state"] == "NOT_STARTED"
+    assert record["observation_window"]["confirmed_duration_hours"] == 168
     assert record["observation_window"]["started_at"] is None
     assert record["real_evidence"]["authority"] is False
     assert record["real_evidence"]["evidence_manifest_present"] is False
@@ -81,7 +82,7 @@ def test_round17_acceptance_is_machine_readable_and_honestly_blocked() -> None:
         "LEO_ACTOR_ATTESTATION_MISSING",
         "GOLD_LABELS_MISSING",
         "METRICS_APPROVAL_MISSING",
-        "OBSERVATION_WINDOW_NOT_CONFIRMED",
+        "OBSERVATION_WINDOW_NOT_STARTED",
         "REAL_EVIDENCE_EXPORT_MISSING",
     }.issubset(blocker_codes)
 
