@@ -12,7 +12,10 @@ from uuid import UUID
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
-from srbg_api.ai_pipeline.content_preparation import PreparationDocument
+from srbg_api.ai_pipeline.content_preparation import (
+    AiContentPreparationService,
+    PreparationDocument,
+)
 from srbg_api.ai_pipeline.contracts import AiStep, ModelResponse
 from srbg_api.ai_pipeline.preparation import DocumentBlock
 from srbg_api.document_vault.storage import S3ObjectStore
@@ -41,12 +44,17 @@ class PostgresAiPreparationRepository:
         self._max_document_bytes = max_document_bytes
 
     async def begin(self, run_id: UUID) -> PreparationDocument:
-        now = datetime.now(UTC)
         async with self._engine.begin() as connection:
-            await connection.execute(
-                text("SELECT promote_ai01_pilot_to_shadow(:run_id,:now)"),
-                {"run_id": run_id, "now": now},
+            promoted = await connection.scalar(
+                text(_PROMOTE_PILOT_SQL),
+                {
+                    "run_id": run_id,
+                    "pilot_source": AiContentPreparationService.PILOT_SOURCE,
+                    "pilot_url": AiContentPreparationService.PILOT_URL,
+                },
             )
+            if promoted != run_id:
+                raise RuntimeError("AI01_SHADOW_AUTHORITY_INVALID")
             enabled = await connection.scalar(
                 text(
                     "SELECT EXISTS(SELECT 1 FROM ai_provider_activation activation "
@@ -569,6 +577,39 @@ async def _load_blocks(connection: Any, version_id: UUID) -> list[DocumentBlock]
 
 
 _SYSTEM_ACTOR = UUID("019b0000-0000-7000-8000-000000009002")
+
+_PROMOTE_PILOT_SQL = """
+WITH candidate AS (
+  SELECT run.id,run.mode,run.status
+    FROM ai_pipeline_run run
+    JOIN document_version version ON version.id=run.document_version_id
+    JOIN document doc ON doc.id=version.document_id
+    JOIN source src ON src.id=doc.source_id
+   WHERE run.id=:run_id AND src.registry_code=:pilot_source
+     AND doc.canonical_url=:pilot_url
+     AND (
+       (run.mode='SHADOW' AND run.status IN (
+         'QUEUED','PREPARING','CLASSIFYING','EXTRACTING','WAITING_CLAIM_REVIEW'
+       )) OR (
+         run.mode='LIVE' AND run.status='QUEUED'
+         AND EXISTS(
+           SELECT 1 FROM source_content_outbox outbox
+            WHERE outbox.pipeline_run_id=run.id AND outbox.status='WAITING_AI'
+         )
+       )
+     )
+   FOR UPDATE OF run
+), promoted AS (
+  UPDATE ai_pipeline_run run SET mode='SHADOW'
+    FROM candidate
+   WHERE run.id=candidate.id AND candidate.mode='LIVE'
+  RETURNING run.id
+)
+SELECT id FROM promoted
+UNION ALL
+SELECT id FROM candidate WHERE mode='SHADOW'
+LIMIT 1
+"""
 
 _DOCUMENT_SQL = """
 SELECT version.id AS document_version_id,version.content_hash,version.title,

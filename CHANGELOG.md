@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+### R-AI01 真实试点端点恢复
+
+- 将 `GOV-003` 试点从运行环境不可达的旧 `zizhan.mot.gov.cn` 附件，收紧到交通运输部政府信息公开站的固定通知附件；只接受精确来源代码和精确 URL，不允许主机通配、重定向扩权或旧地址回退。
+- Worker 的 SHADOW 提升继续要求数据库中存在真实 `source_content_outbox=WAITING_AI` 事实；来源合规、连接器、试运行和生产授权仍须由人工治理流程完成，端点恢复不构成自动批准。
+- DeepSeek test 环境能力已激活但保持缺少 Secret 时 fail-closed；未配置密钥、预算关闭或来源未获准时不会发起模型请求，也不会生成伪候选。
+
 ### R-AI01 单一真实来源 AI 内容准备闭环
 
 - 新增 `0020_ai_content_preparation`：扩展 AI 准备状态机和 `CLAIM_REVIEW`，增加 DeepSeek 固定能力目录、不可变步骤结果、候选 Claim/Evidence 来源、逐条审核决定、来源别名以及 PostgreSQL 权威预算账本。

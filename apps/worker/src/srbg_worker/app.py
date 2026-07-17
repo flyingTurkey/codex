@@ -642,9 +642,8 @@ async def _prepare_ai_inputs(
     run_id: UUID,
 ) -> tuple[PreparationDocument, PreparedDocumentInput, PreparedDocumentInput]:
     document = await repository.begin(run_id)
-    if (
-        document.source_code != AiContentPreparationService.PILOT_SOURCE
-        or document.canonical_url != AiContentPreparationService.PILOT_URL
+    if not AiContentPreparationService.is_pilot_document(
+        document.source_code, document.canonical_url
     ):
         raise PermissionError("AI01_PILOT_SCOPE_DENIED")
     return (

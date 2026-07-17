@@ -14,6 +14,10 @@ from srbg_api.ai_pipeline.preparation import DocumentBlock
 from srbg_api.ai_pipeline.security import PromptInjectionScanner
 
 RUN_ID = UUID("019d0000-0000-7000-8000-000000002021")
+PILOT_URL = (
+    "https://xxgk.mot.gov.cn/2020/jigou/glj/202311/"
+    "P020250514396309964949.pdf"
+)
 
 
 @dataclass
@@ -29,10 +33,7 @@ class FakeRepository:
             run_id=run_id,
             document_version_id="document-v1",
             source_code="GOV-003",
-            canonical_url=(
-                "https://zizhan.mot.gov.cn/sj2019/gongluj/sihaoncl/dianxingal/202311/"
-                "P020250627753815314372.pdf"
-            ),
+            canonical_url=PILOT_URL,
             title="典型案例",
             source_name="交通运输部",
             blocks=(
@@ -163,3 +164,16 @@ def test_one_document_reaches_waiting_claim_review_without_summary_or_publicatio
     assert AiStep.SUMMARIZE not in [step for step, _ in repository.steps]
     assert repository.reservations == [AiStep.CLASSIFY, AiStep.EXTRACT]
     assert sha256(result.input_text.encode()).hexdigest() == result.input_sha256
+
+
+def test_ai01_scope_is_pinned_to_the_reachable_official_attachment() -> None:
+    assert AiContentPreparationService.PILOT_URL == PILOT_URL
+    assert AiContentPreparationService.is_pilot_document("GOV-003", PILOT_URL)
+    assert not AiContentPreparationService.is_pilot_document(
+        "GOV-003",
+        (
+            "https://zizhan.mot.gov.cn/sj2019/gongluj/sihaoncl/dianxingal/202311/"
+            "P020250627753815314372.pdf"
+        ),
+    )
+    assert not AiContentPreparationService.is_pilot_document("GOV-004", PILOT_URL)

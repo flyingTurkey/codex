@@ -3,8 +3,9 @@
 ## 范围
 
 - 规范来源：`GOV-003`（交通运输部）。
-- 唯一 URL：`https://zizhan.mot.gov.cn/sj2019/gongluj/sihaoncl/dianxingal/202311/P020250627753815314372.pdf`。
-- `zizhan.mot.gov.cn` 与 `www.mot.gov.cn` 分别审核；无通配域、无自动扩展 URL。
+- 原冻结 URL：`https://zizhan.mot.gov.cn/sj2019/gongluj/sihaoncl/dianxingal/202311/P020250627753815314372.pdf`（已因运行网络不可达而被 2026-07-17 端点恢复取代）。
+- 当前唯一 URL：`https://xxgk.mot.gov.cn/2020/jigou/glj/202311/P020250514396309964949.pdf`。
+- `xxgk.mot.gov.cn` 与 `www.mot.gov.cn` 分别审核；无通配域、无自动扩展 URL。
 - 目标终态：`WAITING_CLAIM_REVIEW`；排除摘要、自动接受、发布、Feed、检索投影和日报。
 
 ## 已实现的权威边界
@@ -63,6 +64,14 @@ make web-e2e
 make web-a11y
 make ai-content-preparation-test
 ```
+
+## 2026-07-17 端点恢复复核
+
+- 原冻结 `zizhan.mot.gov.cn` 附件在应用运行网络中持续连接失败；交通运输部政府信息公开站的[原始通知](https://xxgk.mot.gov.cn/2020/jigou/glj/202311/t20231102_3938969.html)及其当前“农村公路数字化信息化建设典型案例”附件可达。
+- 运行时代码现仅允许 `GOV-003` 与 `https://xxgk.mot.gov.cn/2020/jigou/glj/202311/P020250514396309964949.pdf` 的精确组合，旧地址和其他来源均 fail-closed。此修复没有修改已提交的 `0020` 历史迁移；Worker 通过同一事务内的权威来源、文档、任务和 Outbox 条件执行 SHADOW 提升。
+- `xxgk.mot.gov.cn/robots.txt` 返回 404，不能由系统自动解释为允许；版权范围还需来源管理员依据交通运输部免责声明逐项审核。因此 `source_policy_version`、连接器、真实试运行和生产治理决定仍不得由本修复代填。
+- DeepSeek provider 的 test 激活事实已存在，但运行 Secret 未配置，管理接口继续返回 `SECRET_NOT_CONFIGURED / MODEL_DISABLED`。密钥必须通过 `/admin/ai` 或 Git 忽略的 Secret 文件安全注入，不得写入仓库、日志或验收记录。
+- 端点恢复后的 `make ai-content-preparation-test` 通过：隔离迁移回放 32 项、Web 109 项及无发布副作用检查均通过。真实 `WAITING_CLAIM_REVIEW` 仍以完成人工来源审批、真实采集和安全配置为前提，当前验收结论保持 `BLOCKED`，不得用 Fixture/Mock 替代。
 
 ## 无发布副作用
 

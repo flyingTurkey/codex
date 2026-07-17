@@ -79,9 +79,15 @@ class PreparationModel(Protocol):
 class AiContentPreparationService:
     PILOT_SOURCE = "GOV-003"
     PILOT_URL = (
-        "https://zizhan.mot.gov.cn/sj2019/gongluj/sihaoncl/dianxingal/202311/"
-        "P020250627753815314372.pdf"
+        "https://xxgk.mot.gov.cn/2020/jigou/glj/202311/"
+        "P020250514396309964949.pdf"
     )
+
+    @classmethod
+    def is_pilot_document(cls, source_code: str, canonical_url: str) -> bool:
+        """Fail closed to the one reachable, official R-AI01 pilot attachment."""
+
+        return source_code == cls.PILOT_SOURCE and canonical_url == cls.PILOT_URL
 
     def __init__(
         self,
@@ -96,7 +102,7 @@ class AiContentPreparationService:
 
     async def run(self, run_id: UUID) -> PreparationResult:
         document = await self._repository.begin(run_id)
-        if document.source_code != self.PILOT_SOURCE or document.canonical_url != self.PILOT_URL:
+        if not self.is_pilot_document(document.source_code, document.canonical_url):
             await self._repository.fail(run_id, "FAILED", "AI01_PILOT_SCOPE_DENIED")
             raise PermissionError("AI01_PILOT_SCOPE_DENIED")
         classify_input = prepare_document_input(
