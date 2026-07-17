@@ -116,12 +116,15 @@ watch(pdfEvidence, () => void loadPage(), { immediate: true })
         />
       </header>
       <IntelligenceCard :item="detail.item" />
-      <details v-if="detail.item.ai_assistance">
+      <details v-if="detail.ai_trace || detail.item.ai_assistance">
         <summary>Prompt / Schema / 模型版本</summary>
         <dl>
-          <div><dt>Prompt</dt><dd>{{ detail.item.ai_assistance.prompt_version ?? '未运行' }}</dd></div>
-          <div><dt>Schema</dt><dd>{{ detail.item.ai_assistance.schema_version ?? '未运行' }}</dd></div>
-          <div><dt>模型</dt><dd>{{ detail.item.ai_assistance.model_profile ?? '未运行' }}</dd></div>
+          <div><dt>Prompt</dt><dd>{{ detail.ai_trace?.prompt_version ?? detail.item.ai_assistance?.prompt_version ?? '未运行' }}</dd></div>
+          <div><dt>Schema</dt><dd>{{ detail.ai_trace?.schema_version ?? detail.item.ai_assistance?.schema_version ?? '未运行' }}</dd></div>
+          <div><dt>模型</dt><dd>{{ detail.ai_trace?.model_profile ?? detail.item.ai_assistance?.model_profile ?? '未运行' }}</dd></div>
+          <div v-if="detail.ai_trace?.pricing_version"><dt>定价</dt><dd>{{ detail.ai_trace.pricing_version }}</dd></div>
+          <div v-if="detail.ai_trace?.provider_request_id"><dt>请求 ID</dt><dd>{{ detail.ai_trace.provider_request_id }}</dd></div>
+          <div v-if="detail.ai_trace?.rejection_reason"><dt>拒绝原因</dt><dd>{{ detail.ai_trace.rejection_reason }}</dd></div>
         </dl>
       </details>
       <p class="review-workbench__boundary">

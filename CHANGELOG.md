@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+### R-AI01 单一真实来源 AI 内容准备闭环
+
+- 新增 `0020_ai_content_preparation`：扩展 AI 准备状态机和 `CLAIM_REVIEW`，增加 DeepSeek 固定能力目录、不可变步骤结果、候选 Claim/Evidence 来源、逐条审核决定、来源别名以及 PostgreSQL 权威预算账本。
+- 对 `GOV-003` 和唯一获准 PDF 实施精确主机/URL 门禁；通用 Worker 负责 raw-first PDF 解析、最小文本、提示注入扫描、Evidence Anchor、预算与候选物化，隔离 AI Worker 保持无数据库、对象存储、Shell 和工具权限。
+- DeepSeek 请求固定为 `deepseek-v4-flash`、`json_object`、禁用 thinking/stream/tools；网络瞬态错误最多重试两次，无效内容最多一次受控修复，每个物理请求调用前预留预算。
+- 新增 `/admin/ai` 与 ReviewWorkbench 候选事实视图；候选不会自动接受，不调用摘要、Publication、Feed、检索投影或日报路径。
+- 新增 `make ai-content-preparation-test`、`0020` 正反向回放、Mock/安全/预算/Web 测试和无发布副作用检查。真实试点结果以本轮验收记录中的资格门禁结论为准。
+
 ### 自动化来源发现、隔离资格审查与单步启用（默认关闭）
 
 - 新增 `0018_source_automation` 和服务端权威候选域：保存候选出现事实、资格运行/隔离捕获/不可变资格包、管理员决定、来源流、激活 Outbox 与搜索供应商月度用量；已有来源只回填为需重新资格审查的默认流，不因迁移自动获得新授权。存在候选、资格包或决定事实时拒绝破坏性降级。

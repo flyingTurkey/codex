@@ -3065,6 +3065,22 @@ class ReviewTaskSummary(ContractModel):
     submitted_by: UUID
     submitted_at: datetime
     assigned_to: UUID | None = None
+    task_type: Literal[
+        "CONTENT_REVIEW",
+        "SECURITY_REVIEW",
+        "CORRECTION_REVIEW",
+        "WITHDRAWAL_REVIEW",
+        "CLAIM_REVIEW",
+    ] = "CONTENT_REVIEW"
+
+
+class AiReviewTrace(ContractModel):
+    model_profile: str
+    prompt_version: str
+    schema_version: str
+    pricing_version: str | None = None
+    provider_request_id: str | None = None
+    rejection_reason: str | None = None
 
 
 class ReviewTaskDetail(ContractModel):
@@ -3074,6 +3090,7 @@ class ReviewTaskDetail(ContractModel):
     evidence: list[EvidenceView]
     digital_case: DigitalCaseDetail | None = None
     paper: PaperDetail | None = None
+    ai_trace: AiReviewTrace | None = None
 
 
 class MeResponse(ContractModel):

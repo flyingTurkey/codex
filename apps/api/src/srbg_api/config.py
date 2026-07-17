@@ -7,6 +7,7 @@ from binascii import Error as BinasciiError
 from datetime import UTC, datetime
 from functools import lru_cache
 from hashlib import sha256
+from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -49,6 +50,7 @@ class Settings(BaseSettings):
     pdf_parser_timeout_seconds: float = Field(default=120.0, gt=0, le=600)
     ocr_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
     external_io_timeout_seconds: float = Field(default=2.0, gt=0, le=30)
+    ai_secret_dir: Path = Path(".secrets/ai")
     openalex_api_key: SecretStr | None = None
     academic_contact: str = Field(default="data-platform@srbg.local", min_length=3, max_length=320)
     pgvector_recall_enabled: bool = False
@@ -63,9 +65,7 @@ class Settings(BaseSettings):
     baidu_search_api_url: str = "https://qianfan.baidubce.com/v2/ai_search"
     baidu_search_api_key: SecretStr | None = None
     baidu_search_timeout_seconds: float = Field(default=2.0, gt=0, le=10)
-    baidu_search_monthly_cap_micrormb: int = Field(
-        default=200_000_000, ge=1, le=10_000_000_000
-    )
+    baidu_search_monthly_cap_micrormb: int = Field(default=200_000_000, ge=1, le=10_000_000_000)
     baidu_search_cost_per_call_micrormb: int = Field(default=36_000, ge=0, le=10_000_000)
     baidu_search_free_calls_per_month: int = Field(default=1_500, ge=0, le=1_000_000)
     baidu_search_budget_alert_bps: int = Field(default=8_000, ge=1, le=9_999)
@@ -82,9 +82,7 @@ class Settings(BaseSettings):
     round17_baseline_commit_attestation: str | None = None
     round17_config_version_attestation: str | None = None
     round17_roster_source_codes: list[str] | None = None
-    round17_source_schedule_attestations: dict[
-        str, tuple[StrictInt, StrictInt]
-    ] | None = None
+    round17_source_schedule_attestations: dict[str, tuple[StrictInt, StrictInt]] | None = None
     round17_leo_approver_actor_id: UUID | None = None
     round17_authority_mode: str = "OIDC"
     round17_leo_signing_private_key_base64: SecretStr | None = None
@@ -158,11 +156,13 @@ class Settings(BaseSettings):
                     validate=True,
                 )
                 public_bytes = b64decode(public_key, validate=True)
-                derived_public = Ed25519PrivateKey.from_private_bytes(
-                    private_bytes
-                ).public_key().public_bytes(
-                    serialization.Encoding.Raw,
-                    serialization.PublicFormat.Raw,
+                derived_public = (
+                    Ed25519PrivateKey.from_private_bytes(private_bytes)
+                    .public_key()
+                    .public_bytes(
+                        serialization.Encoding.Raw,
+                        serialization.PublicFormat.Raw,
+                    )
                 )
             except (BinasciiError, ValueError) as error:
                 raise ValueError("SIGNED_LOCAL_PILOT key material is invalid") from error
@@ -185,26 +185,18 @@ class Settings(BaseSettings):
                     "Round 17 eventization trust key and fingerprint must be configured together"
                 )
             eventization_public_key = self.round17_eventization_trusted_public_key_base64
-            eventization_public_key_sha256 = (
-                self.round17_eventization_trusted_public_key_sha256
-            )
-            if (
-                eventization_public_key is None
-                or eventization_public_key_sha256 is None
-            ):
+            eventization_public_key_sha256 = self.round17_eventization_trusted_public_key_sha256
+            if eventization_public_key is None or eventization_public_key_sha256 is None:
                 raise ValueError(
                     "Round 17 eventization trust key and fingerprint must be configured together"
                 )
             try:
-                eventization_public_bytes = b64decode(
-                    eventization_public_key, validate=True
-                )
+                eventization_public_bytes = b64decode(eventization_public_key, validate=True)
             except (BinasciiError, ValueError) as error:
                 raise ValueError("Round 17 eventization trust key is not valid base64") from error
             if (
                 len(eventization_public_bytes) != 32
-                or sha256(eventization_public_bytes).hexdigest()
-                != eventization_public_key_sha256
+                or sha256(eventization_public_bytes).hexdigest() != eventization_public_key_sha256
             ):
                 raise ValueError("Round 17 eventization trust key fingerprint mismatch")
         if (
@@ -226,27 +218,17 @@ class Settings(BaseSettings):
                         "Round 17 schedule interval seconds must be between 60 and 604800"
                     )
                 if interval_seconds % 60:
-                    raise ValueError(
-                        "Round 17 schedule interval seconds must be whole minutes"
-                    )
+                    raise ValueError("Round 17 schedule interval seconds must be whole minutes")
                 if not 60 <= freshness_slo_seconds <= 604_800:
-                    raise ValueError(
-                        "Round 17 schedule SLO seconds must be between 60 and 604800"
-                    )
+                    raise ValueError("Round 17 schedule SLO seconds must be between 60 and 604800")
                 if freshness_slo_seconds % 60:
                     raise ValueError("Round 17 schedule SLO seconds must be whole minutes")
-            if (
-                self.round17_roster_source_codes is not None
-                and (
-                    len(self.round17_roster_source_codes) != 20
-                    or len(set(self.round17_roster_source_codes)) != 20
-                    or set(schedule_attestations)
-                    != set(self.round17_roster_source_codes)
-                )
+            if self.round17_roster_source_codes is not None and (
+                len(self.round17_roster_source_codes) != 20
+                or len(set(self.round17_roster_source_codes)) != 20
+                or set(schedule_attestations) != set(self.round17_roster_source_codes)
             ):
-                raise ValueError(
-                    "Round 17 schedule attestation must exactly match the roster"
-                )
+                raise ValueError("Round 17 schedule attestation must exactly match the roster")
         if any("*" in origin for origin in self.cors_allowed_origins):
             raise ValueError("CORS origins must be an exact allowlist without wildcards")
         key = self.cursor_signing_key.get_secret_value()

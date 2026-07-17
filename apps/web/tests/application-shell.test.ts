@@ -65,6 +65,7 @@ describe('application shell contract', () => {
     expect(adminNavigation.map((item) => item.label)).toEqual([
       '来源健康',
       '运行中心',
+      'AI 模型配置',
       '质量看板',
       '管理入口',
       '覆盖缺口',

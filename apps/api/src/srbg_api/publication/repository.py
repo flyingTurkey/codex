@@ -174,6 +174,14 @@ class PostgresPublicationRepository:
     async def close(self) -> None:
         await self._engine.dispose()
 
+    async def review_task_type(self, review_task_id: UUID) -> str | None:
+        async with self._engine.connect() as connection:
+            value = await connection.scalar(
+                text("SELECT task_type FROM review_task WHERE id=:review_task_id"),
+                {"review_task_id": review_task_id},
+            )
+        return str(value) if value is not None else None
+
     async def request_event_identity_change(
         self,
         *,
@@ -1513,7 +1521,19 @@ class PostgresPublicationRepository:
                     decided_at=decided_at,
                 )
             elif candidate_kind == "CLAIM":
-                await _decide_safety_case_claim(
+                ai_candidate = await connection.scalar(
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM ai_candidate_claim_origin "
+                        "WHERE claim_id=:claim_id)"
+                    ),
+                    {"claim_id": candidate_id},
+                )
+                decision = (
+                    _decide_ai_candidate_claim
+                    if ai_candidate
+                    else _decide_safety_case_claim
+                )
+                await decision(
                     connection,
                     claim_id=candidate_id,
                     action=action,
@@ -3402,6 +3422,100 @@ async def _decide_event_relation_candidate(
         actor_id=reviewer_id,
         reason=reason,
         metadata={"relation_type": candidate["relation_type"]},
+        now=decided_at,
+    )
+
+
+async def _decide_ai_candidate_claim(
+    connection: AsyncConnection,
+    *,
+    claim_id: UUID,
+    action: str,
+    reviewer_id: UUID,
+    reason: str,
+    decided_at: datetime,
+) -> None:
+    if action not in {"ACCEPT", "REJECT"}:
+        raise PublicationDenied(("CLAIM_DECISION_INVALID",))
+    await _lock_decision_key(connection, "ai-candidate-claim", claim_id)
+    candidate = (
+        (
+            await connection.execute(
+                text(
+                    """
+                    SELECT claim.id, item.submitted_by
+                    FROM claim
+                    JOIN intelligence_item item ON item.id=claim.item_id
+                    JOIN ai_candidate_claim_origin origin ON origin.claim_id=claim.id
+                    JOIN ai_step_run step ON step.id=origin.step_run_id
+                    JOIN document_version version ON version.id=claim.document_version_id
+                    JOIN document document ON document.id=version.document_id
+                    WHERE claim.id=:claim_id
+                      AND claim.verification_status='CANDIDATE'
+                      AND step.step='EXTRACT' AND step.status='SUCCEEDED'
+                      AND document.current_version_id=version.id
+                      AND EXISTS(
+                        SELECT 1 FROM document_version_state_event state
+                        WHERE state.document_version_id=version.id AND state.state='READY'
+                          AND NOT EXISTS(
+                            SELECT 1 FROM document_version_state_event newer
+                            WHERE newer.document_version_id=state.document_version_id
+                              AND (newer.created_at,newer.id)>(state.created_at,state.id)
+                          )
+                      )
+                      AND EXISTS(
+                        SELECT 1 FROM claim_evidence evidence
+                        JOIN document_text_block block
+                          ON block.id=evidence.document_text_block_id
+                        WHERE evidence.claim_id=claim.id
+                          AND evidence.document_version_id=version.id
+                          AND position(evidence.excerpt in block.normalized_text)>0
+                      )
+                    """
+                ),
+                {"claim_id": claim_id},
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if candidate is None:
+        raise PublicationDenied(("AI_CANDIDATE_EVIDENCE_INVALID",))
+    if candidate["submitted_by"] == reviewer_id:
+        raise PublicationDenied(("DUTIES_NOT_SEPARATED",))
+    existing = await connection.scalar(
+        text("SELECT action FROM ai_claim_review_decision WHERE claim_id=:claim_id"),
+        {"claim_id": claim_id},
+    )
+    if existing is not None:
+        raise PublicationDenied(("CLAIM_ALREADY_DECIDED",))
+    await connection.execute(
+        text(
+            """
+            INSERT INTO ai_claim_review_decision(
+              id,claim_id,action,reviewer_id,submitted_by,reason,created_at
+            ) VALUES(:id,:claim_id,:action,:reviewer_id,:submitted_by,:reason,:created_at)
+            """
+        ),
+        {
+            "id": uuid7(),
+            "claim_id": claim_id,
+            "action": action,
+            "reviewer_id": reviewer_id,
+            "submitted_by": candidate["submitted_by"],
+            "reason": reason.strip(),
+            "created_at": decided_at,
+        },
+    )
+    await _append_audit(
+        connection,
+        event_type="AI_CANDIDATE_CLAIM_DECIDED",
+        actor_id=reviewer_id,
+        target_type="claim",
+        target_id=claim_id,
+        after_state={"action": action},
+        reason=reason.strip(),
+        request_id=str(claim_id),
         now=decided_at,
     )
 

@@ -103,9 +103,7 @@ class CandidateClaim(StrictModel):
     value: Any
     normalized_value: Any | None = None
     unit: str | None = None
-    claim_status: Literal[
-        "VERIFIED_CANDIDATE", "REPORTED_CLAIM", "UNVERIFIED", "CONFLICTING"
-    ]
+    claim_status: Literal["VERIFIED_CANDIDATE", "REPORTED_CLAIM", "UNVERIFIED", "CONFLICTING"]
     confidence: float = Field(ge=0, le=1)
     evidence_ids: list[str] = Field(min_length=1)
 
@@ -162,6 +160,8 @@ class EvidenceAnchor(StrictModel):
     evidence_id: str
     document_block_id: str
     normalized_text: str
+    page_number: int | None = Field(default=None, ge=1, le=10000)
+    locator_value: str | None = Field(default=None, max_length=200)
 
 
 class ModelRequest(StrictModel):
@@ -176,13 +176,23 @@ class ModelRequest(StrictModel):
     parameters: dict[str, Any]
     data_classification: Literal["PUBLIC_SOURCE"]
     input_price_microusd_per_million: int = Field(ge=0)
+    cache_hit_input_price_microusd_per_million: int | None = Field(default=None, ge=0)
     output_price_microusd_per_million: int = Field(ge=0)
     evidence_anchors: dict[str, EvidenceAnchor] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def forbid_transport_and_tool_parameters(self) -> "ModelRequest":
+        forbidden = {"tools", "tool_choice", "stream", "url", "base_url", "request_path"}
+        if forbidden.intersection(self.parameters):
+            raise ValueError("model parameters contain a forbidden transport capability")
+        return self
 
 
 class ModelUsage(StrictModel):
     input_tokens: int = Field(ge=0)
     output_tokens: int = Field(ge=0)
+    cache_hit_tokens: int = Field(default=0, ge=0)
+    cache_miss_tokens: int = Field(default=0, ge=0)
 
 
 class ModelResponse(StrictModel):
@@ -192,6 +202,7 @@ class ModelResponse(StrictModel):
     cost_microusd: int = Field(ge=0)
     latency_ms: int = Field(ge=0)
     provider_request_id: str | None = None
+    finish_reason: str | None = None
 
 
 STEP_OUTPUT_MODELS: dict[AiStep, type[StrictModel]] = {

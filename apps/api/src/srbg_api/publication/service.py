@@ -385,6 +385,11 @@ class PublicationService:
         reviewer_id: UUID,
         digital_case_patch: DigitalCaseReviewPatch | None = None,
     ) -> ReviewDecisionResponse:
+        task_type_lookup = getattr(self._repository, "review_task_type", None)
+        if task_type_lookup is not None:
+            task_type = await task_type_lookup(review_task_id)
+            if task_type == "CLAIM_REVIEW" and action == "APPROVE":
+                raise PublicationDenied(("CLAIM_REVIEW_CANNOT_PUBLISH",))
         if action == "REJECT":
             return await self._repository.reject(
                 review_task_id=review_task_id,

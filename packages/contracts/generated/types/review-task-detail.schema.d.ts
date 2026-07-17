@@ -1,3 +1,9 @@
+export type ModelProfile = string
+export type PricingVersion = string | null
+export type PromptVersion = string
+export type ProviderRequestId = string | null
+export type RejectionReason = string | null
+export type SchemaVersion = string
 export type ClaimType = string
 export type DecisionStatus = ('PENDING' | 'ACCEPTED' | 'REJECTED') | null
 /**
@@ -99,10 +105,10 @@ export type Evidence = EvidenceView[]
 export type ActivityAt = string
 export type AcceptedClaimsOnly = boolean
 export type GeneratedAt = string | null
-export type ModelProfile = string | null
+export type ModelProfile1 = string | null
 export type PipelineRunId = string | null
-export type PromptVersion = string | null
-export type SchemaVersion = string | null
+export type PromptVersion1 = string | null
+export type SchemaVersion1 = string | null
 export type Status = 'ASSISTED' | 'DEGRADED'
 export type ItemType =
   | 'DIGITAL_CASE'
@@ -416,15 +422,25 @@ export type RiskLevel = 'R1' | 'R2' | 'R3' | 'R4'
 export type SourceName1 = string
 export type SubmittedAt = string
 export type SubmittedBy = string
+export type TaskType = 'CONTENT_REVIEW' | 'SECURITY_REVIEW' | 'CORRECTION_REVIEW' | 'WITHDRAWAL_REVIEW' | 'CLAIM_REVIEW'
 export type Title2 = string
 
 export interface ReviewTaskDetail {
+  ai_trace?: AiReviewTrace | null
   claims: Claims
   digital_case?: DigitalCaseDetail | null
   evidence: Evidence
   item: ItemSummary
   paper?: PaperDetail | null
   task: ReviewTaskSummary
+}
+export interface AiReviewTrace {
+  model_profile: ModelProfile
+  pricing_version?: PricingVersion
+  prompt_version: PromptVersion
+  provider_request_id?: ProviderRequestId
+  rejection_reason?: RejectionReason
+  schema_version: SchemaVersion
 }
 export interface ClaimView {
   claim_type: ClaimType
@@ -551,10 +567,10 @@ export interface ItemSummary {
 export interface AiAssistance {
   accepted_claims_only?: AcceptedClaimsOnly
   generated_at?: GeneratedAt
-  model_profile?: ModelProfile
+  model_profile?: ModelProfile1
   pipeline_run_id?: PipelineRunId
-  prompt_version?: PromptVersion
-  schema_version?: SchemaVersion
+  prompt_version?: PromptVersion1
+  schema_version?: SchemaVersion1
   status: Status
 }
 export interface PublicationRevisionState {
@@ -767,5 +783,6 @@ export interface ReviewTaskSummary {
   status: ReviewStatus
   submitted_at: SubmittedAt
   submitted_by: SubmittedBy
+  task_type?: TaskType
   title: Title2
 }

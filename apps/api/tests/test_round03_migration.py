@@ -27,7 +27,7 @@ REQUIRED_TABLES = {
 def test_round03_migration_is_additive_and_declares_evidence_lifecycle_tables() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
 
-    assert script.get_current_head() == "0019_source_content_bridge"
+    assert script.get_current_head() == "0020_ai_content_preparation"
     revision = script.get_revision("0004_pdf_ocr_versioning")
     assert revision.down_revision == "0003_safety_publication"
 

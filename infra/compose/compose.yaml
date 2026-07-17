@@ -233,6 +233,7 @@ services:
       SRBG_DATABASE_URL: postgresql+asyncpg://srbg_api_login:${SRBG_API_DB_PASSWORD:-srbg_api_local_only}@postgres:5432/${POSTGRES_DB:-srbg}
       SRBG_PUBLICATION_DATABASE_URL: postgresql+asyncpg://srbg_publisher_login:${SRBG_PUBLISHER_DB_PASSWORD:-srbg_publisher_local_only}@postgres:5432/${POSTGRES_DB:-srbg}
       SRBG_PROJECTION_DATABASE_URL: postgresql+asyncpg://srbg_projection_reader_login:${SRBG_PROJECTION_DB_PASSWORD:-srbg_projection_local_only}@postgres:5432/${POSTGRES_DB:-srbg}
+      SRBG_AI_SECRET_DIR: /run/secrets/srbg-ai
     command: ["uvicorn", "srbg_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
@@ -258,6 +259,8 @@ services:
       interval: 3s
       timeout: 3s
       retries: 20
+    volumes:
+      - ai-secrets:/run/secrets/srbg-ai
     restart: unless-stopped
 
   worker:
@@ -356,14 +359,15 @@ services:
     environment:
       SRBG_AI_BROKER_URL: ${SRBG_REDIS_URL:-redis://redis:6379/0}
       SRBG_AI_PROVIDER: ${SRBG_AI_PROVIDER:-mock}
-      SRBG_AI_BASE_URL: ${SRBG_AI_BASE_URL:-http://model-gateway.invalid}
-      SRBG_AI_REQUEST_PATH: ${SRBG_AI_REQUEST_PATH:-/v1/chat/completions}
       SRBG_AI_API_KEY: ${SRBG_AI_API_KEY:-}
+      SRBG_AI_API_KEY_FILE: /run/secrets/srbg-ai/deepseek.key
       SRBG_AI_TIMEOUT_SECONDS: ${SRBG_AI_TIMEOUT_SECONDS:-30}
     command: ["celery", "-A", "srbg_worker.ai_app:celery_app", "worker", "--loglevel=INFO", "--queues=ai", "--concurrency=1", "--max-tasks-per-child=50"]
     read_only: true
     tmpfs:
       - /tmp:size=64m,mode=1777
+    volumes:
+      - ai-secrets:/run/secrets/srbg-ai:ro
     depends_on:
       redis:
         condition: service_healthy
@@ -507,3 +511,4 @@ volumes:
   clamav-db:
   prometheus-data:
   grafana-data:
+  ai-secrets:

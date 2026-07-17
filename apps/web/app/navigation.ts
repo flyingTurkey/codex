@@ -42,6 +42,7 @@ export const primaryNavigation = [
 export const adminNavigation = [
   { id: 'source-health', label: '来源健康', to: '/admin/source-health', icon: 'Database' },
   { id: 'operations', label: '运行中心', to: '/admin/operations', icon: 'RefreshDouble' },
+  { id: 'ai', label: 'AI 模型配置', to: '/admin/ai', icon: 'Settings' },
   { id: 'quality', label: '质量看板', to: '/admin/quality', icon: 'Reports' },
   { id: 'sources', label: '管理入口', to: '/admin/sources', icon: 'Settings' },
   { id: 'source-coverage', label: '覆盖缺口', to: '/admin/sources/coverage', icon: 'Reports' },
@@ -62,6 +63,7 @@ type NavigationRole
     | 'viewer'
 
 const adminNavigationRoles: Readonly<Record<(typeof adminNavigation)[number]['id'], readonly NavigationRole[]>> = {
+  ai: ['platform_admin', 'auditor'],
   clusters: ['reviewer', 'platform_admin', 'auditor'],
   operations: ['platform_admin', 'auditor'],
   quality: ['platform_admin', 'auditor'],

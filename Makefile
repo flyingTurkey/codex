@@ -52,7 +52,7 @@ export PLAYWRIGHT_BROWSERS_PATH
 	round11-test observability-test golden-replay load-test recovery-drill runbook-test \
 	round11-evidence-test readiness-evidence slo-weekly-report \
 	phase2-round13-test phase2-round14-test phase2-round15-test phase2-round16-test \
-	phase2-round17-test phase2-round17-eval
+	phase2-round17-test phase2-round17-eval ai-content-preparation-test
 
 setup:
 	$(UV) sync --frozen --all-packages
@@ -139,12 +139,28 @@ fixture-replay:
 		apps/api/tests/test_round08_evaluation.py \
 		apps/api/tests/test_ai_gateway.py \
 		apps/api/tests/test_ai_pipeline_runtime.py \
+		apps/api/tests/test_ai01_content_preparation.py \
+		apps/api/tests/test_ai01_orchestration.py \
 		apps/api/tests/test_round09_feed_projection.py \
 		apps/api/tests/test_round09_projection_contract.py \
 		apps/api/tests/test_round10_discovery_domain.py \
 		apps/api/tests/test_round10_portal_service.py \
 		apps/api/tests/test_publication_service.py -q
 	$(UV) run python scripts/evaluate_round09.py
+
+ai-content-preparation-test:
+	$(COMPOSE) up --detach --wait postgres minio
+	$(UV) run python scripts/run_isolated_integration.py \
+		--migration-verifier verify_ai01_migration.py -- \
+		apps/api/tests/test_round20_migration.py \
+		apps/api/tests/test_ai01_content_preparation.py \
+		apps/api/tests/test_ai01_orchestration.py \
+		apps/api/tests/test_ai_admin_api.py \
+		apps/api/tests/test_ai_gateway.py \
+		apps/api/tests/test_ai_pipeline_runtime.py \
+		apps/worker/tests/test_ai_worker_isolation.py -q
+	$(PNPM) --filter @srbg/web test -- ai01-content-preparation-ui.test.ts
+	$(UV) run python scripts/check_ai01_no_publication_side_effects.py
 
 quality-gate: lint typecheck test contract-test security-check
 

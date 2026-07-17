@@ -5,18 +5,22 @@ This process intentionally has no database, object-storage, command-execution, o
 
 import asyncio
 import re
+from pathlib import Path
 from typing import Any
 
 import httpx2 as httpx
 from celery import Celery
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from srbg_api.ai_pipeline.catalog import ProviderCode, provider_capability
 from srbg_api.ai_pipeline.contracts import AiStep, ModelRequest
 from srbg_api.ai_pipeline.gateway import (
     ControlledModelGateway,
+    DeepSeekProvider,
     HttpResponse,
     MockProvider,
-    OpenAICompatibleProvider,
+    ModelOutputRejected,
+    TransientProviderError,
 )
 
 
@@ -25,9 +29,8 @@ class AiWorkerSettings(BaseSettings):
 
     broker_url: str = "redis://redis:6379/0"
     provider: str = "mock"
-    base_url: str = "http://model-gateway.invalid"
-    request_path: str = "/v1/chat/completions"
     api_key: SecretStr | None = None
+    api_key_file: Path | None = None
     timeout_seconds: float = 30.0
 
 
@@ -39,7 +42,10 @@ celery_app.conf.update(
     task_serializer="json",
     result_serializer="json",
     accept_content=["json"],
-    task_routes={"srbg.ai.generate": {"queue": "ai"}},
+    task_routes={
+        "srbg.ai.generate": {"queue": "ai"},
+        "srbg.ai.generate_attempt": {"queue": "ai"},
+    },
 )
 
 
@@ -56,6 +62,32 @@ def generate(payload: dict[str, Any]) -> dict[str, Any]:
     return asyncio.run(_generate(payload))
 
 
+@celery_app.task(name="srbg.ai.generate_attempt")  # type: ignore[untyped-decorator]
+def generate_attempt(payload: dict[str, Any]) -> dict[str, Any]:
+    """Execute exactly one physical request; orchestration owns retries and budget."""
+    return asyncio.run(_generate_attempt(payload))
+
+
+async def _generate_attempt(payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        request = ModelRequest.model_validate(payload)
+        response = await _physical_generate(request)
+        return {"status": "SUCCEEDED", "response": response.model_dump(mode="json")}
+    except (TimeoutError, httpx.TimeoutException):
+        return _safe_failure("PROVIDER_TIMEOUT", retryable=True)
+    except httpx.NetworkError:
+        return _safe_failure("PROVIDER_NETWORK_ERROR", retryable=True)
+    except TransientProviderError as exc:
+        return _safe_failure(str(exc), retryable=True)
+    except ModelOutputRejected as exc:
+        return _safe_failure(str(exc), repairable=True)
+    except (ValueError, RuntimeError) as exc:
+        code = str(exc)
+        if code not in {"MODEL_DISABLED", "AI provider is not approved"}:
+            code = "PROVIDER_REQUEST_REJECTED"
+        return _safe_failure(code)
+
+
 async def _generate(payload: dict[str, Any]) -> dict[str, Any]:
     request = ModelRequest.model_validate(payload)
     if settings.provider == "mock":
@@ -63,18 +95,54 @@ async def _generate(payload: dict[str, Any]) -> dict[str, Any]:
         return (await ControlledModelGateway(mock_provider).generate(request)).model_dump(
             mode="json"
         )
-    if settings.provider != "openai-compatible":
+    raise ValueError("budgeted real calls require srbg.ai.generate_attempt")
+
+
+async def _physical_generate(request: ModelRequest) -> Any:
+    if settings.provider == "mock":
+        mock_provider = MockProvider({request.step: _mock_output(request)})
+        return await ControlledModelGateway(mock_provider).generate(request)
+    if settings.provider != ProviderCode.DEEPSEEK.value:
         raise ValueError("AI provider is not approved")
-    async with httpx.AsyncClient(base_url=settings.base_url) as client:
-        openai_provider = OpenAICompatibleProvider(
+    api_key = _api_key()
+    if not api_key:
+        raise RuntimeError("MODEL_DISABLED")
+    capability = provider_capability(ProviderCode.DEEPSEEK)
+    async with httpx.AsyncClient(
+        base_url=capability.base_url,
+        follow_redirects=False,
+    ) as client:
+        deepseek_provider = DeepSeekProvider(
             client=_HttpxClientAdapter(client),
-            request_path=settings.request_path,
-            api_key=settings.api_key.get_secret_value() if settings.api_key else None,
+            api_key=api_key,
             timeout_seconds=settings.timeout_seconds,
         )
-        return (await ControlledModelGateway(openai_provider).generate(request)).model_dump(
-            mode="json"
-        )
+        return await ControlledModelGateway(deepseek_provider).generate(request)
+
+
+def _safe_failure(
+    code: str,
+    *,
+    retryable: bool = False,
+    repairable: bool = False,
+) -> dict[str, object]:
+    return {
+        "status": "FAILED",
+        "error_code": code[:80],
+        "retryable": retryable,
+        "repairable": repairable,
+    }
+
+
+def _api_key() -> str | None:
+    if settings.api_key_file is not None:
+        if not settings.api_key_file.is_file():
+            return settings.api_key.get_secret_value() if settings.api_key else None
+        key = settings.api_key_file.read_text(encoding="utf-8")
+        if not key or len(key) > 4096 or any(character in key for character in "\r\n\x00"):
+            raise ValueError("AI key file is invalid")
+        return key
+    return settings.api_key.get_secret_value() if settings.api_key else None
 
 
 def _mock_output(request: ModelRequest) -> dict[str, Any]:
@@ -97,21 +165,25 @@ def _mock_output(request: ModelRequest) -> dict[str, Any]:
         evidence_id, anchor = next(iter(request.evidence_anchors.items()))
         excerpt = anchor.normalized_text[:500]
         return {
-            "claims": [{
-                "claim_id": "mock-claim-1",
-                "field": "title",
-                "value": excerpt,
-                "claim_status": "UNVERIFIED",
-                "confidence": 0,
-                "evidence_ids": [evidence_id],
-            }],
-            "evidence": [{
-                "evidence_id": evidence_id,
-                "document_block_id": anchor.document_block_id,
-                "locator": {"type": "TEXT_RANGE", "value": f"0:{len(excerpt)}"},
-                "excerpt": excerpt,
-                "supports": ["mock-claim-1"],
-            }],
+            "claims": [
+                {
+                    "claim_id": "mock-claim-1",
+                    "field": "title",
+                    "value": excerpt,
+                    "claim_status": "UNVERIFIED",
+                    "confidence": 0,
+                    "evidence_ids": [evidence_id],
+                }
+            ],
+            "evidence": [
+                {
+                    "evidence_id": evidence_id,
+                    "document_block_id": anchor.document_block_id,
+                    "locator": {"type": "TEXT_RANGE", "value": f"0:{len(excerpt)}"},
+                    "excerpt": excerpt,
+                    "supports": ["mock-claim-1"],
+                }
+            ],
             "security": _safe_security(),
         }
     if request.step is AiStep.SUMMARIZE:

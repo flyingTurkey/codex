@@ -1,0 +1,1 @@
+"""Administrative AI capability configuration."""

@@ -67,6 +67,18 @@
       "title": "Submitted By",
       "type": "string"
     },
+    "task_type": {
+      "default": "CONTENT_REVIEW",
+      "enum": [
+        "CONTENT_REVIEW",
+        "SECURITY_REVIEW",
+        "CORRECTION_REVIEW",
+        "WITHDRAWAL_REVIEW",
+        "CLAIM_REVIEW"
+      ],
+      "title": "Task Type",
+      "type": "string"
+    },
     "title": {
       "maxLength": 500,
       "minLength": 1,

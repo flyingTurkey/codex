@@ -10,6 +10,15 @@ from celery import Celery
 from celery.signals import task_failure
 from redis.asyncio import Redis, from_url
 from sqlalchemy.ext.asyncio import AsyncEngine
+from srbg_api.ai_pipeline.content_preparation import (
+    AiContentPreparationService,
+    PreparationDocument,
+)
+from srbg_api.ai_pipeline.contracts import AiStep, ModelResponse
+from srbg_api.ai_pipeline.gateway import ModelOutputRejected, validate_step_output
+from srbg_api.ai_pipeline.preparation import PreparedDocumentInput, prepare_document_input
+from srbg_api.ai_pipeline.runtime import AttemptKind
+from srbg_api.ai_pipeline.security import PromptInjectionScanner
 from srbg_api.config import Settings, get_settings
 from srbg_api.database import create_database_engine, create_publication_engine
 from srbg_api.discovery.projections import PostgresDiscoveryProjectionWriter
@@ -26,6 +35,8 @@ from srbg_api.operations.replays import (
     finish_replay,
     prepare_task_redelivery,
 )
+from srbg_api.pdf_processing.ocr import TesseractOcrAdapter
+from srbg_api.pdf_processing.parser import PdfDocumentParser
 from srbg_api.publication.gate import PublicationGate
 from srbg_api.publication.repository import PostgresPublicationRepository
 from srbg_api.publication.service import PublicationService
@@ -39,6 +50,7 @@ from srbg_api.source_automation.search import (
     PostgresMonthlyBudgetLedger,
 )
 
+from srbg_worker.ai_content_preparation import PostgresAiPreparationRepository
 from srbg_worker.source_content_bridge import (
     PostgresSourceContentGateway,
     SourceContentOutboxExecutor,
@@ -136,6 +148,8 @@ celery_app.conf.update(
         "srbg.sources.discovery.dispatch": {"queue": "celery"},
         "srbg.sources.discovery.query": {"queue": "discovery"},
         "srbg.source_content.outbox": {"queue": "parser"},
+        "srbg.ai_content.start": {"queue": "parser"},
+        "srbg.ai_content.result": {"queue": "parser"},
         "srbg.publication.outbox": {"queue": "publisher"},
         "srbg.publication.projections": {"queue": "publisher"},
         "srbg.operations.replay": {"queue": "publisher"},
@@ -205,6 +219,37 @@ def process_source_content_outbox(
 ) -> dict[str, object]:
     return asyncio.run(
         _drain_source_content_outbox(None if outbox_id is None else UUID(outbox_id))
+    )
+
+
+@celery_app.task(name="srbg.ai_content.start")  # type: ignore[untyped-decorator]
+def start_ai_content_preparation(*, run_id: str) -> dict[str, object]:
+    return asyncio.run(_start_ai_content_preparation(UUID(run_id)))
+
+
+@celery_app.task(name="srbg.ai_content.result")  # type: ignore[untyped-decorator]
+def handle_ai_content_result(
+    result: dict[str, object],
+    *,
+    run_id: str,
+    step: str,
+    attempt: int,
+    kind: str,
+    network_retries: int,
+    repair_used: bool,
+    reservation_id: str,
+) -> dict[str, object]:
+    return asyncio.run(
+        _handle_ai_content_result(
+            result=result,
+            run_id=UUID(run_id),
+            step=AiStep(step),
+            attempt=attempt,
+            kind=AttemptKind(kind),
+            network_retries=network_retries,
+            repair_used=repair_used,
+            reservation_id=UUID(reservation_id),
+        )
     )
 
 
@@ -408,15 +453,276 @@ async def _drain_source_content_outbox(
                 "status": "ALREADY_CLAIMED",
                 "queued": False,
             }
-        return {
+        response = {
             "outbox_id": str(outcome.outbox_id),
             "document_version_id": str(outcome.document_version_id),
             "pipeline_run_id": str(outcome.pipeline_run_id),
             "status": outcome.status,
             "queued": outcome.queued,
         }
+        if outcome.queued:
+            celery_app.send_task(
+                "srbg.ai_content.start",
+                kwargs={"run_id": str(outcome.pipeline_run_id)},
+            )
+        return response
     finally:
         await gateway.close()
+
+
+def _ai_repository() -> PostgresAiPreparationRepository:
+    parser = PdfDocumentParser(
+        ocr_adapter=TesseractOcrAdapter(timeout_seconds=settings.ocr_timeout_seconds),
+        max_ocr_pages=settings.pdf_max_ocr_pages,
+        max_page_pixels=settings.pdf_max_page_pixels,
+    )
+    return PostgresAiPreparationRepository(
+        engine=create_database_engine(settings),
+        object_store=S3ObjectStore(settings),
+        parser=parser,
+        environment=settings.environment,
+        max_document_bytes=settings.fixture_max_bytes,
+    )
+
+
+async def _start_ai_content_preparation(run_id: UUID) -> dict[str, object]:
+    repository = _ai_repository()
+    try:
+        document, classify_input, extract_input = await _prepare_ai_inputs(repository, run_id)
+        scan = PromptInjectionScanner().scan(extract_input.text)
+        await repository.record_security(document, scan.detected)
+        if scan.detected:
+            await repository.fail(run_id, "DEGRADED", "PROMPT_INJECTION_R4")
+            return {"run_id": str(run_id), "status": "DEGRADED"}
+        await repository.transition(run_id, "CLASSIFYING")
+        await _dispatch_ai_attempt(
+            repository,
+            run_id=run_id,
+            step=AiStep.CLASSIFY,
+            prepared=classify_input,
+            attempt=1,
+            kind=AttemptKind.PRIMARY,
+            network_retries=0,
+            repair_used=False,
+        )
+        return {"run_id": str(run_id), "status": "CLASSIFYING"}
+    except Exception as error:
+        await repository.fail(run_id, "FAILED", _safe_ai_error_code(error))
+        raise
+    finally:
+        await repository.close()
+
+
+async def _handle_ai_content_result(
+    *,
+    result: dict[str, object],
+    run_id: UUID,
+    step: AiStep,
+    attempt: int,
+    kind: AttemptKind,
+    network_retries: int,
+    repair_used: bool,
+    reservation_id: UUID,
+) -> dict[str, object]:
+    repository = _ai_repository()
+    try:
+        document, classify_input, extract_input = await _prepare_ai_inputs(repository, run_id)
+        prepared = classify_input if step is AiStep.CLASSIFY else extract_input
+        request = AiContentPreparationService.build_request(step, prepared)
+        if result.get("status") == "SUCCEEDED":
+            response = ModelResponse.model_validate(result.get("response"))
+            validated = validate_step_output(response.output, request)
+            response = response.model_copy(
+                update={"output": validated.model_dump(mode="json", exclude_none=True)}
+            )
+            await repository.settle(reservation_id, response)
+            await repository.append_step(
+                run_id,
+                step,
+                attempt,
+                kind.value,
+                response,
+                request.input_sha256,
+            )
+            if step is AiStep.CLASSIFY:
+                await repository.transition(run_id, "EXTRACTING")
+                await _dispatch_ai_attempt(
+                    repository,
+                    run_id=run_id,
+                    step=AiStep.EXTRACT,
+                    prepared=extract_input,
+                    attempt=1,
+                    kind=AttemptKind.PRIMARY,
+                    network_retries=0,
+                    repair_used=False,
+                )
+                return {"run_id": str(run_id), "status": "EXTRACTING"}
+            classification = await repository.successful_output(run_id, AiStep.CLASSIFY)
+            candidates = await repository.materialize(
+                document,
+                classification,
+                response.output,
+            )
+            if candidates < 1:
+                raise RuntimeError("NO_VALID_CANDIDATES")
+            await repository.transition(run_id, "WAITING_CLAIM_REVIEW")
+            return {
+                "run_id": str(run_id),
+                "status": "WAITING_CLAIM_REVIEW",
+                "candidate_count": candidates,
+            }
+
+        await repository.settle(reservation_id, None)
+        code = str(result.get("error_code") or "MODEL_ATTEMPT_FAILED")[:80]
+        await repository.append_failed_step(
+            run_id, step, attempt, kind.value, code, request.input_sha256
+        )
+        retryable = result.get("retryable") is True
+        repairable = result.get("repairable") is True
+        if retryable and network_retries < 2:
+            await _dispatch_ai_attempt(
+                repository,
+                run_id=run_id,
+                step=step,
+                prepared=prepared,
+                attempt=attempt + 1,
+                kind=AttemptKind.NETWORK_RETRY,
+                network_retries=network_retries + 1,
+                repair_used=repair_used,
+            )
+            return {"run_id": str(run_id), "status": "RETRYING"}
+        if repairable and not repair_used:
+            await _dispatch_ai_attempt(
+                repository,
+                run_id=run_id,
+                step=step,
+                prepared=prepared,
+                attempt=attempt + 1,
+                kind=AttemptKind.REPAIR,
+                network_retries=network_retries,
+                repair_used=True,
+                repair_code=code,
+            )
+            return {"run_id": str(run_id), "status": "REPAIRING"}
+        failure_status = "FAILED" if step is AiStep.CLASSIFY else "DEGRADED"
+        await repository.fail(run_id, failure_status, code)
+        return {"run_id": str(run_id), "status": failure_status}
+    except (ModelOutputRejected, ValueError) as error:
+        await repository.settle(reservation_id, None)
+        code = _safe_ai_error_code(error)
+        await repository.append_failed_step(
+            run_id, step, attempt, kind.value, code, request.input_sha256
+        )
+        if not repair_used:
+            await _dispatch_ai_attempt(
+                repository,
+                run_id=run_id,
+                step=step,
+                prepared=prepared,
+                attempt=attempt + 1,
+                kind=AttemptKind.REPAIR,
+                network_retries=network_retries,
+                repair_used=True,
+                repair_code=code,
+            )
+            return {"run_id": str(run_id), "status": "REPAIRING"}
+        failure_status = "FAILED" if step is AiStep.CLASSIFY else "DEGRADED"
+        await repository.fail(run_id, failure_status, code)
+        return {"run_id": str(run_id), "status": failure_status}
+    except Exception as error:
+        failure_status = "FAILED" if step is AiStep.CLASSIFY else "DEGRADED"
+        await repository.fail(run_id, failure_status, _safe_ai_error_code(error))
+        raise
+    finally:
+        await repository.close()
+
+
+async def _prepare_ai_inputs(
+    repository: PostgresAiPreparationRepository,
+    run_id: UUID,
+) -> tuple[PreparationDocument, PreparedDocumentInput, PreparedDocumentInput]:
+    document = await repository.begin(run_id)
+    if (
+        document.source_code != AiContentPreparationService.PILOT_SOURCE
+        or document.canonical_url != AiContentPreparationService.PILOT_URL
+    ):
+        raise PermissionError("AI01_PILOT_SCOPE_DENIED")
+    return (
+        document,
+        prepare_document_input(
+            document_version_id=document.document_version_id,
+            title=document.title,
+            source_name=document.source_name,
+            blocks=list(document.blocks),
+            max_characters=32_000,
+        ),
+        prepare_document_input(
+            document_version_id=document.document_version_id,
+            title=document.title,
+            source_name=document.source_name,
+            blocks=list(document.blocks),
+            max_characters=128_000,
+        ),
+    )
+
+
+async def _dispatch_ai_attempt(
+    repository: PostgresAiPreparationRepository,
+    *,
+    run_id: UUID,
+    step: AiStep,
+    prepared: PreparedDocumentInput,
+    attempt: int,
+    kind: AttemptKind,
+    network_retries: int,
+    repair_used: bool,
+    repair_code: str | None = None,
+) -> None:
+    request = AiContentPreparationService.build_request(step, prepared)
+    if repair_code:
+        request = request.model_copy(
+            update={
+                "user_prompt": request.user_prompt
+                + "\n<controlled_repair>Return valid JSON. Error code: "
+                + repair_code
+                + ".</controlled_repair>"
+            }
+        )
+    reservation = await repository.reserve(run_id, step, attempt)
+    callback = celery_app.signature(
+        "srbg.ai_content.result",
+        kwargs={
+            "run_id": str(run_id),
+            "step": step.value,
+            "attempt": attempt,
+            "kind": kind.value,
+            "network_retries": network_retries,
+            "repair_used": repair_used,
+            "reservation_id": str(reservation),
+        },
+        immutable=False,
+    )
+    try:
+        celery_app.send_task(
+            "srbg.ai.generate_attempt",
+            args=[request.model_dump(mode="json")],
+            link=callback,
+        )
+    except Exception:
+        await repository.release(reservation)
+        raise
+
+
+def _safe_ai_error_code(error: Exception) -> str:
+    value = str(error).strip()
+    if value in {
+        "AI01_PILOT_SCOPE_DENIED",
+        "MODEL_DISABLED",
+        "PROMPT_INJECTION_R4",
+        "NO_VALID_CANDIDATES",
+    }:
+        return value
+    return type(error).__name__.upper()[:80]
 
 
 async def _execute_source_qualification(

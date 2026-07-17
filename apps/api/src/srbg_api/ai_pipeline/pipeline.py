@@ -30,9 +30,11 @@ class AiPipeline:
             {"claim_id": claim.claim_id, "field": claim.field, "value": claim.value}
             for claim in claims
         ]
-        return "<accepted_claims>\n" + json.dumps(
-            payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-        ) + "\n</accepted_claims>"
+        return (
+            "<accepted_claims>\n"
+            + json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            + "\n</accepted_claims>"
+        )
 
     def validate_summary_claims(
         self, used_claim_ids: list[str], accepted_claims: list[AcceptedClaim]

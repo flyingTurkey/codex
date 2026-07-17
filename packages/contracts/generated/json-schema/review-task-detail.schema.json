@@ -206,6 +206,66 @@
       "title": "AiEquipmentTypeSummary",
       "type": "object"
     },
+    "AiReviewTrace": {
+      "additionalProperties": false,
+      "properties": {
+        "model_profile": {
+          "title": "Model Profile",
+          "type": "string"
+        },
+        "pricing_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pricing Version"
+        },
+        "prompt_version": {
+          "title": "Prompt Version",
+          "type": "string"
+        },
+        "provider_request_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider Request Id"
+        },
+        "rejection_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rejection Reason"
+        },
+        "schema_version": {
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "model_profile",
+        "prompt_version",
+        "schema_version"
+      ],
+      "title": "AiReviewTrace",
+      "type": "object"
+    },
     "Channel": {
       "enum": [
         "DIGITAL",
@@ -2269,6 +2329,18 @@
           "title": "Submitted By",
           "type": "string"
         },
+        "task_type": {
+          "default": "CONTENT_REVIEW",
+          "enum": [
+            "CONTENT_REVIEW",
+            "SECURITY_REVIEW",
+            "CORRECTION_REVIEW",
+            "WITHDRAWAL_REVIEW",
+            "CLAIM_REVIEW"
+          ],
+          "title": "Task Type",
+          "type": "string"
+        },
         "title": {
           "maxLength": 500,
           "minLength": 1,
@@ -3023,6 +3095,17 @@
   },
   "additionalProperties": false,
   "properties": {
+    "ai_trace": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AiReviewTrace"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "claims": {
       "items": {
         "$ref": "#/$defs/ClaimView"

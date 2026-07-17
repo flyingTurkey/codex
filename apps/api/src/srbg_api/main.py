@@ -27,6 +27,9 @@ from srbg_contracts import (
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.cors import CORSMiddleware
 
+from srbg_api.ai_admin.api import AiAdminService
+from srbg_api.ai_admin.api import router as ai_admin_router
+from srbg_api.ai_admin.service import PostgresAiAdminService
 from srbg_api.auth import Principal
 from srbg_api.config import get_settings
 from srbg_api.database import (
@@ -110,6 +113,7 @@ def create_app(
     portal_service: PortalService | None = None,
     operations_service: OperationsService | None = None,
     source_automation_service: SourceAutomationAdminService | None = None,
+    ai_admin_service: AiAdminService | None = None,
 ) -> FastAPI:
     configure_logging()
     settings = get_settings()
@@ -130,6 +134,7 @@ def create_app(
             portal_service,
             operations_service,
             source_automation_service,
+            ai_admin_service,
         ):
             close = getattr(service, "close", None)
             if close is not None:
@@ -141,7 +146,7 @@ def create_app(
             CORSMiddleware,
             allow_origins=settings.cors_allowed_origins,
             allow_credentials=False,
-            allow_methods=["GET", "POST", "PATCH", "DELETE"],
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
             allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
         )
     app.state.source_service = source_service
@@ -152,6 +157,7 @@ def create_app(
     app.state.portal_service = portal_service
     app.state.operations_service = operations_service
     app.state.source_automation_service = source_automation_service
+    app.state.ai_admin_service = ai_admin_service
     app.state.publication_gate_denials = Counter()
     logger = logging.getLogger("srbg.api")
 
@@ -436,9 +442,7 @@ def create_app(
         request: Request,
         exc: SourceAutomationConflict | SourceAutomationServiceRejected,
     ) -> JSONResponse:
-        status_code = (
-            exc.status_code if isinstance(exc, SourceAutomationServiceRejected) else 409
-        )
+        status_code = exc.status_code if isinstance(exc, SourceAutomationServiceRejected) else 409
         detail = exc.detail if isinstance(exc, SourceAutomationServiceRejected) else str(exc)
         problem = ProblemDetails(
             title="Source automation request rejected",
@@ -534,6 +538,7 @@ def create_app(
     app.include_router(intelligence_router)
     app.include_router(portal_router)
     app.include_router(operations_router)
+    app.include_router(ai_admin_router)
 
     @app.get("/metrics", response_class=PlainTextResponse, include_in_schema=False)
     async def metrics(authorization: str | None = Header(default=None)) -> PlainTextResponse:
@@ -632,6 +637,11 @@ def build_default_app() -> FastAPI:
     return create_app(
         source_service=build_default_source_service(settings),
         source_automation_service=build_default_source_automation_service(settings),
+        ai_admin_service=PostgresAiAdminService(
+            create_database_engine(settings),
+            secret_root=settings.ai_secret_dir,
+            environment=settings.environment,
+        ),
         intelligence_service=intelligence_service,
         public_intelligence_service=published_reader,
         publication_service=PublicationService(
@@ -655,24 +665,14 @@ def build_default_app() -> FastAPI:
             ai_enabled=False,
             semantic_search_enabled=settings.semantic_search_enabled,
             external_notifications_enabled=False,
-            round17_baseline_commit_attestation=(
-                settings.round17_baseline_commit_attestation
-            ),
-            round17_config_version_attestation=(
-                settings.round17_config_version_attestation
-            ),
+            round17_baseline_commit_attestation=(settings.round17_baseline_commit_attestation),
+            round17_config_version_attestation=(settings.round17_config_version_attestation),
             round17_roster_source_codes=settings.round17_roster_source_codes,
-            round17_source_schedule_attestations=(
-                settings.round17_source_schedule_attestations
-            ),
+            round17_source_schedule_attestations=(settings.round17_source_schedule_attestations),
             round17_leo_approver_actor_id=settings.round17_leo_approver_actor_id,
             round17_authority_mode=settings.round17_authority_mode,
-            round17_leo_signing_public_key_base64=(
-                settings.round17_leo_signing_public_key_base64
-            ),
-            round17_leo_signing_public_key_sha256=(
-                settings.round17_leo_signing_public_key_sha256
-            ),
+            round17_leo_signing_public_key_base64=(settings.round17_leo_signing_public_key_base64),
+            round17_leo_signing_public_key_sha256=(settings.round17_leo_signing_public_key_sha256),
             round17_eventization_trusted_public_key_base64=(
                 settings.round17_eventization_trusted_public_key_base64
             ),

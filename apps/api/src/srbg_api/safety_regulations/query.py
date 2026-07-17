@@ -16,6 +16,7 @@ from srbg_contracts import (
     AbstractAvailability,
     AiAssistance,
     AiEquipmentTypeSummary,
+    AiReviewTrace,
     Channel,
     ClaimView,
     ClusterCandidateView,
@@ -2409,7 +2410,7 @@ class PostgresIntelligenceQueryService:
                 await connection.execute(
                     text(
                         """
-                        SELECT r.id, r.item_id, r.status, r.risk_level, i.title,
+                        SELECT r.id, r.item_id, r.status, r.risk_level, r.task_type, i.title,
                                s.name AS source_name, r.submitted_by, r.submitted_at,
                                r.assigned_to
                         FROM review_task r
@@ -2429,7 +2430,7 @@ class PostgresIntelligenceQueryService:
                     await connection.execute(
                         text(
                             """
-                            SELECT r.id, r.item_id, r.status, r.risk_level, i.title,
+                            SELECT r.id, r.item_id, r.status, r.risk_level, r.task_type, i.title,
                                    s.name AS source_name, r.submitted_by, r.submitted_at,
                                    r.assigned_to
                             FROM review_task r
@@ -2454,6 +2455,32 @@ class PostgresIntelligenceQueryService:
                 task_row["item_id"],
                 include_candidates=True,
             )
+            trace_row = (
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT model.version AS model_profile,
+                                   prompt.version AS prompt_version,
+                                   schema.version AS schema_version,
+                                   step.pricing_version,step.provider_request_id,
+                                   step.error_code AS rejection_reason
+                            FROM ai_candidate_claim_origin origin
+                            JOIN claim ON claim.id=origin.claim_id
+                            JOIN ai_step_run step ON step.id=origin.step_run_id
+                            JOIN ai_model_profile model ON model.id=step.model_profile_id
+                            JOIN ai_prompt_version prompt ON prompt.id=step.prompt_version_id
+                            JOIN ai_schema_version schema ON schema.id=step.schema_version_id
+                            WHERE claim.item_id=:item_id
+                            ORDER BY step.created_at DESC,step.id DESC LIMIT 1
+                            """
+                        ),
+                        {"item_id": task_row["item_id"]},
+                    )
+                )
+                .mappings()
+                .first()
+            )
             return ReviewTaskDetail(
                 task=_review_summary(task_row),
                 item=_item_summary(item_row, reviewer_projection=True),
@@ -2464,6 +2491,7 @@ class PostgresIntelligenceQueryService:
                     if item_row["item_type"] == "DIGITAL_CASE"
                     else None
                 ),
+                ai_trace=AiReviewTrace.model_validate(trace_row) if trace_row else None,
             )
 
     async def get_versions(
@@ -3801,6 +3829,7 @@ async def _claims_and_evidence(
                            e.x1_mpt, e.y1_mpt, e.confidence_bps,
                            cell.row_index, cell.column_index,
                            latest_decision.action AS field_decision_action,
+                           ai_decision.action AS ai_decision_action,
                            latest_decision.evidence_id AS field_decision_evidence_id
                     FROM claim c
                     JOIN claim_evidence e ON e.claim_id = c.id
@@ -3814,19 +3843,30 @@ async def _claims_and_evidence(
                         ORDER BY decision.created_at DESC, decision.id DESC
                         LIMIT 1
                     ) latest_decision ON true
+                    LEFT JOIN ai_claim_review_decision ai_decision
+                      ON ai_decision.claim_id = c.id
                     WHERE c.item_id = :item_id
                       AND c.document_version_id = i.current_document_version_id
                       AND (
                         (
                           :include_candidates
-                          AND i.item_type = 'SAFETY_CASE'
-                          AND c.claim_type IN (
-                            'deaths','injuries','loss_amount_minor',
-                            'official_direct_causes','responsibility_findings'
+                          AND (
+                            (
+                              i.item_type = 'SAFETY_CASE'
+                              AND c.claim_type IN (
+                                'deaths','injuries','loss_amount_minor',
+                                'official_direct_causes','responsibility_findings'
+                              )
+                            )
+                            OR EXISTS(
+                              SELECT 1 FROM ai_candidate_claim_origin origin
+                              WHERE origin.claim_id=c.id
+                            )
                           )
                         )
                         OR c.verification_status = 'ACCEPTED'
                         OR latest_decision.action = 'ACCEPT'
+                        OR ai_decision.action = 'ACCEPT'
                       )
                       AND (
                         i.item_type <> 'SAFETY_CASE'
@@ -3888,7 +3928,7 @@ async def _claims_and_evidence(
                 evidence_ids=evidence_by_claim[claim_id],
                 decision_status=(
                     _claim_decision_status(
-                        row["field_decision_action"],
+                        row["ai_decision_action"] or row["field_decision_action"],
                         verification_status=row["verification_status"],
                         critical=row["critical"],
                     )
@@ -4191,6 +4231,7 @@ def _review_summary(row: RowMapping) -> ReviewTaskSummary:
         submitted_by=row["submitted_by"],
         submitted_at=row["submitted_at"],
         assigned_to=row["assigned_to"],
+        task_type=row["task_type"],
     )
 
 

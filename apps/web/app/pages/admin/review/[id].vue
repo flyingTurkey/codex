@@ -40,6 +40,7 @@ const outcomeVerification = ref<Record<string, 'CLAIMED' | 'VERIFIED'>>({})
 
 const isSafetyCase = computed(() => detail.value?.item.content_type === 'SAFETY_CASE')
 const isDigitalCase = computed(() => detail.value?.item.content_type === 'DIGITAL_CASE')
+const isClaimReview = computed(() => detail.value?.task.task_type === 'CLAIM_REVIEW')
 const digitalOutcomes = computed(() => [
   ...(detail.value?.digital_case?.claimed_outcomes ?? []),
   ...(detail.value?.digital_case?.verified_outcomes ?? []),
@@ -62,7 +63,7 @@ watch(
   { immediate: true },
 )
 const pendingSafetyClaims = computed(() =>
-  isSafetyCase.value
+  (isSafetyCase.value || isClaimReview.value)
     ? (detail.value?.claims ?? []).filter((claim) => claim.decision_status === 'PENDING')
     : [],
 )
@@ -197,11 +198,11 @@ async function decide(action: 'APPROVE' | 'REJECT'): Promise<void> {
       </section>
 
       <section class="review-detail__claims">
-        <h2>{{ isSafetyCase ? '关键字段逐项审核' : '规则解析字段' }}</h2>
-        <p v-if="isSafetyCase" class="review-detail__field-rule">
+        <h2>{{ isSafetyCase || isClaimReview ? '候选事实逐项审核' : '规则解析字段' }}</h2>
+        <p v-if="isSafetyCase || isClaimReview" class="review-detail__field-rule">
           原因、责任、伤亡和损失必须逐字段核对正式证据。提交人不得审批自己提交的安全案例。
         </p>
-        <div v-if="isSafetyCase" class="review-detail__claim-list">
+        <div v-if="isSafetyCase || isClaimReview" class="review-detail__claim-list">
           <article
             v-for="claim in detail.claims"
             :key="claim.id"
@@ -281,7 +282,7 @@ async function decide(action: 'APPROVE' | 'REJECT'): Promise<void> {
         </button>
       </section>
 
-      <section v-if="isDigitalCase && detail.digital_case" class="review-detail__digital-patch">
+      <section v-if="isDigitalCase && !isClaimReview && detail.digital_case" class="review-detail__digital-patch">
         <h2>数字化案例结构审核</h2>
         <p>只能选择已有接受证据支持的代码；服务端会重新计算相关性 v1。</p>
         <div class="review-detail__digital-grid">
@@ -334,7 +335,7 @@ async function decide(action: 'APPROVE' | 'REJECT'): Promise<void> {
         </div>
       </section>
 
-      <form v-if="detail.task.status === 'PENDING'" class="review-detail__decision" @submit.prevent>
+      <form v-if="!isClaimReview && detail.task.status === 'PENDING'" class="review-detail__decision" @submit.prevent>
         <label>
           审核说明
           <textarea v-model="reason" required minlength="1" maxlength="1000" />

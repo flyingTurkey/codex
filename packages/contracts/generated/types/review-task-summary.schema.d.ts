@@ -6,6 +6,7 @@ export type SourceName = string
 export type ReviewStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
 export type SubmittedAt = string
 export type SubmittedBy = string
+export type TaskType = 'CONTENT_REVIEW' | 'SECURITY_REVIEW' | 'CORRECTION_REVIEW' | 'WITHDRAWAL_REVIEW' | 'CLAIM_REVIEW'
 export type Title = string
 
 export interface ReviewTaskSummary {
@@ -17,5 +18,6 @@ export interface ReviewTaskSummary {
   status: ReviewStatus
   submitted_at: SubmittedAt
   submitted_by: SubmittedBy
+  task_type?: TaskType
   title: Title
 }

@@ -25,6 +25,10 @@ class ModelOutputRejected(ValueError):
     """Provider response failed a non-bypassable local check."""
 
 
+class TransientProviderError(RuntimeError):
+    """A bounded-retry provider/network failure."""
+
+
 @dataclass(frozen=True, slots=True)
 class ProviderResult:
     content: str
@@ -32,6 +36,9 @@ class ProviderResult:
     output_tokens: int
     provider_request_id: str | None = None
     tool_calls_present: bool = False
+    cache_hit_tokens: int = 0
+    cache_miss_tokens: int = 0
+    finish_reason: str | None = None
 
 
 class ModelProvider(Protocol):
@@ -65,20 +72,24 @@ class ControlledModelGateway:
         if not isinstance(decoded, dict):
             raise ModelOutputRejected("provider output must be a JSON object")
 
-        self._validate_json_schema(decoded, request.response_schema)
-        try:
-            validated = STEP_OUTPUT_MODELS[request.step].model_validate(decoded)
-        except ValidationError as exc:
-            raise ModelOutputRejected("provider output violates step contract") from exc
-        if isinstance(validated, ExtractionOutput):
-            self._validate_evidence(validated, request)
+        validated = validate_step_output(decoded, request)
 
         usage = ModelUsage(
             input_tokens=result.input_tokens,
             output_tokens=result.output_tokens,
+            cache_hit_tokens=result.cache_hit_tokens,
+            cache_miss_tokens=result.cache_miss_tokens,
         )
+        cache_hit_price = (
+            request.cache_hit_input_price_microusd_per_million
+            if request.cache_hit_input_price_microusd_per_million is not None
+            else request.input_price_microusd_per_million
+        )
+        accounted_input = usage.cache_hit_tokens + usage.cache_miss_tokens
+        fallback_miss = usage.input_tokens if accounted_input == 0 else usage.cache_miss_tokens
         numerator = (
-            usage.input_tokens * request.input_price_microusd_per_million
+            usage.cache_hit_tokens * cache_hit_price
+            + fallback_miss * request.input_price_microusd_per_million
             + usage.output_tokens * request.output_price_microusd_per_million
         )
         cost = (numerator + 999_999) // 1_000_000 if numerator else 0
@@ -89,6 +100,7 @@ class ControlledModelGateway:
             cost_microusd=cost,
             latency_ms=latency_ms,
             provider_request_id=result.provider_request_id,
+            finish_reason=result.finish_reason,
         )
 
     @staticmethod
@@ -114,6 +126,8 @@ class ControlledModelGateway:
                 raise ModelOutputRejected("evidence id was not issued by the server")
             if evidence.document_block_id != anchor.document_block_id:
                 raise ModelOutputRejected("evidence block does not match server anchor")
+            if anchor.locator_value is not None and evidence.locator.value != anchor.locator_value:
+                raise ModelOutputRejected("evidence locator does not match server anchor")
             if evidence.excerpt not in anchor.normalized_text:
                 raise ModelOutputRejected("evidence excerpt is not present in source block")
             if not set(evidence.supports).issubset(claim_ids):
@@ -226,6 +240,9 @@ class OpenAICompatibleProvider:
             headers=headers,
             timeout=self._timeout_seconds,
         )
+        status_code = getattr(response, "status_code", None)
+        if status_code in {429, 500, 503}:
+            raise TransientProviderError(f"provider returned HTTP {status_code}")
         response.raise_for_status()
         raw = response.json()
         if not isinstance(raw, dict):
@@ -250,7 +267,114 @@ class OpenAICompatibleProvider:
         )
 
 
+class DeepSeekProvider:
+    """DeepSeek capability adapter with a pinned json_object, tool-free payload."""
+
+    def __init__(
+        self,
+        *,
+        client: AsyncHttpClient,
+        api_key: str | None = None,
+        timeout_seconds: float = 30.0,
+    ) -> None:
+        if timeout_seconds <= 0:
+            raise ValueError("provider timeout must be positive")
+        self._client = client
+        self._api_key = api_key
+        self._timeout_seconds = timeout_seconds
+
+    async def complete(self, request: ModelRequest) -> ProviderResult:
+        if request.model_profile != "deepseek-v4-flash":
+            raise ValueError("DeepSeek model is not approved")
+        expected_max_tokens = 1200 if request.step is AiStep.CLASSIFY else 4000
+        supplied_max_tokens = request.parameters.get("max_tokens", expected_max_tokens)
+        if supplied_max_tokens != expected_max_tokens:
+            raise ValueError("DeepSeek max_tokens is pinned per step")
+        if request.parameters.get("temperature", 0) != 0:
+            raise ValueError("DeepSeek temperature is pinned to zero")
+        payload: dict[str, Any] = {
+            "model": "deepseek-v4-flash",
+            "messages": [
+                {"role": "system", "content": request.system_prompt},
+                {"role": "user", "content": request.user_prompt},
+            ],
+            "thinking": {"type": "disabled"},
+            "response_format": {"type": "json_object"},
+            "temperature": 0,
+            "max_tokens": expected_max_tokens,
+        }
+        headers = {"Content-Type": "application/json"}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+        response = await self._client.post(
+            "/chat/completions",
+            json=payload,
+            headers=headers,
+            timeout=self._timeout_seconds,
+        )
+        status_code = getattr(response, "status_code", None)
+        if status_code in {429, 500, 503}:
+            raise TransientProviderError(f"provider returned HTTP {status_code}")
+        response.raise_for_status()
+        raw = response.json()
+        if not isinstance(raw, dict):
+            raise ModelOutputRejected("provider response must be an object")
+        choices = raw.get("choices")
+        usage = raw.get("usage")
+        if not isinstance(choices, list) or not choices or not isinstance(usage, dict):
+            raise ModelOutputRejected("provider response is missing choices or usage")
+        choice = choices[0]
+        if not isinstance(choice, dict) or not isinstance(choice.get("message"), dict):
+            raise ModelOutputRejected("provider response has invalid message shape")
+        finish_reason = choice.get("finish_reason")
+        if finish_reason == "length":
+            raise ModelOutputRejected("provider returned finish_reason=length")
+        if finish_reason not in {"stop", None}:
+            raise ModelOutputRejected(f"provider returned finish_reason={finish_reason}")
+        message = cast(dict[str, Any], choice["message"])
+        content = message.get("content")
+        if not isinstance(content, str) or not content.strip():
+            raise ModelOutputRejected("provider returned empty content")
+        input_tokens = _nonnegative_int(usage.get("prompt_tokens"), "prompt_tokens")
+        cache_hit = _optional_nonnegative_int(
+            usage.get("prompt_cache_hit_tokens", 0), "prompt_cache_hit_tokens"
+        )
+        cache_miss = _optional_nonnegative_int(
+            usage.get("prompt_cache_miss_tokens", input_tokens - cache_hit),
+            "prompt_cache_miss_tokens",
+        )
+        if cache_hit + cache_miss != input_tokens:
+            raise ModelOutputRejected("provider cache token usage is inconsistent")
+        return ProviderResult(
+            content=content,
+            input_tokens=input_tokens,
+            output_tokens=_nonnegative_int(usage.get("completion_tokens"), "completion_tokens"),
+            provider_request_id=str(raw["id"]) if raw.get("id") is not None else None,
+            tool_calls_present=bool(message.get("tool_calls")),
+            cache_hit_tokens=cache_hit,
+            cache_miss_tokens=cache_miss,
+            finish_reason=str(finish_reason) if finish_reason is not None else None,
+        )
+
+
 def _nonnegative_int(value: object, field: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value < 0:
         raise ModelOutputRejected(f"provider usage {field} is invalid")
     return value
+
+
+def _optional_nonnegative_int(value: object, field: str) -> int:
+    return _nonnegative_int(value, field)
+
+
+def validate_step_output(output: dict[str, Any], request: ModelRequest) -> Any:
+    """Repeat all local checks on the server side after an isolated-worker callback."""
+
+    ControlledModelGateway._validate_json_schema(output, request.response_schema)
+    try:
+        validated = STEP_OUTPUT_MODELS[request.step].model_validate(output)
+    except ValidationError as exc:
+        raise ModelOutputRejected("provider output violates step contract") from exc
+    if isinstance(validated, ExtractionOutput):
+        ControlledModelGateway._validate_evidence(validated, request)
+    return validated
