@@ -425,6 +425,7 @@ services:
       dockerfile: infra/compose/Dockerfile.web
     environment:
       NUXT_INTERNAL_API_BASE: http://api:8000
+      NUXT_LOCAL_APP_ROLES: ${NUXT_LOCAL_APP_ROLES:-viewer,source_admin,reviewer}
       SRBG_ENVIRONMENT: ${SRBG_ENVIRONMENT:-demo}
       NITRO_HOST: 0.0.0.0
       NITRO_PORT: 3000

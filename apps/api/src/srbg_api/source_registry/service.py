@@ -17,6 +17,8 @@ from srbg_contracts import (
     CreateSourceRequest,
     DocumentDetail,
     FixtureUploadResponse,
+    PersonalSourcePatchRequest,
+    PersonalSourceView,
     RuntimeAuthorization,
     SourceAssessmentSubmission,
     SourceAuditEventView,
@@ -75,6 +77,7 @@ from srbg_api.document_vault.service import DocumentVaultService, SourceVaultMet
 from srbg_api.document_vault.storage import S3ObjectStore
 from srbg_api.observability import (
     CONNECTOR_CONFIG_VERSIONS,
+    PERSONAL_SOURCE_UPDATES,
     SOURCE_COVERAGE_GAP_CELLS,
     SOURCE_LIFECYCLE_STATE,
     SOURCE_POLICY_REJECTIONS,
@@ -106,6 +109,7 @@ from srbg_api.source_registry.repository import (
     FixtureReplayBundle,
     FixtureReplayCapture,
     OnboardingRow,
+    PersonalSourceRow,
     PolicyRow,
     RepositoryConflict,
     SourceRow,
@@ -193,6 +197,48 @@ class SourceRegistryService:
             )
         )
         return summaries
+
+    async def list_personal_sources(self) -> list[PersonalSourceView]:
+        return [
+            _personal_source_view(row)
+            for row in await self._repository.list_personal_sources()
+        ]
+
+    async def get_personal_source(self, source_id: UUID) -> PersonalSourceView:
+        return _personal_source_view(await self._repository.get_personal_source(source_id))
+
+    async def patch_personal_source(
+        self,
+        source_id: UUID,
+        payload: PersonalSourcePatchRequest,
+        *,
+        actor_id: UUID,
+        request_id: str,
+    ) -> PersonalSourceView:
+        action = (
+            "intent_and_name"
+            if payload.model_fields_set == {"desired_enabled", "display_name"}
+            else "intent"
+            if "desired_enabled" in payload.model_fields_set
+            else "display_name"
+        )
+        row = await self._repository.patch_personal_source(
+            source_id,
+            payload,
+            actor_id=actor_id,
+            request_id=request_id,
+            now=_now(),
+        )
+        PERSONAL_SOURCE_UPDATES.labels(action, "succeeded").inc()
+        _log_governance_action(
+            event_name="personal_source_updated",
+            action=action.upper(),
+            outcome="SUCCEEDED",
+            reason_code="OWNER_INTENT_RECORDED",
+            request_id=request_id,
+            source_id=source_id,
+        )
+        return _personal_source_view(row)
 
     async def create_source(
         self,
@@ -1298,6 +1344,17 @@ def build_default_source_service(settings: Settings) -> SourceRegistryService:
         vault,
         round17_leo_approver_actor_id=settings.round17_leo_approver_actor_id,
         round17_authority_mode=settings.round17_authority_mode,
+    )
+
+
+def _personal_source_view(row: PersonalSourceRow) -> PersonalSourceView:
+    return PersonalSourceView(
+        id=row.id,
+        display_name=row.display_name,
+        url=row.url,
+        desired_enabled=row.desired_enabled,
+        runtime_state=row.runtime_state,
+        manual_disabled_at=row.manual_disabled_at,
     )
 
 

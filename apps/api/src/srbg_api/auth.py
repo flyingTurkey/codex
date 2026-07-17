@@ -48,7 +48,10 @@ async def get_current_principal(request: Request) -> Principal:
         request.state.principal = principal
         return principal
 
-    raw_roles = request.headers.get("X-SRBG-Local-Roles", UserRole.VIEWER.value)
+    raw_roles = request.headers.get(
+        "X-SRBG-Local-Roles",
+        f"{UserRole.OWNER.value},{UserRole.VIEWER.value}",
+    )
     try:
         roles = frozenset(
             UserRole(value.strip()) for value in raw_roles.split(",") if value.strip()
@@ -77,7 +80,7 @@ async def get_current_principal(request: Request) -> Principal:
 
     principal = Principal(
         user_id=user_id,
-        display_name=request.headers.get("X-SRBG-Local-User", "本地来源管理员"),
+        display_name=request.headers.get("X-SRBG-Local-User", "本地个人 Owner"),
         roles=roles,
         local_identity=True,
         local_step_up=request.headers.get("X-SRBG-Local-Step-Up", "false").lower() == "true",
@@ -228,6 +231,24 @@ def require_roles(*allowed: UserRole) -> Callable[[Principal], Awaitable[Princip
         return principal
 
     return authorize
+
+
+async def require_local_owner(
+    principal: Annotated[Principal, Depends(get_current_principal)],
+) -> Principal:
+    """Authorize the one fixed local Owner used by the PERS-01 product surface."""
+
+    if (
+        not principal.local_identity
+        or principal.user_id != LOCAL_USER_ID
+        or UserRole.OWNER not in principal.roles
+    ):
+        _record_authorization_denial("personal_owner")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="The local personal Owner is required",
+        )
+    return principal
 
 
 def require_roles_with_step_up(

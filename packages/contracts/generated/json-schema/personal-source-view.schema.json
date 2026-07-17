@@ -1,0 +1,64 @@
+{
+  "$defs": {
+    "PersonalSourceRuntimeState": {
+      "description": "Observed personal-source runtime state, independent from owner intent.",
+      "enum": [
+        "PENDING_CONFIGURATION",
+        "STOPPED",
+        "RUNNING",
+        "ERROR"
+      ],
+      "title": "PersonalSourceRuntimeState",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "desired_enabled": {
+      "title": "Desired Enabled",
+      "type": "boolean"
+    },
+    "display_name": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Display Name",
+      "type": "string"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "manual_disabled_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Manual Disabled At"
+    },
+    "runtime_state": {
+      "$ref": "#/$defs/PersonalSourceRuntimeState"
+    },
+    "url": {
+      "maxLength": 2048,
+      "pattern": "^https?://[^\\s]+$",
+      "title": "Url",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "display_name",
+    "url",
+    "desired_enabled",
+    "runtime_state"
+  ],
+  "title": "PersonalSourceView",
+  "type": "object"
+}

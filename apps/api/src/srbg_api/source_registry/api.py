@@ -14,6 +14,8 @@ from srbg_contracts import (
     DocumentDetail,
     FixtureUploadResponse,
     MeResponse,
+    PersonalSourcePatchRequest,
+    PersonalSourceView,
     SourceActionRequest,
     SourceAssessmentSubmission,
     SourceAuditEventView,
@@ -40,6 +42,7 @@ from srbg_contracts import (
 from srbg_api.auth import (
     Principal,
     get_current_principal,
+    require_local_owner,
     require_roles,
     require_roles_with_step_up,
 )
@@ -49,6 +52,7 @@ from srbg_api.source_registry.service import ROUND17_ROSTER_COHORT
 READ_ROLES = (UserRole.SOURCE_ADMIN, UserRole.PLATFORM_ADMIN, UserRole.AUDITOR)
 WRITE_ROLES = (UserRole.SOURCE_ADMIN, UserRole.PLATFORM_ADMIN)
 CurrentPrincipal = Annotated[Principal, Depends(get_current_principal)]
+OwnerPrincipal = Annotated[Principal, Depends(require_local_owner)]
 ReadPrincipal = Annotated[Principal, Depends(require_roles(*READ_ROLES))]
 WritePrincipal = Annotated[Principal, Depends(require_roles_with_step_up(*WRITE_ROLES))]
 CurrentSettings = Annotated[Settings, Depends(get_settings)]
@@ -96,6 +100,19 @@ def _fixture_content_length(request: Request, max_bytes: int) -> int | None:
 
 
 class AdminSourceService(Protocol):
+    async def list_personal_sources(self) -> list[PersonalSourceView]: ...
+
+    async def get_personal_source(self, source_id: UUID) -> PersonalSourceView: ...
+
+    async def patch_personal_source(
+        self,
+        source_id: UUID,
+        payload: PersonalSourcePatchRequest,
+        *,
+        actor_id: UUID,
+        request_id: str,
+    ) -> PersonalSourceView: ...
+
     async def list_sources(self) -> list[SourceSummary]: ...
 
     async def create_source(
@@ -303,6 +320,46 @@ async def me(principal: CurrentPrincipal) -> MeResponse:
         display_name=principal.display_name,
         roles=sorted(principal.roles, key=lambda role: role.value),
         local_identity=principal.local_identity,
+    )
+
+
+@router.get("/sources", response_model=list[PersonalSourceView], tags=["personal-sources"])
+async def list_personal_sources(
+    request: Request,
+    _: OwnerPrincipal,
+) -> list[PersonalSourceView]:
+    return await _service(request).list_personal_sources()
+
+
+@router.get(
+    "/sources/{source_id}",
+    response_model=PersonalSourceView,
+    tags=["personal-sources"],
+)
+async def get_personal_source(
+    source_id: UUID,
+    request: Request,
+    _: OwnerPrincipal,
+) -> PersonalSourceView:
+    return await _service(request).get_personal_source(source_id)
+
+
+@router.patch(
+    "/sources/{source_id}",
+    response_model=PersonalSourceView,
+    tags=["personal-sources"],
+)
+async def patch_personal_source(
+    source_id: UUID,
+    payload: PersonalSourcePatchRequest,
+    request: Request,
+    principal: OwnerPrincipal,
+) -> PersonalSourceView:
+    return await _service(request).patch_personal_source(
+        source_id,
+        payload,
+        actor_id=principal.user_id,
+        request_id=request.state.request_id,
     )
 
 

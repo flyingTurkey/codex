@@ -471,6 +471,7 @@ def _migration_command(
         "verify_round16_migration.py",
         "verify_round17_migration.py",
         "verify_ai01_migration.py",
+        "verify_pers01_migration.py",
     }:
         raise ValueError("migration verifier is not approved")
     return (
@@ -600,6 +601,7 @@ def _parse_args(arguments: Sequence[str] | None) -> tuple[str, tuple[str, ...]]:
             "verify_round16_migration.py",
             "verify_round17_migration.py",
             "verify_ai01_migration.py",
+            "verify_pers01_migration.py",
         ),
         default="verify_round11_migration.py",
     )

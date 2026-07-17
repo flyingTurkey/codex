@@ -1,5 +1,15 @@
 # 四川路桥·智安情报
 
+## PERS-01 个人研究模式
+
+平台当前唯一产品形态是本机单一 Owner 的个人研究平台，不提供企业模式开关。`/sources` 用两个独立状态管理来源：`desired_enabled` 只记录 Owner 的启停意图，`runtime_state` 只显示系统实际运行状态；“用户已启用”不代表“当前正在运行”。手工停用会写入不可变关键活动事件和最高优先级标记，旧自动任务不能重新启用该来源。
+
+PERS-01 不实现 URL 探测、持续抓取、自动画像或旧治理表删除。旧角色、`/api/v1/admin` 和治理页面暂时保留供历史代码运行，但不是新的产品交互。公网安全、robots、限速、预算、raw-first、证据追溯、Schema 校验及 `PublicationService` 单一发布边界继续有效；证据事实与 AI 判断保持不同语义。
+
+本轮只支持本机访问。Compose 将 Web 和 API 绑定到 `127.0.0.1`，Nuxt 服务端代理为固定本地 UUIDv7 注入 `owner`；不要把本地身份头或端口代理到局域网、公网。远程 OIDC Owner 尚未实现，非本地身份不能调用新的个人来源 API。
+
+过渡期旧页面所需角色由 `NUXT_LOCAL_APP_ROLES` 单独配置；该变量不改变个人 API 的固定 `owner` 身份，也不能用于远程认证。
+
 ## R-AI01 AI 内容准备
 
 当前 AI 纵向切片只允许规范来源 `GOV-003` 的一个固定交通运输部公开 PDF。服务端从当前 `READY` 文档生成页块与 Evidence Anchor，经固定 DeepSeek 能力适配器执行分类和事实抽取，最终停在 `WAITING_CLAIM_REVIEW`。模型输出始终是候选，不自动写入 accepted claim，也不触发摘要、Publication、Feed、检索投影或日报。
@@ -78,7 +88,7 @@ make ai-content-preparation-test
 - 投影只保存发布题录、accepted claims 和证据定位，不复制原始全文。撤回、纠正及法律下架会使当前投影失效。
 - 审计边界为 append-only/tamper-evident：运行角色不能直接写 `audit_log`，链值由受控数据库函数生成，链根锚定到独立对象存储；这不等于数据库管理员绝对不可篡改。
 - publisher 每日锚定审计链根；`/metrics` 暴露由 PostgreSQL 计算的投影对账差异、最近成功回填和最近成功锚定时刻，Prometheus 对差异或陈旧状态告警，处置流程保持不切换消费者且不回退读取业务表。
-- 首期仍仅允许企业内部访问，不开放匿名互联网访问。生产环境采用 OIDC/SSO；R17 的签名本地身份仅限明确标记的 `test` 环境，配置成 production 时服务端启动即拒绝。
+- 以下 OIDC/SSO、R17 签名身份和企业角色说明仅记录旧流程的兼容边界；PERS-01 新个人页面和 API 只接受固定本地 Owner，远程认证尚未开放。
 
 本地验收影子数据为 32 个稳定 Event：23 条 `FULL`、9 条 R3 `METADATA_ONLY`、0 条 R4 投影，连续两代对账差异均为 0。该数量是固定验收数据证据，不代表生产内容规模。完整证据见[第 13 轮验收记录](docs/acceptance/phase-2/round-13-internal-projection-event-identity.md)。
 
@@ -134,6 +144,7 @@ R17 测试环境首次配置签名授权时执行以下命令。`round17_keygen.
 常用地址：
 
 - 首页：<http://127.0.0.1:3000>
+- 个人来源界面：<http://127.0.0.1:3000/sources>
 - API liveness：<http://127.0.0.1:18000/health/live>
 - API readiness：<http://127.0.0.1:18000/health/ready>
 - API 版本：<http://127.0.0.1:18000/api/v1/version>

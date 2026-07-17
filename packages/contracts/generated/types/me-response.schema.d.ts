@@ -1,6 +1,7 @@
 export type DisplayName = string
 export type LocalIdentity = boolean
 export type UserRole =
+  | 'owner'
   | 'viewer'
   | 'editor'
   | 'reviewer'

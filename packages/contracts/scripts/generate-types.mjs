@@ -97,6 +97,8 @@ const publicExports = {
   'item-summary.schema.json': ['AiAssistance', 'ItemSummary', 'PublicationRevisionState'],
   'item-detail.schema.json': ['ItemDetail'],
   'me-response.schema.json': ['MeResponse'],
+  'personal-source-patch-request.schema.json': ['PersonalSourcePatchRequest'],
+  'personal-source-view.schema.json': ['PersonalSourceRuntimeState', 'PersonalSourceView'],
   'operations-overview.schema.json': ['OperationsOverview'],
   'operator-task-complete-request.schema.json': ['OperatorTaskCompleteRequest'],
   'operator-task-create-request.schema.json': ['OperatorTaskCreateRequest'],

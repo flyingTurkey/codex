@@ -19,6 +19,8 @@ from srbg_contracts import (
     DocumentDetail,
     DocumentVersionSummary,
     FixtureUploadResponse,
+    PersonalSourcePatchRequest,
+    PersonalSourceRuntimeState,
     RawObjectSummary,
     ScanStatus,
     SourceAssessmentSubmission,
@@ -113,6 +115,16 @@ class SourceRow:
 
 
 @dataclass(frozen=True, slots=True)
+class PersonalSourceRow:
+    id: UUID
+    display_name: str
+    url: str
+    desired_enabled: bool
+    runtime_state: PersonalSourceRuntimeState
+    manual_disabled_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
 class PolicyRow:
     id: UUID
     policy_version: str
@@ -189,6 +201,162 @@ class SourceVaultRepository:
 
     async def close(self) -> None:
         await self._engine.dispose()
+
+    async def list_personal_sources(self) -> list[PersonalSourceRow]:
+        async with self._engine.connect() as connection:
+            rows = (
+                await connection.execute(
+                    text(
+                        """
+                        SELECT id,name,base_url,desired_enabled,runtime_state,manual_disabled_at
+                          FROM source
+                         ORDER BY lower(name),id
+                        """
+                    )
+                )
+            ).mappings()
+            return [_personal_source_row(row) for row in rows]
+
+    async def get_personal_source(self, source_id: UUID) -> PersonalSourceRow:
+        async with self._engine.connect() as connection:
+            row = (
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT id,name,base_url,desired_enabled,runtime_state,
+                                   manual_disabled_at
+                              FROM source WHERE id=:source_id
+                            """
+                        ),
+                        {"source_id": source_id},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+        if row is None:
+            raise SourceNotFound("source does not exist")
+        return _personal_source_row(row)
+
+    async def patch_personal_source(
+        self,
+        source_id: UUID,
+        payload: PersonalSourcePatchRequest,
+        *,
+        actor_id: UUID,
+        request_id: str,
+        now: datetime,
+    ) -> PersonalSourceRow:
+        async with self._engine.begin() as connection:
+            row = (
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT id,name,base_url,desired_enabled,runtime_state,
+                                   manual_disabled_at,enabled
+                              FROM source WHERE id=:source_id FOR UPDATE
+                            """
+                        ),
+                        {"source_id": source_id},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            if row is None:
+                raise SourceNotFound("source does not exist")
+
+            display_name = row["name"]
+            desired_enabled = row["desired_enabled"]
+            manual_disabled_at = row["manual_disabled_at"]
+            legacy_enabled = row["enabled"]
+            event_types: list[str] = []
+
+            if "display_name" in payload.model_fields_set:
+                display_name_value = payload.display_name
+                if display_name_value is None:
+                    raise ValueError("display_name must not be null")
+                if display_name_value != display_name:
+                    display_name = display_name_value
+                    event_types.append("DISPLAY_NAME_CHANGED")
+
+            if "desired_enabled" in payload.model_fields_set:
+                desired_enabled_value = payload.desired_enabled
+                if desired_enabled_value is None:
+                    raise ValueError("desired_enabled must not be null")
+                if desired_enabled_value:
+                    if not desired_enabled or manual_disabled_at is not None:
+                        event_types.append("MANUAL_ENABLED")
+                    desired_enabled = True
+                    manual_disabled_at = None
+                else:
+                    if manual_disabled_at is None:
+                        manual_disabled_at = now
+                        event_types.append("MANUAL_DISABLED")
+                    desired_enabled = False
+                    legacy_enabled = False
+
+            before_state = _personal_state(row)
+            after_state = {
+                "display_name": display_name,
+                "desired_enabled": desired_enabled,
+                "runtime_state": row["runtime_state"],
+                "manual_disabled_at": _iso_or_none(manual_disabled_at),
+            }
+            if before_state != after_state or legacy_enabled != row["enabled"]:
+                await connection.execute(
+                    text(
+                        """
+                        UPDATE source
+                           SET name=:display_name,desired_enabled=:desired_enabled,
+                               manual_disabled_at=:manual_disabled_at,enabled=:legacy_enabled,
+                               updated_at=:updated_at
+                         WHERE id=:source_id
+                        """
+                    ),
+                    {
+                        "display_name": display_name,
+                        "desired_enabled": desired_enabled,
+                        "manual_disabled_at": manual_disabled_at,
+                        "legacy_enabled": legacy_enabled,
+                        "updated_at": now,
+                        "source_id": source_id,
+                    },
+                )
+            for event_type in event_types:
+                await connection.execute(
+                    text(
+                        """
+                        INSERT INTO source_key_activity_event(
+                            id,source_id,event_type,actor_id,request_id,
+                            before_state,after_state,created_at
+                        ) VALUES(
+                            :id,:source_id,:event_type,:actor_id,:request_id,
+                            CAST(:before_state AS jsonb),CAST(:after_state AS jsonb),:created_at
+                        )
+                        """
+                    ),
+                    {
+                        "id": uuid7(),
+                        "source_id": source_id,
+                        "event_type": event_type,
+                        "actor_id": actor_id,
+                        "request_id": request_id,
+                        "before_state": _json(before_state),
+                        "after_state": _json(after_state),
+                        "created_at": now,
+                    },
+                )
+            return PersonalSourceRow(
+                id=row["id"],
+                display_name=display_name,
+                url=row["base_url"],
+                desired_enabled=desired_enabled,
+                runtime_state=PersonalSourceRuntimeState(row["runtime_state"]),
+                manual_disabled_at=manual_disabled_at,
+            )
 
     async def list_sources(self) -> list[SourceRow]:
         async with self._engine.connect() as connection:
@@ -2508,6 +2676,30 @@ def _source_row(row: RowMapping) -> SourceRow:
         current_trial_run_id=row["current_trial_run_id"],
         created_at=row["created_at"],
     )
+
+
+def _personal_source_row(row: RowMapping) -> PersonalSourceRow:
+    return PersonalSourceRow(
+        id=row["id"],
+        display_name=row["name"],
+        url=row["base_url"],
+        desired_enabled=row["desired_enabled"],
+        runtime_state=PersonalSourceRuntimeState(row["runtime_state"]),
+        manual_disabled_at=row["manual_disabled_at"],
+    )
+
+
+def _iso_or_none(value: datetime | None) -> str | None:
+    return None if value is None else value.isoformat()
+
+
+def _personal_state(row: RowMapping) -> dict[str, Any]:
+    return {
+        "display_name": row["name"],
+        "desired_enabled": row["desired_enabled"],
+        "runtime_state": row["runtime_state"],
+        "manual_disabled_at": _iso_or_none(row["manual_disabled_at"]),
+    }
 
 
 def _policy_row(row: RowMapping) -> PolicyRow:

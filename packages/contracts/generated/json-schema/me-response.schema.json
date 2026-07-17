@@ -2,6 +2,7 @@
   "$defs": {
     "UserRole": {
       "enum": [
+        "owner",
         "viewer",
         "editor",
         "reviewer",

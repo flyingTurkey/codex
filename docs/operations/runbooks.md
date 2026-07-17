@@ -1,5 +1,13 @@
 # 运行手册执行入口
 
+## PERS-01 本地身份与远程访问
+
+PERS-01 仅支持单机回环访问。执行 `make dev` 后，从宿主机打开 `http://127.0.0.1:3000/sources`；Nuxt 服务端代理会删除浏览器传入的 `X-SRBG-Local-*` 头，并在 development/demo/test 环境为固定 UUIDv7 注入 `owner` 和旧读角色。API 仍只监听宿主机 `127.0.0.1` 映射。
+
+`NUXT_LOCAL_APP_ROLES` 只控制过渡期旧页面的兼容角色，默认是 `viewer,source_admin,reviewer`；它不能移除或替代个人 API 使用的 `owner`，也不得作为远程认证机制。
+
+不得通过反向代理、端口转发或监听地址修改把该本地身份模式暴露到局域网或公网。PERS-01 没有远程 Owner 认证；旧 OIDC 配置仅供兼容 API 使用，不能授权 `/api/v1/sources`。需要远程访问时保持服务关闭并等待后续明确设计，不得以共享 Header、关闭鉴权或把 demo 环境暴露到远程网络代替认证。
+
 所有命令先确认目标环境。除“服务端隔离资格包 + `platform_admin` 最近5分钟 MFA”的候选启用/不启用单次决定外，生产操作必须由值班人与业务责任人双人审批；候选启用前的预算、条款和来源治理确认仍必须有可审计的责任人。
 
 - `release`：运行全部 required checks，执行 Alembic upgrade，检查 readiness、错误预算与发布审计后逐步放量。

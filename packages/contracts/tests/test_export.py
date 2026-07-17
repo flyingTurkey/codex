@@ -70,6 +70,8 @@ def test_exported_json_schemas_are_deterministic(tmp_path: Path) -> None:
         "operator-work-session-stop-request.schema.json",
         "operator-work-session-view.schema.json",
         "paper-detail.schema.json",
+        "personal-source-patch-request.schema.json",
+        "personal-source-view.schema.json",
         "product-normalization-candidate.schema.json",
         "product-normalization-decision-request.schema.json",
         "problem-details.schema.json",

@@ -36,6 +36,7 @@ def test_user_roles_include_auditor_and_required_operational_roles() -> None:
     assert hasattr(models, "UserRole")
 
     assert {role.value for role in models.UserRole} == {
+        "owner",
         "viewer",
         "editor",
         "reviewer",

@@ -14,6 +14,7 @@ from pydantic import (
     ConfigDict,
     Field,
     RootModel,
+    field_validator,
     model_validator,
 )
 
@@ -96,6 +97,7 @@ AssessmentTimestamp = Annotated[
 
 
 class UserRole(StrEnum):
+    OWNER = "owner"
     VIEWER = "viewer"
     EDITOR = "editor"
     REVIEWER = "reviewer"
@@ -1808,6 +1810,48 @@ class SourceTransitionRequest(ContractModel):
 
 class SourceActionRequest(ContractModel):
     reason: GovernanceReason
+
+
+class PersonalSourceRuntimeState(StrEnum):
+    """Observed personal-source runtime state, independent from owner intent."""
+
+    PENDING_CONFIGURATION = "PENDING_CONFIGURATION"
+    STOPPED = "STOPPED"
+    RUNNING = "RUNNING"
+    ERROR = "ERROR"
+
+
+class PersonalSourcePatchRequest(ContractModel):
+    desired_enabled: bool | None = None
+    display_name: str | None = Field(default=None, max_length=200)
+
+    @field_validator("display_name", mode="before")
+    @classmethod
+    def normalize_display_name(cls, value: object) -> object:
+        if value is None:
+            return value
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("display_name must not be blank")
+        return value.strip()
+
+    @model_validator(mode="after")
+    def require_non_null_patch_field(self) -> "PersonalSourcePatchRequest":
+        allowed_fields = {"desired_enabled", "display_name"}
+        provided = self.model_fields_set & allowed_fields
+        if not provided:
+            raise ValueError("at least one personal source field is required")
+        if any(getattr(self, field) is None for field in provided):
+            raise ValueError("personal source patch fields must not be null")
+        return self
+
+
+class PersonalSourceView(ContractModel):
+    id: UUID
+    display_name: str = Field(min_length=1, max_length=200)
+    url: HttpUrlString = Field(pattern=r"^https?://[^\s]+$", max_length=2048)
+    desired_enabled: bool
+    runtime_state: PersonalSourceRuntimeState
+    manual_disabled_at: datetime | None = None
 
 
 class OnboardingCheckEvidence(ContractModel):

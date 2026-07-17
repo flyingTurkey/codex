@@ -141,6 +141,11 @@ SOURCE_AUTOMATION_CANDIDATE_DECISIONS = Counter(
     "Candidate decisions by bounded decision and outcome.",
     ("decision", "outcome"),
 )
+PERSONAL_SOURCE_UPDATES = Counter(
+    "srbg_personal_source_updates_total",
+    "Personal source updates by bounded action and outcome.",
+    ("action", "outcome"),
+)
 SCHEDULE_DISPATCH_DELAY = Histogram(
     "srbg_schedule_dispatch_delay_seconds",
     "Delay between a due schedule and durable dispatch.",

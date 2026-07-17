@@ -52,7 +52,7 @@ export PLAYWRIGHT_BROWSERS_PATH
 	round11-test observability-test golden-replay load-test recovery-drill runbook-test \
 	round11-evidence-test readiness-evidence slo-weekly-report \
 	phase2-round13-test phase2-round14-test phase2-round15-test phase2-round16-test \
-	phase2-round17-test phase2-round17-eval ai-content-preparation-test
+	phase2-round17-test phase2-round17-eval ai-content-preparation-test pers01-test
 
 setup:
 	$(UV) sync --frozen --all-packages
@@ -161,6 +161,15 @@ ai-content-preparation-test:
 		apps/worker/tests/test_ai_worker_isolation.py -q
 	$(PNPM) --filter @srbg/web test -- ai01-content-preparation-ui.test.ts
 	$(UV) run python scripts/check_ai01_no_publication_side_effects.py
+
+pers01-test:
+	$(COMPOSE) up --detach --wait postgres minio
+	$(UV) run python scripts/run_isolated_integration.py \
+		--migration-verifier verify_pers01_migration.py -- \
+		apps/api/tests/test_pers01_migration.py \
+		apps/api/tests/test_personal_source_api.py \
+		packages/contracts/tests/test_personal_source_contracts.py -q
+	$(PNPM) --filter @srbg/web test -- personal-sources-ui.test.ts
 
 quality-gate: lint typecheck test contract-test security-check
 

@@ -16,8 +16,12 @@ export default defineEventHandler(async (event) => {
     ? ['development', 'test', 'demo'].includes(localEnvironment)
     : import.meta.dev || process.env.NODE_ENV === 'test'
   if (localIdentityEnabled) {
-    headers.set('x-srbg-local-roles', config.localAppRoles)
-    headers.set('x-srbg-local-user', 'Local Demo Reviewer')
+    const compatibleRoles = config.localAppRoles
+      .split(',')
+      .map(role => role.trim())
+      .filter(Boolean)
+    headers.set('x-srbg-local-roles', [...new Set(['owner', ...compatibleRoles])].join(','))
+    headers.set('x-srbg-local-user', 'Local Personal Owner')
     headers.set('x-srbg-local-step-up', 'true')
   }
 
