@@ -12,6 +12,7 @@ import asyncio
 import json
 import logging
 import re
+import ssl
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
@@ -37,7 +38,7 @@ from srbg_api.acquisition.contracts import (
     SourceAdapter,
     SourceCheckpoint,
 )
-from srbg_api.acquisition.http import FetchPolicy, ResilientHttpClient
+from srbg_api.acquisition.http import FetchPolicy, HttpStatusError, ResilientHttpClient
 from srbg_api.acquisition.live import HttpxTransport, SystemClock, SystemResolver
 from srbg_api.config import Settings
 from srbg_api.connectors.config import (
@@ -96,11 +97,14 @@ class RuntimeBinding:
     connector_kind: ConnectorKind
     connector_config: dict[str, object]
     allowed_hosts: tuple[str, ...]
-    policy_version_id: UUID
-    connector_config_version_id: UUID
+    policy_version_id: UUID | None
+    connector_config_version_id: UUID | None
     checkpoint: SourceCheckpoint
     freshness_slo_seconds: int
     fetch_policy: FetchPolicy | None = None
+    authority_mode: str = "LEGACY_GOVERNED"
+    source_stream_id: UUID | None = None
+    stream_config_version_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -390,6 +394,7 @@ class ScheduledDeclarativeSourceAdapter(SourceAdapter):
         self._captures[id(fetched)] = capture
         try:
             _validate_fetch_identity(request.url, fetched, self._binding.allowed_hosts)
+            _reject_runtime_access_barriers(fetched.content or b"", fetched.content_type)
         except RuntimeExecutionError as error:
             await self._gateway.record_parse_failure(capture, error.reason_code)
             self._captures.pop(id(fetched), None)
@@ -656,9 +661,14 @@ class RuntimeFetchExecutor:
             await self._gateway.record_parse_failure(capture, reason)
             raise RuntimeExecutionError("DATABASE", reason) from error
         except ValueError as error:
-            reason = _safe_reason_code(error, default="DOCUMENT_PARSE_FAILED")
+            reason = (
+                "MIME_MISMATCH"
+                if "MIME" in str(error).upper()
+                else _safe_reason_code(error, default="DOCUMENT_PARSE_FAILED")
+            )
             await self._gateway.record_parse_failure(capture, reason)
-            raise RuntimeExecutionError("PARSE", reason) from error
+            failure_kind = reason if reason == "MIME_MISMATCH" else "PARSE"
+            raise RuntimeExecutionError(failure_kind, reason) from error
 
 
 class LiveRuntimeTransport:
@@ -803,15 +813,25 @@ class PostgresRuntimeGateway:
             return None
         config = row["config_document"]
         policy = row["policy_document"]
-        if not isinstance(config, dict) or not isinstance(policy, dict):
-            return None
-        fetch = policy.get("fetch")
-        if not isinstance(fetch, dict):
+        if not isinstance(config, dict):
             return None
         config_hosts = _string_tuple(row["config_allowed_hosts"])
-        policy_hosts = _string_tuple(fetch.get("allowed_domains"))
-        allowed_hosts = tuple(host for host in config_hosts if host in set(policy_hosts))
-        if not allowed_hosts or set(config_hosts) - set(policy_hosts):
+        authority_mode = str(row.get("authority_mode", "LEGACY_GOVERNED"))
+        if authority_mode == "PERSONAL_STREAM":
+            fetch: dict[str, object] = {}
+            allowed_hosts = config_hosts
+        else:
+            if not isinstance(policy, dict):
+                return None
+            policy_fetch = policy.get("fetch")
+            if not isinstance(policy_fetch, dict):
+                return None
+            fetch = policy_fetch
+            policy_hosts = _string_tuple(fetch.get("allowed_domains"))
+            allowed_hosts = tuple(host for host in config_hosts if host in set(policy_hosts))
+            if set(config_hosts) - set(policy_hosts):
+                return None
+        if not allowed_hosts:
             return None
         validated = validate_connector_config(
             ConnectorKind(str(row["connector_type"])),
@@ -848,6 +868,9 @@ class PostgresRuntimeGateway:
             checkpoint=checkpoint,
             freshness_slo_seconds=int(row["freshness_slo_seconds"]),
             fetch_policy=fetch_policy,
+            authority_mode=authority_mode,
+            source_stream_id=row.get("source_stream_id"),
+            stream_config_version_id=row.get("stream_config_version_id"),
         )
 
     async def authorize_request(self, binding: RuntimeBinding, *, url: str) -> bool:
@@ -864,6 +887,8 @@ class PostgresRuntimeGateway:
             and current.execution_domain is ExecutionDomain.PRODUCTION
             and current.policy_version_id == binding.policy_version_id
             and current.connector_config_version_id == binding.connector_config_version_id
+            and current.source_stream_id == binding.source_stream_id
+            and current.stream_config_version_id == binding.stream_config_version_id
             and current.connector_config == binding.connector_config
         )
 
@@ -1085,7 +1110,12 @@ class PostgresRuntimeGateway:
             return "LEASE_LOST"
         failure = FetchFailure(http_status=304) if failure_kind == "NOT_MODIFIED" else None
         if failure_kind is not None and failure_kind != "NOT_MODIFIED":
-            failure = FetchFailure(kind=_schedule_failure_kind(failure_kind))
+            failure = (
+                FetchFailure(http_status=int(failure_kind.removeprefix("HTTP_")))
+                if failure_kind.startswith("HTTP_")
+                and failure_kind.removeprefix("HTTP_").isdigit()
+                else FetchFailure(kind=_schedule_failure_kind(failure_kind))
+            )
         required_ratio = (
             0.0
             if result.required_fields_missing
@@ -1095,14 +1125,20 @@ class PostgresRuntimeGateway:
                 else min(1.0, result.fetched_count / result.discovered_count)
             )
         )
-        zero_discovery_streak = await self._zero_discovery_streak(
-            source_id,
-            result=result,
-            failure_kind=failure_kind,
-        )
-        previous_body_bytes, previous_structure_sha256 = await self._previous_discovery_shape(
-            source_id
-        )
+        if binding.source_stream_id is None:
+            zero_discovery_streak = await self._zero_discovery_streak(
+                source_id, result=result, failure_kind=failure_kind
+            )
+            previous_body_bytes, previous_structure_sha256 = (
+                await self._previous_discovery_shape(source_id)
+            )
+        else:
+            zero_discovery_streak = await self._personal_zero_discovery_streak(
+                binding, result=result, failure_kind=failure_kind
+            )
+            previous_body_bytes, previous_structure_sha256 = (
+                await self._personal_previous_discovery_shape(binding)
+            )
         body_length_ratio = (
             result.discovery_body_bytes / previous_body_bytes
             if previous_body_bytes is not None
@@ -1119,7 +1155,9 @@ class PostgresRuntimeGateway:
             source_id=binding.source_id,
             run_id=binding.run_id,
             observation=HealthObservation(
-                transport_succeeded=failure_kind not in {"TIMEOUT", "DNS", "OBJECT_STORAGE"},
+                transport_succeeded=failure_kind not in {
+                    "TIMEOUT", "DNS", "TLS", "OBJECT_STORAGE"
+                },
                 consecutive_zero_discovery=zero_discovery_streak,
                 latest_published_at=result.latest_published_at,
                 freshness_slo_seconds=binding.freshness_slo_seconds,
@@ -1129,6 +1167,9 @@ class PostgresRuntimeGateway:
                 duplicate_ratio=result.duplicate_ratio,
                 discovery_body_bytes=result.discovery_body_bytes,
                 structure_fingerprint_sha256=result.discovery_structure_sha256,
+                new_content_count=result.fetched_count,
+                reason_code=_health_reason_code(failure_kind, result),
+                http_status=failure.http_status if failure is not None else None,
             ),
             discovered_count=result.discovered_count,
             parsed_count=result.fetched_count,
@@ -1254,6 +1295,55 @@ class PostgresRuntimeGateway:
             int(body_bytes) if body_bytes is not None else None,
             str(structure_sha256) if structure_sha256 is not None else None,
         )
+
+    async def _personal_zero_discovery_streak(
+        self,
+        binding: RuntimeBinding,
+        *,
+        result: RuntimeRunResult,
+        failure_kind: str | None,
+    ) -> int:
+        if failure_kind is not None or result.discovered_count != 0:
+            return 0
+        async with self._engine.connect() as connection:
+            rows = (
+                (
+                    await connection.execute(
+                        text(_RECENT_STREAM_HEALTH_SQL),
+                        {"source_stream_id": binding.source_stream_id},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        streak = 1
+        for row in rows:
+            if (
+                row["transport_status"] != "SUCCEEDED"
+                or row["run_status"] != "SUCCEEDED"
+                or int(row["discovered_count"]) != 0
+            ):
+                break
+            streak += 1
+        return streak
+
+    async def _personal_previous_discovery_shape(
+        self, binding: RuntimeBinding
+    ) -> tuple[int | None, str | None]:
+        async with self._engine.connect() as connection:
+            row = (
+                (
+                    await connection.execute(
+                        text(_RECENT_STREAM_SHAPE_SQL),
+                        {"source_stream_id": binding.source_stream_id},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        if row is None:
+            return None, None
+        return int(row["discovery_body_bytes"]), str(row["structure_fingerprint_sha256"])
 
     async def close(self) -> None:
         self._execution_lease_token = None
@@ -1653,6 +1743,10 @@ def _bounded_reason(value: str) -> str:
 
 
 def _io_failure_kind(error: Exception) -> str:
+    if isinstance(error, HttpStatusError):
+        return f"HTTP_{error.status_code}"
+    if isinstance(error, (ssl.SSLError, ssl.CertificateError)):
+        return "TLS"
     return "TIMEOUT" if isinstance(error, TimeoutError) else "DNS"
 
 
@@ -1662,8 +1756,43 @@ def _schedule_failure_kind(value: str) -> str:
         "PARSE": "PARSE",
         "TIMEOUT": "TIMEOUT",
         "DNS": "DNS",
+        "TLS": "TLS",
         "DATABASE": "DATABASE",
     }.get(value, "PARSE")
+
+
+def _health_reason_code(
+    failure_kind: str | None, result: RuntimeRunResult
+) -> str | None:
+    if failure_kind == "DNS":
+        return "DNS_FAILURE"
+    if failure_kind == "TIMEOUT":
+        return "TIMEOUT"
+    if failure_kind == "TLS":
+        return "TLS_FAILURE"
+    if failure_kind is not None and failure_kind.startswith("HTTP_"):
+        status = failure_kind.removeprefix("HTTP_")
+        if status in {"401", "403", "404", "429"}:
+            return failure_kind
+        if status.isdigit() and 500 <= int(status) <= 599:
+            return "HTTP_5XX"
+    if failure_kind == "PARSE":
+        return "PARSE_FAILED"
+    if failure_kind in {
+        "LOGIN_REQUIRED",
+        "CAPTCHA_DETECTED",
+        "PAYWALL_DETECTED",
+        "MIME_MISMATCH",
+        "ROBOTS_BLOCKED",
+    }:
+        return failure_kind
+    if failure_kind == "AUTHORIZATION":
+        return "BUDGET_EXHAUSTED"
+    if result.required_fields_missing:
+        return "REQUIRED_FIELDS_MISSING"
+    if result.discovered_count == 0:
+        return "ZERO_DISCOVERY_STREAK"
+    return None
 
 
 def _unexpected_failure_kind(error: Exception) -> str:
@@ -1671,11 +1800,29 @@ def _unexpected_failure_kind(error: Exception) -> str:
         return error.failure_kind
     if isinstance(error, TimeoutError):
         return "TIMEOUT"
+    if isinstance(error, HttpStatusError):
+        return f"HTTP_{error.status_code}"
+    if isinstance(error, (ssl.SSLError, ssl.CertificateError)):
+        return "TLS"
     if isinstance(error, RawRegistrationError):
         return "DATABASE"
     if isinstance(error, OSError):
         return "DNS"
     return "PARSE"
+
+
+def _reject_runtime_access_barriers(content: bytes, content_type: str | None) -> None:
+    if _media_type(content_type) not in {"text/html", "application/xhtml+xml"}:
+        return
+    sample = content[:262_144].decode("utf-8", errors="ignore").casefold()
+    markers = (
+        ("CAPTCHA_DETECTED", ("captcha", "验证码", "人机验证")),
+        ("LOGIN_REQUIRED", ("please login", "sign in to continue", "请登录", "登录后查看")),
+        ("PAYWALL_DETECTED", ("subscribe to continue", "paywall", "订阅后阅读", "付费阅读")),
+    )
+    for reason_code, values in markers:
+        if any(value in sample for value in values):
+            raise RuntimeExecutionError(reason_code, reason_code)
 
 
 def _string_tuple(value: object) -> tuple[str, ...]:
@@ -1698,6 +1845,8 @@ _BINDING_SQL = """
 SELECT r.run_origin,r.execution_domain,r.policy_version_id,
        r.connector_config_version_id,d.connector_type,c.config_document,
        c.allowed_hosts AS config_allowed_hosts,p.document AS policy_document,
+       fs.authority_mode,NULL::uuid AS source_stream_id,
+       NULL::uuid AS stream_config_version_id,
        fs.max_attempts,fs.backoff_base_seconds,fs.backoff_cap_seconds,
        fs.freshness_slo_seconds,
        checkpoint.cursor AS checkpoint_cursor,
@@ -1760,6 +1909,40 @@ SELECT r.run_origin,r.execution_domain,r.policy_version_id,
         AND decision.outcome='APPROVED'
         AND (decision.valid_until IS NULL OR decision.valid_until > :now)
    )
+UNION ALL
+SELECT r.run_origin,r.execution_domain,NULL::uuid AS policy_version_id,
+       NULL::uuid AS connector_config_version_id,
+       stream_config.connector_type,stream_config.config AS config_document,
+       stream.allowed_hosts AS config_allowed_hosts,NULL::jsonb AS policy_document,
+       fs.authority_mode,stream.id AS source_stream_id,
+       stream_config.id AS stream_config_version_id,
+       fs.max_attempts,fs.backoff_base_seconds,fs.backoff_cap_seconds,
+       fs.freshness_slo_seconds,
+       NULL::jsonb AS checkpoint_cursor,NULL::text AS checkpoint_etag,
+       NULL::text AS checkpoint_last_modified,
+       fs.consecutive_failures AS checkpoint_consecutive_failures,
+       fs.circuit_open_until AS checkpoint_circuit_open_until
+  FROM fetch_run r
+  JOIN source source_row ON source_row.id=r.source_id
+  JOIN fetch_schedule fs ON fs.id=r.schedule_id
+  JOIN source_stream stream
+    ON stream.id=r.source_stream_id AND stream.id=fs.source_stream_id
+   AND stream.source_id=source_row.id
+  JOIN stream_config_version stream_config
+    ON stream_config.id=r.stream_config_version_id
+   AND stream_config.id=fs.stream_config_version_id
+   AND stream_config.stream_id=stream.id
+ WHERE r.id=:run_id AND r.source_id=:source_id AND r.status='RUNNING'
+   AND r.run_origin='SCHEDULED' AND r.execution_domain='PRODUCTION'
+   AND fs.authority_mode='PERSONAL_STREAM' AND fs.status='ACTIVE'
+   AND source_row.desired_enabled=true
+   AND source_row.manual_disabled_at IS NULL
+   AND stream.status='READY'
+   AND stream.config_sha256=stream_config.config_sha256
+   AND fs.access_state='ACCESSIBLE'
+   AND fs.requests_used<fs.daily_request_budget
+   AND fs.bytes_used<fs.daily_byte_budget
+   AND fs.circuit_state IN ('CLOSED','HALF_OPEN')
 """
 
 _ACQUIRED_LEASE_SQL = """
@@ -1811,7 +1994,24 @@ SELECT discovery_body_bytes,structure_fingerprint_sha256
    AND discovery_body_bytes IS NOT NULL
    AND structure_fingerprint_sha256 IS NOT NULL
  ORDER BY observed_at DESC,id DESC
- LIMIT 1
+LIMIT 1
+"""
+
+_RECENT_STREAM_HEALTH_SQL = """
+SELECT h.discovered_count,h.transport_status,r.status AS run_status
+  FROM source_health_snapshot h JOIN fetch_run r ON r.id=h.fetch_run_id
+ WHERE h.source_stream_id=:source_stream_id
+   AND r.run_origin='SCHEDULED' AND r.execution_domain='PRODUCTION'
+ ORDER BY h.observed_at DESC,h.id DESC LIMIT 2
+"""
+
+_RECENT_STREAM_SHAPE_SQL = """
+SELECT discovery_body_bytes,structure_fingerprint_sha256
+  FROM source_health_snapshot
+ WHERE source_stream_id=:source_stream_id
+   AND discovery_body_bytes IS NOT NULL
+   AND structure_fingerprint_sha256 IS NOT NULL
+ ORDER BY observed_at DESC,id DESC LIMIT 1
 """
 
 _RECORD_RAW_SQL = """

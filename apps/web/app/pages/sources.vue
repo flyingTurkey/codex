@@ -58,6 +58,36 @@ const streamStatusLabels = {
   PROBE_FAILED: '探测失败',
 } as const
 
+const healthLabels = {
+  UNKNOWN: '尚无健康数据',
+  HEALTHY: '健康',
+  DEGRADED: '需要关注',
+  UNHEALTHY: '异常',
+} as const
+
+const healthReasonLabels: Readonly<Record<string, string>> = {
+  DNS_FAILURE: 'DNS 解析失败', TLS_FAILURE: 'TLS 连接失败', TIMEOUT: '请求超时',
+  HTTP_401: 'HTTP 401：需要登录', HTTP_403: 'HTTP 403：禁止访问',
+  HTTP_404: 'HTTP 404：入口不存在', HTTP_429: 'HTTP 429：请求过于频繁',
+  HTTP_5XX: '来源服务异常', ROBOTS_BLOCKED: 'robots.txt 禁止访问',
+  LOGIN_REQUIRED: '需要登录，系统不会绕过', CAPTCHA_DETECTED: '检测到验证码，系统不会绕过',
+  PAYWALL_DETECTED: '检测到付费墙，系统不会绕过', MIME_MISMATCH: '响应类型不符',
+  PARSE_FAILED: '解析失败，原始证据已保留', ZERO_DISCOVERY_STREAK: '连续零发现',
+  STRUCTURE_CHANGED: 'DOM 或结构发生变化', REQUIRED_FIELDS_MISSING: '必要字段缺失',
+  CONTENT_STALE: '内容过期', BUDGET_EXHAUSTED: '预算已耗尽', CIRCUIT_OPEN: '熔断等待恢复',
+}
+
+function healthReason(reason: string | null | undefined): string {
+  return reason ? (healthReasonLabels[reason] ?? reason) : '无异常'
+}
+
+function displayTime(value: string | null | undefined): string {
+  if (!value) return '暂无'
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai', dateStyle: 'medium', timeStyle: 'short',
+  }).format(new Date(value))
+}
+
 async function addUrl(): Promise<void> {
   if (!newUrl.value.trim() || addingUrl.value) return
   addingUrl.value = true
@@ -201,6 +231,15 @@ async function setDesiredEnabled(source: PersonalSourceView): Promise<void> {
             </div>
             <a :href="stream.normalized_url" target="_blank" rel="noopener noreferrer">{{ stream.normalized_url }}</a>
             <p v-if="stream.failure_reason" class="stream-failure">{{ stream.failure_reason }}</p>
+            <dl class="stream-health">
+              <div><dt>是否实际运行</dt><dd>{{ stream.actual_running ? '是' : '否' }}</dd></div>
+              <div><dt>流级健康</dt><dd>{{ healthLabels[stream.health_status ?? 'UNKNOWN'] }}</dd></div>
+              <div><dt>异常原因</dt><dd>{{ healthReason(stream.health_reason) }}</dd></div>
+              <div><dt>连续失败次数</dt><dd>{{ stream.consecutive_failures }}</dd></div>
+              <div><dt>下次自愈时间</dt><dd>{{ displayTime(stream.next_self_heal_at) }}</dd></div>
+              <div><dt>最近成功抓取时间</dt><dd>{{ displayTime(stream.last_successful_fetch_at) }}</dd></div>
+              <div><dt>最近发现内容时间</dt><dd>{{ displayTime(stream.last_content_discovered_at) }}</dd></div>
+            </dl>
             <button
               v-if="stream.status === 'PROBE_FAILED'"
               class="secondary-button"
@@ -276,6 +315,10 @@ async function setDesiredEnabled(source: PersonalSourceView): Promise<void> {
 .stream-status--ready { color: var(--color-verified-700); }
 .stream-status--probe_failed, .stream-failure { color: var(--color-conflict-700); }
 .probe-progress, .stream-failure { margin: 0; }
+.stream-health { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); margin: 0; gap: var(--spacing-2); }
+.stream-health div { display: grid; gap: var(--spacing-1); }
+.stream-health dt { color: var(--color-ink-600); font-size: var(--text-xs); }
+.stream-health dd { margin: 0; color: var(--color-ink-900); font-size: var(--text-sm); }
 
 .personal-sources-header {
   grid-template-columns: minmax(0, 1fr) auto;

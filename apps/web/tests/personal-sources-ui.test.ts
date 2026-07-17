@@ -42,4 +42,16 @@ describe('PERS-02 personal sources page', () => {
     expect(page).not.toContain('JSON Pointer')
     expect(page).not.toContain('试运行表单')
   })
+
+  it('shows PERS-03 stream runtime and Chinese health details', () => {
+    expect(page).toContain('actual_running')
+    expect(page).toContain('health_status')
+    expect(page).toContain('health_reason')
+    expect(page).toContain('连续失败次数')
+    expect(page).toContain('下次自愈时间')
+    expect(page).toContain('最近成功抓取时间')
+    expect(page).toContain('最近发现内容时间')
+    expect(page).toContain('熔断等待恢复')
+    expect(page).toContain('robots.txt 禁止访问')
+  })
 })

@@ -473,6 +473,7 @@ def _migration_command(
         "verify_ai01_migration.py",
         "verify_pers01_migration.py",
         "verify_pers02_migration.py",
+        "verify_pers03_migration.py",
     }:
         raise ValueError("migration verifier is not approved")
     return (
@@ -504,6 +505,11 @@ def _suite_environment(config: IntegrationConfig, resources: TemporaryResources)
             "SRBG_RUN_SOURCE_INTEGRATION": "1",
             "SRBG_DATABASE_URL": config.database_url(
                 resources.runtime_role, resources.runtime_password, resources.database
+            ),
+            "SRBG_TEST_ADMIN_DATABASE_URL": config.database_url(
+                config.postgres_admin_user,
+                config.postgres_admin_password,
+                resources.database,
             ),
             "SRBG_PUBLICATION_DATABASE_URL": config.database_url(
                 resources.publication_role,
@@ -604,6 +610,7 @@ def _parse_args(arguments: Sequence[str] | None) -> tuple[str, tuple[str, ...]]:
             "verify_ai01_migration.py",
             "verify_pers01_migration.py",
             "verify_pers02_migration.py",
+            "verify_pers03_migration.py",
         ),
         default="verify_round11_migration.py",
     )

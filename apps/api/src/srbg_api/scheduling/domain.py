@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from statistics import median
 from uuid import UUID
 
 
@@ -13,6 +14,64 @@ class SchedulePolicy:
     backoff_base_seconds: int = 30
     backoff_cap_seconds: int = 21600
     max_attempts: int = 3
+
+
+MIN_ADAPTIVE_INTERVAL_SECONDS = 15 * 60
+MAX_ADAPTIVE_INTERVAL_SECONDS = 24 * 60 * 60
+DEFAULT_ADAPTIVE_INTERVAL_SECONDS = 60 * 60
+
+
+@dataclass(frozen=True, slots=True)
+class AdaptiveScheduleInput:
+    content_update_times: tuple[datetime, ...]
+    current_interval_seconds: int
+    new_content_count: int
+    zero_update_streak: int
+
+
+@dataclass(frozen=True, slots=True)
+class AdaptiveScheduleResult:
+    interval_seconds: int
+    zero_update_streak: int
+
+
+def calculate_adaptive_interval(
+    value: AdaptiveScheduleInput,
+    *,
+    random_fraction: Callable[[], float],
+) -> AdaptiveScheduleResult:
+    """Calculate a bounded per-stream interval from authoritative update observations."""
+
+    ordered = sorted(value.content_update_times, reverse=True)[:20]
+    deltas = [
+        (ordered[index] - ordered[index + 1]).total_seconds()
+        for index in range(len(ordered) - 1)
+        if ordered[index] > ordered[index + 1]
+    ]
+    baseline = (
+        DEFAULT_ADAPTIVE_INTERVAL_SECONDS
+        if not deltas
+        else int(median(deltas) / 4)
+    )
+    baseline = min(
+        MAX_ADAPTIVE_INTERVAL_SECONDS,
+        max(MIN_ADAPTIVE_INTERVAL_SECONDS, baseline),
+    )
+    if value.new_content_count > 0:
+        nominal = int(baseline * 0.8)
+        zero_update_streak = 0
+    else:
+        nominal = int(max(baseline, value.current_interval_seconds * 1.5))
+        zero_update_streak = value.zero_update_streak + 1
+    jitter = 0.9 + min(1.0, max(0.0, random_fraction())) * 0.2
+    interval = int(nominal * jitter)
+    return AdaptiveScheduleResult(
+        interval_seconds=min(
+            MAX_ADAPTIVE_INTERVAL_SECONDS,
+            max(MIN_ADAPTIVE_INTERVAL_SECONDS, interval),
+        ),
+        zero_update_streak=zero_update_streak,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +101,9 @@ class HealthObservation:
     oldest_queue_age_seconds: int = 0
     discovery_body_bytes: int = 0
     structure_fingerprint_sha256: str | None = None
+    new_content_count: int = 0
+    reason_code: str | None = None
+    http_status: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +130,7 @@ def classify_failure(failure: FetchFailure) -> FailureClassification:
     kinds = {
         "TIMEOUT": "TIMEOUT",
         "DNS": "DNS",
+        "TLS": "TLS",
         "PARSE": "PARSE_FAILED",
         "OBJECT_STORAGE": "OBJECT_STORAGE_FAILED",
         "DATABASE": "DATABASE_FAILED",

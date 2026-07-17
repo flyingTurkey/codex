@@ -1841,6 +1841,45 @@ class PersonalSourceStreamStatus(StrEnum):
     PROBE_FAILED = "PROBE_FAILED"
 
 
+class PersonalStreamRuntimeState(StrEnum):
+    STOPPED = "STOPPED"
+    SCHEDULED = "SCHEDULED"
+    CIRCUIT_OPEN = "CIRCUIT_OPEN"
+    HALF_OPEN = "HALF_OPEN"
+    BUDGET_EXHAUSTED = "BUDGET_EXHAUSTED"
+    INACCESSIBLE = "INACCESSIBLE"
+
+
+class PersonalStreamHealthStatus(StrEnum):
+    UNKNOWN = "UNKNOWN"
+    HEALTHY = "HEALTHY"
+    DEGRADED = "DEGRADED"
+    UNHEALTHY = "UNHEALTHY"
+
+
+class PersonalStreamHealthReason(StrEnum):
+    DNS_FAILURE = "DNS_FAILURE"
+    TLS_FAILURE = "TLS_FAILURE"
+    TIMEOUT = "TIMEOUT"
+    HTTP_401 = "HTTP_401"
+    HTTP_403 = "HTTP_403"
+    HTTP_404 = "HTTP_404"
+    HTTP_429 = "HTTP_429"
+    HTTP_5XX = "HTTP_5XX"
+    ROBOTS_BLOCKED = "ROBOTS_BLOCKED"
+    LOGIN_REQUIRED = "LOGIN_REQUIRED"
+    CAPTCHA_DETECTED = "CAPTCHA_DETECTED"
+    PAYWALL_DETECTED = "PAYWALL_DETECTED"
+    MIME_MISMATCH = "MIME_MISMATCH"
+    PARSE_FAILED = "PARSE_FAILED"
+    ZERO_DISCOVERY_STREAK = "ZERO_DISCOVERY_STREAK"
+    STRUCTURE_CHANGED = "STRUCTURE_CHANGED"
+    REQUIRED_FIELDS_MISSING = "REQUIRED_FIELDS_MISSING"
+    CONTENT_STALE = "CONTENT_STALE"
+    BUDGET_EXHAUSTED = "BUDGET_EXHAUSTED"
+    CIRCUIT_OPEN = "CIRCUIT_OPEN"
+
+
 class PersonalSourceProbeStatus(StrEnum):
     QUEUED = "QUEUED"
     RUNNING = "RUNNING"
@@ -1875,6 +1914,14 @@ class PersonalSourceStreamView(ContractModel):
     discovery_method: str = Field(min_length=1, max_length=40)
     status: PersonalSourceStreamStatus
     failure_reason: str | None = Field(default=None, max_length=500)
+    actual_running: bool = False
+    runtime_state: PersonalStreamRuntimeState = PersonalStreamRuntimeState.STOPPED
+    health_status: PersonalStreamHealthStatus = PersonalStreamHealthStatus.UNKNOWN
+    health_reason: PersonalStreamHealthReason | None = None
+    consecutive_failures: int = Field(default=0, ge=0)
+    next_self_heal_at: datetime | None = None
+    last_successful_fetch_at: datetime | None = None
+    last_content_discovered_at: datetime | None = None
 
 
 class StreamProbeRunView(ContractModel):

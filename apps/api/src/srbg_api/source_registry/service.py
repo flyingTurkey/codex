@@ -1373,6 +1373,14 @@ def _personal_source_view(row: PersonalSourceRow) -> PersonalSourceView:
                 discovery_method=stream.discovery_method,
                 status=stream.status,
                 failure_reason=stream.failure_reason,
+                actual_running=stream.actual_running,
+                runtime_state=stream.runtime_state,
+                health_status=stream.health_status,
+                health_reason=stream.health_reason,
+                consecutive_failures=stream.consecutive_failures,
+                next_self_heal_at=stream.next_self_heal_at,
+                last_successful_fetch_at=stream.last_successful_fetch_at,
+                last_content_discovered_at=stream.last_content_discovered_at,
             )
             for stream in row.streams
         ],

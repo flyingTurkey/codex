@@ -174,14 +174,18 @@ pers01-test:
 personal-source-test:
 	$(COMPOSE) up --detach --wait postgres minio redis
 	$(UV) run python scripts/run_isolated_integration.py \
-		--migration-verifier verify_pers02_migration.py -- \
+		--migration-verifier verify_pers03_migration.py -- \
+		apps/api/tests/test_pers03_migration.py \
+		apps/api/tests/test_personal_source_runtime.py \
+		apps/api/tests/test_pers03_runtime_integration.py \
 		apps/api/tests/test_pers02_migration.py \
 		apps/api/tests/test_personal_source_detection.py \
 		apps/api/tests/test_acquisition_security.py \
 		apps/api/tests/test_round15_http_security.py \
 		apps/api/tests/test_personal_source_api.py \
 		packages/contracts/tests/test_personal_source_contracts.py \
-		apps/worker/tests/test_personal_source_probe_worker.py -q
+		apps/worker/tests/test_personal_source_probe_worker.py \
+		apps/worker/tests/test_round17_worker.py -q
 	$(PNPM) --filter @srbg/web test -- personal-sources-ui.test.ts
 
 quality-gate: lint typecheck test contract-test security-check

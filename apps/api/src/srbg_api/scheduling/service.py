@@ -21,9 +21,11 @@ from srbg_api.observability import (
     SOURCE_SLO_VIOLATIONS,
 )
 from srbg_api.scheduling.domain import (
+    AdaptiveScheduleInput,
     FetchFailure,
     HealthObservation,
     SchedulePolicy,
+    calculate_adaptive_interval,
     classify_failure,
     evaluate_health,
     next_backoff,
@@ -114,14 +116,18 @@ class PostgresSchedulingService:
                 (
                     await connection.execute(
                         text(
-                            """SELECT s.current_policy_version_id AS policy_id,
+                            """SELECT fs.authority_mode,fs.source_stream_id,
+                                      fs.stream_config_version_id,
+                                      s.current_policy_version_id AS policy_id,
                                       s.current_connector_config_version_id AS config_id,
                                       (SELECT id FROM source_connector sc
                                         WHERE sc.source_id=s.id
                                         ORDER BY created_at DESC LIMIT 1) AS connector_id
-                                 FROM source s WHERE s.id=:source_id"""
+                                 FROM source s
+                                 JOIN fetch_schedule fs ON fs.id=:schedule_id
+                                WHERE s.id=:source_id"""
                         ),
-                        {"source_id": row["source_id"]},
+                        {"source_id": row["source_id"], "schedule_id": row["schedule_id"]},
                     )
                 )
                 .mappings()
@@ -134,10 +140,11 @@ class PostgresSchedulingService:
                        (id, source_connector_id, trigger, status, started_at,
                         discovered_count, fetched_count, failed_count, request_id,
                         execution_domain, source_id, schedule_id, policy_version_id,
-                        connector_config_version_id, idempotency_key, attempt_count)
+                        connector_config_version_id, idempotency_key, attempt_count,
+                        source_stream_id,stream_config_version_id)
                        VALUES (:id, :connector, 'SCHEDULED', 'PENDING_DISPATCH', :now,
                                0, 0, 0, :request_id, 'PRODUCTION', :source, :schedule,
-                               :policy, :config, :idempotency, 0)"""
+                               :policy, :config, :idempotency, 0,:stream,:stream_config)"""
                 ),
                 {
                     "id": run_id,
@@ -149,6 +156,8 @@ class PostgresSchedulingService:
                     "policy": refs["policy_id"],
                     "config": refs["config_id"],
                     "idempotency": f"source-fetch:{row['schedule_id']}:{run_id}",
+                    "stream": refs["source_stream_id"],
+                    "stream_config": refs["stream_config_version_id"],
                 },
             )
             return ClaimedFetchRun(source_id=row["source_id"], run_id=run_id)
@@ -187,24 +196,48 @@ class PostgresSchedulingService:
                     """UPDATE fetch_run r SET status='RUNNING', execution_lease_token=:token,
                            execution_lease_until=:until, heartbeat_at=:now,
                            attempt_count=attempt_count+1
-                       FROM source s, source_policy_version p, connector_config_version c,
-                            fetch_schedule fs
+                       FROM source s, fetch_schedule fs
                        WHERE r.id=:run_id AND r.source_id=:source_id
-                         AND s.id=r.source_id AND s.lifecycle_state='ACTIVE'
+                         AND s.id=r.source_id
                          AND fs.id=r.schedule_id AND fs.status='ACTIVE'
                          AND fs.requests_used < fs.daily_request_budget
                          AND fs.bytes_used < fs.daily_byte_budget
                          AND fs.circuit_state IN ('CLOSED','HALF_OPEN')
-                         AND p.id=s.current_policy_version_id AND p.id=r.policy_version_id
-                         AND source_policy_compliance_current(s.id,p.id,:now)
-                         AND c.id=s.current_connector_config_version_id
-                         AND c.id=r.connector_config_version_id AND c.validation_status='VALID'
-                         AND EXISTS (
-                           SELECT 1 FROM source_governance_decision d
-                            WHERE d.source_id=s.id
-                              AND d.decision_type='PRODUCTION_APPROVAL'
-                              AND d.outcome='APPROVED'
-                              AND (d.valid_until IS NULL OR d.valid_until > :now)
+                         AND (
+                           (fs.authority_mode='PERSONAL_STREAM'
+                            AND s.desired_enabled=true AND s.manual_disabled_at IS NULL
+                            AND fs.access_state='ACCESSIBLE'
+                            AND r.source_stream_id=fs.source_stream_id
+                            AND r.stream_config_version_id=fs.stream_config_version_id
+                            AND EXISTS (
+                              SELECT 1 FROM source_stream stream
+                              JOIN stream_config_version config
+                                ON config.id=r.stream_config_version_id
+                               AND config.stream_id=stream.id
+                               AND config.config_sha256=stream.config_sha256
+                               WHERE stream.id=r.source_stream_id
+                                 AND stream.source_id=s.id AND stream.status='READY'
+                            ))
+                           OR
+                           (fs.authority_mode='LEGACY_GOVERNED'
+                            AND s.lifecycle_state='ACTIVE'
+                            AND EXISTS (
+                              SELECT 1 FROM source_policy_version p
+                              JOIN connector_config_version c
+                                ON c.id=s.current_connector_config_version_id
+                               AND c.id=r.connector_config_version_id
+                               AND c.validation_status='VALID'
+                               WHERE p.id=s.current_policy_version_id
+                                 AND p.id=r.policy_version_id
+                                 AND source_policy_compliance_current(s.id,p.id,:now)
+                                 AND EXISTS (
+                                   SELECT 1 FROM source_governance_decision d
+                                    WHERE d.source_id=s.id
+                                      AND d.decision_type='PRODUCTION_APPROVAL'
+                                      AND d.outcome='APPROVED'
+                                      AND (d.valid_until IS NULL OR d.valid_until>:now)
+                                 )
+                            ))
                          )
                          AND r.status IN ('PENDING_DISPATCH','DISPATCHED','RUNNING','RETRY_WAIT')
                          AND (r.execution_lease_until IS NULL OR r.execution_lease_until <= :now)
@@ -266,6 +299,64 @@ class PostgresSchedulingService:
                                 )
                               )
                          RETURNING fs.id"""
+                    ),
+                    {"source_id": source_id, "run_id": run_id, "now": observed_at},
+                )
+                return bool(updated.rowcount)
+            personal = await connection.scalar(
+                text(
+                    "SELECT fs.authority_mode='PERSONAL_STREAM' FROM fetch_run r "
+                    "JOIN fetch_schedule fs ON fs.id=r.schedule_id "
+                    "WHERE r.id=:run_id AND r.source_id=:source_id"
+                ),
+                {"run_id": run_id, "source_id": source_id},
+            )
+            if personal:
+                updated = await connection.execute(
+                    text(
+                        """WITH reserved AS (
+                             UPDATE fetch_schedule fs
+                                SET requests_used=CASE
+                                      WHEN fs.budget_window_started_at <=
+                                           CAST(:now AS timestamptz)-interval '1 day'
+                                      THEN 1 ELSE fs.requests_used+1 END,
+                                    bytes_used=CASE
+                                      WHEN fs.budget_window_started_at <=
+                                           CAST(:now AS timestamptz)-interval '1 day'
+                                      THEN 0 ELSE fs.bytes_used END,
+                                    budget_window_started_at=CASE
+                                      WHEN fs.budget_window_started_at <=
+                                           CAST(:now AS timestamptz)-interval '1 day'
+                                      THEN :now ELSE fs.budget_window_started_at END,
+                                    updated_at=:now
+                               FROM fetch_run r,source s,source_stream stream,
+                                    stream_config_version config
+                              WHERE r.id=:run_id AND r.source_id=:source_id
+                                AND r.schedule_id=fs.id AND r.status='RUNNING'
+                                AND r.execution_lease_until>=:now
+                                AND s.id=r.source_id AND s.desired_enabled=true
+                                AND s.manual_disabled_at IS NULL
+                                AND fs.authority_mode='PERSONAL_STREAM'
+                                AND fs.status='ACTIVE' AND fs.access_state='ACCESSIBLE'
+                                AND fs.circuit_state IN ('CLOSED','HALF_OPEN')
+                                AND stream.id=fs.source_stream_id
+                                AND stream.id=r.source_stream_id
+                                AND stream.source_id=s.id AND stream.status='READY'
+                                AND config.id=fs.stream_config_version_id
+                                AND config.id=r.stream_config_version_id
+                                AND config.stream_id=stream.id
+                                AND config.config_sha256=stream.config_sha256
+                                AND (fs.budget_window_started_at <=
+                                     CAST(:now AS timestamptz)-interval '1 day'
+                                     OR (fs.requests_used<fs.daily_request_budget
+                                         AND fs.bytes_used<fs.daily_byte_budget))
+                              RETURNING fs.id
+                           )
+                           UPDATE fetch_run r SET request_count=r.request_count+1
+                             FROM reserved
+                            WHERE r.id=:run_id AND r.source_id=:source_id
+                              AND r.schedule_id=reserved.id
+                           RETURNING r.id"""
                     ),
                     {"source_id": source_id, "run_id": run_id, "now": observed_at},
                 )
@@ -462,26 +553,44 @@ class PostgresSchedulingService:
                          AND (r.execution_lease_until IS NULL OR r.execution_lease_until <= :now)
                          AND NOT EXISTS (
                            SELECT 1 FROM source s
-                           JOIN source_policy_version p
-                             ON p.id=s.current_policy_version_id
-                           JOIN connector_config_version c
-                             ON c.id=s.current_connector_config_version_id
                            JOIN fetch_schedule fs ON fs.id=r.schedule_id
-                           WHERE s.id=r.source_id AND s.lifecycle_state='ACTIVE'
-                             AND fs.status='ACTIVE'
+                           LEFT JOIN source_stream stream ON stream.id=fs.source_stream_id
+                           LEFT JOIN stream_config_version stream_config
+                             ON stream_config.id=fs.stream_config_version_id
+                           LEFT JOIN source_policy_version p
+                             ON p.id=s.current_policy_version_id
+                           LEFT JOIN connector_config_version c
+                             ON c.id=s.current_connector_config_version_id
+                           WHERE s.id=r.source_id AND fs.status='ACTIVE'
                              AND fs.requests_used < fs.daily_request_budget
                              AND fs.bytes_used < fs.daily_byte_budget
                              AND fs.circuit_state IN ('CLOSED','HALF_OPEN')
-                             AND p.id=r.policy_version_id
-                             AND source_policy_compliance_current(s.id,p.id,:now)
-                             AND c.id=r.connector_config_version_id
-                             AND c.validation_status='VALID'
-                             AND EXISTS (
-                               SELECT 1 FROM source_governance_decision d
-                                WHERE d.source_id=s.id
-                                  AND d.decision_type='PRODUCTION_APPROVAL'
-                                  AND d.outcome='APPROVED'
-                                  AND (d.valid_until IS NULL OR d.valid_until > :now)
+                             AND (
+                               (
+                                 fs.authority_mode='PERSONAL_STREAM'
+                                 AND s.desired_enabled=true
+                                 AND s.manual_disabled_at IS NULL
+                                 AND stream.id=r.source_stream_id
+                                 AND stream.source_id=s.id AND stream.status='READY'
+                                 AND stream_config.id=r.stream_config_version_id
+                                 AND stream_config.stream_id=stream.id
+                                 AND stream.config_sha256=stream_config.config_sha256
+                                 AND fs.access_state='ACCESSIBLE'
+                               ) OR (
+                                 fs.authority_mode='LEGACY_GOVERNED'
+                                 AND s.lifecycle_state='ACTIVE'
+                                 AND p.id=r.policy_version_id
+                                 AND source_policy_compliance_current(s.id,p.id,:now)
+                                 AND c.id=r.connector_config_version_id
+                                 AND c.validation_status='VALID'
+                                 AND EXISTS (
+                                   SELECT 1 FROM source_governance_decision d
+                                    WHERE d.source_id=s.id
+                                      AND d.decision_type='PRODUCTION_APPROVAL'
+                                      AND d.outcome='APPROVED'
+                                      AND (d.valid_until IS NULL OR d.valid_until > :now)
+                                 )
+                               )
                              )
                          )"""
                 ),
@@ -517,7 +626,8 @@ class PostgresSchedulingService:
                               r.response_bytes,fs.interval_seconds,
                               fs.backoff_base_seconds,fs.backoff_cap_seconds,
                               fs.max_attempts,fs.consecutive_failures,
-                              fs.circuit_state
+                              fs.circuit_state,fs.authority_mode,fs.source_stream_id,
+                              fs.zero_update_streak,fs.consecutive_zero_discovery
                        FROM fetch_run r JOIN fetch_schedule fs ON fs.id=r.schedule_id
                        WHERE r.id=:run_id AND r.source_id=:source_id FOR UPDATE OF r,fs"""
                 )
@@ -526,7 +636,8 @@ class PostgresSchedulingService:
                     """SELECT r.attempt_count,r.schedule_id,fs.interval_seconds,
                               fs.backoff_base_seconds,fs.backoff_cap_seconds,
                               fs.max_attempts,fs.consecutive_failures,
-                              fs.circuit_state
+                              fs.circuit_state,fs.authority_mode,fs.source_stream_id,
+                              fs.zero_update_streak,fs.consecutive_zero_discovery
                        FROM fetch_run r JOIN fetch_schedule fs ON fs.id=r.schedule_id
                        WHERE r.id=:run_id AND r.source_id=:source_id FOR UPDATE OF r,fs"""
                 )
@@ -575,11 +686,55 @@ class PostgresSchedulingService:
                         terminal = "FAILED"
                 else:
                     terminal = "FAILED"
-                if classified.counts_for_circuit and terminal == "FAILED":
+                counts_for_circuit = classified.counts_for_circuit or (
+                    row["authority_mode"] == "PERSONAL_STREAM"
+                    and classified.code != "NOT_MODIFIED"
+                )
+                if counts_for_circuit and (
+                    terminal == "FAILED" or row["authority_mode"] == "PERSONAL_STREAM"
+                ):
                     failures = row["consecutive_failures"] + 1
                     if failures >= 5 or row["circuit_state"] == "HALF_OPEN":
                         circuit_state = "OPEN"
                         circuit_until = observed_at + timedelta(minutes=30)
+                        terminal = "FAILED"
+                        retry_at = None
+            elif row["circuit_state"] == "HALF_OPEN":
+                circuit_state = "CLOSED"
+
+            personal_stream_id = row["source_stream_id"]
+            zero_discovery = int(row["consecutive_zero_discovery"])
+            next_interval = int(row["interval_seconds"])
+            zero_update_streak = int(row["zero_update_streak"])
+            if row["authority_mode"] == "PERSONAL_STREAM" and personal_stream_id is not None:
+                if failure is None and discovered_count == 0:
+                    zero_discovery += 1
+                elif failure is None:
+                    zero_discovery = 0
+                update_times = tuple(
+                    (
+                        await connection.execute(
+                            text(
+                                """SELECT observed_at FROM source_health_snapshot
+                                    WHERE source_stream_id=:stream
+                                      AND new_content_count>0
+                                    ORDER BY observed_at DESC,id DESC LIMIT 20"""
+                            ),
+                            {"stream": personal_stream_id},
+                        )
+                    ).scalars()
+                )
+                adaptive = calculate_adaptive_interval(
+                    AdaptiveScheduleInput(
+                        content_update_times=update_times,
+                        current_interval_seconds=int(row["interval_seconds"]),
+                        new_content_count=observation.new_content_count,
+                        zero_update_streak=zero_update_streak,
+                    ),
+                    random_fraction=random_fraction,
+                )
+                next_interval = adaptive.interval_seconds
+                zero_update_streak = adaptive.zero_update_streak
             snapshot_id = uuid7()
             snapshot_parameters = {
                 "id": snapshot_id,
@@ -598,6 +753,15 @@ class PostgresSchedulingService:
                 "backlog": observation.oldest_queue_age_seconds,
                 "body_bytes": observation.discovery_body_bytes,
                 "structure_sha256": observation.structure_fingerprint_sha256,
+                "stream": personal_stream_id,
+                "reason": observation.reason_code or failure_code,
+                "http_status": observation.http_status,
+                "new_content": observation.new_content_count,
+                "next_interval": next_interval,
+                "circuit": circuit_state,
+                "self_heal": (
+                    "CIRCUIT_WAIT" if circuit_state == "OPEN" else "NONE"
+                ),
                 "now": observed_at,
             }
             snapshot_query = (
@@ -608,10 +772,33 @@ class PostgresSchedulingService:
                         discovered_count,parsed_count,required_field_basis_points,
                         duplicate_basis_points,oldest_queue_age_seconds,
                         discovery_body_bytes,structure_fingerprint_sha256,
-                        rule_version,observed_at)
+                        rule_version,observed_at,source_stream_id,reason_code,http_status,
+                        new_content_count,next_interval_seconds,circuit_state,self_heal_state)
                        VALUES (:id,:source,:run,:transport,:discovery,:parse,:quality,:freshness,
                                :latest,:discovered,:parsed,:fields,:duplicates,:backlog,
-                               :body_bytes,:structure_sha256,'round16-health-v1',:now)"""
+                               :body_bytes,:structure_sha256,'pers03-health-v1',:now,:stream,
+                               :reason,:http_status,:new_content,:next_interval,:circuit,:self_heal)
+                       ON CONFLICT (fetch_run_id) DO UPDATE SET
+                         transport_status=EXCLUDED.transport_status,
+                         discovery_status=EXCLUDED.discovery_status,
+                         parse_status=EXCLUDED.parse_status,
+                         quality_status=EXCLUDED.quality_status,
+                         freshness_status=EXCLUDED.freshness_status,
+                         latest_published_at=EXCLUDED.latest_published_at,
+                         discovered_count=EXCLUDED.discovered_count,
+                         parsed_count=EXCLUDED.parsed_count,
+                         required_field_basis_points=EXCLUDED.required_field_basis_points,
+                         duplicate_basis_points=EXCLUDED.duplicate_basis_points,
+                         oldest_queue_age_seconds=EXCLUDED.oldest_queue_age_seconds,
+                         discovery_body_bytes=EXCLUDED.discovery_body_bytes,
+                         structure_fingerprint_sha256=EXCLUDED.structure_fingerprint_sha256,
+                         observed_at=EXCLUDED.observed_at,
+                         reason_code=EXCLUDED.reason_code,http_status=EXCLUDED.http_status,
+                         new_content_count=EXCLUDED.new_content_count,
+                         next_interval_seconds=EXCLUDED.next_interval_seconds,
+                         circuit_state=EXCLUDED.circuit_state,
+                         self_heal_state=EXCLUDED.self_heal_state
+                       RETURNING id"""
                 )
                 if round17_accounting
                 else text(
@@ -622,10 +809,16 @@ class PostgresSchedulingService:
                         duplicate_basis_points,oldest_queue_age_seconds,rule_version,observed_at)
                        VALUES (:id,:source,:run,:transport,:discovery,:parse,:quality,:freshness,
                                :latest,:discovered,:parsed,:fields,:duplicates,:backlog,
-                               'round16-health-v1',:now)"""
+                               'round16-health-v1',:now)
+                       RETURNING id"""
                 )
             )
-            await connection.execute(snapshot_query, snapshot_parameters)
+            persisted_snapshot_id = await connection.scalar(
+                snapshot_query, snapshot_parameters
+            )
+            if not isinstance(persisted_snapshot_id, UUID):
+                raise RuntimeError("health snapshot persistence returned no identifier")
+            snapshot_id = persisted_snapshot_id
             for code in health.anomaly_codes:
                 await connection.execute(
                     text(
@@ -646,6 +839,60 @@ class PostgresSchedulingService:
                         "now": observed_at,
                     },
                 )
+            if personal_stream_id is not None and zero_discovery >= 3:
+                anomaly_exists = await connection.scalar(
+                    text(
+                        """SELECT 1 FROM source_anomaly
+                            WHERE source_stream_id=:stream
+                              AND code='ZERO_DISCOVERY_STREAK'
+                              AND status IN ('OPEN','ACKNOWLEDGED') LIMIT 1"""
+                    ),
+                    {"stream": personal_stream_id},
+                )
+                if anomaly_exists is None:
+                    await connection.execute(
+                        text(
+                            """INSERT INTO source_anomaly(
+                                 id,source_id,source_stream_id,health_snapshot_id,code,
+                                 severity,status,rule_version,detected_at)
+                               VALUES(:id,:source,:stream,:snapshot,'ZERO_DISCOVERY_STREAK',
+                                      'WARNING','OPEN','pers03-health-v1',:now)"""
+                        ),
+                        {
+                            "id": uuid7(),
+                            "source": source_id,
+                            "stream": personal_stream_id,
+                            "snapshot": snapshot_id,
+                            "now": observed_at,
+                        },
+                    )
+                active_probe = await connection.scalar(
+                    text(
+                        "SELECT 1 FROM stream_probe_run WHERE stream_id=:stream "
+                        "AND status IN ('QUEUED','RUNNING') LIMIT 1"
+                    ),
+                    {"stream": personal_stream_id},
+                )
+                if active_probe is None:
+                    await connection.execute(
+                        text(
+                            """INSERT INTO stream_probe_run(
+                                 id,source_id,stream_id,requested_url,normalized_url,
+                                 normalized_origin,input_kind,status,requested_by,request_id,
+                                 created_at,updated_at)
+                               SELECT :id,stream.source_id,stream.id,stream.canonical_url,
+                                      stream.canonical_url,source.normalized_origin,'UNKNOWN',
+                                      'QUEUED',source.registered_by,:request_id,:now,:now
+                                 FROM source_stream stream JOIN source ON source.id=stream.source_id
+                                WHERE stream.id=:stream"""
+                        ),
+                        {
+                            "id": uuid7(),
+                            "stream": personal_stream_id,
+                            "request_id": f"self-heal:{run_id}",
+                            "now": observed_at,
+                        },
+                    )
             await connection.execute(
                 text(
                     """UPDATE fetch_run SET status=CAST(:status AS varchar),
@@ -682,8 +929,7 @@ class PostgresSchedulingService:
                        WHERE id=:schedule"""
                 ),
                 {
-                    "next_run": retry_at
-                    or observed_at + timedelta(seconds=row["interval_seconds"]),
+                    "next_run": retry_at or observed_at + timedelta(seconds=next_interval),
                     "failures": failures,
                     "circuit": circuit_state,
                     "circuit_until": circuit_until,
@@ -691,6 +937,48 @@ class PostgresSchedulingService:
                     "schedule": row["schedule_id"],
                 },
             )
+            if personal_stream_id is not None:
+                await connection.execute(
+                    text(
+                        """UPDATE fetch_schedule SET interval_seconds=:interval,
+                               zero_update_streak=:zero_updates,
+                               consecutive_zero_discovery=:zero_discovery,
+                               self_heal_state=:self_heal,
+                               next_self_heal_at=:next_heal,
+                               last_successful_fetch_at=CASE WHEN :succeeded THEN :now
+                                                            ELSE last_successful_fetch_at END,
+                               last_content_discovered_at=CASE WHEN :new_content>0 THEN :now
+                                                               ELSE last_content_discovered_at END,
+                               health_status=:health_status,health_reason=:health_reason
+                             WHERE id=:schedule"""
+                    ),
+                    {
+                        "interval": next_interval,
+                        "zero_updates": zero_update_streak,
+                        "zero_discovery": zero_discovery,
+                        "self_heal": (
+                            "CIRCUIT_WAIT"
+                            if circuit_state == "OPEN"
+                            else "REPROBE_QUEUED"
+                            if zero_discovery >= 3
+                            else "NONE"
+                        ),
+                        "next_heal": circuit_until,
+                        "succeeded": failure is None,
+                        "new_content": observation.new_content_count,
+                        "now": observed_at,
+                        "health_status": (
+                            "UNHEALTHY" if failure is not None else
+                            "DEGRADED" if zero_discovery >= 3 else "HEALTHY"
+                        ),
+                        "health_reason": (
+                            observation.reason_code or failure_code
+                            if failure is not None
+                            else "ZERO_DISCOVERY_STREAK" if zero_discovery >= 3 else None
+                        ),
+                        "schedule": row["schedule_id"],
+                    },
+                )
             circuit_rows = (
                 await connection.execute(
                     text(

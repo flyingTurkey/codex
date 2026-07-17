@@ -27,13 +27,23 @@ class ResponseTooLarge(OSError):
     pass
 
 
+class HttpStatusError(OSError):
+    def __init__(
+        self,
+        status_code: int,
+        *,
+        retry_after_seconds: float | None = None,
+    ) -> None:
+        super().__init__(f"upstream returned {status_code}")
+        self.status_code = status_code
+        self.retry_after_seconds = retry_after_seconds
+
+
 MAX_VALIDATED_DNS_ADDRESSES = 16
 
 
-class _RetryableResponse(OSError):
-    def __init__(self, message: str, *, retry_after_seconds: float | None = None) -> None:
-        super().__init__(message)
-        self.retry_after_seconds = retry_after_seconds
+class _RetryableResponse(HttpStatusError):
+    pass
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,7 +196,7 @@ class ResilientHttpClient:
                     raise OSError("upstream response exceeds the configured size limit")
                 if response.status_code in {429, 500, 502, 503, 504}:
                     raise _RetryableResponse(
-                        f"upstream returned {response.status_code}",
+                        response.status_code,
                         retry_after_seconds=_retry_after_seconds(
                             _header(response.headers, "retry-after"), self._clock.now()
                         ),
@@ -212,7 +222,7 @@ class ResilientHttpClient:
                         False,
                     )
                 if not 200 <= response.status_code < 300:
-                    raise OSError(f"upstream returned {response.status_code}")
+                    raise HttpStatusError(response.status_code)
                 self._record_success(hostname)
                 return _fetch_result(
                     response,

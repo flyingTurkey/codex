@@ -58,6 +58,11 @@
     "PersonalSourceStreamView": {
       "additionalProperties": false,
       "properties": {
+        "actual_running": {
+          "default": false,
+          "title": "Actual Running",
+          "type": "boolean"
+        },
         "allowed_hosts": {
           "items": {
             "type": "string"
@@ -80,6 +85,12 @@
           "default": null,
           "title": "Config Sha256"
         },
+        "consecutive_failures": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Consecutive Failures",
+          "type": "integer"
+        },
         "discovery_method": {
           "maxLength": 40,
           "minLength": 1,
@@ -99,16 +110,74 @@
           "default": null,
           "title": "Failure Reason"
         },
+        "health_reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PersonalStreamHealthReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "health_status": {
+          "$ref": "#/$defs/PersonalStreamHealthStatus",
+          "default": "UNKNOWN"
+        },
         "id": {
           "format": "uuid",
           "title": "Id",
           "type": "string"
+        },
+        "last_content_discovered_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Content Discovered At"
+        },
+        "last_successful_fetch_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Successful Fetch At"
+        },
+        "next_self_heal_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Self Heal At"
         },
         "normalized_url": {
           "maxLength": 2048,
           "pattern": "^https://[^\\s]+$",
           "title": "Normalized Url",
           "type": "string"
+        },
+        "runtime_state": {
+          "$ref": "#/$defs/PersonalStreamRuntimeState",
+          "default": "STOPPED"
         },
         "status": {
           "$ref": "#/$defs/PersonalSourceStreamStatus"
@@ -127,6 +196,54 @@
       ],
       "title": "PersonalSourceStreamView",
       "type": "object"
+    },
+    "PersonalStreamHealthReason": {
+      "enum": [
+        "DNS_FAILURE",
+        "TLS_FAILURE",
+        "TIMEOUT",
+        "HTTP_401",
+        "HTTP_403",
+        "HTTP_404",
+        "HTTP_429",
+        "HTTP_5XX",
+        "ROBOTS_BLOCKED",
+        "LOGIN_REQUIRED",
+        "CAPTCHA_DETECTED",
+        "PAYWALL_DETECTED",
+        "MIME_MISMATCH",
+        "PARSE_FAILED",
+        "ZERO_DISCOVERY_STREAK",
+        "STRUCTURE_CHANGED",
+        "REQUIRED_FIELDS_MISSING",
+        "CONTENT_STALE",
+        "BUDGET_EXHAUSTED",
+        "CIRCUIT_OPEN"
+      ],
+      "title": "PersonalStreamHealthReason",
+      "type": "string"
+    },
+    "PersonalStreamHealthStatus": {
+      "enum": [
+        "UNKNOWN",
+        "HEALTHY",
+        "DEGRADED",
+        "UNHEALTHY"
+      ],
+      "title": "PersonalStreamHealthStatus",
+      "type": "string"
+    },
+    "PersonalStreamRuntimeState": {
+      "enum": [
+        "STOPPED",
+        "SCHEDULED",
+        "CIRCUIT_OPEN",
+        "HALF_OPEN",
+        "BUDGET_EXHAUSTED",
+        "INACCESSIBLE"
+      ],
+      "title": "PersonalStreamRuntimeState",
+      "type": "string"
     },
     "StreamProbeRunView": {
       "additionalProperties": false,

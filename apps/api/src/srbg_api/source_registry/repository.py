@@ -27,6 +27,9 @@ from srbg_contracts import (
     PersonalSourceRuntimeState,
     PersonalSourceStreamStatus,
     PersonalSourceStreamType,
+    PersonalStreamHealthReason,
+    PersonalStreamHealthStatus,
+    PersonalStreamRuntimeState,
     RawObjectSummary,
     ScanStatus,
     SourceAssessmentSubmission,
@@ -143,6 +146,14 @@ class PersonalStreamRow:
     discovery_method: str
     status: PersonalSourceStreamStatus
     failure_reason: str | None
+    actual_running: bool = False
+    runtime_state: PersonalStreamRuntimeState = PersonalStreamRuntimeState.STOPPED
+    health_status: PersonalStreamHealthStatus = PersonalStreamHealthStatus.UNKNOWN
+    health_reason: PersonalStreamHealthReason | None = None
+    consecutive_failures: int = 0
+    next_self_heal_at: datetime | None = None
+    last_successful_fetch_at: datetime | None = None
+    last_content_discovered_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -488,11 +499,24 @@ class SourceVaultRepository:
                 (
                     await connection.execute(
                         text(
-                            "SELECT id,stream_type,canonical_url,allowed_hosts,config_sha256,"
-                            "discovery_method,status,failure_reason FROM source_stream "
-                            "WHERE source_id=:source_id "
-                            "AND status IN ('PROBING','READY','PROBE_FAILED') "
-                            "ORDER BY created_at,id"
+                            """SELECT stream.id,stream.stream_type,stream.canonical_url,
+                                      stream.allowed_hosts,stream.config_sha256,
+                                      stream.discovery_method,stream.status,stream.failure_reason,
+                                      schedule.status AS schedule_status,schedule.circuit_state,
+                                      schedule.circuit_open_until,schedule.access_state,
+                                      schedule.requests_used,schedule.daily_request_budget,
+                                      schedule.bytes_used,schedule.daily_byte_budget,
+                                      schedule.health_status,schedule.health_reason,
+                                      schedule.consecutive_failures,schedule.next_self_heal_at,
+                                      schedule.last_successful_fetch_at,
+                                      schedule.last_content_discovered_at
+                                 FROM source_stream stream
+                                 LEFT JOIN fetch_schedule schedule
+                                   ON schedule.source_stream_id=stream.id
+                                  AND schedule.authority_mode='PERSONAL_STREAM'
+                                WHERE stream.source_id=:source_id
+                                  AND stream.status IN ('PROBING','READY','PROBE_FAILED')
+                                ORDER BY stream.created_at,stream.id"""
                         ),
                         {"source_id": base.id},
                     )
@@ -524,6 +548,14 @@ class SourceVaultRepository:
                 discovery_method=row["discovery_method"],
                 status=PersonalSourceStreamStatus(row["status"]),
                 failure_reason=row["failure_reason"],
+                actual_running=_personal_stream_actual_running(base, row),
+                runtime_state=_personal_stream_runtime_state(base, row),
+                health_status=PersonalStreamHealthStatus(row.get("health_status") or "UNKNOWN"),
+                health_reason=_personal_health_reason(row.get("health_reason")),
+                consecutive_failures=int(row.get("consecutive_failures") or 0),
+                next_self_heal_at=row.get("next_self_heal_at"),
+                last_successful_fetch_at=row.get("last_successful_fetch_at"),
+                last_content_discovered_at=row.get("last_content_discovered_at"),
             )
             for row in stream_rows
         )
@@ -540,12 +572,24 @@ class SourceVaultRepository:
                 failure_reason=run["failure_reason"],
             )
         )
+        projected_runtime = (
+            PersonalSourceRuntimeState.RUNNING
+            if any(stream.actual_running for stream in streams)
+            else PersonalSourceRuntimeState.PENDING_CONFIGURATION
+            if not any(stream.status is PersonalSourceStreamStatus.READY for stream in streams)
+            else PersonalSourceRuntimeState.ERROR
+            if base.desired_enabled and any(
+                stream.health_status is PersonalStreamHealthStatus.UNHEALTHY
+                for stream in streams
+            )
+            else PersonalSourceRuntimeState.STOPPED
+        )
         return PersonalSourceRow(
             base.id,
             base.display_name,
             base.url,
             base.desired_enabled,
-            base.runtime_state,
+            projected_runtime,
             base.manual_disabled_at,
             base.normalized_origin,
             streams,
@@ -634,6 +678,32 @@ class SourceVaultRepository:
                         "desired_enabled": desired_enabled,
                         "manual_disabled_at": manual_disabled_at,
                         "legacy_enabled": legacy_enabled,
+                        "updated_at": now,
+                        "source_id": source_id,
+                    },
+                )
+                await connection.execute(
+                    text(
+                        """
+                        UPDATE fetch_schedule
+                           SET status=CASE
+                                 WHEN :desired_enabled AND :manual_disabled_at IS NULL
+                                   THEN 'ACTIVE'
+                                 ELSE 'PAUSED'
+                               END,
+                               next_run_at=CASE
+                                 WHEN :desired_enabled AND :manual_disabled_at IS NULL
+                                   THEN LEAST(next_run_at,:updated_at)
+                                 ELSE next_run_at
+                               END,
+                               updated_at=:updated_at
+                         WHERE source_id=:source_id
+                           AND authority_mode='PERSONAL_STREAM'
+                        """
+                    ),
+                    {
+                        "desired_enabled": desired_enabled,
+                        "manual_disabled_at": manual_disabled_at,
                         "updated_at": now,
                         "source_id": source_id,
                     },
@@ -2999,6 +3069,51 @@ def _personal_source_row(row: RowMapping) -> PersonalSourceRow:
         manual_disabled_at=row["manual_disabled_at"],
         normalized_origin=row.get("normalized_origin"),
     )
+
+
+def _personal_stream_actual_running(base: PersonalSourceRow, row: RowMapping) -> bool:
+    request_budget = int(row.get("daily_request_budget") or 0)
+    byte_budget = int(row.get("daily_byte_budget") or 0)
+    return bool(
+        base.desired_enabled
+        and base.manual_disabled_at is None
+        and row.get("status") == PersonalSourceStreamStatus.READY.value
+        and row.get("schedule_status") == "ACTIVE"
+        and row.get("access_state") == "ACCESSIBLE"
+        and int(row.get("requests_used") or 0) < request_budget
+        and int(row.get("bytes_used") or 0) < byte_budget
+        and row.get("circuit_state") in {"CLOSED", "HALF_OPEN"}
+    )
+
+
+def _personal_stream_runtime_state(
+    base: PersonalSourceRow, row: RowMapping
+) -> PersonalStreamRuntimeState:
+    if not base.desired_enabled or base.manual_disabled_at is not None:
+        return PersonalStreamRuntimeState.STOPPED
+    if row.get("access_state") == "INACCESSIBLE":
+        return PersonalStreamRuntimeState.INACCESSIBLE
+    if (
+        int(row.get("requests_used") or 0) >= int(row.get("daily_request_budget") or 0)
+        or int(row.get("bytes_used") or 0) >= int(row.get("daily_byte_budget") or 0)
+    ):
+        return PersonalStreamRuntimeState.BUDGET_EXHAUSTED
+    if row.get("circuit_state") == "OPEN":
+        return PersonalStreamRuntimeState.CIRCUIT_OPEN
+    if row.get("circuit_state") == "HALF_OPEN":
+        return PersonalStreamRuntimeState.HALF_OPEN
+    if _personal_stream_actual_running(base, row):
+        return PersonalStreamRuntimeState.SCHEDULED
+    return PersonalStreamRuntimeState.STOPPED
+
+
+def _personal_health_reason(value: object) -> PersonalStreamHealthReason | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return PersonalStreamHealthReason(value)
+    except ValueError:
+        return None
 
 
 def _iso_or_none(value: datetime | None) -> str | None:

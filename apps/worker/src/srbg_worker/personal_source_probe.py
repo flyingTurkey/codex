@@ -365,6 +365,86 @@ class PostgresPersonalProbeGateway:
                         "now": now,
                     },
                 )
+                config_id = await connection.scalar(
+                    text(
+                        "SELECT id FROM stream_config_version "
+                        "WHERE stream_id=:stream_id AND config_sha256=:hash "
+                        "ORDER BY created_at DESC,id DESC LIMIT 1"
+                    ),
+                    {"stream_id": stream_id, "hash": config_hash},
+                )
+                source_state = (
+                    (
+                        await connection.execute(
+                            text(
+                                "SELECT desired_enabled,manual_disabled_at FROM source "
+                                "WHERE id=:source_id"
+                            ),
+                            {"source_id": binding.source_id},
+                        )
+                    )
+                    .mappings()
+                    .one()
+                )
+                schedule_id = await connection.scalar(
+                    text(
+                        "SELECT id FROM fetch_schedule WHERE source_stream_id=:stream_id"
+                    ),
+                    {"stream_id": stream_id},
+                )
+                schedule_status = (
+                    "ACTIVE"
+                    if source_state["desired_enabled"]
+                    and source_state["manual_disabled_at"] is None
+                    else "PAUSED"
+                )
+                if schedule_id is None:
+                    schedule_id = uuid7()
+                    await connection.execute(
+                        text(
+                            "INSERT INTO fetch_schedule("
+                            "id,source_id,source_stream_id,stream_config_version_id,"
+                            "authority_mode,authority_level,status,interval_seconds,"
+                            "next_run_at,backoff_base_seconds,backoff_cap_seconds,max_attempts,"
+                            "consecutive_failures,circuit_state,freshness_slo_seconds,"
+                            "rate_limit_per_minute,daily_request_budget,daily_byte_budget,"
+                            "requests_used,bytes_used,budget_window_started_at,version,updated_at"
+                            ") VALUES("
+                            ":id,:source_id,:stream_id,:config_id,'PERSONAL_STREAM','PERSONAL',"
+                            ":status,3600,:now,30,21600,3,0,'CLOSED',86400,6,500,536870912,"
+                            "0,0,:now,1,:now)"
+                        ),
+                        {
+                            "id": schedule_id,
+                            "source_id": binding.source_id,
+                            "stream_id": stream_id,
+                            "config_id": config_id,
+                            "status": schedule_status,
+                            "now": now,
+                        },
+                    )
+                else:
+                    await connection.execute(
+                        text(
+                            "UPDATE fetch_schedule SET stream_config_version_id=:config_id,"
+                            "status=:status,access_state='ACCESSIBLE',next_run_at=:now,"
+                            "updated_at=:now,version=version+1 "
+                            "WHERE id=:schedule_id AND authority_mode='PERSONAL_STREAM'"
+                        ),
+                        {
+                            "config_id": config_id,
+                            "status": schedule_status,
+                            "now": now,
+                            "schedule_id": schedule_id,
+                        },
+                    )
+                await connection.execute(
+                    text(
+                        "UPDATE source_stream SET schedule_id=:schedule_id "
+                        "WHERE id=:stream_id"
+                    ),
+                    {"schedule_id": schedule_id, "stream_id": stream_id},
+                )
             await connection.execute(
                 text(
                     "UPDATE stream_probe_run SET status='SUCCEEDED',input_kind=:kind,"

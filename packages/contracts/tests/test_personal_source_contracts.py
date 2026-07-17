@@ -13,6 +13,9 @@ from srbg_contracts import (
     PersonalSourceStreamType,
     PersonalSourceStreamView,
     PersonalSourceView,
+    PersonalStreamHealthReason,
+    PersonalStreamHealthStatus,
+    PersonalStreamRuntimeState,
     StreamProbeRunView,
     UserRole,
 )
@@ -96,3 +99,28 @@ def test_pers02_contract_adds_probe_and_streams_without_changing_intent() -> Non
     assert str(request.url) == "https://example.test/feed.xml"
     assert run.status is PersonalSourceProbeStatus.SUCCEEDED
     assert stream.status is PersonalSourceStreamStatus.READY
+
+
+def test_pers03_stream_contract_exposes_authoritative_health() -> None:
+    last_success = datetime.now(UTC)
+    stream = PersonalSourceStreamView(
+        id=UUID("019b0000-0000-7000-8000-000000000111"),
+        stream_type=PersonalSourceStreamType.RSS_ATOM,
+        normalized_url="https://example.test/feed.xml",
+        allowed_hosts=["example.test"],
+        config_sha256="a" * 64,
+        discovery_method="DIRECT",
+        status=PersonalSourceStreamStatus.READY,
+        failure_reason=None,
+        actual_running=False,
+        runtime_state=PersonalStreamRuntimeState.CIRCUIT_OPEN,
+        health_status=PersonalStreamHealthStatus.UNHEALTHY,
+        health_reason=PersonalStreamHealthReason.CIRCUIT_OPEN,
+        consecutive_failures=5,
+        next_self_heal_at=last_success,
+        last_successful_fetch_at=last_success,
+        last_content_discovered_at=None,
+    )
+
+    assert stream.health_reason is PersonalStreamHealthReason.CIRCUIT_OPEN
+    assert stream.consecutive_failures == 5
