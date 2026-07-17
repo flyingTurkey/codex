@@ -14,7 +14,9 @@ from srbg_contracts import (
     DocumentDetail,
     FixtureUploadResponse,
     MeResponse,
+    PersonalSourceCreateRequest,
     PersonalSourcePatchRequest,
+    PersonalSourceReprobeRequest,
     PersonalSourceView,
     SourceActionRequest,
     SourceAssessmentSubmission,
@@ -100,6 +102,23 @@ def _fixture_content_length(request: Request, max_bytes: int) -> int | None:
 
 
 class AdminSourceService(Protocol):
+    async def create_personal_source(
+        self,
+        payload: PersonalSourceCreateRequest,
+        *,
+        actor_id: UUID,
+        request_id: str,
+    ) -> PersonalSourceView: ...
+
+    async def reprobe_personal_source(
+        self,
+        source_id: UUID,
+        payload: PersonalSourceReprobeRequest,
+        *,
+        actor_id: UUID,
+        request_id: str,
+    ) -> PersonalSourceView: ...
+
     async def list_personal_sources(self) -> list[PersonalSourceView]: ...
 
     async def get_personal_source(self, source_id: UUID) -> PersonalSourceView: ...
@@ -186,9 +205,7 @@ class AdminSourceService(Protocol):
         request_id: str,
     ) -> SourcePolicyVersionView: ...
 
-    async def list_policy_versions(
-        self, source_id: UUID
-    ) -> list[SourcePolicyVersionView]: ...
+    async def list_policy_versions(self, source_id: UUID) -> list[SourcePolicyVersionView]: ...
 
     async def decide_policy_version(
         self,
@@ -230,9 +247,7 @@ class AdminSourceService(Protocol):
         request_id: str,
     ) -> SourceDetail: ...
 
-    async def list_lifecycle_events(
-        self, source_id: UUID
-    ) -> list[SourceLifecycleEventView]: ...
+    async def list_lifecycle_events(self, source_id: UUID) -> list[SourceLifecycleEventView]: ...
 
     async def list_audit_events(self, source_id: UUID) -> list[SourceAuditEventView]: ...
 
@@ -253,9 +268,7 @@ class AdminSourceService(Protocol):
         request_id: str,
     ) -> ConnectorConfigVersionView: ...
 
-    async def list_connector_configs(
-        self, source_id: UUID
-    ) -> list[ConnectorConfigVersionView]: ...
+    async def list_connector_configs(self, source_id: UUID) -> list[ConnectorConfigVersionView]: ...
 
     async def update_governance_metadata(
         self,
@@ -331,6 +344,22 @@ async def list_personal_sources(
     return await _service(request).list_personal_sources()
 
 
+@router.post(
+    "/sources",
+    response_model=PersonalSourceView,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["personal-sources"],
+)
+async def create_personal_source(
+    payload: PersonalSourceCreateRequest,
+    request: Request,
+    principal: OwnerPrincipal,
+) -> PersonalSourceView:
+    return await _service(request).create_personal_source(
+        payload, actor_id=principal.user_id, request_id=request.state.request_id
+    )
+
+
 @router.get(
     "/sources/{source_id}",
     response_model=PersonalSourceView,
@@ -363,6 +392,23 @@ async def patch_personal_source(
     )
 
 
+@router.post(
+    "/sources/{source_id}/reprobe",
+    response_model=PersonalSourceView,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["personal-sources"],
+)
+async def reprobe_personal_source(
+    source_id: UUID,
+    payload: PersonalSourceReprobeRequest,
+    request: Request,
+    principal: OwnerPrincipal,
+) -> PersonalSourceView:
+    return await _service(request).reprobe_personal_source(
+        source_id, payload, actor_id=principal.user_id, request_id=request.state.request_id
+    )
+
+
 @router.get("/admin/sources", response_model=list[SourceSummary])
 async def list_sources(
     request: Request,
@@ -379,9 +425,7 @@ async def source_coverage(
     return await _service(request).source_coverage()
 
 
-@router.get(
-    "/admin/connector-definitions", response_model=list[ConnectorDefinitionView]
-)
+@router.get("/admin/connector-definitions", response_model=list[ConnectorDefinitionView])
 async def list_connector_definitions(
     request: Request,
     _: ReadPrincipal,
@@ -449,9 +493,7 @@ async def assign_round17_governance_scheme(
     )
 
 
-@router.put(
-    "/admin/sources/{source_id}/governance-metadata", response_model=SourceDetail
-)
+@router.put("/admin/sources/{source_id}/governance-metadata", response_model=SourceDetail)
 async def update_governance_metadata(
     source_id: UUID,
     payload: SourceGovernanceMetadataUpdate,
@@ -546,8 +588,7 @@ async def save_policy(
         detail="Legacy source policy writes are retired",
         headers={
             "Link": (
-                f"</api/v1/admin/sources/{source_id}/policy-versions>; "
-                'rel="successor-version"'
+                f'</api/v1/admin/sources/{source_id}/policy-versions>; rel="successor-version"'
             )
         },
     )
@@ -564,7 +605,7 @@ async def save_onboarding(
         status_code=status.HTTP_410_GONE,
         detail="Legacy onboarding writes are retired",
         headers={
-            "Link": f"</api/v1/admin/sources/{source_id}/trial-runs>; rel=\"successor-version\""
+            "Link": f'</api/v1/admin/sources/{source_id}/trial-runs>; rel="successor-version"'
         },
     )
 
@@ -579,9 +620,7 @@ async def transition(
     raise HTTPException(
         status_code=status.HTTP_410_GONE,
         detail="Legacy state writes are retired",
-        headers={
-            "Link": "</api/v1/admin/source-candidates>; rel=\"successor-version\""
-        },
+        headers={"Link": '</api/v1/admin/source-candidates>; rel="successor-version"'},
     )
 
 
@@ -595,9 +634,7 @@ async def enable_source(
     raise HTTPException(
         status_code=status.HTTP_410_GONE,
         detail="Legacy enable is retired",
-        headers={
-            "Link": "</api/v1/admin/source-candidates>; rel=\"successor-version\""
-        },
+        headers={"Link": '</api/v1/admin/source-candidates>; rel="successor-version"'},
     )
 
 
@@ -611,9 +648,7 @@ async def disable_source(
     raise HTTPException(
         status_code=status.HTTP_410_GONE,
         detail="Legacy disable is retired",
-        headers={
-            "Link": f"</api/v1/admin/sources/{source_id}/pause>; rel=\"successor-version\""
-        },
+        headers={"Link": f'</api/v1/admin/sources/{source_id}/pause>; rel="successor-version"'},
     )
 
 
@@ -758,9 +793,7 @@ async def approve_source(
     raise HTTPException(
         status_code=status.HTTP_410_GONE,
         detail="Legacy production approval is retired",
-        headers={
-            "Link": "</api/v1/admin/source-candidates>; rel=\"successor-version\""
-        },
+        headers={"Link": '</api/v1/admin/source-candidates>; rel="successor-version"'},
     )
 
 

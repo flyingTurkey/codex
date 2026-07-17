@@ -1,0 +1,94 @@
+{
+  "$defs": {
+    "PersonalSourceInputKind": {
+      "enum": [
+        "HOMEPAGE",
+        "LIST_PAGE",
+        "RSS_ATOM",
+        "SITEMAP",
+        "JSON_API",
+        "DIRECT_PDF",
+        "UNKNOWN"
+      ],
+      "title": "PersonalSourceInputKind",
+      "type": "string"
+    },
+    "PersonalSourceProbeStatus": {
+      "enum": [
+        "QUEUED",
+        "RUNNING",
+        "SUCCEEDED",
+        "FAILED"
+      ],
+      "title": "PersonalSourceProbeStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "duration_ms": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Duration Ms"
+    },
+    "failure_code": {
+      "anyOf": [
+        {
+          "maxLength": 80,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Failure Code"
+    },
+    "failure_reason": {
+      "anyOf": [
+        {
+          "maxLength": 500,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Failure Reason"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "input_kind": {
+      "$ref": "#/$defs/PersonalSourceInputKind"
+    },
+    "requested_url": {
+      "maxLength": 2048,
+      "pattern": "^https://[^\\s]+$",
+      "title": "Requested Url",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/PersonalSourceProbeStatus"
+    }
+  },
+  "required": [
+    "id",
+    "requested_url",
+    "input_kind",
+    "status"
+  ],
+  "title": "StreamProbeRunView",
+  "type": "object"
+}

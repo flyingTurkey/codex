@@ -1,4 +1,4 @@
-import runpy
+﻿import runpy
 from pathlib import Path
 
 from alembic.config import Config
@@ -9,7 +9,7 @@ MIGRATION = Path("apps/api/migrations/versions/0019_source_content_bridge.py")
 
 def test_round19_is_single_head_and_adds_a_dedicated_id_only_outbox() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
-    assert script.get_current_head() == "0021_personal_source_core"
+    assert script.get_current_head() == "0022_personal_source_streams"
     revision = script.get_revision("0019_source_content_bridge")
     assert revision.down_revision == "0018_source_automation"
 

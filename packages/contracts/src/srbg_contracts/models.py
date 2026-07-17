@@ -1054,10 +1054,15 @@ class GoldTaskCreateRequest(ContractModel):
             GoldSampleKind.CLAIM_EVIDENCE: "claim-evidence",
             GoldSampleKind.SEARCH_QUESTION: "search-question",
         }[self.sample_kind]
-        expected_identity_count = 2 if self.sample_kind in {
-            GoldSampleKind.PAIR,
-            GoldSampleKind.CLAIM_EVIDENCE,
-        } else 1
+        expected_identity_count = (
+            2
+            if self.sample_kind
+            in {
+                GoldSampleKind.PAIR,
+                GoldSampleKind.CLAIM_EVIDENCE,
+            }
+            else 1
+        )
         if prefix != expected_prefix or len(identities) != expected_identity_count:
             raise ValueError("gold sample reference does not match its sample kind")
         try:
@@ -1821,6 +1826,67 @@ class PersonalSourceRuntimeState(StrEnum):
     ERROR = "ERROR"
 
 
+class PersonalSourceStreamType(StrEnum):
+    UNKNOWN = "UNKNOWN"
+    RSS_ATOM = "RSS_ATOM"
+    SITEMAP = "SITEMAP"
+    JSON_API = "JSON_API"
+    DIRECT_PDF = "DIRECT_PDF"
+    LIST_DETAIL = "LIST_DETAIL"
+
+
+class PersonalSourceStreamStatus(StrEnum):
+    PROBING = "PROBING"
+    READY = "READY"
+    PROBE_FAILED = "PROBE_FAILED"
+
+
+class PersonalSourceProbeStatus(StrEnum):
+    QUEUED = "QUEUED"
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+
+
+class PersonalSourceInputKind(StrEnum):
+    HOMEPAGE = "HOMEPAGE"
+    LIST_PAGE = "LIST_PAGE"
+    RSS_ATOM = "RSS_ATOM"
+    SITEMAP = "SITEMAP"
+    JSON_API = "JSON_API"
+    DIRECT_PDF = "DIRECT_PDF"
+    UNKNOWN = "UNKNOWN"
+
+
+class PersonalSourceCreateRequest(ContractModel):
+    url: HttpUrlString = Field(pattern=r"^https://[^\s]+$", max_length=2048)
+
+
+class PersonalSourceReprobeRequest(ContractModel):
+    stream_id: UUID | None = None
+
+
+class PersonalSourceStreamView(ContractModel):
+    id: UUID
+    stream_type: PersonalSourceStreamType
+    normalized_url: HttpUrlString = Field(pattern=r"^https://[^\s]+$", max_length=2048)
+    allowed_hosts: list[str] = Field(min_length=1, max_length=32)
+    config_sha256: Sha256String | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    discovery_method: str = Field(min_length=1, max_length=40)
+    status: PersonalSourceStreamStatus
+    failure_reason: str | None = Field(default=None, max_length=500)
+
+
+class StreamProbeRunView(ContractModel):
+    id: UUID
+    requested_url: HttpUrlString = Field(pattern=r"^https://[^\s]+$", max_length=2048)
+    input_kind: PersonalSourceInputKind
+    status: PersonalSourceProbeStatus
+    duration_ms: int | None = Field(default=None, ge=0)
+    failure_code: str | None = Field(default=None, max_length=80)
+    failure_reason: str | None = Field(default=None, max_length=500)
+
+
 class PersonalSourcePatchRequest(ContractModel):
     desired_enabled: bool | None = None
     display_name: str | None = Field(default=None, max_length=200)
@@ -1852,6 +1918,11 @@ class PersonalSourceView(ContractModel):
     desired_enabled: bool
     runtime_state: PersonalSourceRuntimeState
     manual_disabled_at: datetime | None = None
+    normalized_origin: HttpUrlString | None = Field(
+        default=None, pattern=r"^https://[^\s]+$", max_length=2048
+    )
+    streams: list[PersonalSourceStreamView] = Field(default_factory=list)
+    latest_probe_run: StreamProbeRunView | None = None
 
 
 class OnboardingCheckEvidence(ContractModel):

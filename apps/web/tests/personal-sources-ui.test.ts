@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
-describe('PERS-01 personal sources page', () => {
+describe('PERS-02 personal sources page', () => {
   const page = readFileSync(resolve(process.cwd(), 'app/pages/sources.vue'), 'utf8')
   const proxy = readFileSync(resolve(process.cwd(), 'server/api/v1/[...path].ts'), 'utf8')
 
@@ -28,5 +28,18 @@ describe('PERS-01 personal sources page', () => {
   it('forwards an ASCII-safe local Owner identity through HTTP headers', () => {
     expect(proxy).toContain("headers.set('x-srbg-local-user', 'Local Personal Owner')")
     expect(proxy).toContain("new Set(['owner', ...compatibleRoles])")
+  })
+
+  it('adds one URL and exposes probe progress, streams, and retry only', () => {
+    expect(page).toContain('添加 URL')
+    expect(page).toContain("method: 'POST'")
+    expect(page).toContain('/reprobe')
+    expect(page).toContain('streams')
+    expect(page).toContain('latest_probe_run')
+    expect(page).toContain('探测中')
+    expect(page).toContain('探测失败')
+    expect(page).not.toContain('CSS 选择器')
+    expect(page).not.toContain('JSON Pointer')
+    expect(page).not.toContain('试运行表单')
   })
 })

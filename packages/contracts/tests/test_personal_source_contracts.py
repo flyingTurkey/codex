@@ -4,9 +4,16 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 from srbg_contracts import (
+    PersonalSourceCreateRequest,
+    PersonalSourceInputKind,
     PersonalSourcePatchRequest,
+    PersonalSourceProbeStatus,
     PersonalSourceRuntimeState,
+    PersonalSourceStreamStatus,
+    PersonalSourceStreamType,
+    PersonalSourceStreamView,
     PersonalSourceView,
+    StreamProbeRunView,
     UserRole,
 )
 
@@ -61,3 +68,31 @@ def test_personal_source_view_accepts_manual_disable_timestamp() -> None:
     )
 
     assert view.manual_disabled_at == disabled_at
+
+
+def test_pers02_contract_adds_probe_and_streams_without_changing_intent() -> None:
+    stream_id = UUID("019b0000-0000-7000-8000-000000000111")
+    run = StreamProbeRunView(
+        id=UUID("019b0000-0000-7000-8000-000000000112"),
+        requested_url="https://example.test/feed.xml",
+        input_kind=PersonalSourceInputKind.RSS_ATOM,
+        status=PersonalSourceProbeStatus.SUCCEEDED,
+        duration_ms=12,
+        failure_code=None,
+        failure_reason=None,
+    )
+    stream = PersonalSourceStreamView(
+        id=stream_id,
+        stream_type=PersonalSourceStreamType.RSS_ATOM,
+        normalized_url="https://example.test/feed.xml",
+        allowed_hosts=["example.test"],
+        config_sha256="a" * 64,
+        discovery_method="DIRECT",
+        status=PersonalSourceStreamStatus.READY,
+        failure_reason=None,
+    )
+    request = PersonalSourceCreateRequest(url="https://example.test/feed.xml")
+
+    assert str(request.url) == "https://example.test/feed.xml"
+    assert run.status is PersonalSourceProbeStatus.SUCCEEDED
+    assert stream.status is PersonalSourceStreamStatus.READY

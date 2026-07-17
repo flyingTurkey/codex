@@ -1,5 +1,28 @@
 {
   "$defs": {
+    "PersonalSourceInputKind": {
+      "enum": [
+        "HOMEPAGE",
+        "LIST_PAGE",
+        "RSS_ATOM",
+        "SITEMAP",
+        "JSON_API",
+        "DIRECT_PDF",
+        "UNKNOWN"
+      ],
+      "title": "PersonalSourceInputKind",
+      "type": "string"
+    },
+    "PersonalSourceProbeStatus": {
+      "enum": [
+        "QUEUED",
+        "RUNNING",
+        "SUCCEEDED",
+        "FAILED"
+      ],
+      "title": "PersonalSourceProbeStatus",
+      "type": "string"
+    },
     "PersonalSourceRuntimeState": {
       "description": "Observed personal-source runtime state, independent from owner intent.",
       "enum": [
@@ -10,6 +33,169 @@
       ],
       "title": "PersonalSourceRuntimeState",
       "type": "string"
+    },
+    "PersonalSourceStreamStatus": {
+      "enum": [
+        "PROBING",
+        "READY",
+        "PROBE_FAILED"
+      ],
+      "title": "PersonalSourceStreamStatus",
+      "type": "string"
+    },
+    "PersonalSourceStreamType": {
+      "enum": [
+        "UNKNOWN",
+        "RSS_ATOM",
+        "SITEMAP",
+        "JSON_API",
+        "DIRECT_PDF",
+        "LIST_DETAIL"
+      ],
+      "title": "PersonalSourceStreamType",
+      "type": "string"
+    },
+    "PersonalSourceStreamView": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_hosts": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "title": "Allowed Hosts",
+          "type": "array"
+        },
+        "config_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Config Sha256"
+        },
+        "discovery_method": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Discovery Method",
+          "type": "string"
+        },
+        "failure_reason": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Failure Reason"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "normalized_url": {
+          "maxLength": 2048,
+          "pattern": "^https://[^\\s]+$",
+          "title": "Normalized Url",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/PersonalSourceStreamStatus"
+        },
+        "stream_type": {
+          "$ref": "#/$defs/PersonalSourceStreamType"
+        }
+      },
+      "required": [
+        "id",
+        "stream_type",
+        "normalized_url",
+        "allowed_hosts",
+        "discovery_method",
+        "status"
+      ],
+      "title": "PersonalSourceStreamView",
+      "type": "object"
+    },
+    "StreamProbeRunView": {
+      "additionalProperties": false,
+      "properties": {
+        "duration_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration Ms"
+        },
+        "failure_code": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Failure Code"
+        },
+        "failure_reason": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Failure Reason"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "input_kind": {
+          "$ref": "#/$defs/PersonalSourceInputKind"
+        },
+        "requested_url": {
+          "maxLength": 2048,
+          "pattern": "^https://[^\\s]+$",
+          "title": "Requested Url",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/PersonalSourceProbeStatus"
+        }
+      },
+      "required": [
+        "id",
+        "requested_url",
+        "input_kind",
+        "status"
+      ],
+      "title": "StreamProbeRunView",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -29,6 +215,17 @@
       "title": "Id",
       "type": "string"
     },
+    "latest_probe_run": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/StreamProbeRunView"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "manual_disabled_at": {
       "anyOf": [
         {
@@ -42,8 +239,29 @@
       "default": null,
       "title": "Manual Disabled At"
     },
+    "normalized_origin": {
+      "anyOf": [
+        {
+          "maxLength": 2048,
+          "pattern": "^https://[^\\s]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Normalized Origin"
+    },
     "runtime_state": {
       "$ref": "#/$defs/PersonalSourceRuntimeState"
+    },
+    "streams": {
+      "items": {
+        "$ref": "#/$defs/PersonalSourceStreamView"
+      },
+      "title": "Streams",
+      "type": "array"
     },
     "url": {
       "maxLength": 2048,

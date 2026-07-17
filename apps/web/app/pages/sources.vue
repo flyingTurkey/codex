@@ -13,6 +13,24 @@ const { data: sources, error, status, refresh } = await useFetch<PersonalSourceV
 const busySourceIds = ref<string[]>([])
 const actionError = ref<string | null>(null)
 const actionMessage = ref<string | null>(null)
+const newUrl = ref('')
+const addingUrl = ref(false)
+const reprobeSourceIds = ref<string[]>([])
+let probePollTimer: ReturnType<typeof setInterval> | undefined
+
+onMounted(() => {
+  probePollTimer = setInterval(() => {
+    const probeActive = sources.value.some(source =>
+      source.latest_probe_run?.status === 'QUEUED'
+      || source.latest_probe_run?.status === 'RUNNING',
+    )
+    if (probeActive && status.value !== 'pending') void refresh()
+  }, 2_000)
+})
+
+onBeforeUnmount(() => {
+  if (probePollTimer !== undefined) clearInterval(probePollTimer)
+})
 
 const runtimeLabels: Readonly<Record<PersonalSourceView['runtime_state'], string>> = {
   PENDING_CONFIGURATION: '待自动配置',
@@ -23,6 +41,67 @@ const runtimeLabels: Readonly<Record<PersonalSourceView['runtime_state'], string
 
 function runtimeLabel(source: PersonalSourceView): string {
   return runtimeLabels[source.runtime_state]
+}
+
+const streamTypeLabels = {
+  UNKNOWN: '识别中',
+  RSS_ATOM: 'RSS / Atom',
+  SITEMAP: 'Sitemap',
+  JSON_API: 'JSON API',
+  DIRECT_PDF: '直接 PDF',
+  LIST_DETAIL: '公开列表页',
+} as const
+
+const streamStatusLabels = {
+  PROBING: '探测中',
+  READY: '已就绪',
+  PROBE_FAILED: '探测失败',
+} as const
+
+async function addUrl(): Promise<void> {
+  if (!newUrl.value.trim() || addingUrl.value) return
+  addingUrl.value = true
+  actionError.value = null
+  actionMessage.value = null
+  try {
+    const created = await $fetch<PersonalSourceView>('/api/v1/sources', {
+      method: 'POST', body: { url: newUrl.value.trim() }, retry: 0, timeout: 5_000,
+    })
+    const existing = sources.value.findIndex(item => item.id === created.id)
+    sources.value = existing < 0
+      ? [created, ...sources.value]
+      : sources.value.map(item => item.id === created.id ? created : item)
+    newUrl.value = ''
+    actionMessage.value = 'URL 已保存，正在执行安全探测。'
+    await refresh()
+  }
+  catch {
+    actionError.value = 'URL 保存失败。请确认它是无需登录的公开 HTTPS 地址后重试。'
+  }
+  finally {
+    addingUrl.value = false
+  }
+}
+
+async function reprobe(source: PersonalSourceView, streamId?: string): Promise<void> {
+  if (reprobeSourceIds.value.includes(source.id)) return
+  reprobeSourceIds.value = [...reprobeSourceIds.value, source.id]
+  actionError.value = null
+  actionMessage.value = null
+  try {
+    const updated = await $fetch<PersonalSourceView>(`/api/v1/sources/${source.id}/reprobe`, {
+      method: 'POST', body: streamId ? { stream_id: streamId } : {}, retry: 0, timeout: 5_000,
+    })
+    sources.value = sources.value.map(item => item.id === updated.id ? updated : item)
+    actionMessage.value = `已重新探测 ${updated.display_name}。`
+    await refresh()
+  }
+  catch {
+    actionError.value = '重新探测失败，原有健康入口未被覆盖。'
+  }
+  finally {
+    reprobeSourceIds.value = reprobeSourceIds.value.filter(id => id !== source.id)
+  }
 }
 
 async function setDesiredEnabled(source: PersonalSourceView): Promise<void> {
@@ -73,7 +152,27 @@ async function setDesiredEnabled(source: PersonalSourceView): Promise<void> {
     <p v-else-if="status === 'pending'" class="loading" aria-live="polite">正在读取来源…</p>
     <p v-else-if="sources.length === 0" class="empty-state">当前还没有来源。</p>
 
-    <div v-else class="source-list" aria-label="个人来源列表">
+    <form class="add-url" aria-label="添加公开来源 URL" @submit.prevent="addUrl">
+      <label for="personal-source-url">添加 URL</label>
+      <div>
+        <input
+          id="personal-source-url"
+          v-model="newUrl"
+          type="url"
+          inputmode="url"
+          autocomplete="url"
+          placeholder="https://example.gov.cn/"
+          required
+          :disabled="addingUrl"
+        >
+        <button class="primary-button" type="submit" :disabled="addingUrl || !newUrl.trim()">
+          {{ addingUrl ? '正在保存…' : '保存并探测' }}
+        </button>
+      </div>
+      <p>只需粘贴公开 HTTPS 地址；系统会自动识别 RSS、Sitemap、API、PDF 或公开列表页。</p>
+    </form>
+
+    <div v-if="!error && status !== 'pending' && sources.length > 0" class="source-list" aria-label="个人来源列表">
       <article v-for="source in sources" :key="source.id" class="source-card">
         <div class="source-identity">
           <h2>{{ source.display_name }}</h2>
@@ -91,6 +190,29 @@ async function setDesiredEnabled(source: PersonalSourceView): Promise<void> {
             <dd>{{ runtimeLabel(source) }}</dd>
           </div>
         </dl>
+        <section class="stream-list" :aria-label="`${source.display_name} 的采集入口`">
+          <p v-if="source.latest_probe_run?.status === 'QUEUED' || source.latest_probe_run?.status === 'RUNNING'" class="probe-progress" aria-live="polite">
+            探测中，请稍候…
+          </p>
+          <article v-for="stream in (source.streams ?? [])" :key="stream.id" class="stream-row">
+            <div>
+              <strong>{{ streamTypeLabels[stream.stream_type] }}</strong>
+              <span :class="`stream-status stream-status--${stream.status.toLowerCase()}`">{{ streamStatusLabels[stream.status] }}</span>
+            </div>
+            <a :href="stream.normalized_url" target="_blank" rel="noopener noreferrer">{{ stream.normalized_url }}</a>
+            <p v-if="stream.failure_reason" class="stream-failure">{{ stream.failure_reason }}</p>
+            <button
+              v-if="stream.status === 'PROBE_FAILED'"
+              class="secondary-button"
+              type="button"
+              :disabled="reprobeSourceIds.includes(source.id)"
+              @click="reprobe(source, stream.id)"
+            >重新探测</button>
+          </article>
+          <p v-if="source.latest_probe_run?.status === 'FAILED' && (source.streams ?? []).length === 0" class="stream-failure">
+            {{ source.latest_probe_run.failure_reason || '探测失败，可稍后重试。' }}
+          </p>
+        </section>
         <button
           class="source-switch"
           type="button"
@@ -105,6 +227,12 @@ async function setDesiredEnabled(source: PersonalSourceView): Promise<void> {
           </span>
           {{ busySourceIds.includes(source.id) ? '正在保存…' : source.desired_enabled ? '停用' : '启用' }}
         </button>
+        <button
+          class="secondary-button"
+          type="button"
+          :disabled="reprobeSourceIds.includes(source.id)"
+          @click="reprobe(source)"
+        >{{ reprobeSourceIds.includes(source.id) ? '正在重试…' : '重新探测' }}</button>
       </article>
     </div>
   </section>
@@ -124,6 +252,30 @@ async function setDesiredEnabled(source: PersonalSourceView): Promise<void> {
 .source-states div {
   display: grid;
 }
+
+.add-url {
+  display: grid;
+  padding: var(--spacing-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  gap: var(--spacing-2);
+}
+
+.add-url label { color: var(--color-ink-900); font-weight: var(--font-weight-semibold); }
+.add-url > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--spacing-2); }
+.add-url input { min-height: var(--spacing-10); padding: var(--spacing-2) var(--spacing-3); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.add-url p { margin: 0; color: var(--color-ink-600); font-size: var(--text-sm); }
+.primary-button { min-height: var(--spacing-10); padding: var(--spacing-2) var(--spacing-4); color: var(--color-surface); background: var(--color-brand-700); border: 1px solid var(--color-brand-700); border-radius: var(--radius-sm); font-weight: var(--font-weight-semibold); }
+
+.stream-list { display: grid; grid-column: 1 / -1; gap: var(--spacing-2); }
+.stream-row { display: grid; padding: var(--spacing-3); background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: var(--radius-sm); gap: var(--spacing-1); }
+.stream-row > div { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-2); }
+.stream-row a { overflow-wrap: anywhere; color: var(--color-brand-700); font-family: var(--font-mono); font-size: var(--text-xs); }
+.stream-status { font-size: var(--text-xs); font-weight: var(--font-weight-semibold); }
+.stream-status--ready { color: var(--color-verified-700); }
+.stream-status--probe_failed, .stream-failure { color: var(--color-conflict-700); }
+.probe-progress, .stream-failure { margin: 0; }
 
 .personal-sources-header {
   grid-template-columns: minmax(0, 1fr) auto;
@@ -324,5 +476,6 @@ button:disabled {
   .source-switch {
     width: 100%;
   }
+  .add-url > div { grid-template-columns: 1fr; }
 }
 </style>

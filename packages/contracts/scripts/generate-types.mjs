@@ -98,6 +98,18 @@ const publicExports = {
   'item-detail.schema.json': ['ItemDetail'],
   'me-response.schema.json': ['MeResponse'],
   'personal-source-patch-request.schema.json': ['PersonalSourcePatchRequest'],
+  'personal-source-create-request.schema.json': ['PersonalSourceCreateRequest'],
+  'personal-source-reprobe-request.schema.json': ['PersonalSourceReprobeRequest'],
+  'personal-source-stream-view.schema.json': [
+    'PersonalSourceStreamView',
+    'PersonalSourceStreamType',
+    'PersonalSourceStreamStatus',
+  ],
+  'stream-probe-run-view.schema.json': [
+    'StreamProbeRunView',
+    'PersonalSourceInputKind',
+    'PersonalSourceProbeStatus',
+  ],
   'personal-source-view.schema.json': ['PersonalSourceRuntimeState', 'PersonalSourceView'],
   'operations-overview.schema.json': ['OperationsOverview'],
   'operator-task-complete-request.schema.json': ['OperatorTaskCompleteRequest'],

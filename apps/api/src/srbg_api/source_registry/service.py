@@ -17,7 +17,10 @@ from srbg_contracts import (
     CreateSourceRequest,
     DocumentDetail,
     FixtureUploadResponse,
+    PersonalSourceCreateRequest,
     PersonalSourcePatchRequest,
+    PersonalSourceReprobeRequest,
+    PersonalSourceStreamView,
     PersonalSourceView,
     RuntimeAuthorization,
     SourceAssessmentSubmission,
@@ -48,6 +51,7 @@ from srbg_contracts import (
     SourceTrialRunStatus,
     SourceTrialRunView,
     SourceType,
+    StreamProbeRunView,
 )
 
 from srbg_api.acquisition.contracts import ExecutionDomain
@@ -200,8 +204,7 @@ class SourceRegistryService:
 
     async def list_personal_sources(self) -> list[PersonalSourceView]:
         return [
-            _personal_source_view(row)
-            for row in await self._repository.list_personal_sources()
+            _personal_source_view(row) for row in await self._repository.list_personal_sources()
         ]
 
     async def get_personal_source(self, source_id: UUID) -> PersonalSourceView:
@@ -237,6 +240,34 @@ class SourceRegistryService:
             reason_code="OWNER_INTENT_RECORDED",
             request_id=request_id,
             source_id=source_id,
+        )
+        return _personal_source_view(row)
+
+    async def create_personal_source(
+        self,
+        payload: PersonalSourceCreateRequest,
+        *,
+        actor_id: UUID,
+        request_id: str,
+    ) -> PersonalSourceView:
+        try:
+            row = await self._repository.create_personal_source(
+                payload, actor_id=actor_id, request_id=request_id, now=_now()
+            )
+        except ValueError as error:
+            raise SourceServiceRejected(str(error), 422) from error
+        return _personal_source_view(row)
+
+    async def reprobe_personal_source(
+        self,
+        source_id: UUID,
+        payload: PersonalSourceReprobeRequest,
+        *,
+        actor_id: UUID,
+        request_id: str,
+    ) -> PersonalSourceView:
+        row = await self._repository.reprobe_personal_source(
+            source_id, payload, actor_id=actor_id, request_id=request_id, now=_now()
         )
         return _personal_source_view(row)
 
@@ -351,9 +382,7 @@ class SourceRegistryService:
                     level=logging.WARNING,
                     governance_scheme=ROUND17_TWO_PERSON_GOVERNANCE_SCHEME,
                 )
-                raise SourceServiceRejected(
-                    "round17 governance assignment was rejected"
-                ) from exc
+                raise SourceServiceRejected("round17 governance assignment was rejected") from exc
             raise
         _log_governance_action(
             event_name="source_governance_scheme_assigned",
@@ -515,9 +544,7 @@ class SourceRegistryService:
         if payload.outcome.value == "REJECTED":
             SOURCE_POLICY_REJECTIONS.labels("REVIEWER_REJECTED").inc()
         decision_reason = (
-            "REVIEWER_REJECTED"
-            if payload.outcome.value == "REJECTED"
-            else "REVIEWER_APPROVED"
+            "REVIEWER_REJECTED" if payload.outcome.value == "REJECTED" else "REVIEWER_APPROVED"
         )
         _log_governance_action(
             event_name="source_policy_decision",
@@ -527,11 +554,7 @@ class SourceRegistryService:
             request_id=request_id,
             source_id=source_id,
             object_id=policy_id,
-            level=(
-                logging.WARNING
-                if payload.outcome.value == "REJECTED"
-                else logging.INFO
-            ),
+            level=(logging.WARNING if payload.outcome.value == "REJECTED" else logging.INFO),
         )
         versions = await self._repository.list_policy_versions(source_id)
         return next(version for version in versions if version.id == policy_id)
@@ -575,9 +598,7 @@ class SourceRegistryService:
             raise SourceServiceRejected(str(exc)) from exc
         except Exception as exc:
             if _is_repository_rejection(exc):
-                SOURCE_TRIAL_RUNS.labels(
-                    payload.kind.value, "security_failed"
-                ).inc()
+                SOURCE_TRIAL_RUNS.labels(payload.kind.value, "security_failed").inc()
                 _log_governance_action(
                     event_name="source_trial_started",
                     action="START_TRIAL",
@@ -652,11 +673,7 @@ class SourceRegistryService:
             request_id=request_id,
             source_id=source_id,
             object_id=trial_id,
-            level=(
-                logging.INFO
-                if status is SourceTrialRunStatus.SUCCEEDED
-                else logging.WARNING
-            ),
+            level=(logging.INFO if status is SourceTrialRunStatus.SUCCEEDED else logging.WARNING),
             trial_kind=kind.value,
             trial_status=status.value,
             ready_ratio_bps=quality_summary.ready_ratio_bps,
@@ -705,11 +722,7 @@ class SourceRegistryService:
         )
         return await self.complete_trial_run(
             trial_id,
-            (
-                SourceTrialRunStatus.SUCCEEDED
-                if succeeded
-                else SourceTrialRunStatus.FAILED
-            ),
+            (SourceTrialRunStatus.SUCCEEDED if succeeded else SourceTrialRunStatus.FAILED),
             quality,
             raw_namespace=f"fixture/{trial_id}/raw/",
             actor_id=actor_id,
@@ -1032,9 +1045,7 @@ class SourceRegistryService:
             raise
         except Exception as exc:
             if exc.__class__.__module__.startswith(("sqlalchemy", "asyncpg")):
-                CONNECTOR_CONFIG_VERSIONS.labels(
-                    payload.connector_type.value, "conflict"
-                ).inc()
+                CONNECTOR_CONFIG_VERSIONS.labels(payload.connector_type.value, "conflict").inc()
                 _log_governance_action(
                     event_name="connector_config_version",
                     action="SAVE_CONNECTOR_CONFIG",
@@ -1045,9 +1056,7 @@ class SourceRegistryService:
                     level=logging.WARNING,
                     connector_type=payload.connector_type.value,
                 )
-                raise SourceServiceRejected(
-                    "connector configuration version was rejected"
-                ) from exc
+                raise SourceServiceRejected("connector configuration version was rejected") from exc
             raise
         CONNECTOR_CONFIG_VERSIONS.labels(payload.connector_type.value, "valid").inc()
         _log_governance_action(
@@ -1063,9 +1072,7 @@ class SourceRegistryService:
         configs = await self._repository.list_connector_configs(source_id)
         return next(config for config in configs if config.id == config_id)
 
-    async def list_connector_configs(
-        self, source_id: UUID
-    ) -> list[ConnectorConfigVersionView]:
+    async def list_connector_configs(self, source_id: UUID) -> list[ConnectorConfigVersionView]:
         await self._repository.get_source(source_id)
         return await self._repository.list_connector_configs(source_id)
 
@@ -1355,6 +1362,31 @@ def _personal_source_view(row: PersonalSourceRow) -> PersonalSourceView:
         desired_enabled=row.desired_enabled,
         runtime_state=row.runtime_state,
         manual_disabled_at=row.manual_disabled_at,
+        normalized_origin=row.normalized_origin,
+        streams=[
+            PersonalSourceStreamView(
+                id=stream.id,
+                stream_type=stream.stream_type,
+                normalized_url=stream.normalized_url,
+                allowed_hosts=list(stream.allowed_hosts),
+                config_sha256=stream.config_sha256,
+                discovery_method=stream.discovery_method,
+                status=stream.status,
+                failure_reason=stream.failure_reason,
+            )
+            for stream in row.streams
+        ],
+        latest_probe_run=None
+        if row.latest_probe_run is None
+        else StreamProbeRunView(
+            id=row.latest_probe_run.id,
+            requested_url=row.latest_probe_run.requested_url,
+            input_kind=row.latest_probe_run.input_kind,
+            status=row.latest_probe_run.status,
+            duration_ms=row.latest_probe_run.duration_ms,
+            failure_code=row.latest_probe_run.failure_code,
+            failure_reason=row.latest_probe_run.failure_reason,
+        ),
     )
 
 

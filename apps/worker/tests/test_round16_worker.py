@@ -46,6 +46,11 @@ def test_beat_wakes_only_governed_source_dispatchers() -> None:
             "schedule": 5.0,
             "options": {"queue": "parser"},
         },
+        "dispatch-personal-source-probes": {
+            "task": "srbg.personal_source.probe",
+            "schedule": 5.0,
+            "options": {"queue": "qualification"},
+        },
     }
     assert celery_app.conf.task_routes["srbg.source.fetch"] == {"queue": "parser"}
 

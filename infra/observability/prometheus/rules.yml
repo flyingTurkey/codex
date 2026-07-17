@@ -1,4 +1,11 @@
 groups:
+  - name: srbg-pers02
+    rules:
+      - alert: PersonalSourceProbeQueueStalled
+        expr: srbg_personal_source_probe_queue > 0
+        for: 15m
+        labels: {severity: p2}
+        annotations: {summary: "Owner URL probes have remained queued for 15 minutes"}
   - name: srbg-round17
     rules:
       - alert: Round17PilotSourcePaused

@@ -11,6 +11,9 @@ async function mockPersonalSources(page: Page): Promise<void> {
     desired_enabled: true,
     runtime_state: 'PENDING_CONFIGURATION',
     manual_disabled_at: null,
+    normalized_origin: 'https://www.mot.gov.cn/',
+    streams: [],
+    latest_probe_run: null,
   }
   await page.route('**/api/v1/me', route => route.fulfill({
     contentType: 'application/json',
@@ -33,8 +36,32 @@ async function mockPersonalSources(page: Page): Promise<void> {
     })
   })
   await page.route('**/api/v1/sources', route => route.fulfill({
+    status: route.request().method() === 'POST' ? 202 : 200,
     contentType: 'application/json',
-    body: JSON.stringify([source]),
+    body: JSON.stringify(route.request().method() === 'POST'
+      ? {
+          ...source,
+          streams: [{
+            id: '019b0000-0000-7000-8000-000000000111',
+            stream_type: 'UNKNOWN',
+            normalized_url: 'https://www.mot.gov.cn/',
+            allowed_hosts: ['www.mot.gov.cn'],
+            config_sha256: null,
+            discovery_method: 'MANUAL_URL',
+            status: 'PROBING',
+            failure_reason: null,
+          }],
+          latest_probe_run: {
+            id: '019b0000-0000-7000-8000-000000000112',
+            requested_url: 'https://www.mot.gov.cn/',
+            input_kind: 'UNKNOWN',
+            status: 'QUEUED',
+            duration_ms: null,
+            failure_code: null,
+            failure_reason: null,
+          },
+        }
+      : [source]),
   }))
 }
 
@@ -64,4 +91,14 @@ test('@a11y personal sources has no axe violations', async ({ page }) => {
 
   const results = await new AxeBuilder({ page }).analyze()
   expect(results.violations).toEqual([])
+})
+
+test('owner can add one public URL and sees probe feedback', async ({ page }) => {
+  await mockPersonalSources(page)
+  await page.goto('/sources')
+
+  await page.getByLabel('添加 URL').fill('https://www.mot.gov.cn/')
+  await page.getByRole('button', { name: '保存并探测' }).click()
+
+  await expect(page.getByRole('status')).toContainText('URL 已保存')
 })

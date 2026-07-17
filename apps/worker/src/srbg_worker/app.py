@@ -26,7 +26,7 @@ from srbg_api.document_vault.storage import S3ObjectStore
 from srbg_api.identifiers import uuid7
 from srbg_api.internal_projection.audit_anchor import anchor_latest_audit_root
 from srbg_api.logging import configure_logging
-from srbg_api.observability import REPLAY_RESULTS
+from srbg_api.observability import PERSONAL_SOURCE_PROBE_QUEUE, REPLAY_RESULTS
 from srbg_api.operations.failures import FailureRecord, failure_record, persist_failure
 from srbg_api.operations.replays import (
     ClaimedReplay,
@@ -51,6 +51,11 @@ from srbg_api.source_automation.search import (
 )
 
 from srbg_worker.ai_content_preparation import PostgresAiPreparationRepository
+from srbg_worker.personal_source_probe import (
+    PersonalProbeExecutor,
+    PostgresPersonalProbeGateway,
+    SafePersonalProbeFetcher,
+)
 from srbg_worker.source_content_bridge import (
     PostgresSourceContentGateway,
     SourceContentOutboxExecutor,
@@ -94,6 +99,11 @@ celery_app.conf.update(
     task_default_priority=5,
     broker_transport_options={"priority_steps": list(range(10)), "visibility_timeout": 3600},
     beat_schedule={
+        "dispatch-personal-source-probes": {
+            "task": "srbg.personal_source.probe",
+            "schedule": 5.0,
+            "options": {"queue": "qualification"},
+        },
         "dispatch-due-source-schedules": {
             "task": "srbg.schedules.dispatch",
             "schedule": 30.0,
@@ -144,6 +154,7 @@ celery_app.conf.update(
         "srbg.schedules.dispatch": {"queue": "celery"},
         "srbg.source.fetch": {"queue": "parser"},
         "srbg.sources.qualify": {"queue": "qualification"},
+        "srbg.personal_source.probe": {"queue": "qualification"},
         "srbg.sources.activation_outbox": {"queue": "celery"},
         "srbg.sources.discovery.dispatch": {"queue": "celery"},
         "srbg.sources.discovery.query": {"queue": "discovery"},
@@ -217,9 +228,7 @@ def process_source_content_outbox(
     *,
     outbox_id: str | None = None,
 ) -> dict[str, object]:
-    return asyncio.run(
-        _drain_source_content_outbox(None if outbox_id is None else UUID(outbox_id))
-    )
+    return asyncio.run(_drain_source_content_outbox(None if outbox_id is None else UUID(outbox_id)))
 
 
 @celery_app.task(name="srbg.ai_content.start")  # type: ignore[untyped-decorator]
@@ -261,6 +270,15 @@ def execute_source_qualification(
     if qualification_run_id is None:
         return asyncio.run(_dispatch_pending_source_qualifications())
     return asyncio.run(_execute_source_qualification(UUID(qualification_run_id)))
+
+
+@celery_app.task(name="srbg.personal_source.probe")  # type: ignore[untyped-decorator]
+def execute_personal_source_probe(*, probe_run_id: str | None = None) -> dict[str, object]:
+    return asyncio.run(
+        _dispatch_or_execute_personal_source_probe(
+            None if probe_run_id is None else UUID(probe_run_id)
+        )
+    )
 
 
 @celery_app.task(name="srbg.sources.activation_outbox")  # type: ignore[untyped-decorator]
@@ -756,6 +774,32 @@ def _build_qualification_target_probe(
     if not config.source_qualification_enabled:
         return DisabledTargetProbe()
     return ResilientTargetProbe(config)
+
+
+async def _dispatch_or_execute_personal_source_probe(
+    probe_run_id: UUID | None,
+) -> dict[str, object]:
+    engine = create_database_engine(settings)
+    gateway = PostgresPersonalProbeGateway(engine)
+    try:
+        if probe_run_id is None:
+            pending_ids = await gateway.pending_ids(limit=50)
+            PERSONAL_SOURCE_PROBE_QUEUE.set(len(pending_ids))
+            for pending_id in pending_ids:
+                celery_app.send_task(
+                    "srbg.personal_source.probe",
+                    kwargs={"probe_run_id": str(pending_id)},
+                    queue="qualification",
+                )
+            return {"dispatched": len(pending_ids)}
+        outcome = await PersonalProbeExecutor(
+            gateway=gateway,
+            fetcher=SafePersonalProbeFetcher(),
+            object_store=S3ObjectStore(settings),
+        ).run(probe_run_id)
+        return {"probe_run_id": str(probe_run_id), "status": outcome}
+    finally:
+        await engine.dispose()
 
 
 async def _dispatch_pending_source_qualifications() -> dict[str, object]:

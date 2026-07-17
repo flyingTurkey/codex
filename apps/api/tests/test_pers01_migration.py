@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 
 from alembic.config import Config
 from alembic.script import ScriptDirectory
@@ -6,9 +6,8 @@ from alembic.script import ScriptDirectory
 MIGRATION = Path("apps/api/migrations/versions/0021_personal_source_core.py")
 
 
-def test_pers01_is_the_single_head_after_round20() -> None:
+def test_pers01_remains_the_parent_of_pers02() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
-    assert script.get_current_head() == "0021_personal_source_core"
     revision = script.get_revision("0021_personal_source_core")
     assert revision is not None
     assert revision.down_revision == "0020_ai_content_preparation"

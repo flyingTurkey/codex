@@ -89,6 +89,15 @@ SOURCE_RUNTIME_AUTHORIZATION_MISMATCHES = Gauge(
     "srbg_source_runtime_authorization_mismatches",
     "Stored ACTIVE sources that currently fail authoritative runtime authorization.",
 )
+PERSONAL_SOURCE_PROBES = Counter(
+    "srbg_personal_source_probes_total",
+    "One-shot personal source probes by bounded outcome and reason.",
+    ("outcome", "reason"),
+)
+PERSONAL_SOURCE_PROBE_QUEUE = Gauge(
+    "srbg_personal_source_probe_queue",
+    "Queued one-shot personal source probe runs seen by the dispatcher.",
+)
 SOURCE_POLICY_REJECTIONS = Counter(
     "srbg_source_policy_rejections_total",
     "Source policy decisions rejected by bounded reason code.",

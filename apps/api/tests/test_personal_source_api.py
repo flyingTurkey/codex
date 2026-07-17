@@ -4,7 +4,9 @@ from uuid import UUID
 from fastapi.testclient import TestClient
 from srbg_api.main import create_app
 from srbg_contracts import (
+    PersonalSourceCreateRequest,
     PersonalSourcePatchRequest,
+    PersonalSourceReprobeRequest,
     PersonalSourceRuntimeState,
     PersonalSourceView,
 )
@@ -30,6 +32,8 @@ def _view(
 class StubPersonalSourceService:
     def __init__(self) -> None:
         self.patch_calls: list[tuple[PersonalSourcePatchRequest, UUID]] = []
+        self.create_calls: list[PersonalSourceCreateRequest] = []
+        self.reprobe_calls: list[PersonalSourceReprobeRequest] = []
 
     async def list_personal_sources(self) -> list[PersonalSourceView]:
         return [_view(desired_enabled=True)]
@@ -62,6 +66,30 @@ class StubPersonalSourceService:
                 else None,
             }
         )
+
+    async def create_personal_source(
+        self,
+        payload: PersonalSourceCreateRequest,
+        *,
+        actor_id: UUID,
+        request_id: str,
+    ) -> PersonalSourceView:
+        del actor_id, request_id
+        self.create_calls.append(payload)
+        return _view(desired_enabled=True)
+
+    async def reprobe_personal_source(
+        self,
+        source_id: UUID,
+        payload: PersonalSourceReprobeRequest,
+        *,
+        actor_id: UUID,
+        request_id: str,
+    ) -> PersonalSourceView:
+        del actor_id, request_id
+        assert source_id == SOURCE_ID
+        self.reprobe_calls.append(payload)
+        return _view(desired_enabled=True)
 
 
 def _client(service: StubPersonalSourceService | None = None) -> TestClient:
@@ -121,3 +149,25 @@ def test_personal_patch_rejects_non_whitelisted_fields() -> None:
 
     assert response.status_code == 422
     assert response.headers["content-type"].startswith("application/problem+json")
+
+
+def test_owner_can_add_url_and_reprobe_without_governance_form() -> None:
+    service = StubPersonalSourceService()
+    client = _client(service)
+    headers = {"X-SRBG-Local-Roles": "owner"}
+
+    created = client.post(
+        "/api/v1/sources",
+        json={"url": "https://www.mot.gov.cn/"},
+        headers=headers,
+    )
+    reprobed = client.post(
+        f"/api/v1/sources/{SOURCE_ID}/reprobe",
+        json={},
+        headers=headers,
+    )
+
+    assert created.status_code == 202
+    assert reprobed.status_code == 202
+    assert service.create_calls[0].url == "https://www.mot.gov.cn/"
+    assert service.reprobe_calls[0].stream_id is None

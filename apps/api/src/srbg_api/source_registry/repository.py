@@ -19,8 +19,14 @@ from srbg_contracts import (
     DocumentDetail,
     DocumentVersionSummary,
     FixtureUploadResponse,
+    PersonalSourceCreateRequest,
+    PersonalSourceInputKind,
     PersonalSourcePatchRequest,
+    PersonalSourceProbeStatus,
+    PersonalSourceReprobeRequest,
     PersonalSourceRuntimeState,
+    PersonalSourceStreamStatus,
+    PersonalSourceStreamType,
     RawObjectSummary,
     ScanStatus,
     SourceAssessmentSubmission,
@@ -122,6 +128,32 @@ class PersonalSourceRow:
     desired_enabled: bool
     runtime_state: PersonalSourceRuntimeState
     manual_disabled_at: datetime | None
+    normalized_origin: str | None = None
+    streams: tuple["PersonalStreamRow", ...] = ()
+    latest_probe_run: "ProbeRunRow | None" = None
+
+
+@dataclass(frozen=True, slots=True)
+class PersonalStreamRow:
+    id: UUID
+    stream_type: PersonalSourceStreamType
+    normalized_url: str
+    allowed_hosts: tuple[str, ...]
+    config_sha256: str | None
+    discovery_method: str
+    status: PersonalSourceStreamStatus
+    failure_reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class ProbeRunRow:
+    id: UUID
+    requested_url: str
+    input_kind: PersonalSourceInputKind
+    status: PersonalSourceProbeStatus
+    duration_ms: int | None
+    failure_code: str | None
+    failure_reason: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,14 +240,16 @@ class SourceVaultRepository:
                 await connection.execute(
                     text(
                         """
-                        SELECT id,name,base_url,desired_enabled,runtime_state,manual_disabled_at
+                        SELECT id,name,base_url,desired_enabled,runtime_state,manual_disabled_at,
+                               normalized_origin
                           FROM source
                          ORDER BY lower(name),id
                         """
                     )
                 )
             ).mappings()
-            return [_personal_source_row(row) for row in rows]
+            base_rows = [_personal_source_row(row) for row in rows]
+        return [await self._personal_source_with_probe(row) for row in base_rows]
 
     async def get_personal_source(self, source_id: UUID) -> PersonalSourceRow:
         async with self._engine.connect() as connection:
@@ -225,7 +259,7 @@ class SourceVaultRepository:
                         text(
                             """
                             SELECT id,name,base_url,desired_enabled,runtime_state,
-                                   manual_disabled_at
+                                   manual_disabled_at,normalized_origin
                               FROM source WHERE id=:source_id
                             """
                         ),
@@ -237,7 +271,286 @@ class SourceVaultRepository:
             )
         if row is None:
             raise SourceNotFound("source does not exist")
-        return _personal_source_row(row)
+        return await self._personal_source_with_probe(_personal_source_row(row))
+
+    async def create_personal_source(
+        self,
+        payload: PersonalSourceCreateRequest,
+        *,
+        actor_id: UUID,
+        request_id: str,
+        now: datetime,
+    ) -> PersonalSourceRow:
+        from srbg_api.personal_source_probe import normalize_public_https_url
+
+        normalized_url, origin, host = normalize_public_https_url(payload.url)
+        async with self._engine.begin() as connection:
+            await connection.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:origin,0))"),
+                {"origin": origin},
+            )
+            source_id = await connection.scalar(
+                text(
+                    "SELECT id FROM source WHERE normalized_origin=:origin OR "
+                    "(normalized_origin IS NULL AND lower(split_part(base_url,'/',3))=:host "
+                    "AND lower(split_part(base_url,':',1))='https') "
+                    "ORDER BY normalized_origin NULLS LAST,registry_code NULLS LAST,id "
+                    "LIMIT 1 FOR UPDATE"
+                ),
+                {"origin": origin, "host": host},
+            )
+            if source_id is None:
+                source_id = uuid7()
+                await connection.execute(
+                    text(
+                        "SELECT register_source_candidate(:id,:name,:origin,'BOTH',"
+                        "'personal_public','B2','P2','auto_probe',1440,"
+                        "'Local Personal Owner',NULL,ARRAY[]::text[],ARRAY[]::text[],"
+                        "ARRAY[]::text[],ARRAY[]::text[],ARRAY[]::text[],ARRAY[]::text[],"
+                        ":actor_id,:request_id,:audit_id,:now)"
+                    ),
+                    {
+                        "id": source_id,
+                        "name": host,
+                        "origin": origin,
+                        "actor_id": actor_id,
+                        "request_id": request_id,
+                        "audit_id": uuid7(),
+                        "now": now,
+                    },
+                )
+                await connection.execute(
+                    text(
+                        "UPDATE source SET normalized_origin=:origin,desired_enabled=true,"
+                        "runtime_state='PENDING_CONFIGURATION',updated_at=:now WHERE id=:source_id"
+                    ),
+                    {"origin": origin, "now": now, "source_id": source_id},
+                )
+            elif await connection.scalar(
+                text("SELECT normalized_origin IS NULL FROM source WHERE id=:source_id"),
+                {"source_id": source_id},
+            ):
+                await connection.execute(
+                    text(
+                        "UPDATE source SET normalized_origin=:origin,updated_at=:now "
+                        "WHERE id=:source_id"
+                    ),
+                    {"origin": origin, "now": now, "source_id": source_id},
+                )
+            stream_id = await connection.scalar(
+                text(
+                    "SELECT id FROM source_stream WHERE source_id=:source_id "
+                    "AND canonical_url=:url FOR UPDATE"
+                ),
+                {"source_id": source_id, "url": normalized_url},
+            )
+            if stream_id is None:
+                stream_id = uuid7()
+                await connection.execute(
+                    text(
+                        "INSERT INTO source_stream(id,source_id,stream_key,name,canonical_url,"
+                        "authorization_boundary,status,rule_version,automatically_managed,"
+                        "created_at,updated_at,stream_type,allowed_hosts,discovery_method) "
+                        "VALUES(:id,:source_id,:stream_key,:name,:url,"
+                        "CAST(:host AS varchar(253)),'PROBING',"
+                        "'personal-source-probe-v1',false,:now,:now,'UNKNOWN',"
+                        "ARRAY[CAST(:host AS varchar(253))],'MANUAL_URL')"
+                    ),
+                    {
+                        "id": stream_id,
+                        "source_id": source_id,
+                        "stream_key": "URL_" + sha256(normalized_url.encode()).hexdigest()[:24],
+                        "name": normalized_url,
+                        "url": normalized_url,
+                        "host": host,
+                        "now": now,
+                    },
+                )
+            active = await connection.scalar(
+                text(
+                    "SELECT id FROM stream_probe_run WHERE source_id=:source_id "
+                    "AND normalized_url=:url "
+                    "AND status IN ('QUEUED','RUNNING') LIMIT 1"
+                ),
+                {"source_id": source_id, "url": normalized_url},
+            )
+            healthy = await connection.scalar(
+                text("SELECT status='READY' FROM source_stream WHERE id=:stream_id"),
+                {"stream_id": stream_id},
+            )
+            if active is None and not healthy:
+                await connection.execute(
+                    text(
+                        "INSERT INTO stream_probe_run(id,source_id,stream_id,requested_url,"
+                        "normalized_url,normalized_origin,input_kind,status,requested_by,"
+                        "request_id,created_at,updated_at) VALUES(:id,:source_id,:stream_id,"
+                        ":url,:url,:origin,'UNKNOWN','QUEUED',:actor_id,:request_id,:now,:now)"
+                    ),
+                    {
+                        "id": uuid7(),
+                        "source_id": source_id,
+                        "stream_id": stream_id,
+                        "url": normalized_url,
+                        "origin": origin,
+                        "actor_id": actor_id,
+                        "request_id": request_id,
+                        "now": now,
+                    },
+                )
+        return await self.get_personal_source(source_id)
+
+    async def reprobe_personal_source(
+        self,
+        source_id: UUID,
+        payload: PersonalSourceReprobeRequest,
+        *,
+        actor_id: UUID,
+        request_id: str,
+        now: datetime,
+    ) -> PersonalSourceRow:
+        async with self._engine.begin() as connection:
+            if payload.stream_id is not None:
+                row = (
+                    (
+                        await connection.execute(
+                            text(
+                                "SELECT id,canonical_url FROM source_stream "
+                                "WHERE id=:stream_id AND source_id=:source_id FOR UPDATE"
+                            ),
+                            {"stream_id": payload.stream_id, "source_id": source_id},
+                        )
+                    )
+                    .mappings()
+                    .first()
+                )
+            else:
+                row = (
+                    (
+                        await connection.execute(
+                            text(
+                                "SELECT stream_id AS id,normalized_url AS canonical_url "
+                                "FROM stream_probe_run WHERE source_id=:source_id "
+                                "ORDER BY created_at DESC LIMIT 1 FOR UPDATE"
+                            ),
+                            {"source_id": source_id},
+                        )
+                    )
+                    .mappings()
+                    .first()
+                )
+            if row is None:
+                raise SourceNotFound("source stream does not exist")
+            active = await connection.scalar(
+                text(
+                    "SELECT id FROM stream_probe_run WHERE source_id=:source_id "
+                    "AND normalized_url=:url AND status IN ('QUEUED','RUNNING') LIMIT 1"
+                ),
+                {"source_id": source_id, "url": row["canonical_url"]},
+            )
+            if active is None:
+                origin = await connection.scalar(
+                    text("SELECT normalized_origin FROM source WHERE id=:source_id"),
+                    {"source_id": source_id},
+                )
+                if origin is None:
+                    raise SourceNotFound("personal source origin does not exist")
+                await connection.execute(
+                    text(
+                        "INSERT INTO stream_probe_run(id,source_id,stream_id,requested_url,"
+                        "normalized_url,normalized_origin,input_kind,status,requested_by,"
+                        "request_id,created_at,updated_at) VALUES(:id,:source_id,:stream_id,"
+                        ":url,:url,:origin,'UNKNOWN','QUEUED',:actor_id,:request_id,:now,:now)"
+                    ),
+                    {
+                        "id": uuid7(),
+                        "source_id": source_id,
+                        "stream_id": row["id"],
+                        "url": row["canonical_url"],
+                        "origin": origin,
+                        "actor_id": actor_id,
+                        "request_id": request_id,
+                        "now": now,
+                    },
+                )
+                await connection.execute(
+                    text(
+                        "UPDATE source_stream SET status='PROBING',failure_reason=NULL,"
+                        "updated_at=:now WHERE id=:stream_id "
+                        "AND status NOT IN ('ACTIVE','QUALIFIED','READY')"
+                    ),
+                    {"now": now, "stream_id": row["id"]},
+                )
+        return await self.get_personal_source(source_id)
+
+    async def _personal_source_with_probe(self, base: PersonalSourceRow) -> PersonalSourceRow:
+        async with self._engine.connect() as connection:
+            stream_rows = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT id,stream_type,canonical_url,allowed_hosts,config_sha256,"
+                            "discovery_method,status,failure_reason FROM source_stream "
+                            "WHERE source_id=:source_id "
+                            "AND status IN ('PROBING','READY','PROBE_FAILED') "
+                            "ORDER BY created_at,id"
+                        ),
+                        {"source_id": base.id},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            run = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT id,requested_url,input_kind,status,duration_ms,failure_code,"
+                            "failure_reason FROM stream_probe_run WHERE source_id=:source_id "
+                            "ORDER BY created_at DESC,id DESC LIMIT 1"
+                        ),
+                        {"source_id": base.id},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+        streams = tuple(
+            PersonalStreamRow(
+                id=row["id"],
+                stream_type=PersonalSourceStreamType(row["stream_type"]),
+                normalized_url=row["canonical_url"],
+                allowed_hosts=tuple(row["allowed_hosts"]),
+                config_sha256=row["config_sha256"],
+                discovery_method=row["discovery_method"],
+                status=PersonalSourceStreamStatus(row["status"]),
+                failure_reason=row["failure_reason"],
+            )
+            for row in stream_rows
+        )
+        latest = (
+            None
+            if run is None
+            else ProbeRunRow(
+                id=run["id"],
+                requested_url=run["requested_url"],
+                input_kind=PersonalSourceInputKind(run["input_kind"]),
+                status=PersonalSourceProbeStatus(run["status"]),
+                duration_ms=run["duration_ms"],
+                failure_code=run["failure_code"],
+                failure_reason=run["failure_reason"],
+            )
+        )
+        return PersonalSourceRow(
+            base.id,
+            base.display_name,
+            base.url,
+            base.desired_enabled,
+            base.runtime_state,
+            base.manual_disabled_at,
+            base.normalized_origin,
+            streams,
+            latest,
+        )
 
     async def patch_personal_source(
         self,
@@ -1176,9 +1489,7 @@ class SourceVaultRepository:
             raise RepositoryConflict("fixture trial is not the current pending replay")
         return SourceTrialQualitySummary.model_validate(row["quality_summary"])
 
-    async def fixture_replay_bundle(
-        self, source_id: UUID, trial_id: UUID
-    ) -> FixtureReplayBundle:
+    async def fixture_replay_bundle(self, source_id: UUID, trial_id: UUID) -> FixtureReplayBundle:
         async with self._engine.connect() as connection:
             header = (
                 (
@@ -1222,9 +1533,10 @@ class SourceVaultRepository:
             if header is None:
                 raise RepositoryConflict("fixture trial is not the current pending replay")
             capture_rows = (
-                await connection.execute(
-                    text(
-                        """
+                (
+                    await connection.execute(
+                        text(
+                            """
                         SELECT capture.id, capture.raw_object_id, raw.object_key,
                                raw.sha256 AS content_sha256, raw.byte_size,
                                raw.declared_mime, raw.detected_mime,
@@ -1252,10 +1564,13 @@ class SourceVaultRepository:
                            AND capture.arrived_after_close=false
                          ORDER BY capture.captured_at,capture.id
                         """
-                    ),
-                    {"trial_id": trial_id, "source_id": source_id},
+                        ),
+                        {"trial_id": trial_id, "source_id": source_id},
+                    )
                 )
-            ).mappings().all()
+                .mappings()
+                .all()
+            )
         config_document = header["config_document"]
         allowed_hosts = header["allowed_hosts"]
         if not isinstance(config_document, dict) or not isinstance(allowed_hosts, list):
@@ -1284,9 +1599,7 @@ class SourceVaultRepository:
                     http_status=int(row["http_status"]),
                     etag=None if row["etag"] is None else str(row["etag"]),
                     last_modified=(
-                        None
-                        if row["last_modified"] is None
-                        else str(row["last_modified"])
+                        None if row["last_modified"] is None else str(row["last_modified"])
                     ),
                     filename=str(row["filename"]),
                     title=None if row["title"] is None else str(row["title"]),
@@ -2201,9 +2514,7 @@ class SourceVaultRepository:
                         "byte_size": record.byte_size,
                         "declared_mime": record.declared_mime,
                         "detected_mime": record.detected_mime,
-                        "scan_status": (
-                            "REJECTED" if record.globally_quarantined else "CLEAN"
-                        ),
+                        "scan_status": ("REJECTED" if record.globally_quarantined else "CLEAN"),
                         "storage_etag": record.storage_etag,
                         "created_at": record.acquired_at,
                     },
@@ -2686,6 +2997,7 @@ def _personal_source_row(row: RowMapping) -> PersonalSourceRow:
         desired_enabled=row["desired_enabled"],
         runtime_state=PersonalSourceRuntimeState(row["runtime_state"]),
         manual_disabled_at=row["manual_disabled_at"],
+        normalized_origin=row.get("normalized_origin"),
     )
 
 

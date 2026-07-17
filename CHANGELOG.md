@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+### PERS-02 任意公开 URL 与多采集入口
+
+- 新增 `0022_personal_source_streams`，兼容扩展既有 `source_stream`，并新增耐久 `stream_probe_run` 与 append-only `stream_config_version`。
+- Owner 可在 `/sources` 只粘贴一个公开 HTTPS URL；服务端按规范化 Origin 幂等归一来源，以一次性 Worker 探测 RSS/Atom、Sitemap、JSON API、PDF 和公开列表页。
+- 探测复用逐跳 DNS/peer 固定、SSRF、robots、重定向、超时、大小和声明式连接器门禁；原始响应先进入私有内容寻址存储，失败不覆盖健康流。本轮不创建长期采集计划。
+- 页面增加保存、探测进度、多入口状态/原因和重新探测反馈；新增 `make personal-source-test`。
+
 ### PERS-01 个人模式基础与单一 Owner
 
 - 平台唯一产品形态切换为本机单一 Owner 的个人研究模式；旧角色、审批、治理 API 和表仅作过渡兼容，不新增企业模式开关。

@@ -52,7 +52,7 @@ export PLAYWRIGHT_BROWSERS_PATH
 	round11-test observability-test golden-replay load-test recovery-drill runbook-test \
 	round11-evidence-test readiness-evidence slo-weekly-report \
 	phase2-round13-test phase2-round14-test phase2-round15-test phase2-round16-test \
-	phase2-round17-test phase2-round17-eval ai-content-preparation-test pers01-test
+	phase2-round17-test phase2-round17-eval ai-content-preparation-test pers01-test personal-source-test
 
 setup:
 	$(UV) sync --frozen --all-packages
@@ -169,6 +169,19 @@ pers01-test:
 		apps/api/tests/test_pers01_migration.py \
 		apps/api/tests/test_personal_source_api.py \
 		packages/contracts/tests/test_personal_source_contracts.py -q
+	$(PNPM) --filter @srbg/web test -- personal-sources-ui.test.ts
+
+personal-source-test:
+	$(COMPOSE) up --detach --wait postgres minio redis
+	$(UV) run python scripts/run_isolated_integration.py \
+		--migration-verifier verify_pers02_migration.py -- \
+		apps/api/tests/test_pers02_migration.py \
+		apps/api/tests/test_personal_source_detection.py \
+		apps/api/tests/test_acquisition_security.py \
+		apps/api/tests/test_round15_http_security.py \
+		apps/api/tests/test_personal_source_api.py \
+		packages/contracts/tests/test_personal_source_contracts.py \
+		apps/worker/tests/test_personal_source_probe_worker.py -q
 	$(PNPM) --filter @srbg/web test -- personal-sources-ui.test.ts
 
 quality-gate: lint typecheck test contract-test security-check

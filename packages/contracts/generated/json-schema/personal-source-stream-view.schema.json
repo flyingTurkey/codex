@@ -1,0 +1,96 @@
+{
+  "$defs": {
+    "PersonalSourceStreamStatus": {
+      "enum": [
+        "PROBING",
+        "READY",
+        "PROBE_FAILED"
+      ],
+      "title": "PersonalSourceStreamStatus",
+      "type": "string"
+    },
+    "PersonalSourceStreamType": {
+      "enum": [
+        "UNKNOWN",
+        "RSS_ATOM",
+        "SITEMAP",
+        "JSON_API",
+        "DIRECT_PDF",
+        "LIST_DETAIL"
+      ],
+      "title": "PersonalSourceStreamType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "allowed_hosts": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 32,
+      "minItems": 1,
+      "title": "Allowed Hosts",
+      "type": "array"
+    },
+    "config_sha256": {
+      "anyOf": [
+        {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Config Sha256"
+    },
+    "discovery_method": {
+      "maxLength": 40,
+      "minLength": 1,
+      "title": "Discovery Method",
+      "type": "string"
+    },
+    "failure_reason": {
+      "anyOf": [
+        {
+          "maxLength": 500,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Failure Reason"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "normalized_url": {
+      "maxLength": 2048,
+      "pattern": "^https://[^\\s]+$",
+      "title": "Normalized Url",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/PersonalSourceStreamStatus"
+    },
+    "stream_type": {
+      "$ref": "#/$defs/PersonalSourceStreamType"
+    }
+  },
+  "required": [
+    "id",
+    "stream_type",
+    "normalized_url",
+    "allowed_hosts",
+    "discovery_method",
+    "status"
+  ],
+  "title": "PersonalSourceStreamView",
+  "type": "object"
+}

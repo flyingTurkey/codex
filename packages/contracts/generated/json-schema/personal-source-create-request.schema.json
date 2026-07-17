@@ -1,0 +1,16 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "url": {
+      "maxLength": 2048,
+      "pattern": "^https://[^\\s]+$",
+      "title": "Url",
+      "type": "string"
+    }
+  },
+  "required": [
+    "url"
+  ],
+  "title": "PersonalSourceCreateRequest",
+  "type": "object"
+}
