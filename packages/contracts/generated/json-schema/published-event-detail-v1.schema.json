@@ -694,6 +694,12 @@
           "title": "Evidence Ids",
           "type": "array"
         },
+        "fact_kind": {
+          "const": "EVIDENCE_FACT",
+          "default": "EVIDENCE_FACT",
+          "title": "Fact Kind",
+          "type": "string"
+        },
         "field_name": {
           "maxLength": 100,
           "minLength": 1,

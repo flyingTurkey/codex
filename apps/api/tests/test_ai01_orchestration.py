@@ -145,7 +145,7 @@ class FakeModel:
         )
 
 
-def test_one_document_reaches_waiting_claim_review_without_summary_or_publication() -> None:
+def test_one_document_reaches_automatic_evidence_gate_without_claim_review() -> None:
     repository = FakeRepository()
     service = AiContentPreparationService(
         repository=repository,
@@ -158,7 +158,8 @@ def test_one_document_reaches_waiting_claim_review_without_summary_or_publicatio
         "PREPARING",
         "CLASSIFYING",
         "EXTRACTING",
-        "WAITING_CLAIM_REVIEW",
+        "EVIDENCE_GATING",
+        "SUCCEEDED",
     ]
     assert [step for step, _ in repository.steps] == [AiStep.CLASSIFY, AiStep.EXTRACT]
     assert AiStep.SUMMARIZE not in [step for step, _ in repository.steps]

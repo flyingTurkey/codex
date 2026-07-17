@@ -2858,6 +2858,27 @@ class PublishedClaimV1(ContractModel):
     field_name: str = Field(min_length=1, max_length=100)
     value: str = Field(min_length=1, max_length=2000)
     evidence_ids: list[UUID] = Field(min_length=1, max_length=100)
+    fact_kind: Literal["EVIDENCE_FACT"] = "EVIDENCE_FACT"
+
+
+class AiJudgmentEvidencePreview(ContractModel):
+    evidence_id: UUID
+    excerpt: str = Field(min_length=1, max_length=2000)
+    excerpt_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    locator: str = Field(min_length=1, max_length=1000)
+
+
+class AiJudgmentPreview(ContractModel):
+    id: UUID
+    document_version_id: UUID
+    field_name: str = Field(min_length=1, max_length=100)
+    value: str = Field(min_length=1, max_length=2000)
+    confidence_bps: int = Field(ge=0, le=10000)
+    attribution: str | None = Field(default=None, max_length=500)
+    reason_codes: list[str] = Field(min_length=1, max_length=30)
+    rule_version: str = Field(min_length=1, max_length=100)
+    evidence: list[AiJudgmentEvidencePreview] = Field(default_factory=list, max_length=100)
+    status: Literal["UNVERIFIED_AI_JUDGMENT"] = "UNVERIFIED_AI_JUDGMENT"
 
 
 class PublishedEventSummaryV1(ContractModel):
@@ -3201,6 +3222,7 @@ class EventDetail(ContractModel):
         default_factory=list, max_length=500
     )
     type_detail: TypeSummaryValue | None = None
+    ai_judgments: list[AiJudgmentPreview] = Field(default_factory=list, max_length=500)
 
 
 class ClaimConflictStatus(StrEnum):

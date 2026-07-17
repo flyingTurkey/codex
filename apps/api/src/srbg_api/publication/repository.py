@@ -783,6 +783,141 @@ class PostgresPublicationRepository:
                 )
             return True
 
+    async def process_personal_content_once(self, *, processed_at: datetime) -> bool:
+        async with self._engine.begin() as connection:
+            event = (
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT id,item_id,document_version_id,action
+                            FROM personal_content_outbox
+                            WHERE status IN ('PENDING','FAILED') AND available_at<=:now
+                              AND attempt_count<5
+                            ORDER BY available_at,id FOR UPDATE SKIP LOCKED LIMIT 1
+                            """
+                        ),
+                        {"now": processed_at},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            if event is None:
+                return False
+            if event["action"] == "PROJECT":
+                facts = list(
+                    (
+                        await connection.execute(
+                            text(
+                                """
+                                SELECT claim.id,claim.claim_type,claim.literal_value,
+                                  jsonb_agg(jsonb_build_object(
+                                    'evidence_id',evidence.id,
+                                    'excerpt_sha256',evidence.excerpt_sha256,
+                                    'locator',COALESCE(evidence.locator_type,'HTML_PARAGRAPH')
+                                  ) ORDER BY evidence.id) AS evidence
+                                FROM claim
+                                JOIN automatic_evidence_acceptance acceptance
+                                  ON acceptance.claim_id=claim.id
+                                 AND acceptance.input_document_version_id=:version_id
+                                JOIN claim_evidence evidence ON evidence.claim_id=claim.id
+                                WHERE claim.item_id=:item_id
+                                  AND claim.document_version_id=:version_id
+                                  AND claim.verification_status='ACCEPTED'
+                                  AND claim.acceptance_method='AUTOMATED_EVIDENCE_GATE'
+                                  AND 'ACTIVE'=(SELECT state.state
+                                    FROM automatic_evidence_fact_state_event state
+                                    WHERE state.claim_id=claim.id
+                                    ORDER BY state.created_at DESC,state.id DESC LIMIT 1)
+                                GROUP BY claim.id,claim.claim_type,claim.literal_value
+                                ORDER BY claim.claim_type,claim.id
+                                """
+                            ),
+                            {
+                                "item_id": event["item_id"],
+                                "version_id": event["document_version_id"],
+                            },
+                        )
+                    ).mappings()
+                )
+                item = (
+                    (
+                        await connection.execute(
+                        text(
+                            "SELECT title,original_url,current_document_version_id "
+                            "FROM intelligence_item WHERE id=:item_id FOR SHARE"
+                            ),
+                            {"item_id": event["item_id"]},
+                        )
+                    )
+                    .mappings()
+                    .one()
+                )
+                if item["current_document_version_id"] != event["document_version_id"]:
+                    raise RuntimeError("PERSONAL_PROJECTION_STALE_DOCUMENT")
+                payload = [
+                    {
+                        "claim_id": str(row["id"]),
+                        "fact_kind": "EVIDENCE_FACT",
+                        "field_name": row["claim_type"],
+                        "value": row["literal_value"],
+                        "evidence": row["evidence"],
+                    }
+                    for row in facts
+                ]
+                await connection.execute(
+                    text(
+                        """
+                        INSERT INTO personal_content_projection(
+                          item_id,document_version_id,title,original_url,evidence_facts,
+                          visible,generation,updated_at
+                        ) VALUES(:item_id,:version_id,:title,:url,CAST(:facts AS jsonb),true,1,:now)
+                        ON CONFLICT(item_id) DO UPDATE SET
+                          document_version_id=EXCLUDED.document_version_id,
+                          title=EXCLUDED.title,original_url=EXCLUDED.original_url,
+                          evidence_facts=EXCLUDED.evidence_facts,visible=true,
+                          generation=personal_content_projection.generation+1,updated_at=EXCLUDED.updated_at
+                        """
+                    ),
+                    {
+                        "item_id": event["item_id"],
+                        "version_id": event["document_version_id"],
+                        "title": item["title"],
+                        "url": item["original_url"],
+                        "facts": json.dumps(payload, ensure_ascii=False, default=str),
+                        "now": processed_at,
+                    },
+                )
+            else:
+                await connection.execute(
+                    text(
+                        "UPDATE personal_content_projection SET visible=false,"
+                        "generation=generation+1,updated_at=:now WHERE item_id=:item_id"
+                    ),
+                    {"item_id": event["item_id"], "now": processed_at},
+                )
+            await connection.execute(
+                text(
+                    "UPDATE personal_content_outbox SET status='SUCCEEDED',"
+                    "processed_at=:now,attempt_count=attempt_count+1 WHERE id=:id"
+                ),
+                {"id": event["id"], "now": processed_at},
+            )
+            return True
+
+    async def is_ai_claim_candidate(self, candidate_id: UUID) -> bool:
+        async with self._engine.connect() as connection:
+            return bool(
+                await connection.scalar(
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM ai_candidate_claim_origin "
+                        "WHERE claim_id=:claim_id)"
+                    ),
+                    {"claim_id": candidate_id},
+                )
+            )
+
     async def process_projection_invalidation_once(
         self,
         *,
@@ -1528,11 +1663,7 @@ class PostgresPublicationRepository:
                     ),
                     {"claim_id": candidate_id},
                 )
-                decision = (
-                    _decide_ai_candidate_claim
-                    if ai_candidate
-                    else _decide_safety_case_claim
-                )
+                decision = _decide_ai_candidate_claim if ai_candidate else _decide_safety_case_claim
                 await decision(
                     connection,
                     claim_id=candidate_id,

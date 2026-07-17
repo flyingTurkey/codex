@@ -4,6 +4,7 @@ export type ClaimId = string
  * @maxItems 100
  */
 export type EvidenceIds = string[]
+export type FactKind = 'EVIDENCE_FACT'
 export type FieldName = string
 export type Value = string
 /**
@@ -286,6 +287,7 @@ export interface PublishedEventDetailV1 {
 export interface PublishedClaimV1 {
   claim_id: ClaimId
   evidence_ids: EvidenceIds
+  fact_kind?: FactKind
   field_name: FieldName
   value: Value
 }

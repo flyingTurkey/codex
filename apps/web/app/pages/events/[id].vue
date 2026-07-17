@@ -180,6 +180,10 @@ function openEvidence(evidenceIds: string[]): void {
       平台内容仅供内部信息参考，不替代正式制度、专业审查和现场安全决策。事故原因、责任、伤亡和损失仅展示有权机关证据且已人工复核的事实。
     </aside>
 
+    <aside v-if="detail?.claims?.some(claim => claim.fact_kind === 'EVIDENCE_FACT')" class="event-detail-page__notice">
+      机器整理/未人工复核。下列证据事实由确定性证据门禁接受，可打开原文定位复查；是否精选由独立管理决定。
+    </aside>
+
     <Skeleton
       v-if="status === 'idle' || status === 'pending'"
       :lines="8"
@@ -244,6 +248,24 @@ function openEvidence(evidenceIds: string[]): void {
           产品发布不代表空域、适航、飞手和项目许可。
         </p>
         <p>仅供技术调研，不构成采购建议。</p>
+      </section>
+
+      <section
+        v-if="detail.ai_judgments?.length"
+        class="event-detail-page__ai-judgments"
+        aria-labelledby="ai-judgment-title"
+      >
+        <h2 id="ai-judgment-title">AI 判断（未验证）</h2>
+        <p>这些候选未通过证据事实门禁，不属于已验证事实，也不会进入普通摘要、搜索或日报。</p>
+        <article v-for="judgment in (detail.ai_judgments ?? [])" :key="judgment.id">
+          <h3>{{ judgment.field_name }}</h3>
+          <p>{{ judgment.value }}</p>
+          <dl>
+            <div><dt>模型置信度</dt><dd>{{ (judgment.confidence_bps / 100).toFixed(2) }}%</dd></div>
+            <div><dt>门禁规则</dt><dd>{{ judgment.rule_version }}</dd></div>
+            <div><dt>未通过原因</dt><dd>{{ judgment.reason_codes.join('、') }}</dd></div>
+          </dl>
+        </article>
       </section>
 
       <section
@@ -371,6 +393,21 @@ function openEvidence(evidenceIds: string[]): void {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
+}
+
+.event-detail-page__ai-judgments {
+  display: grid;
+  gap: var(--spacing-3);
+  padding: var(--spacing-5);
+  background: var(--color-surfaceMuted);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.event-detail-page__ai-judgments article {
+  padding: var(--spacing-4);
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
 }
 
 .event-detail-page__claim-list {

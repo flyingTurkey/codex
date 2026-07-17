@@ -16,6 +16,8 @@ from srbg_contracts import (
     AbstractAvailability,
     AiAssistance,
     AiEquipmentTypeSummary,
+    AiJudgmentEvidencePreview,
+    AiJudgmentPreview,
     AiReviewTrace,
     Channel,
     ClaimView,
@@ -72,6 +74,8 @@ from srbg_contracts import (
     ProductPermitStatus,
     PublicationRevisionState,
     PublicationStatus,
+    PublishedClaimV1,
+    PublishedEvidenceReferenceV1,
     RecommendedAction,
     RelevanceFactor,
     RelevanceSummary,
@@ -145,10 +149,7 @@ FROM score_set
 """
 _EVENT_SCORE_QUERY = (_SCORE_SELECT + _SCORE_QUERY_SUFFIX).format(
     identity_expression="COALESCE(binding.event_id, score_set.item_id)",
-    alias_join=(
-        "LEFT JOIN event_identity_binding binding "
-        "ON binding.item_id = score_set.item_id"
-    ),
+    alias_join=("LEFT JOIN event_identity_binding binding ON binding.item_id = score_set.item_id"),
 )
 _LEGACY_SCORE_QUERY = (_SCORE_SELECT + _SCORE_QUERY_SUFFIX).format(
     identity_expression="score_set.item_id",
@@ -1547,9 +1548,10 @@ class PostgresIntelligenceQueryService:
         detail = await self.get_item(item_id)
         async with self._engine.connect() as connection:
             identity = (
-                await connection.execute(
-                    text(
-                        """
+                (
+                    await connection.execute(
+                        text(
+                            """
                         SELECT event.id,event.event_type,
                                COALESCE(to_jsonb(event)->>'status','ACTIVE') AS status,
                                COALESCE(
@@ -1563,10 +1565,13 @@ class PostgresIntelligenceQueryService:
                           JOIN event ON event.id=binding.event_id
                          WHERE binding.item_id=:item_id
                         """
-                    ),
-                    {"item_id": item_id},
+                        ),
+                        {"item_id": item_id},
+                    )
                 )
-            ).mappings().first()
+                .mappings()
+                .first()
+            )
         if identity is None:
             raise IntelligenceNotFound("item has no canonical event identity")
         return EventSummary.model_validate(
@@ -1683,18 +1688,22 @@ class PostgresIntelligenceQueryService:
     async def get_event(self, event_id: UUID) -> EventDetail:
         async with self._engine.connect() as connection:
             identity = (
-                await connection.execute(
-                    text(
-                        "SELECT id,event_type,title, "
-                        "COALESCE(to_jsonb(event)->>'status','ACTIVE') AS status, "
-                        "COALESCE((to_jsonb(event)->>'canonical_event_id')::uuid,id) "
-                        "AS canonical_event_id, "
-                        "COALESCE((to_jsonb(event)->>'version')::integer,1) AS version "
-                        "FROM event WHERE id = :event_id"
-                    ),
-                    {"event_id": event_id},
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT id,event_type,title, "
+                            "COALESCE(to_jsonb(event)->>'status','ACTIVE') AS status, "
+                            "COALESCE((to_jsonb(event)->>'canonical_event_id')::uuid,id) "
+                            "AS canonical_event_id, "
+                            "COALESCE((to_jsonb(event)->>'version')::integer,1) AS version "
+                            "FROM event WHERE id = :event_id"
+                        ),
+                        {"event_id": event_id},
+                    )
                 )
-            ).mappings().first()
+                .mappings()
+                .first()
+            )
             if identity is not None and identity["status"] == EventStatus.SPLIT:
                 child_ids = list(
                     await connection.scalars(
@@ -2065,6 +2074,54 @@ class PostgresIntelligenceQueryService:
 
     async def _get_generic_event(self, event_id: UUID) -> EventDetail:
         async with self._engine.connect() as connection:
+            personal = (
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT event.id,event.event_type,event.title,event.occurred_at,
+                              event.region_name,event.project_name,projection.item_id,
+                              projection.evidence_facts,item.original_url,item.review_status,
+                              item.source_published_at,source.name AS source_name
+                            FROM event
+                            JOIN event_identity_binding binding ON binding.event_id=event.id
+                            JOIN personal_content_projection projection
+                              ON projection.item_id=binding.item_id AND projection.visible
+                            JOIN intelligence_item item ON item.id=projection.item_id
+                            JOIN source ON source.id=item.source_id
+                            WHERE event.id=:event_id AND event.confirmation_status='CONFIRMED'
+                            """
+                        ),
+                        {"event_id": event_id},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            if personal is not None:
+                judgment_rows = list(
+                    (
+                        await connection.execute(
+                            text(
+                                """
+                                SELECT judgment.id,judgment.document_version_id,
+                                  judgment.field_name,judgment.candidate_value,
+                                  judgment.confidence_bps,judgment.attribution,
+                                  judgment.reason_codes,judgment.rule_version,
+                                  evidence.id AS evidence_id,evidence.excerpt,
+                                  evidence.excerpt_sha256,evidence.locator
+                                FROM ai_judgment judgment
+                                LEFT JOIN ai_judgment_evidence evidence
+                                  ON evidence.judgment_id=judgment.id
+                                WHERE judgment.item_id=:item_id AND judgment.status='CURRENT'
+                                ORDER BY judgment.created_at,judgment.id,evidence.id
+                                """
+                            ),
+                            {"item_id": personal["item_id"]},
+                        )
+                    ).mappings()
+                )
+                return _personal_event_projection(personal, judgment_rows)
             event = (
                 (
                     await connection.execute(
@@ -3807,6 +3864,111 @@ async def _paper_detail(connection: AsyncConnection, row: RowMapping) -> PaperDe
 
 def _none_for_all(value: str | None) -> str | None:
     return None if value in {None, "", "all"} else value
+
+
+def _personal_event_projection(
+    row: RowMapping,
+    judgment_rows: list[RowMapping],
+) -> EventDetail:
+    facts = list(row["evidence_facts"] or [])
+    claims: list[PublishedClaimV1] = []
+    evidence: list[PublishedEvidenceReferenceV1] = []
+    seen_evidence: set[UUID] = set()
+    for fact in facts:
+        refs = list(fact.get("evidence") or [])
+        ids = [UUID(str(ref["evidence_id"])) for ref in refs]
+        claims.append(
+            PublishedClaimV1(
+                claim_id=UUID(str(fact["claim_id"])),
+                field_name=str(fact["field_name"]),
+                value=(
+                    fact["value"]
+                    if isinstance(fact["value"], str)
+                    else json.dumps(fact["value"], ensure_ascii=False)
+                ),
+                evidence_ids=ids,
+                fact_kind="EVIDENCE_FACT",
+            )
+        )
+        for ref, evidence_id in zip(refs, ids, strict=True):
+            if evidence_id in seen_evidence:
+                continue
+            seen_evidence.add(evidence_id)
+            evidence.append(
+                PublishedEvidenceReferenceV1(
+                    evidence_id=evidence_id,
+                    locator=str(ref["locator"]),
+                    content_sha256=str(ref["excerpt_sha256"]),
+                )
+            )
+    grouped: dict[UUID, dict[str, Any]] = {}
+    for judgment in judgment_rows:
+        judgment_id = cast(UUID, judgment["id"])
+        value = grouped.setdefault(
+            judgment_id,
+            {
+                "row": judgment,
+                "evidence": [],
+            },
+        )
+        if judgment["evidence_id"] is not None:
+            value["evidence"].append(
+                AiJudgmentEvidencePreview(
+                    evidence_id=judgment["evidence_id"],
+                    excerpt=judgment["excerpt"],
+                    excerpt_sha256=judgment["excerpt_sha256"],
+                    locator=judgment["locator"],
+                )
+            )
+    judgments = [
+        AiJudgmentPreview(
+            id=judgment_id,
+            document_version_id=value["row"]["document_version_id"],
+            field_name=value["row"]["field_name"],
+            value=(
+                value["row"]["candidate_value"]
+                if isinstance(value["row"]["candidate_value"], str)
+                else json.dumps(value["row"]["candidate_value"], ensure_ascii=False)
+            ),
+            confidence_bps=value["row"]["confidence_bps"],
+            attribution=value["row"]["attribution"],
+            reason_codes=list(value["row"]["reason_codes"]),
+            rule_version=value["row"]["rule_version"],
+            evidence=value["evidence"],
+        )
+        for judgment_id, value in grouped.items()
+    ]
+    return EventDetail(
+        id=row["id"],
+        title=row["title"],
+        event_type=row["event_type"],
+        project_name=row["project_name"],
+        occurred_at=row["occurred_at"],
+        region=row["region_name"],
+        confirmed_facts=[],
+        unverified_facts=[],
+        timeline=EventTimeline(
+            event_id=row["id"],
+            items=[
+                EventItem(
+                    item_id=row["item_id"],
+                    title=row["title"],
+                    source_name=row["source_name"],
+                    source_published_at=row["source_published_at"],
+                    original_url=row["original_url"],
+                    review_status=row["review_status"],
+                    publication_revision_id=None,
+                    evidence_count=len(evidence),
+                )
+            ],
+        ),
+        relations=[],
+        similar_scenario_tags=[],
+        prevention_measure_tags=[],
+        claims=claims,
+        evidence=evidence,
+        ai_judgments=judgments,
+    )
 
 
 async def _claims_and_evidence(

@@ -198,7 +198,10 @@ async function decide(action: 'APPROVE' | 'REJECT'): Promise<void> {
       </section>
 
       <section class="review-detail__claims">
-        <h2>{{ isSafetyCase || isClaimReview ? '候选事实逐项审核' : '规则解析字段' }}</h2>
+        <h2>{{ isClaimReview ? '历史 Claim 记录（只读）' : isSafetyCase ? '候选事实逐项审核' : '规则解析字段' }}</h2>
+        <p v-if="isClaimReview" role="status" class="review-detail__field-rule">
+          PERS-06 后不再创建或处理 Claim 人工审核任务；该历史记录仅为审计保留。
+        </p>
         <p v-if="isSafetyCase || isClaimReview" class="review-detail__field-rule">
           原因、责任、伤亡和损失必须逐字段核对正式证据。提交人不得审批自己提交的安全案例。
         </p>
@@ -235,7 +238,7 @@ async function decide(action: 'APPROVE' | 'REJECT'): Promise<void> {
             </section>
 
             <fieldset
-              v-if="claim.decision_status === 'PENDING'"
+              v-if="claim.decision_status === 'PENDING' && !isClaimReview"
               class="review-detail__claim-decision"
               :disabled="claimSubmittingId === claim.id"
             >

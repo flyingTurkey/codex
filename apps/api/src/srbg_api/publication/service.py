@@ -55,9 +55,7 @@ class PublicationTransaction(Protocol):
 class PublicationRepository(Protocol):
     async def close(self) -> None: ...
 
-    async def build_internal_projection(
-        self, *, actor_id: UUID, generated_at: datetime
-    ) -> Any: ...
+    async def build_internal_projection(self, *, actor_id: UUID, generated_at: datetime) -> Any: ...
 
     async def internal_projection_metrics(self) -> dict[str, float]: ...
 
@@ -132,6 +130,8 @@ class PublicationRepository(Protocol):
     ) -> UUID: ...
 
     async def process_outbox_once(self, *, processed_at: datetime) -> bool: ...
+
+    async def process_personal_content_once(self, *, processed_at: datetime) -> bool: ...
 
     async def process_projection_invalidation_once(
         self,
@@ -255,9 +255,7 @@ class PublicationService:
     ) -> UUID:
         if len(set(event_ids)) != len(event_ids) or not event_ids:
             raise PublicationDenied(("EVENT_IDENTITY_TARGETS_INVALID",))
-        if operation == "MERGE" and (
-            len(event_ids) < 2 or canonical_event_id not in event_ids
-        ):
+        if operation == "MERGE" and (len(event_ids) < 2 or canonical_event_id not in event_ids):
             raise PublicationDenied(("EVENT_MERGE_CANONICAL_INVALID",))
         if operation == "SPLIT" and (len(event_ids) < 2 or not allocations):
             raise PublicationDenied(("EVENT_SPLIT_ALLOCATION_REQUIRED",))
@@ -453,6 +451,11 @@ class PublicationService:
         """The publisher worker enters version lifecycle changes through this service only."""
         return await self._repository.process_outbox_once(processed_at=self._now())
 
+    async def process_personal_content_once(self) -> bool:
+        """Write the minimal personal projection through the sole publisher boundary."""
+
+        return await self._repository.process_personal_content_once(processed_at=self._now())
+
     async def process_projection_invalidation_once(
         self,
         *,
@@ -501,6 +504,10 @@ class PublicationService:
         reason: str,
         reviewer_id: UUID,
     ) -> None:
+        if candidate_kind == "CLAIM":
+            lookup = getattr(self._repository, "is_ai_claim_candidate", None)
+            if lookup is not None and await lookup(candidate_id):
+                raise PublicationDenied(("PERS06_LEGACY_CLAIM_READ_ONLY",))
         await self._repository.decide_candidate(
             candidate_kind=candidate_kind,
             candidate_id=candidate_id,

@@ -109,6 +109,127 @@
       "title": "AiEquipmentTypeSummary",
       "type": "object"
     },
+    "AiJudgmentEvidencePreview": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence_id": {
+          "format": "uuid",
+          "title": "Evidence Id",
+          "type": "string"
+        },
+        "excerpt": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Excerpt",
+          "type": "string"
+        },
+        "excerpt_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Excerpt Sha256",
+          "type": "string"
+        },
+        "locator": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Locator",
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidence_id",
+        "excerpt",
+        "excerpt_sha256",
+        "locator"
+      ],
+      "title": "AiJudgmentEvidencePreview",
+      "type": "object"
+    },
+    "AiJudgmentPreview": {
+      "additionalProperties": false,
+      "properties": {
+        "attribution": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attribution"
+        },
+        "confidence_bps": {
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Confidence Bps",
+          "type": "integer"
+        },
+        "document_version_id": {
+          "format": "uuid",
+          "title": "Document Version Id",
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/AiJudgmentEvidencePreview"
+          },
+          "maxItems": 100,
+          "title": "Evidence",
+          "type": "array"
+        },
+        "field_name": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Field Name",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "reason_codes": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "minItems": 1,
+          "title": "Reason Codes",
+          "type": "array"
+        },
+        "rule_version": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Rule Version",
+          "type": "string"
+        },
+        "status": {
+          "const": "UNVERIFIED_AI_JUDGMENT",
+          "default": "UNVERIFIED_AI_JUDGMENT",
+          "title": "Status",
+          "type": "string"
+        },
+        "value": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "document_version_id",
+        "field_name",
+        "value",
+        "confidence_bps",
+        "reason_codes",
+        "rule_version"
+      ],
+      "title": "AiJudgmentPreview",
+      "type": "object"
+    },
     "Channel": {
       "enum": [
         "DIGITAL",
@@ -999,6 +1120,12 @@
           "minItems": 1,
           "title": "Evidence Ids",
           "type": "array"
+        },
+        "fact_kind": {
+          "const": "EVIDENCE_FACT",
+          "default": "EVIDENCE_FACT",
+          "title": "Fact Kind",
+          "type": "string"
         },
         "field_name": {
           "maxLength": 100,
@@ -2182,6 +2309,14 @@
   },
   "additionalProperties": false,
   "properties": {
+    "ai_judgments": {
+      "items": {
+        "$ref": "#/$defs/AiJudgmentPreview"
+      },
+      "maxItems": 500,
+      "title": "Ai Judgments",
+      "type": "array"
+    },
     "canonical_event_id": {
       "anyOf": [
         {

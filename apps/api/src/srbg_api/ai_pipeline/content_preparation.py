@@ -139,6 +139,7 @@ class AiContentPreparationService:
                 run_id,
                 self.build_request(AiStep.EXTRACT, extract_input),
             )
+            await self._repository.transition(run_id, "EVIDENCE_GATING")
             candidate_count = await self._repository.materialize(
                 document,
                 classification_response.output,
@@ -150,7 +151,7 @@ class AiContentPreparationService:
         if candidate_count < 1:
             await self._repository.fail(run_id, "DEGRADED", "NO_VALID_CANDIDATES")
             raise RuntimeError("NO_VALID_CANDIDATES")
-        await self._repository.transition(run_id, "WAITING_CLAIM_REVIEW")
+        await self._repository.transition(run_id, "SUCCEEDED")
         return PreparationResult(
             run_id=run_id,
             input_text=extract_input.text,

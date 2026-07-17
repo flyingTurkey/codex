@@ -657,6 +657,7 @@ async def _start_ai_content_preparation(run_id: UUID) -> dict[str, object]:
         if scan.detected:
             await repository.fail(run_id, "DEGRADED", "PROMPT_INJECTION_R4")
             return {"run_id": str(run_id), "status": "DEGRADED"}
+        local_fact_count = await repository.materialize_local(document)
         await repository.transition(run_id, "CLASSIFYING")
         await _dispatch_ai_attempt(
             repository,
@@ -668,9 +669,17 @@ async def _start_ai_content_preparation(run_id: UUID) -> dict[str, object]:
             network_retries=0,
             repair_used=False,
         )
-        return {"run_id": str(run_id), "status": "CLASSIFYING"}
+        return {
+            "run_id": str(run_id),
+            "status": "CLASSIFYING",
+            "local_fact_count": local_fact_count,
+        }
     except Exception as error:
-        await repository.fail(run_id, "FAILED", _safe_ai_error_code(error))
+        code = _safe_ai_error_code(error)
+        if code in {"MODEL_DISABLED", "PROVIDER_BALANCE_INSUFFICIENT"}:
+            await repository.fail(run_id, "DEGRADED", code)
+            return {"run_id": str(run_id), "status": "DEGRADED", "failure_code": code}
+        await repository.fail(run_id, "FAILED", code)
         raise
     finally:
         await repository.close()
@@ -721,6 +730,7 @@ async def _handle_ai_content_result(
                 )
                 return {"run_id": str(run_id), "status": "EXTRACTING"}
             classification = await repository.successful_output(run_id, AiStep.CLASSIFY)
+            await repository.transition(run_id, "EVIDENCE_GATING")
             candidates = await repository.materialize(
                 document,
                 classification,
@@ -728,10 +738,10 @@ async def _handle_ai_content_result(
             )
             if candidates < 1:
                 raise RuntimeError("NO_VALID_CANDIDATES")
-            await repository.transition(run_id, "WAITING_CLAIM_REVIEW")
+            await repository.transition(run_id, "SUCCEEDED")
             return {
                 "run_id": str(run_id),
-                "status": "WAITING_CLAIM_REVIEW",
+                "status": "SUCCEEDED",
                 "candidate_count": candidates,
             }
 
@@ -880,6 +890,7 @@ def _safe_ai_error_code(error: Exception) -> str:
     if value in {
         "AI01_PILOT_SCOPE_DENIED",
         "MODEL_DISABLED",
+        "PROVIDER_BALANCE_INSUFFICIENT",
         "PROMPT_INJECTION_R4",
         "NO_VALID_CANDIDATES",
     }:
@@ -1383,8 +1394,14 @@ async def _drain_publication_outbox() -> dict[str, int]:
     )
     processed = 0
     try:
-        while processed < 50 and await service.process_outbox_once():
-            processed += 1
+        while processed < 50:
+            if await service.process_personal_content_once():
+                processed += 1
+                continue
+            if await service.process_outbox_once():
+                processed += 1
+                continue
+            break
         return {"processed": processed}
     finally:
         await service.close()

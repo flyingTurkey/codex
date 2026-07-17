@@ -1,3 +1,28 @@
+export type Attribution = string | null
+export type ConfidenceBps = number
+export type DocumentVersionId = string
+export type EvidenceId = string
+export type Excerpt = string
+export type ExcerptSha256 = string
+export type Locator = string
+/**
+ * @maxItems 100
+ */
+export type Evidence = AiJudgmentEvidencePreview[]
+export type FieldName = string
+export type Id = string
+/**
+ * @minItems 1
+ * @maxItems 30
+ */
+export type ReasonCodes = string[]
+export type RuleVersion = string
+export type Status = 'UNVERIFIED_AI_JUDGMENT'
+export type Value = string
+/**
+ * @maxItems 500
+ */
+export type AiJudgments = AiJudgmentPreview[]
 export type CanonicalEventId = string | null
 export type ClaimId = string
 /**
@@ -5,8 +30,9 @@ export type ClaimId = string
  * @maxItems 100
  */
 export type EvidenceIds = string[]
-export type FieldName = string
-export type Value = string
+export type FactKind = 'EVIDENCE_FACT'
+export type FieldName1 = string
+export type Value1 = string
 /**
  * @maxItems 500
  */
@@ -31,9 +57,9 @@ export type SafetyCaseFactField =
 export type Label = string
 export type ReviewedAt = string
 export type SourceItemId = string
-export type Status = 'CONFIRMED'
+export type Status1 = 'CONFIRMED'
 export type Unit = string | null
-export type Value1 = string | number | string[]
+export type Value2 = string | number | string[]
 export type ConfirmedFacts = ConfirmedFact[]
 export type DocumentId = string
 export type OriginalUrl = string
@@ -54,14 +80,14 @@ export type EventType =
   'SAFETY_INCIDENT' | 'REGULATION_CHANGE' | 'DIGITAL_PROJECT' | 'RESEARCH_RESULT' | 'PRODUCT_RELEASE'
 export type EventVersion = number
 export type ContentSha256 = string
-export type EvidenceId = string
-export type Locator = string
+export type EvidenceId1 = string
+export type Locator1 = string
 /**
  * @maxItems 500
  */
-export type Evidence = PublishedEvidenceReferenceV1[]
+export type Evidence1 = PublishedEvidenceReferenceV1[]
 export type HazardType = string | null
-export type Id = string
+export type Id1 = string
 export type IncidentStatus =
   | 'UNVERIFIED_LEAD'
   | 'INITIAL_OFFICIAL_REPORT'
@@ -89,7 +115,7 @@ export type RectificationHasOpenIssues = boolean | null
 export type Region = string | null
 export type EventId = string
 export type FromItemId = string
-export type Id1 = string
+export type Id2 = string
 export type EventRelation = 'FOLLOW_UP' | 'INVESTIGATES' | 'PENALIZES' | 'RECTIFIES' | 'CORRECTS'
 export type ReviewedAt1 = string
 export type ReviewedBy = string
@@ -109,7 +135,7 @@ export type Features = ScoreFeature[]
 export type Overridden = boolean
 export type OverrideReason = string | null
 export type RawScore = number
-export type RuleVersion = 'scoring-v1.0.0'
+export type RuleVersion1 = 'scoring-v1.0.0'
 export type Score = number
 export type SimilarScenarioTag =
   | 'HIGHWAY_OPERATION_GEOLOGICAL_RISK'
@@ -146,7 +172,7 @@ export type EventVersion1 = number
 export type FactReviewStatus = 'PENDING_HUMAN_REVIEW' | 'HUMAN_REVIEWED'
 export type FirstDiscoveredAt = string
 export type Generation = number
-export type Id2 = string
+export type Id3 = string
 export type OneSentenceFact = string | null
 export type OriginalUrl1 = string
 /**
@@ -240,7 +266,7 @@ export type Points1 = number
  * @maxItems 3
  */
 export type Factors = RelevanceFactor[]
-export type RuleVersion1 = 'relevance-v1.0.0'
+export type RuleVersion2 = 'relevance-v1.0.0'
 export type Score1 = number
 export type DigitalCaseSourceNature = 'GOVERNMENT_CASE_COLLECTION' | 'ENTERPRISE_SELF_REPORT'
 export type SrbgRelationship = string
@@ -356,11 +382,12 @@ export type EvidenceIds2 = string[]
 export type Label3 = string
 export type Reason = string
 export type SourceItemId1 = string
-export type Status1 = 'PENDING_REVIEW' | 'CONFLICTING'
-export type Value2 = null
+export type Status2 = 'PENDING_REVIEW' | 'CONFLICTING'
+export type Value3 = null
 export type UnverifiedFacts = UnverifiedFact[]
 
 export interface EventDetail {
+  ai_judgments?: AiJudgments
   canonical_event_id?: CanonicalEventId
   claims?: Claims
   confirmed_facts: ConfirmedFacts
@@ -369,9 +396,9 @@ export interface EventDetail {
   event_status?: EventStatus
   event_type: EventType
   event_version?: EventVersion
-  evidence?: Evidence
+  evidence?: Evidence1
   hazard_type?: HazardType
-  id: Id
+  id: Id1
   incident_status?: IncidentStatus | null
   independent_source_count?: IndependentSourceCount
   occurred_at?: OccurredAt
@@ -391,11 +418,30 @@ export interface EventDetail {
   type_detail?: TypeDetail
   unverified_facts: UnverifiedFacts
 }
+export interface AiJudgmentPreview {
+  attribution?: Attribution
+  confidence_bps: ConfidenceBps
+  document_version_id: DocumentVersionId
+  evidence?: Evidence
+  field_name: FieldName
+  id: Id
+  reason_codes: ReasonCodes
+  rule_version: RuleVersion
+  status?: Status
+  value: Value
+}
+export interface AiJudgmentEvidencePreview {
+  evidence_id: EvidenceId
+  excerpt: Excerpt
+  excerpt_sha256: ExcerptSha256
+  locator: Locator
+}
 export interface PublishedClaimV1 {
   claim_id: ClaimId
   evidence_ids: EvidenceIds
-  field_name: FieldName
-  value: Value
+  fact_kind?: FactKind
+  field_name: FieldName1
+  value: Value1
 }
 export interface ConfirmedFact {
   claim_id: ClaimId1
@@ -404,9 +450,9 @@ export interface ConfirmedFact {
   label: Label
   reviewed_at: ReviewedAt
   source_item_id: SourceItemId
-  status?: Status
+  status?: Status1
   unit?: Unit
-  value: Value1
+  value: Value2
 }
 export interface PublishedDocumentReferenceV1 {
   document_id: DocumentId
@@ -418,13 +464,13 @@ export interface PublishedDocumentReferenceV1 {
 }
 export interface PublishedEvidenceReferenceV1 {
   content_sha256: ContentSha256
-  evidence_id: EvidenceId
-  locator: Locator
+  evidence_id: EvidenceId1
+  locator: Locator1
 }
 export interface EventRelationView {
   event_id: EventId
   from_item_id: FromItemId
-  id: Id1
+  id: Id2
   relation_type: EventRelation
   reviewed_at: ReviewedAt1
   reviewed_by: ReviewedBy
@@ -447,7 +493,7 @@ export interface ScoreDimensionSummary {
   overridden?: Overridden
   override_reason?: OverrideReason
   raw_score: RawScore
-  rule_version: RuleVersion
+  rule_version: RuleVersion1
   score: Score
 }
 export interface ScoreFeature {
@@ -472,7 +518,7 @@ export interface PublishedEventSummaryV1 {
   fact_review_status: FactReviewStatus
   first_discovered_at: FirstDiscoveredAt
   generation: Generation
-  id: Id2
+  id: Id3
   one_sentence_fact?: OneSentenceFact
   original_url: OriginalUrl1
   projection_level: ProjectionLevel
@@ -529,7 +575,7 @@ export interface DigitalCaseTypeSummary {
 }
 export interface RelevanceSummary {
   factors: Factors
-  rule_version: RuleVersion1
+  rule_version: RuleVersion2
   score: Score1
 }
 export interface RelevanceFactor {
@@ -636,6 +682,6 @@ export interface UnverifiedFact {
   label: Label3
   reason: Reason
   source_item_id: SourceItemId1
-  status: Status1
-  value?: Value2
+  status: Status2
+  value?: Value3
 }

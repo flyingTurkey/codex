@@ -17,6 +17,15 @@ from srbg_api.ai_pipeline.content_preparation import (
     PreparationDocument,
 )
 from srbg_api.ai_pipeline.contracts import AiStep, ModelResponse
+from srbg_api.ai_pipeline.evidence_gate import (
+    AiJudgment,
+    AutomaticEvidenceCandidate,
+    AutomaticEvidenceContext,
+    AutomaticEvidenceGate,
+    EvidenceFact,
+    EvidenceGateEvidence,
+)
+from srbg_api.ai_pipeline.local_evidence import extract_local_evidence_candidates
 from srbg_api.ai_pipeline.preparation import DocumentBlock
 from srbg_api.document_vault.storage import S3ObjectStore
 from srbg_api.identifiers import uuid7
@@ -55,16 +64,6 @@ class PostgresAiPreparationRepository:
             )
             if promoted != run_id:
                 raise RuntimeError("AI01_SHADOW_AUTHORITY_INVALID")
-            enabled = await connection.scalar(
-                text(
-                    "SELECT EXISTS(SELECT 1 FROM ai_provider_activation activation "
-                    "WHERE activation.provider='deepseek' AND activation.environment=:environment "
-                    "AND activation.active ORDER BY activation.created_at DESC LIMIT 1)"
-                ),
-                {"environment": self._environment},
-            )
-            if not enabled:
-                raise RuntimeError("MODEL_DISABLED")
             await connection.execute(
                 text(
                     "UPDATE ai_pipeline_run SET status='PREPARING' WHERE id=:run_id "
@@ -73,11 +72,7 @@ class PostgresAiPreparationRepository:
                 {"run_id": run_id},
             )
             facts = (
-                (
-                    await connection.execute(text(_DOCUMENT_SQL), {"run_id": run_id})
-                )
-                .mappings()
-                .one()
+                (await connection.execute(text(_DOCUMENT_SQL), {"run_id": run_id})).mappings().one()
             )
             blocks = await _load_blocks(connection, cast(UUID, facts["document_version_id"]))
         if not blocks:
@@ -89,9 +84,7 @@ class PostgresAiPreparationRepository:
             parsed = await asyncio.to_thread(self._parser.parse, content)
             await self._persist_parsed(cast(UUID, facts["document_version_id"]), parsed)
             async with self._engine.connect() as connection:
-                blocks = await _load_blocks(
-                    connection, cast(UUID, facts["document_version_id"])
-                )
+                blocks = await _load_blocks(connection, cast(UUID, facts["document_version_id"]))
         return PreparationDocument(
             run_id=run_id,
             document_version_id=str(facts["document_version_id"]),
@@ -102,9 +95,7 @@ class PostgresAiPreparationRepository:
             blocks=tuple(blocks),
         )
 
-    async def record_security(
-        self, document: PreparationDocument, detected: bool
-    ) -> None:
+    async def record_security(self, document: PreparationDocument, detected: bool) -> None:
         joined = "\n".join(block.text for block in document.blocks)
         async with self._engine.begin() as connection:
             await connection.execute(
@@ -127,7 +118,8 @@ class PostgresAiPreparationRepository:
         allowed_previous = {
             "CLASSIFYING": "PREPARING",
             "EXTRACTING": "CLASSIFYING",
-            "WAITING_CLAIM_REVIEW": "EXTRACTING",
+            "EVIDENCE_GATING": "EXTRACTING",
+            "SUCCEEDED": "EVIDENCE_GATING",
         }
         previous = allowed_previous.get(status)
         if previous is None:
@@ -177,16 +169,12 @@ class PostgresAiPreparationRepository:
             )
         return cast(UUID, row["reservation_id"])
 
-    async def settle(
-        self, reservation: object, response: ModelResponse | None
-    ) -> None:
+    async def settle(self, reservation: object, response: ModelResponse | None) -> None:
         if not isinstance(reservation, UUID):
             raise ValueError("budget reservation identifier is invalid")
         async with self._engine.begin() as connection:
             await connection.execute(
-                text(
-                    "SELECT settle_ai_budget(:id,:cost,:status,:now)"
-                ),
+                text("SELECT settle_ai_budget(:id,:cost,:status,:now)"),
                 {
                     "id": reservation,
                     "cost": response.cost_microusd if response is not None else 0,
@@ -311,9 +299,10 @@ class PostgresAiPreparationRepository:
         classification: dict[str, Any],
         extraction: dict[str, Any],
     ) -> int:
-        if classification.get("item_type") != "DIGITAL_CASE" or classification.get(
-            "channel"
-        ) != "DIGITAL":
+        if (
+            classification.get("item_type") != "DIGITAL_CASE"
+            or classification.get("channel") != "DIGITAL"
+        ):
             raise RuntimeError("AI01_CLASSIFICATION_OUT_OF_SCOPE")
         now = datetime.now(UTC)
         async with self._engine.begin() as connection:
@@ -354,6 +343,14 @@ class PostgresAiPreparationRepository:
                         text(_INSERT_DIGITAL_PROFILE_SQL),
                         {"item_id": item_id, "now": now},
                     )
+            await _ensure_personal_event(
+                connection,
+                item_id=item_id,
+                item_type=str(classification["item_type"]),
+                title=document.title,
+                actor_id=_SYSTEM_ACTOR,
+                now=now,
+            )
             step_run_id = await connection.scalar(
                 text(
                     "SELECT id FROM ai_step_run WHERE pipeline_run_id=:run_id "
@@ -364,37 +361,35 @@ class PostgresAiPreparationRepository:
             if not isinstance(step_run_id, UUID):
                 raise RuntimeError("EXTRACTION_STEP_MISSING")
             evidence_by_id = {entry["evidence_id"]: entry for entry in extraction["evidence"]}
-            for candidate in extraction["claims"]:
-                claim_id = uuid7()
-                result = await connection.execute(
-                    text(_INSERT_CLAIM_SQL),
-                    {
-                        "id": claim_id,
-                        "item_id": item_id,
-                        "version_id": facts["version_id"],
-                        "claim_type": candidate["field"],
-                        "subject": f"model:{candidate['claim_id']}"[:500],
-                        "predicate": candidate["field"],
-                        "value": json.dumps(candidate["value"], ensure_ascii=False),
-                        "now": now,
-                    },
-                )
-                if result.rowcount != 1:
-                    continue
-                await connection.execute(
+            prompt_risk = bool(
+                await connection.scalar(
                     text(
-                        "INSERT INTO ai_candidate_claim_origin(claim_id,step_run_id,"
-                        "model_claim_id,created_at) VALUES(:claim_id,:step_run_id,:model_id,:now)"
+                        "SELECT detected FROM ai_security_scan "
+                        "WHERE document_version_id=:version_id "
+                        "ORDER BY created_at DESC,id DESC LIMIT 1"
                     ),
-                    {
-                        "claim_id": claim_id,
-                        "step_run_id": step_run_id,
-                        "model_id": candidate["claim_id"],
-                        "now": now,
-                    },
+                    {"version_id": facts["version_id"]},
                 )
+            )
+            unresolved_fields = frozenset(
+                str(value)
+                for value in await connection.scalars(
+                    text(
+                        "SELECT field_name FROM claim_conflict WHERE source_item_id=:item_id "
+                        "AND status='PENDING_REVIEW'"
+                    ),
+                    {"item_id": item_id},
+                )
+            )
+            gate = AutomaticEvidenceGate()
+            accepted_count = 0
+            judgment_count = 0
+            for candidate in extraction["claims"]:
+                candidate_evidence: dict[UUID, dict[str, Any]] = {}
                 for evidence_id in candidate["evidence_ids"]:
-                    evidence = evidence_by_id[evidence_id]
+                    evidence = evidence_by_id.get(evidence_id)
+                    if evidence is None:
+                        continue
                     block = (
                         (
                             await connection.execute(
@@ -407,51 +402,313 @@ class PostgresAiPreparationRepository:
                     )
                     start = str(block["normalized_text"]).find(evidence["excerpt"])
                     if start < 0:
-                        raise RuntimeError("EVIDENCE_EXCERPT_MISMATCH")
+                        continue
+                    persisted_id = uuid7()
+                    candidate_evidence[persisted_id] = {
+                        "candidate": evidence,
+                        "block": block,
+                        "start": start,
+                    }
+                attribution = (
+                    document.source_name
+                    if candidate.get("claim_status") == "REPORTED_CLAIM"
+                    else None
+                )
+                gate_candidate = AutomaticEvidenceCandidate(
+                    candidate_id=str(candidate["claim_id"]),
+                    field=str(candidate["field"]),
+                    value=candidate["value"],
+                    confidence_bps=round(float(candidate["confidence"]) * 10_000),
+                    evidence_ids=list(candidate_evidence),
+                    attribution=attribution,
+                    origin="MODEL",
+                )
+                gate_context = AutomaticEvidenceContext(
+                    document_version_id=facts["version_id"],
+                    evidence={
+                        evidence_uuid: EvidenceGateEvidence(
+                            document_version_id=facts["version_id"],
+                            excerpt=row["candidate"]["excerpt"],
+                            active=True,
+                        )
+                        for evidence_uuid, row in candidate_evidence.items()
+                    },
+                    official_first_party=str(document.source_code).startswith("GOV-"),
+                    unresolved_conflict_fields=unresolved_fields,
+                    prompt_injection_risk=prompt_risk,
+                    evaluated_at=now,
+                )
+                decision = gate.evaluate(gate_candidate, gate_context)
+                if isinstance(decision, AiJudgment):
+                    judgment_count += 1
+                    judgment_id = uuid7()
                     await connection.execute(
-                        text(_INSERT_EVIDENCE_SQL),
+                        text(_INSERT_AI_JUDGMENT_SQL),
                         {
-                            "id": uuid7(),
-                            "claim_id": claim_id,
+                            "id": judgment_id,
+                            "item_id": item_id,
                             "version_id": facts["version_id"],
-                            "paragraph_id": str(block["block_id"]),
-                            "start": start,
-                            "end": start + len(evidence["excerpt"]),
-                            "excerpt": evidence["excerpt"],
-                            "excerpt_hash": sha256(evidence["excerpt"].encode()).hexdigest(),
-                            "url": document.canonical_url,
-                            "page": block["page_number"],
-                            "block_id": block["block_id"],
-                            "x0": block["x0_mpt"],
-                            "y0": block["y0_mpt"],
-                            "x1": block["x1_mpt"],
-                            "y1": block["y1_mpt"],
-                            "confidence": block["confidence_bps"],
+                            "step_run_id": step_run_id,
+                            "candidate_id": candidate["claim_id"],
+                            "field": candidate["field"],
+                            "value": json.dumps(candidate["value"], ensure_ascii=False),
+                            "confidence": gate_candidate.confidence_bps,
+                            "attribution": attribution,
+                            "reasons": list(decision.reason_codes),
                             "now": now,
                         },
                     )
-            candidate_total = await connection.scalar(
-                text(
-                    "SELECT count(*) FROM ai_candidate_claim_origin origin "
-                    "JOIN claim ON claim.id=origin.claim_id "
-                    "WHERE origin.step_run_id=:step_run_id AND claim.item_id=:item_id"
-                ),
-                {"step_run_id": step_run_id, "item_id": item_id},
-            )
-            total = int(candidate_total or 0)
-            if total:
-                await connection.execute(
-                    text(_INSERT_REVIEW_TASK_SQL),
+                    for evidence_uuid, row in candidate_evidence.items():
+                        await connection.execute(
+                            text(_INSERT_AI_JUDGMENT_EVIDENCE_SQL),
+                            {
+                                "id": evidence_uuid,
+                                "judgment_id": judgment_id,
+                                "version_id": facts["version_id"],
+                                "block_id": row["block"]["block_id"],
+                                "excerpt": row["candidate"]["excerpt"],
+                                "hash": sha256(row["candidate"]["excerpt"].encode()).hexdigest(),
+                                "locator": row["candidate"]["locator"]["value"],
+                                "now": now,
+                            },
+                        )
+                    continue
+                if not isinstance(decision, EvidenceFact):
+                    raise RuntimeError("AUTOMATIC_EVIDENCE_GATE_INVALID_RESULT")
+                claim_id = uuid7()
+                result = await connection.execute(
+                    text(_INSERT_CLAIM_SQL),
                     {
-                        "id": uuid7(),
+                        "id": claim_id,
                         "item_id": item_id,
                         "version_id": facts["version_id"],
-                        "policy_id": facts["policy_id"],
+                        "claim_type": candidate["field"],
+                        "subject": attribution or f"model:{candidate['claim_id']}"[:500],
+                        "predicate": candidate["field"],
+                        "value": json.dumps(candidate["value"], ensure_ascii=False),
+                        "now": now,
+                    },
+                )
+                if result.rowcount != 1:
+                    continue
+                accepted_count += 1
+                await connection.execute(
+                    text(
+                        "INSERT INTO ai_candidate_claim_origin("
+                        "claim_id,step_run_id,model_claim_id,created_at) "
+                        "VALUES(:claim_id,:step_run_id,:model_id,:now)"
+                    ),
+                    {
+                        "claim_id": claim_id,
+                        "step_run_id": step_run_id,
+                        "model_id": candidate["claim_id"],
+                        "now": now,
+                    },
+                )
+                for evidence_uuid, row in candidate_evidence.items():
+                    await connection.execute(
+                        text(_INSERT_EVIDENCE_SQL),
+                        {
+                            "id": evidence_uuid,
+                            "claim_id": claim_id,
+                            "version_id": facts["version_id"],
+                            "paragraph_id": str(row["block"]["block_id"]),
+                            "start": row["start"],
+                            "end": row["start"] + len(row["candidate"]["excerpt"]),
+                            "excerpt": row["candidate"]["excerpt"],
+                            "excerpt_hash": sha256(
+                                row["candidate"]["excerpt"].encode()
+                            ).hexdigest(),
+                            "url": document.canonical_url,
+                            "page": row["block"]["page_number"],
+                            "block_id": row["block"]["block_id"],
+                            "x0": row["block"]["x0_mpt"],
+                            "y0": row["block"]["y0_mpt"],
+                            "x1": row["block"]["x1_mpt"],
+                            "y1": row["block"]["y1_mpt"],
+                            "confidence": row["block"]["confidence_bps"],
+                            "now": now,
+                        },
+                    )
+                await connection.execute(
+                    text(_INSERT_AUTOMATIC_ACCEPTANCE_SQL),
+                    {
+                        "claim_id": claim_id,
+                        "version_id": facts["version_id"],
+                        "hash": decision.evidence_set_sha256,
                         "actor": _SYSTEM_ACTOR,
                         "now": now,
                     },
                 )
-            return total
+                await connection.execute(
+                    text(_INSERT_AUTOMATIC_FACT_STATE_SQL),
+                    {"claim_id": claim_id, "actor": _SYSTEM_ACTOR, "event_id": uuid7(), "now": now},
+                )
+            await connection.execute(
+                text(_INSERT_PERSONAL_CONTENT_OUTBOX_SQL),
+                {"id": uuid7(), "item_id": item_id, "version_id": facts["version_id"], "now": now},
+            )
+            return accepted_count + judgment_count
+
+    async def materialize_local(self, document: PreparationDocument) -> int:
+        """Persist bounded local facts before any provider call."""
+
+        candidates = extract_local_evidence_candidates(
+            title=document.title,
+            source_name=document.source_name,
+            blocks=document.blocks,
+        )
+        if not candidates:
+            return 0
+        now = datetime.now(UTC)
+        async with self._engine.begin() as connection:
+            await connection.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:key,0))"),
+                {"key": f"pers06-local:{document.document_version_id}"},
+            )
+            facts = (
+                (
+                    await connection.execute(
+                        text(_MATERIALIZATION_FACTS_SQL),
+                        {"version_id": UUID(document.document_version_id)},
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            item_id = facts["item_id"] or uuid7()
+            if facts["item_id"] is None:
+                await connection.execute(
+                    text(_INSERT_ITEM_SQL),
+                    {
+                        "id": item_id,
+                        "source_id": facts["source_id"],
+                        "document_id": facts["document_id"],
+                        "version_id": facts["version_id"],
+                        "item_type": "DIGITAL_CASE",
+                        "channel": "DIGITAL",
+                        "title": document.title,
+                        "url": document.canonical_url,
+                        "discovered_at": facts["first_discovered_at"],
+                        "actor": _SYSTEM_ACTOR,
+                        "now": now,
+                    },
+                )
+                await connection.execute(
+                    text(_INSERT_DIGITAL_PROFILE_SQL),
+                    {"item_id": item_id, "now": now},
+                )
+            await _ensure_personal_event(
+                connection,
+                item_id=item_id,
+                item_type="DIGITAL_CASE",
+                title=document.title,
+                actor_id=_SYSTEM_ACTOR,
+                now=now,
+            )
+            accepted = 0
+            gate = AutomaticEvidenceGate()
+            for local in candidates:
+                block = (
+                    (
+                        await connection.execute(
+                            text(_BLOCK_FACT_SQL),
+                            {"block_id": UUID(local.block_id)},
+                        )
+                    )
+                    .mappings()
+                    .one()
+                )
+                start = str(block["normalized_text"]).find(local.excerpt)
+                if start < 0:
+                    continue
+                evidence_id = uuid7()
+                gate_candidate = AutomaticEvidenceCandidate(
+                    candidate_id=local.candidate_id,
+                    field=local.field,
+                    value=local.value,
+                    confidence_bps=10_000,
+                    evidence_ids=[evidence_id],
+                    attribution=local.attribution,
+                    origin="LOCAL_RULE",
+                )
+                decision = gate.evaluate(
+                    gate_candidate,
+                    AutomaticEvidenceContext(
+                        document_version_id=facts["version_id"],
+                        evidence={
+                            evidence_id: EvidenceGateEvidence(
+                                document_version_id=facts["version_id"],
+                                excerpt=local.excerpt,
+                                active=True,
+                            )
+                        },
+                        official_first_party=str(document.source_code).startswith("GOV-"),
+                        unresolved_conflict_fields=frozenset(),
+                        prompt_injection_risk=False,
+                        evaluated_at=now,
+                    ),
+                )
+                if not isinstance(decision, EvidenceFact):
+                    continue
+                claim_id = uuid7()
+                inserted = await connection.execute(
+                    text(_INSERT_CLAIM_SQL),
+                    {
+                        "id": claim_id,
+                        "item_id": item_id,
+                        "version_id": facts["version_id"],
+                        "claim_type": local.field,
+                        "subject": local.attribution or f"local:{local.candidate_id}",
+                        "predicate": local.field,
+                        "value": json.dumps(local.value, ensure_ascii=False),
+                        "now": now,
+                    },
+                )
+                if inserted.rowcount != 1:
+                    continue
+                await connection.execute(
+                    text(_INSERT_EVIDENCE_SQL),
+                    {
+                        "id": evidence_id,
+                        "claim_id": claim_id,
+                        "version_id": facts["version_id"],
+                        "paragraph_id": str(block["block_id"]),
+                        "start": start,
+                        "end": start + len(local.excerpt),
+                        "excerpt": local.excerpt,
+                        "excerpt_hash": sha256(local.excerpt.encode()).hexdigest(),
+                        "url": document.canonical_url,
+                        "page": block["page_number"],
+                        "block_id": block["block_id"],
+                        "x0": block["x0_mpt"],
+                        "y0": block["y0_mpt"],
+                        "x1": block["x1_mpt"],
+                        "y1": block["y1_mpt"],
+                        "confidence": block["confidence_bps"],
+                        "now": now,
+                    },
+                )
+                await connection.execute(
+                    text(_INSERT_AUTOMATIC_ACCEPTANCE_SQL),
+                    {
+                        "claim_id": claim_id,
+                        "version_id": facts["version_id"],
+                        "hash": decision.evidence_set_sha256,
+                        "actor": _SYSTEM_ACTOR,
+                        "now": now,
+                    },
+                )
+                await connection.execute(
+                    text(_INSERT_AUTOMATIC_FACT_STATE_SQL),
+                    {"claim_id": claim_id, "actor": _SYSTEM_ACTOR, "event_id": uuid7(), "now": now},
+                )
+                accepted += 1
+            await connection.execute(
+                text(_INSERT_PERSONAL_CONTENT_OUTBOX_SQL),
+                {"id": uuid7(), "item_id": item_id, "version_id": facts["version_id"], "now": now},
+            )
+            return accepted
 
     async def successful_output(self, run_id: UUID, step: AiStep) -> dict[str, Any]:
         async with self._engine.connect() as connection:
@@ -485,15 +742,10 @@ class PostgresAiPreparationRepository:
                 },
             )
 
-    async def _persist_parsed(
-        self, document_version_id: UUID, parsed: ParsedPdfDocument
-    ) -> None:
+    async def _persist_parsed(self, document_version_id: UUID, parsed: ParsedPdfDocument) -> None:
         previews: dict[int, str] = {}
         for page in parsed.pages:
-            key = (
-                f"previews/{document_version_id}/{page.page_number}-"
-                f"{page.preview_sha256}.png"
-            )
+            key = f"previews/{document_version_id}/{page.page_number}-{page.preview_sha256}.png"
             await self._object_store.put_if_absent(key, page.preview_png, "image/png")
             previews[page.page_number] = key
         async with self._engine.begin() as connection:
@@ -553,13 +805,59 @@ class PostgresAiPreparationRepository:
         await self._engine.dispose()
 
 
+async def _ensure_personal_event(
+    connection: Any,
+    *,
+    item_id: UUID,
+    item_type: str,
+    title: str,
+    actor_id: UUID,
+    now: datetime,
+) -> UUID:
+    existing = await connection.scalar(
+        text("SELECT event_id FROM event_identity_binding WHERE item_id=:item_id"),
+        {"item_id": item_id},
+    )
+    if isinstance(existing, UUID):
+        return existing
+    event_type = {
+        "DIGITAL_CASE": "DIGITAL_PROJECT",
+        "JOURNAL_PAPER": "RESEARCH_RESULT",
+        "SAFETY_REGULATION": "REGULATION_CHANGE",
+        "SOFTWARE_PRODUCT": "PRODUCT_RELEASE",
+        "IOT_PRODUCT": "PRODUCT_RELEASE",
+        "LOW_ALTITUDE_EQUIPMENT": "PRODUCT_RELEASE",
+        "AI_EQUIPMENT": "PRODUCT_RELEASE",
+    }.get(item_type, "DIGITAL_PROJECT")
+    event_id = uuid7()
+    await connection.execute(
+        text(
+            "INSERT INTO event(id,event_type,title,subject_names,confirmation_status,"
+            "confirmed_by,confirmed_at,created_at,updated_at) VALUES("
+            ":id,:event_type,:title,'[]'::jsonb,'CONFIRMED',:actor,:now,:now,:now)"
+        ),
+        {"id": event_id, "event_type": event_type, "title": title, "actor": actor_id, "now": now},
+    )
+    await connection.execute(
+        text(
+            "INSERT INTO event_identity_binding(event_id,item_id,binding_kind,created_by,"
+            "created_at,rule_version,identity_key) VALUES(:event_id,:item_id,'ROUND14_ONE_TO_ONE',"
+            ":actor,:now,'pers06-v1',:identity_key)"
+        ),
+        {
+            "event_id": event_id,
+            "item_id": item_id,
+            "actor": actor_id,
+            "now": now,
+            "identity_key": f"pers06:{item_id}",
+        },
+    )
+    return event_id
+
+
 async def _load_blocks(connection: Any, version_id: UUID) -> list[DocumentBlock]:
     rows = (
-        (
-            await connection.execute(text(_BLOCKS_SQL), {"version_id": version_id})
-        )
-        .mappings()
-        .all()
+        (await connection.execute(text(_BLOCKS_SQL), {"version_id": version_id})).mappings().all()
     )
     return [
         DocumentBlock(
@@ -690,9 +988,9 @@ INSERT INTO digital_case_profile(
 _INSERT_CLAIM_SQL = """
 INSERT INTO claim(
  id,item_id,document_version_id,claim_type,subject,predicate,literal_value,
- verification_status,critical,created_at
+ verification_status,critical,created_at,acceptance_method
 ) VALUES(:id,:item_id,:version_id,:claim_type,:subject,:predicate,CAST(:value AS jsonb),
- 'CANDIDATE',true,:now)
+ 'ACCEPTED',true,:now,'AUTOMATED_EVIDENCE_GATE')
 ON CONFLICT(item_id,document_version_id,claim_type,subject,predicate) DO NOTHING
 """
 
@@ -714,13 +1012,42 @@ INSERT INTO claim_evidence(
 )
 """
 
-_INSERT_REVIEW_TASK_SQL = """
-INSERT INTO review_task(
- id,item_id,document_version_id,source_policy_id,risk_level,status,submitted_by,
- submitted_at,assigned_to,decided_by,decided_at,decision_reason,created_at,task_type
-) VALUES(:id,:item_id,:version_id,:policy_id,'R3','PENDING',:actor,:now,NULL,NULL,NULL,NULL,
- :now,'CLAIM_REVIEW')
-ON CONFLICT(item_id,document_version_id) WHERE task_type='CLAIM_REVIEW' DO NOTHING
+_INSERT_AUTOMATIC_ACCEPTANCE_SQL = """
+INSERT INTO automatic_evidence_acceptance(
+ claim_id,acceptance_method,rule_version,input_document_version_id,evidence_set_sha256,
+ system_actor_id,accepted_at
+) VALUES(:claim_id,'AUTOMATED_EVIDENCE_GATE','automatic-evidence-gate-v1',:version_id,
+ :hash,:actor,:now)
+"""
+
+_INSERT_AUTOMATIC_FACT_STATE_SQL = """
+INSERT INTO automatic_evidence_fact_state_event(
+ id,claim_id,state,reason_code,actor_id,created_at
+) VALUES(:event_id,:claim_id,'ACTIVE','GATE_PASSED',:actor,:now)
+"""
+
+_INSERT_AI_JUDGMENT_SQL = """
+INSERT INTO ai_judgment(
+ id,item_id,document_version_id,step_run_id,model_candidate_id,field_name,candidate_value,
+ confidence_bps,attribution,origin,rule_version,reason_codes,evidence_set_sha256,status,
+ created_at,invalidated_at
+) VALUES(:id,:item_id,:version_id,:step_run_id,:candidate_id,:field,CAST(:value AS jsonb),
+ :confidence,:attribution,'MODEL','automatic-evidence-gate-v1',:reasons,NULL,'CURRENT',:now,NULL)
+ON CONFLICT(document_version_id,model_candidate_id,origin) DO NOTHING
+"""
+
+_INSERT_AI_JUDGMENT_EVIDENCE_SQL = """
+INSERT INTO ai_judgment_evidence(
+ id,judgment_id,document_version_id,document_text_block_id,excerpt,excerpt_sha256,locator,created_at
+) VALUES(:id,:judgment_id,:version_id,:block_id,:excerpt,:hash,:locator,:now)
+ON CONFLICT(id) DO NOTHING
+"""
+
+_INSERT_PERSONAL_CONTENT_OUTBOX_SQL = """
+INSERT INTO personal_content_outbox(
+ id,document_version_id,item_id,action,status,attempt_count,available_at,created_at,processed_at
+) VALUES(:id,:version_id,:item_id,'PROJECT','PENDING',0,:now,:now,NULL)
+ON CONFLICT(document_version_id,action) DO NOTHING
 """
 
 _INSERT_PAGE_SQL = """
