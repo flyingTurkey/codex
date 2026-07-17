@@ -35,6 +35,27 @@ class ClaimedReplay:
     event_id: UUID | None
     processing_version: str | None
     lease_token: UUID
+    execution_id: UUID | None = None
+    noop_reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ReplayTaskRedelivery:
+    task_name: str
+    argument_name: str
+    argument_id: UUID
+
+    def __post_init__(self) -> None:
+        allowed_pairs = {
+            ("srbg.sources.qualify", "qualification_run_id"),
+            ("srbg.sources.activation_outbox", "outbox_id"),
+            ("srbg.source_content.outbox", "outbox_id"),
+        }
+        if (self.task_name, self.argument_name) not in allowed_pairs:
+            raise ValueError("unsupported source task redelivery")
+
+    def task_kwargs(self) -> dict[str, str]:
+        return {self.argument_name: str(self.argument_id)}
 
 
 class ReplayObjectReader(Protocol):
@@ -55,6 +76,63 @@ async def _current_reference_error(
     kind = row["task_kind"]
     if kind == "AI":
         return "AI_DISABLED"
+    if kind == "SOURCE_QUALIFICATION":
+        execution_id = row.get("execution_id")
+        if not isinstance(execution_id, UUID):
+            return "QUALIFICATION_REFERENCE_MISSING"
+        status = await connection.scalar(
+            text(
+                """SELECT status FROM source_qualification_run
+                    WHERE id=:execution_id AND execution_domain='QUALIFICATION'"""
+            ),
+            {"execution_id": execution_id},
+        )
+        if status in {"PENDING", "RUNNING"}:
+            return None
+        if status in {"SUCCEEDED", "FAILED", "CANCELLED"}:
+            return "QUALIFICATION_TERMINAL_NOOP"
+        return (
+            "QUALIFICATION_REFERENCE_MISSING"
+            if status is None
+            else "QUALIFICATION_STATE_INVALID"
+        )
+    if kind == "SOURCE_ACTIVATION_OUTBOX":
+        execution_id = row.get("execution_id")
+        if not isinstance(execution_id, UUID):
+            return "ACTIVATION_OUTBOX_REFERENCE_MISSING"
+        status = await connection.scalar(
+            text(
+                """SELECT status FROM source_activation_outbox
+                    WHERE id=:execution_id AND event_type='PRODUCTION_REFETCH'"""
+            ),
+            {"execution_id": execution_id},
+        )
+        if status in {"PENDING", "FAILED", "PROCESSING"}:
+            return None
+        if status == "SUCCEEDED":
+            return "ACTIVATION_OUTBOX_TERMINAL_NOOP"
+        return (
+            "ACTIVATION_OUTBOX_REFERENCE_MISSING"
+            if status is None
+            else "ACTIVATION_OUTBOX_STATE_INVALID"
+        )
+    if kind == "SOURCE_CONTENT_OUTBOX":
+        execution_id = row.get("execution_id")
+        if not isinstance(execution_id, UUID):
+            return "CONTENT_OUTBOX_REFERENCE_MISSING"
+        status = await connection.scalar(
+            text("SELECT status FROM source_content_outbox WHERE id=:execution_id"),
+            {"execution_id": execution_id},
+        )
+        if status in {"PENDING", "FAILED"}:
+            return None
+        if status == "WAITING_AI":
+            return "CONTENT_OUTBOX_TERMINAL_NOOP"
+        return (
+            "CONTENT_OUTBOX_REFERENCE_MISSING"
+            if status is None
+            else "CONTENT_OUTBOX_STATE_INVALID"
+        )
     if kind == "SOURCE_FETCH":
         valid = await connection.scalar(
             text(
@@ -67,9 +145,8 @@ async def _current_reference_error(
                     AND r.policy_version_id=p.id
                     AND r.connector_config_version_id=c.id
                     AND s.lifecycle_state='ACTIVE'
-                    AND p.status='APPROVED'
-                    AND p.valid_from <= :now AND p.valid_until > :now
-                    AND p.document->>'storage_policy'='RAW_EVIDENCE_ALLOWED'
+                    AND source_policy_compliance_current(s.id,p.id,:now)
+                    AND source_private_evidence_capture_allowed(p.document)
                     AND c.validation_status='VALID'
                     AND c.policy_version_id=p.id
                     AND EXISTS (
@@ -131,7 +208,7 @@ async def claim_replay(engine: AsyncEngine, *, now: datetime | None = None) -> C
             (
                 await connection.execute(
                     text(
-                        """SELECT r.id,r.failed_task_id,r.priority,f.task_kind,
+                        """SELECT r.id,r.failed_task_id,r.priority,f.task_kind,f.execution_id,
                                   f.source_id,f.run_id,f.document_version_id,f.event_id,
                                   f.processing_version,f.reconstruction_status
                            FROM replay_request r
@@ -157,7 +234,17 @@ async def claim_replay(engine: AsyncEngine, *, now: datetime | None = None) -> C
             and row["task_kind"] not in {"PUBLICATION_OUTBOX", "PROJECTION"}
             else await _current_reference_error(connection, row, observed_at)
         )
-        if error is not None:
+        noop_reason = (
+            error
+            if error
+            in {
+                "QUALIFICATION_TERMINAL_NOOP",
+                "ACTIVATION_OUTBOX_TERMINAL_NOOP",
+                "CONTENT_OUTBOX_TERMINAL_NOOP",
+            }
+            else None
+        )
+        if error is not None and noop_reason is None:
             status = "BLOCKED" if error == "AI_DISABLED" else "NON_REPLAYABLE"
             await connection.execute(
                 text(
@@ -206,6 +293,63 @@ async def claim_replay(engine: AsyncEngine, *, now: datetime | None = None) -> C
             str(row["processing_version"]) if row["processing_version"] is not None else None
         ),
         lease_token=token,
+        execution_id=(
+            row["execution_id"] if isinstance(row.get("execution_id"), UUID) else None
+        ),
+        noop_reason=noop_reason,
+    )
+
+
+async def prepare_task_redelivery(
+    engine: AsyncEngine,
+    replay: ClaimedReplay,
+    *,
+    now: datetime | None = None,
+) -> ReplayTaskRedelivery | None:
+    """Revalidate a source task reference immediately before ID-only redelivery."""
+
+    if replay.task_kind not in {
+        "SOURCE_QUALIFICATION",
+        "SOURCE_ACTIVATION_OUTBOX",
+        "SOURCE_CONTENT_OUTBOX",
+    }:
+        raise RuntimeError("SOURCE_TASK_REDELIVERY_KIND_UNSUPPORTED")
+    if replay.execution_id is None:
+        raise RuntimeError("SOURCE_TASK_AUTHORITATIVE_REFERENCE_MISSING")
+    observed_at = now or datetime.now(UTC)
+    async with engine.connect() as connection:
+        reference_error = await _current_reference_error(
+            connection,
+            {
+                "task_kind": replay.task_kind,
+                "execution_id": replay.execution_id,
+            },
+            observed_at,
+        )
+    if reference_error in {
+        "QUALIFICATION_TERMINAL_NOOP",
+        "ACTIVATION_OUTBOX_TERMINAL_NOOP",
+        "CONTENT_OUTBOX_TERMINAL_NOOP",
+    }:
+        return None
+    if reference_error is not None:
+        raise RuntimeError(reference_error)
+    if replay.task_kind == "SOURCE_QUALIFICATION":
+        return ReplayTaskRedelivery(
+            task_name="srbg.sources.qualify",
+            argument_name="qualification_run_id",
+            argument_id=replay.execution_id,
+        )
+    if replay.task_kind == "SOURCE_CONTENT_OUTBOX":
+        return ReplayTaskRedelivery(
+            task_name="srbg.source_content.outbox",
+            argument_name="outbox_id",
+            argument_id=replay.execution_id,
+        )
+    return ReplayTaskRedelivery(
+        task_name="srbg.sources.activation_outbox",
+        argument_name="outbox_id",
+        argument_id=replay.execution_id,
     )
 
 
@@ -403,9 +547,10 @@ async def _load_source_fetch_replay(
                               AND replay_run.execution_domain='FIXTURE'
                               AND replay_run.status='RUNNING'
                               AND source_row.lifecycle_state='ACTIVE'
-                              AND policy.status='APPROVED'
-                              AND policy.valid_from <= :now AND policy.valid_until > :now
-                              AND policy.document->>'storage_policy'='RAW_EVIDENCE_ALLOWED'
+                              AND source_policy_compliance_current(
+                                    source_row.id,policy.id,:now
+                                  )
+                              AND source_private_evidence_capture_allowed(policy.document)
                               AND config.validation_status='VALID'
                               AND EXISTS (
                                 SELECT 1 FROM source_governance_decision decision

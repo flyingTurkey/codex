@@ -80,6 +80,16 @@ from srbg_api.safety_regulations.query import (
     InvalidFeedCursor,
     PostgresIntelligenceQueryService,
 )
+from srbg_api.source_automation.api import SourceAutomationAdminService
+from srbg_api.source_automation.api import router as source_automation_router
+from srbg_api.source_automation.repository import (
+    SourceAutomationConflict,
+    SourceAutomationNotFound,
+)
+from srbg_api.source_automation.service import (
+    SourceAutomationServiceRejected,
+    build_default_source_automation_service,
+)
 from srbg_api.source_registry.api import AdminSourceService
 from srbg_api.source_registry.api import router as source_vault_router
 from srbg_api.source_registry.repository import RepositoryConflict, SourceNotFound
@@ -99,6 +109,7 @@ def create_app(
     safety_event_candidate_service: EventCandidateGenerationService | None = None,
     portal_service: PortalService | None = None,
     operations_service: OperationsService | None = None,
+    source_automation_service: SourceAutomationAdminService | None = None,
 ) -> FastAPI:
     configure_logging()
     settings = get_settings()
@@ -118,6 +129,7 @@ def create_app(
             safety_event_candidate_service,
             portal_service,
             operations_service,
+            source_automation_service,
         ):
             close = getattr(service, "close", None)
             if close is not None:
@@ -139,6 +151,7 @@ def create_app(
     app.state.safety_event_candidate_service = safety_event_candidate_service
     app.state.portal_service = portal_service
     app.state.operations_service = operations_service
+    app.state.source_automation_service = source_automation_service
     app.state.publication_gate_denials = Counter()
     logger = logging.getLogger("srbg.api")
 
@@ -400,6 +413,46 @@ def create_app(
             media_type="application/problem+json",
         )
 
+    @app.exception_handler(SourceAutomationNotFound)
+    async def source_automation_not_found_handler(
+        request: Request, exc: SourceAutomationNotFound
+    ) -> JSONResponse:
+        problem = ProblemDetails(
+            title="Source automation resource not found",
+            status=404,
+            detail=str(exc),
+            instance=str(request.url.path),
+            request_id=request.state.request_id,
+        )
+        return JSONResponse(
+            status_code=404,
+            content=problem.model_dump(mode="json"),
+            media_type="application/problem+json",
+        )
+
+    @app.exception_handler(SourceAutomationConflict)
+    @app.exception_handler(SourceAutomationServiceRejected)
+    async def source_automation_conflict_handler(
+        request: Request,
+        exc: SourceAutomationConflict | SourceAutomationServiceRejected,
+    ) -> JSONResponse:
+        status_code = (
+            exc.status_code if isinstance(exc, SourceAutomationServiceRejected) else 409
+        )
+        detail = exc.detail if isinstance(exc, SourceAutomationServiceRejected) else str(exc)
+        problem = ProblemDetails(
+            title="Source automation request rejected",
+            status=status_code,
+            detail=detail,
+            instance=str(request.url.path),
+            request_id=request.state.request_id,
+        )
+        return JSONResponse(
+            status_code=status_code,
+            content=problem.model_dump(mode="json"),
+            media_type="application/problem+json",
+        )
+
     @app.exception_handler(OperationsRejected)
     async def operations_rejected_handler(
         request: Request, exc: OperationsRejected
@@ -477,6 +530,7 @@ def create_app(
         )
 
     app.include_router(source_vault_router)
+    app.include_router(source_automation_router)
     app.include_router(intelligence_router)
     app.include_router(portal_router)
     app.include_router(operations_router)
@@ -577,6 +631,7 @@ def build_default_app() -> FastAPI:
     )
     return create_app(
         source_service=build_default_source_service(settings),
+        source_automation_service=build_default_source_automation_service(settings),
         intelligence_service=intelligence_service,
         public_intelligence_service=published_reader,
         publication_service=PublicationService(

@@ -1,0 +1,292 @@
+{
+  "$defs": {
+    "EvidenceCapturePolicy": {
+      "description": "How qualification evidence may be captured, independent of display policy.",
+      "enum": [
+        "PRIVATE_RAW_ALLOWED",
+        "TRANSIENT_METADATA_ONLY"
+      ],
+      "title": "EvidenceCapturePolicy",
+      "type": "string"
+    },
+    "QualificationBundleView": {
+      "additionalProperties": false,
+      "properties": {
+        "bundle_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Bundle Sha256",
+          "type": "string"
+        },
+        "candidate_id": {
+          "format": "uuid",
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/QualificationCheckView"
+          },
+          "maxItems": 100,
+          "title": "Checks",
+          "type": "array"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "evidence_capture_policy": {
+          "$ref": "#/$defs/EvidenceCapturePolicy",
+          "default": "PRIVATE_RAW_ALLOWED"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "material_fingerprint": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Material Fingerprint",
+          "type": "string"
+        },
+        "reason_codes": {
+          "items": {
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Z][A-Z0-9_]*$",
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Reason Codes",
+          "type": "array"
+        },
+        "relevant_item_count": {
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Relevant Item Count",
+          "type": "integer"
+        },
+        "rule_version": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Rule Version",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "sampled_item_count": {
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Sampled Item Count",
+          "type": "integer"
+        },
+        "storage_policy": {
+          "$ref": "#/$defs/StoragePolicy"
+        },
+        "verdict": {
+          "$ref": "#/$defs/QualificationVerdict"
+        }
+      },
+      "required": [
+        "id",
+        "candidate_id",
+        "run_id",
+        "rule_version",
+        "material_fingerprint",
+        "verdict",
+        "storage_policy",
+        "sampled_item_count",
+        "relevant_item_count",
+        "bundle_sha256",
+        "created_at",
+        "expires_at"
+      ],
+      "title": "QualificationBundleView",
+      "type": "object"
+    },
+    "QualificationCheckLevel": {
+      "enum": [
+        "PASS",
+        "WARN",
+        "BLOCK"
+      ],
+      "title": "QualificationCheckLevel",
+      "type": "string"
+    },
+    "QualificationCheckView": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 100,
+          "minLength": 1,
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "title": "Code",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "level": {
+          "$ref": "#/$defs/QualificationCheckLevel"
+        },
+        "message": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "level",
+        "message",
+        "observed_at"
+      ],
+      "title": "QualificationCheckView",
+      "type": "object"
+    },
+    "QualificationRunStatus": {
+      "enum": [
+        "PENDING",
+        "RUNNING",
+        "SUCCEEDED",
+        "FAILED",
+        "CANCELLED"
+      ],
+      "title": "QualificationRunStatus",
+      "type": "string"
+    },
+    "QualificationVerdict": {
+      "enum": [
+        "QUALIFIED",
+        "WARN_WAIVABLE",
+        "BLOCKED"
+      ],
+      "title": "QualificationVerdict",
+      "type": "string"
+    },
+    "StoragePolicy": {
+      "enum": [
+        "RAW_EVIDENCE_ALLOWED",
+        "METADATA_ONLY",
+        "LINK_ONLY"
+      ],
+      "title": "StoragePolicy",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "bundle": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/QualificationBundleView"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "candidate_id": {
+      "format": "uuid",
+      "title": "Candidate Id",
+      "type": "string"
+    },
+    "completed_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Completed At"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "failure_code": {
+      "anyOf": [
+        {
+          "maxLength": 100,
+          "minLength": 1,
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Failure Code"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "requested_by": {
+      "format": "uuid",
+      "title": "Requested By",
+      "type": "string"
+    },
+    "rule_version": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Rule Version",
+      "type": "string"
+    },
+    "started_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Started At"
+    },
+    "status": {
+      "$ref": "#/$defs/QualificationRunStatus"
+    }
+  },
+  "required": [
+    "id",
+    "candidate_id",
+    "status",
+    "rule_version",
+    "requested_by",
+    "created_at"
+  ],
+  "title": "QualificationRunView",
+  "type": "object"
+}

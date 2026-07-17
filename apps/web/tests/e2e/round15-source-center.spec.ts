@@ -78,6 +78,25 @@ const pausedSourceDetail = {
   runtime_authorization: 'DENIED',
 }
 
+const openFetchSchedule = {
+  authority_level: 'A1',
+  bytes_used: 1024,
+  circuit_open_until: '2026-07-16T06:30:00Z',
+  circuit_state: 'OPEN',
+  consecutive_failures: 5,
+  daily_byte_budget: 10_000_000,
+  daily_request_budget: 24,
+  freshness_slo_seconds: 86400,
+  interval_seconds: 3600,
+  next_run_at: '2026-07-16T07:00:00Z',
+  rate_limit_per_minute: 1,
+  requests_used: 5,
+  source_id: sourceId,
+  status: 'ACTIVE',
+  updated_at: '2026-07-16T06:00:00Z',
+  version: 1,
+}
+
 const trialSource = {
   ...sourceSummary,
   available_actions: ['RETIRE'],
@@ -89,6 +108,110 @@ const trialSource = {
   runtime_authorization: 'TRIAL_ONLY',
   state: 'FIXTURE_TEST',
 }
+
+const sourceCandidateItems = [
+  {
+    authorization_boundary: 'bridge.example.test',
+    available_actions: ['REQUEST_QUALIFICATION', 'ENABLE', 'DISMISS'],
+    batch_enable_eligible: true,
+    canonical_url: sourceSummary.base_url,
+    content_domains: sourceSummary.content_domains,
+    discovery_channels: ['SITEMAP', 'OUTBOUND_LINK'],
+    first_discovered_at: '2026-07-15T01:00:00Z',
+    id: '019b0000-0000-7000-8000-000000001521',
+    industries: sourceSummary.industries,
+    institution_name: sourceSummary.name,
+    language_tags: sourceSummary.language_tags,
+    last_discovered_at: '2026-07-16T01:00:00Z',
+    latest_qualification: {
+      bundle_sha256: '1'.repeat(64),
+      candidate_id: '019b0000-0000-7000-8000-000000001521',
+      checks: [],
+      created_at: '2026-07-16T01:00:00Z',
+      evidence_capture_policy: 'PRIVATE_RAW_ALLOWED',
+      expires_at: '2026-07-23T01:00:00Z',
+      id: '019b0000-0000-7000-8000-000000001531',
+      material_fingerprint: '2'.repeat(64),
+      reason_codes: [],
+      relevant_item_count: 6,
+      rule_version: 'source-qualification-v1',
+      run_id: '019b0000-0000-7000-8000-000000001541',
+      sampled_item_count: 6,
+      storage_policy: 'RAW_EVIDENCE_ALLOWED',
+      verdict: 'QUALIFIED',
+    },
+    occurrence_count: 3,
+    status: 'READY_FOR_DECISION',
+  },
+  {
+    authorization_boundary: 'tunnel.example.test',
+    available_actions: ['REQUEST_QUALIFICATION', 'ENABLE', 'DISMISS'],
+    batch_enable_eligible: false,
+    canonical_url: 'https://tunnel.example.test',
+    content_domains: ['ACCIDENT_INVESTIGATION'],
+    discovery_channels: ['BAIDU_SEARCH'],
+    first_discovered_at: '2026-07-15T02:00:00Z',
+    id: '019b0000-0000-7000-8000-000000001522',
+    industries: ['TUNNEL'],
+    institution_name: trialSource.name,
+    language_tags: ['zh-CN'],
+    last_discovered_at: '2026-07-16T02:00:00Z',
+    latest_qualification: {
+      bundle_sha256: '3'.repeat(64),
+      candidate_id: '019b0000-0000-7000-8000-000000001522',
+      checks: [],
+      created_at: '2026-07-16T02:00:00Z',
+      evidence_capture_policy: 'TRANSIENT_METADATA_ONLY',
+      expires_at: '2026-07-23T02:00:00Z',
+      id: '019b0000-0000-7000-8000-000000001532',
+      material_fingerprint: '4'.repeat(64),
+      reason_codes: ['TERMS_NOT_PRESENT'],
+      relevant_item_count: 2,
+      rule_version: 'source-qualification-v1',
+      run_id: '019b0000-0000-7000-8000-000000001542',
+      sampled_item_count: 3,
+      storage_policy: 'METADATA_ONLY',
+      verdict: 'WARN_WAIVABLE',
+    },
+    occurrence_count: 2,
+    status: 'READY_FOR_DECISION',
+  },
+]
+
+const sourceStreamItems = [
+  {
+    authorization_boundary: 'bridge.example.test',
+    available_actions: ['PAUSE'],
+    candidate_id: sourceCandidateItems[0]!.id,
+    canonical_url: sourceSummary.base_url,
+    consecutive_failure_count: 0,
+    id: '019b0000-0000-7000-8000-000000001551',
+    institution_name: sourceSummary.name,
+    last_failure_at: null,
+    last_success_at: '2026-07-16T05:00:00Z',
+    next_fetch_at: '2026-07-16T05:30:00Z',
+    rule_version: 'source-qualification-v1',
+    source_id: sourceSummary.id,
+    status: 'ACTIVE',
+    stream_key: 'rss:bridge-notices',
+  },
+  {
+    authorization_boundary: 'tunnel.example.test',
+    available_actions: ['REQUEST_REPAIR'],
+    candidate_id: sourceCandidateItems[1]!.id,
+    canonical_url: 'https://tunnel.example.test',
+    consecutive_failure_count: 0,
+    id: '019b0000-0000-7000-8000-000000001552',
+    institution_name: trialSource.name,
+    last_failure_at: null,
+    last_success_at: null,
+    next_fetch_at: null,
+    rule_version: 'source-qualification-v1',
+    source_id: trialSource.id,
+    status: 'QUALIFIED',
+    stream_key: 'sitemap:tunnel-investigations',
+  },
+]
 
 const pendingFixtureSourceDetail = {
   ...sourceDetail,
@@ -135,7 +258,15 @@ async function openSourceCenter(page: Page): Promise<void> {
   const mobileNavigation = page.getByRole('button', { name: '打开导航' })
   if (await mobileNavigation.isVisible()) await mobileNavigation.click()
   await page.getByRole('link', { name: '管理入口', exact: true }).click()
-  await expect(page.getByRole('heading', { level: 1, name: '来源中心 V2' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: '来源中心' })).toBeVisible()
+}
+
+async function openSourceDetailFromWorkspace(page: Page, name: string): Promise<void> {
+  await page.getByRole('tab', { name: /已启用来源/ }).click()
+  const stream = page.getByRole('article').filter({
+    has: page.getByRole('heading', { level: 2, name }),
+  })
+  await stream.getByRole('link', { name: '查看机构' }).click()
 }
 
 async function mockSourceCenter(page: Page): Promise<void> {
@@ -150,6 +281,23 @@ async function mockSourceCenter(page: Page): Promise<void> {
       next_cursor: null,
       notices: [],
     }),
+  }))
+  await page.route('**/api/v1/admin/source-candidates**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      has_more: false,
+      items: sourceCandidateItems,
+      next_cursor: null,
+      status_counts: { READY_FOR_DECISION: 2 },
+    }),
+  }))
+  await page.route('**/api/v1/admin/source-streams**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ has_more: false, items: sourceStreamItems, next_cursor: null }),
+  }))
+  await page.route('**/api/v1/admin/source-attention**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ has_more: false, items: [], next_cursor: null }),
   }))
   await page.route('**/api/v1/admin/sources', async (route) => {
     if (route.request().method() === 'GET') {
@@ -369,15 +517,16 @@ async function mockSourceCenter(page: Page): Promise<void> {
   }))
 }
 
-test('source center shows server-authoritative lifecycle and five-dimensional gaps', async ({ page }) => {
+test('source center shows server-authoritative qualification queues and five-dimensional gaps', async ({ page }) => {
   await mockSourceCenter(page)
   await openSourceCenter(page)
 
-  await expect(page.getByRole('heading', { level: 1, name: '来源中心 V2' })).toBeVisible()
-  await expect(page.getByText('生产已授权', { exact: true })).toBeVisible()
-  await expect(page.getByText('仅试运行', { exact: true })).toBeVisible()
-  await expect(page.getByLabel('生命周期')).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: '来源中心' })).toBeVisible()
+  await expect(page.getByText('资格通过', { exact: true })).toBeVisible()
+  await expect(page.getByText('需单独豁免', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '启用', exact: true })).toHaveCount(0)
   await expect(page.getByLabel('工程行业')).toBeVisible()
+  await expect(page.getByLabel('资格结论')).toBeVisible()
   await expect(page.getByRole('link', { name: '查看覆盖缺口' })).toHaveAttribute(
     'href',
     '/admin/sources/coverage',
@@ -466,7 +615,7 @@ test('source admin previews declarative config and executes only an available li
   })
 
   await openSourceCenter(page)
-  await page.getByRole('link', { name: sourceDetail.name }).click()
+  await openSourceDetailFromWorkspace(page, sourceDetail.name)
   await expect(page.getByRole('heading', { level: 1, name: sourceDetail.name })).toBeVisible()
   await expect(page.getByText('生产已授权', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: '暂停来源' })).toBeVisible()
@@ -606,6 +755,99 @@ test('source admin previews declarative config and executes only an available li
   expect(pauseBody).toEqual({ reason: '条款证据需要重新复核' })
 })
 
+test('source admin executes a step-up protected circuit repair and refreshes the schedule', async ({ page }) => {
+  await mockSourceCenter(page)
+  let repaired = false
+  let repairAttempts = 0
+  let scheduleReads = 0
+  const repairBodies: Record<string, unknown>[] = []
+  const repairHeaders: Record<string, string>[] = []
+  let releaseRepair!: () => void
+  const repairBarrier = new Promise<void>((resolve) => {
+    releaseRepair = resolve
+  })
+
+  await page.route(`**/api/v1/admin/sources/${sourceId}/schedule`, async (route) => {
+    scheduleReads += 1
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify(repaired
+        ? {
+            ...openFetchSchedule,
+            circuit_open_until: null,
+            circuit_state: 'CLOSED',
+            consecutive_failures: 0,
+            updated_at: '2026-07-16T06:05:00Z',
+            version: 2,
+          }
+        : openFetchSchedule),
+    })
+  })
+  await page.route(`**/api/v1/admin/sources/${sourceId}/schedule/repair`, async (route) => {
+    repairAttempts += 1
+    repairBodies.push(route.request().postDataJSON() as Record<string, unknown>)
+    repairHeaders.push(route.request().headers())
+    if (repairAttempts === 1) {
+      await route.fulfill({
+        contentType: 'application/problem+json',
+        status: 409,
+        body: JSON.stringify({
+          detail: '当前存在运行中的抓取任务，请稍后再次验证',
+          instance: `/api/v1/admin/sources/${sourceId}/schedule/repair`,
+          status: 409,
+          title: 'Schedule repair rejected',
+          type: 'https://srbg.example/problems/schedule-repair-rejected',
+        }),
+      })
+      return
+    }
+    await repairBarrier
+    repaired = true
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ...openFetchSchedule,
+        circuit_open_until: null,
+        circuit_state: 'CLOSED',
+        consecutive_failures: 0,
+        updated_at: '2026-07-16T06:05:00Z',
+        version: 2,
+      }),
+    })
+  })
+
+  await openSourceCenter(page)
+  await openSourceDetailFromWorkspace(page, sourceDetail.name)
+  const schedulePanel = page.getByRole('article').filter({
+    has: page.getByRole('heading', { name: 'PostgreSQL 权威抓取计划' }),
+  })
+  const repairButton = schedulePanel.locator('[data-action="REPAIR_SCHEDULE"]')
+  await expect(repairButton).toBeDisabled()
+  await schedulePanel.getByLabel('调整或修复理由').fill('已核验连接器修复结果，申请恢复受控抓取')
+  await expect(repairButton).toBeEnabled()
+
+  await repairButton.click()
+  await expect(schedulePanel.getByRole('alert')).toContainText(
+    '熔断修复失败：当前存在运行中的抓取任务，请稍后再次验证',
+  )
+  expect(repairAttempts).toBe(1)
+
+  await repairButton.click()
+  await expect(repairButton).toHaveText('正在验证并修复…')
+  await expect(repairButton).toBeDisabled()
+  releaseRepair()
+
+  await expect(schedulePanel.getByText(/熔断 CLOSED · 连续失败 0/)).toBeVisible()
+  await expect(schedulePanel.getByRole('status')).toHaveText('熔断修复命令已执行，抓取计划已刷新。')
+  expect(repairBodies).toEqual([
+    { reason: '已核验连接器修复结果，申请恢复受控抓取' },
+    { reason: '已核验连接器修复结果，申请恢复受控抓取' },
+  ])
+  expect(repairHeaders.every(headers => Boolean(headers['idempotency-key']))).toBe(true)
+  expect(repairHeaders.every(headers => headers['x-srbg-local-step-up'] === 'true')).toBe(true)
+  expect(scheduleReads).toBeGreaterThanOrEqual(2)
+})
+
 test('source admin uploads and completes an isolated pending Fixture replay', async ({ page }) => {
   await mockSourceCenter(page)
   let completed = false
@@ -682,7 +924,7 @@ test('source admin uploads and completes an isolated pending Fixture replay', as
   )
 
   await openSourceCenter(page)
-  await page.getByRole('link', { name: trialSource.name }).click()
+  await openSourceDetailFromWorkspace(page, trialSource.name)
   await page.getByRole('tab', { name: '试运行' }).click()
   const pendingCard = page.getByRole('article').filter({
     has: page.getByRole('heading', { name: 'Fixture 回放', exact: true }),
@@ -733,7 +975,7 @@ test('@a11y source center is read-only for auditor and has no axe violations', a
   await openSourceCenter(page)
   for (const destination of ['list', 'detail', 'coverage'] as const) {
     if (destination === 'detail') {
-      await page.getByRole('link', { name: sourceDetail.name }).click()
+      await openSourceDetailFromWorkspace(page, sourceDetail.name)
       await expect(page.getByRole('heading', { level: 1, name: sourceDetail.name })).toBeVisible()
     }
     if (destination === 'coverage') {

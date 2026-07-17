@@ -1,8 +1,23 @@
 # 四川路桥·智安情报
 
-四川路桥内部使用的行业数智与安全情报平台。仓库工程实现已推进至 Round 17，覆盖来源与原始文档、证据化内容处理、统一信息流、搜索/日报/收藏、Event 统一身份、内部发布投影、PostgreSQL 权威调度、来源健康、安全重放，以及20来源真实试运行的授权与离线验收门禁。各项能力的真实联网和生产等级仍须按验收证据判断，不能由本说明直接推定。
+四川路桥内部使用的行业数智与安全情报平台。仓库工程实现覆盖来源与原始文档、证据化内容处理、统一信息流、搜索/日报/收藏、Event 统一身份、内部发布投影、PostgreSQL 权威调度、来源健康、安全重放、自动化来源候选治理，以及20来源真实试运行的授权与离线验收门禁。各项能力的真实联网和生产等级仍须按验收证据判断，不能由本说明直接推定。
 
 当前第17轮的工程准备门禁已经完成，但真实试运行仍为 `BLOCKED`。LEO 已作为唯一超级管理员确认并冻结20源清单、来源频率、展示边界、168小时窗口和单专家参考集方案；测试环境通过一次 Ed25519 签名原子安装授权，20/20来源已自动登记。当前仍为0个 ACTIVE、0个当前逐源策略、0个当前连接器配置、0个成功真实试运行，观察窗口尚未启动，LEO单专家参考集和真实证据导出均不存在。仓库没有用 Fixture、回填或测试日志冒充真实连续观察；AI观察、付费模型、语义搜索、邮件和企业微信保持关闭。
+
+## 自动化来源治理优化切片（默认关闭）
+
+本切片把管理员从“逐项创建政策、配置、试运行和审批”收敛为“查看服务端资格包后决定启用或不启用”，但没有把来源准入权交给搜索服务或模型：
+
+1. Worker 每6小时按代码内固定的24个工程查询代码唤醒发现任务；首个联网发现执行器为百度智能搜索，单次 `top_k=50`，每个查询最多直接探测20个不同机构域名。手工录入的 HTTPS 机构地址也会自动进入同一资格审查。
+2. 固定查询目录保存在代码中，但每次百度调用的查询记录及返回的标题、摘要只存在于当前进程内，不写 PostgreSQL、对象存储、Celery 消息或日志。候选必须再经过逐跳 DNS/IP/peer 固定、SSRF、重定向、超时、响应大小和机构域边界检查的直接目标请求；持久化只接受目标站点自身的证据哈希和服务端分类。
+3. 候选进入独立 `QUALIFICATION` 执行域；资格原始证据保存在私有、内容寻址的隔离命名空间，不能被提升或复用为生产采集结果。规则输出 `QUALIFIED`、`WARN_WAIVABLE` 或 `BLOCKED`，并绑定规则版本、材料指纹、7天有效期和 SHA-256 资格包。
+4. `source_admin` 可以补充候选和重新发起资格审查，但不能作最终决定；只有 `platform_admin` 能在生产 OIDC 会话最近5分钟内完成 MFA 后启用或不启用。全绿启用和不启用无需再填写通用操作原因，服务端记录受控审计原因；`WARN_WAIVABLE` 仍必须逐条填写具体豁免理由，材料变化后失效；`BLOCKED` 永远不能启用。批量启用只接受同一规则版本、未过期、全绿的1—10项。
+5. 启用事务会写入服务端权威政策、连接器配置、生产审批、来源/流状态和不可变审计，并通过 Outbox 创建一个全新的 `SCHEDULED + PRODUCTION` 采集运行；资格审查响应不会进入生产内容链路。后续自动更新继续复用 PostgreSQL 权威调度、每次 I/O 前授权复核、raw-first 存储、5次失败/30分钟熔断和连续3次零发现异常。
+6. 生产采集形成的当前 `READY` 文档通过独立耐久 Outbox、仅含 ID 的任务和原子数据库命令，幂等登记为 `ai_pipeline_run(LIVE, QUEUED)`；桥接到此停止，不创建 Claim、审核决定或发布。通用生产 AI 四步编排器尚未交付时，记录会诚实停留在 `WAITING_AI`，不会进入普通用户 Feed。
+
+百度调用预算以 PostgreSQL 行锁在请求前原子预留：每个 UTC 月前1500次免费，之后按每次0.036元计费；达到200元月度硬上限前拒绝下一次会超额的请求，80%只告警一次。代码还把月度上限、免费次数和告警阈值分别钳制为不高于上述值，客户端或环境变量不能放宽。
+
+该能力在 `.env.example` 和 Compose 中保持 `SRBG_SOURCE_DISCOVERY_ENABLED=false`、`SRBG_SOURCE_QUALIFICATION_ENABLED=false`、`SRBG_BAIDU_SEARCH_ENABLED=false`，API key 为空；必须由平台管理员、来源治理责任人和合规/版权责任人确认百度服务条款、目标站点 robots/条款、预算、告警路由及生产 OIDC/MFA 后才可显式启用。资格审核可以脱离付费发现单独启用，自动发现则必须同时启用资格审核。当前自动定时发现仅实现百度通道；Directory/RSS/Sitemap/Outbound Link 是候选渠道契约而非已运行的自动发现器，自动生成的生产连接器目前为通用 `LIST_DETAIL` V1。来源流的暂停/恢复/修复写操作仍走既有来源生命周期与计划运维接口。完整边界、测试证据、回滚和已知限制见[自动化来源治理验收记录](docs/acceptance/phase-2/round-18-source-automation.md)、[内容处理耐久桥验收记录](docs/acceptance/phase-2/round-19-source-content-bridge.md)和[运行手册](docs/operations/runbooks.md)。
 
 ## 第17轮真实试运行准备
 
@@ -13,7 +28,7 @@
 - 真实运行只允许 PostgreSQL 权威 ACTIVE 来源，逐次物理请求在 I/O 前执行域名、租约和预算校验；重试/重定向计入频率，回放固定为无网络 `FIXTURE + REPLAY`。
 - R17 真实链路仍未启动。来源特定的 raw-first Document→accepted Claim/Evidence→Event→PublicationService 配置不能在来源/DOM 未验证时编造；T0 必须由数据库权威事件化准备事实逐源放行。
 
-完整的逐源诚实状态、工程命令和外部阻断见[第17轮验收记录](docs/acceptance/phase-2/round-17-20-source-pilot.md)，机器可读状态见 [`round-17-flat-readiness.json`](docs/acceptance/phase-2/round-17-flat-readiness.json)。结论保持：**第17轮未完成/BLOCKED，不进入第18轮。**
+完整的逐源诚实状态、工程命令和外部阻断见[第17轮验收记录](docs/acceptance/phase-2/round-17-20-source-pilot.md)，机器可读状态见 [`round-17-flat-readiness.json`](docs/acceptance/phase-2/round-17-flat-readiness.json)。结论保持：**第17轮未完成/BLOCKED；本次横切工程优化不构成第17轮晋级、20来源真实联网授权或168小时窗口启动。**
 
 ## 第 16 轮数据库权威调度
 
@@ -159,6 +174,8 @@ make resilience-test
 - 第 11 轮工程与生产证据状态：[Round 11 验收记录](docs/acceptance/round-11-quality-operations-security.md)
 - 第 13 轮内部发布投影与 Event 身份：[Round 13 验收记录](docs/acceptance/phase-2/round-13-internal-projection-event-identity.md)
 - 第 14 轮 Event 统一身份与 Item 兼容迁移：[Round 14 验收记录](docs/acceptance/phase-2/round-14-event-unification.md)
+- 自动化来源发现、隔离资格审查与单步启用：[自动化来源治理验收记录](docs/acceptance/phase-2/round-18-source-automation.md)
+- 自动化来源预算、停机、修复与回滚：[运行手册](docs/operations/runbooks.md#自动化来源发现资格审查与启用)
 - 第17轮20来源真实试运行准备与阻断：[Round 17 验收记录](docs/acceptance/phase-2/round-17-20-source-pilot.md)
 - 第17轮机器可读工程准备状态：[Round 17 readiness](docs/acceptance/phase-2/round-17-flat-readiness.json)
 - 二阶段产品与架构基线：[二阶段实施总规范](docs/codex-kit/docs/phase-2/SRBG-Phase-2-Optimization-Codex-Spec.md)

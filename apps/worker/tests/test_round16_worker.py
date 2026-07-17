@@ -15,7 +15,7 @@ from srbg_api.identifiers import uuid7
 from srbg_worker.app import celery_app
 
 
-def test_beat_only_wakes_database_dispatcher_for_source_fetches() -> None:
+def test_beat_wakes_only_governed_source_dispatchers() -> None:
     source_entries = {
         name: value
         for name, value in celery_app.conf.beat_schedule.items()
@@ -25,7 +25,27 @@ def test_beat_only_wakes_database_dispatcher_for_source_fetches() -> None:
         "dispatch-due-source-schedules": {
             "task": "srbg.schedules.dispatch",
             "schedule": 30.0,
-        }
+        },
+        "dispatch-source-activation-outbox": {
+            "task": "srbg.sources.activation_outbox",
+            "schedule": 5.0,
+            "options": {"queue": "celery"},
+        },
+        "dispatch-pending-source-qualifications": {
+            "task": "srbg.sources.qualify",
+            "schedule": 5.0,
+            "options": {"queue": "qualification"},
+        },
+        "dispatch-automated-source-discovery": {
+            "task": "srbg.sources.discovery.dispatch",
+            "schedule": 21600.0,
+            "options": {"queue": "celery"},
+        },
+        "dispatch-source-content-outbox": {
+            "task": "srbg.source_content.outbox",
+            "schedule": 5.0,
+            "options": {"queue": "parser"},
+        },
     }
     assert celery_app.conf.task_routes["srbg.source.fetch"] == {"queue": "parser"}
 

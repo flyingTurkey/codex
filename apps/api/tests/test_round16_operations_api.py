@@ -12,6 +12,7 @@ from srbg_contracts import (
     PilotMetrics,
     ReplayRequest,
     ReplayResult,
+    SourceLifecycleActionRequest,
 )
 
 SOURCE_ID = UUID("019b1600-0000-7000-8000-000000000001")
@@ -34,6 +35,17 @@ class Stub:
     ) -> FetchScheduleView:
         assert actor_id and idempotency_key == "round16-schedule"
         return self._view(source_id, payload.expected_version + 1)
+
+    async def repair_schedule(
+        self,
+        source_id: UUID,
+        payload: SourceLifecycleActionRequest,
+        *,
+        actor_id: UUID,
+        idempotency_key: str,
+    ) -> FetchScheduleView:
+        assert actor_id and payload.reason and idempotency_key == "round18-repair"
+        return self._view(source_id, 2)
 
     async def source_health(self) -> list[object]:
         return []
@@ -133,3 +145,34 @@ def test_health_and_replay_lists_are_read_only_for_auditor() -> None:
     headers = {"X-SRBG-Local-Roles": "auditor"}
     assert client.get("/api/v1/admin/operations/source-health", headers=headers).status_code == 200
     assert client.get("/api/v1/admin/operations/replays", headers=headers).status_code == 200
+
+
+def test_schedule_repair_requires_step_up_and_uses_a_bounded_command() -> None:
+    client = TestClient(create_app(checkers={}, operations_service=Stub()))
+    endpoint = f"/api/v1/admin/sources/{SOURCE_ID}/schedule/repair"
+    payload = {"reason": "reset the open circuit after verified connector repair"}
+
+    assert (
+        client.post(
+            endpoint,
+            headers={
+                "X-SRBG-Local-Roles": "source_admin",
+                "Idempotency-Key": "round18-repair",
+            },
+            json=payload,
+        ).status_code
+        == 403
+    )
+    response = client.post(
+        endpoint,
+        headers={
+            "X-SRBG-Local-Roles": "source_admin",
+            "X-SRBG-Local-Step-Up": "true",
+            "Idempotency-Key": "round18-repair",
+        },
+        json=payload,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["circuit_state"] == "CLOSED"
+    assert response.json()["consecutive_failures"] == 0

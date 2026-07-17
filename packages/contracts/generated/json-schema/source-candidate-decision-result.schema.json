@@ -1,0 +1,63 @@
+{
+  "$defs": {
+    "SourceCandidateStatus": {
+      "enum": [
+        "DISCOVERED",
+        "QUALIFYING",
+        "READY_FOR_DECISION",
+        "ENABLED",
+        "DISMISSED",
+        "BLOCKED",
+        "STALE"
+      ],
+      "title": "SourceCandidateStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "candidate_id": {
+      "format": "uuid",
+      "title": "Candidate Id",
+      "type": "string"
+    },
+    "decided_at": {
+      "format": "date-time",
+      "title": "Decided At",
+      "type": "string"
+    },
+    "idempotent_replay": {
+      "title": "Idempotent Replay",
+      "type": "boolean"
+    },
+    "production_refetch_enqueued": {
+      "title": "Production Refetch Enqueued",
+      "type": "boolean"
+    },
+    "source_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Id"
+    },
+    "status": {
+      "$ref": "#/$defs/SourceCandidateStatus"
+    }
+  },
+  "required": [
+    "candidate_id",
+    "status",
+    "production_refetch_enqueued",
+    "idempotent_replay",
+    "decided_at"
+  ],
+  "title": "SourceCandidateDecisionResult",
+  "type": "object"
+}

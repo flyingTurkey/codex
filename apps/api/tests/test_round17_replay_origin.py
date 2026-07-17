@@ -109,7 +109,8 @@ async def test_source_fetch_replay_rechecks_current_policy_and_production_approv
     )
 
     assert error is None
-    assert "p.document->>'storage_policy'='RAW_EVIDENCE_ALLOWED'" in connection.sql
+    assert "source_private_evidence_capture_allowed(p.document)" in connection.sql
+    assert "source_policy_compliance_current(s.id,p.id,:now)" in connection.sql
     assert "source_governance_decision" in connection.sql
     assert "decision_type='PRODUCTION_APPROVAL'" in connection.sql
     assert "decision.outcome='APPROVED'" in connection.sql
@@ -187,7 +188,8 @@ async def test_source_fetch_replay_execution_closes_claim_to_use_policy_race() -
 
     binding_sql = engine.connection.sql[0]
     assert "source_policy_version policy" in binding_sql
-    assert "policy.document->>'storage_policy'='RAW_EVIDENCE_ALLOWED'" in binding_sql
+    assert "source_private_evidence_capture_allowed(policy.document)" in binding_sql
+    assert "source_policy_compliance_current(" in binding_sql
     assert "source_governance_decision decision" in binding_sql
     assert "decision.decision_type='PRODUCTION_APPROVAL'" in binding_sql
     assert "decision.trial_run_id=source_row.current_trial_run_id" in binding_sql

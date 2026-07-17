@@ -107,6 +107,14 @@ const scheduleForm = reactive({
   dailyByteBudget: 1000000,
   reason: '',
 })
+const repairingSchedule = ref(false)
+const scheduleCommandError = ref<string | null>(null)
+const scheduleCommandNotice = ref<string | null>(null)
+const canRepairSchedule = computed(() => canManage.value
+  && Boolean(schedule.value)
+  && schedule.value?.circuit_state !== 'CLOSED'
+  && schedule.value?.status !== 'RETIRED'
+  && source.value?.lifecycle_state === 'ACTIVE')
 watch(schedule, (value) => {
   if (!value) return
   scheduleForm.status = value.status
@@ -118,7 +126,7 @@ watch(schedule, (value) => {
 }, { immediate: true })
 
 async function saveSchedule(): Promise<void> {
-  if (!scheduleForm.reason.trim()) return
+  if (scheduleForm.reason.trim().length < 10) return
   busy.value = true
   actionError.value = null
   const payload: FetchScheduleUpdate = {
@@ -147,6 +155,37 @@ async function saveSchedule(): Promise<void> {
     actionError.value = apiProblemMessage(problem)
   }
   finally {
+    busy.value = false
+  }
+}
+
+async function repairSchedule(): Promise<void> {
+  const reason = scheduleForm.reason.trim()
+  if (!canRepairSchedule.value || busy.value || reason.length < 10) return
+
+  busy.value = true
+  repairingSchedule.value = true
+  scheduleCommandError.value = null
+  scheduleCommandNotice.value = null
+  try {
+    await $fetch(`/api/v1/admin/sources/${sourceId.value}/schedule/repair`, {
+      method: 'POST',
+      body: { reason },
+      headers: {
+        'Idempotency-Key': crypto.randomUUID(),
+        'X-SRBG-Local-Step-Up': 'true',
+      },
+      retry: 0,
+    })
+    scheduleForm.reason = ''
+    await refreshSchedule()
+    scheduleCommandNotice.value = '熔断修复命令已执行，抓取计划已刷新。'
+  }
+  catch (problem) {
+    scheduleCommandError.value = `熔断修复失败：${apiProblemMessage(problem)}`
+  }
+  finally {
+    repairingSchedule.value = false
     busy.value = false
   }
 }
@@ -845,11 +884,21 @@ function isCurrentPendingFixture(run: SourceTrialRunView): boolean {
               <input v-model.number="scheduleForm.dailyByteBudget" type="number" min="1" :disabled="!canManage || busy">
             </label>
             <label v-if="canManage" class="schedule-reason">
-              调整理由
-              <input v-model.trim="scheduleForm.reason" required minlength="10" maxlength="500" :disabled="busy">
+              调整或修复理由
+              <input v-model.trim="scheduleForm.reason" name="schedule-reason" required minlength="10" maxlength="500" :disabled="busy">
             </label>
             <button v-if="canManage" class="primary-button" type="submit" :disabled="busy || scheduleForm.reason.trim().length < 10">
               保存计划
+            </button>
+            <button
+              v-if="canRepairSchedule"
+              class="secondary-button"
+              data-action="REPAIR_SCHEDULE"
+              type="button"
+              :disabled="busy || scheduleForm.reason.trim().length < 10"
+              @click="repairSchedule"
+            >
+              {{ repairingSchedule ? '正在验证并修复…' : '验证并修复熔断' }}
             </button>
           </form>
           <p v-if="schedule">
@@ -857,6 +906,8 @@ function isCurrentPendingFixture(run: SourceTrialRunView): boolean {
             预算 {{ schedule.requests_used }}/{{ schedule.daily_request_budget }} 次、
             {{ schedule.bytes_used }}/{{ schedule.daily_byte_budget }} 字节 · 版本 {{ schedule.version }}
           </p>
+          <p v-if="scheduleCommandNotice" role="status">{{ scheduleCommandNotice }}</p>
+          <p v-if="scheduleCommandError" class="problem" role="alert">{{ scheduleCommandError }}</p>
         </article>
         <article class="panel">
           <h2>权威运行授权</h2>

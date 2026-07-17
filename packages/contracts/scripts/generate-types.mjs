@@ -142,7 +142,41 @@ const publicExports = {
   'review-task-detail.schema.json': ['ReviewTaskDetail'],
   'review-task-summary.schema.json': ['ReviewTaskSummary'],
   'source-action-request.schema.json': ['SourceActionRequest'],
+  'source-attention-page.schema.json': ['SourceAttentionPage', 'SourceAttentionItem'],
   'source-audit-event.schema.json': ['SourceAuditEventView'],
+  'source-candidate-batch-decision-request.schema.json': [
+    'SourceCandidateBatchDecisionRequest',
+  ],
+  'source-candidate-batch-decision-result.schema.json': [
+    'SourceCandidateBatchDecisionResult',
+    'SourceCandidateDecisionItemResult',
+    'SourceCandidateDecisionItemOutcome',
+  ],
+  'source-candidate-create-request.schema.json': ['SourceCandidateCreateRequest'],
+  'source-candidate-decision-request.schema.json': [
+    'SourceCandidateDecisionRequest',
+    'SourceCandidateDecision',
+  ],
+  'source-candidate-decision-result.schema.json': ['SourceCandidateDecisionResult'],
+  'source-candidate-detail.schema.json': ['SourceCandidateDetail'],
+  'source-candidate-page.schema.json': [
+    'SourceCandidatePage',
+    'SourceCandidateSummary',
+    'QualificationBundleView',
+    'QualificationCheckView',
+    'SourceCandidateAction',
+    'SourceCandidateStatus',
+    'SourceContentDomain',
+    'SourceIndustry',
+    'DiscoveryChannel',
+    'QualificationCheckLevel',
+    'QualificationVerdict',
+    'EvidenceCapturePolicy',
+    'StoragePolicy',
+  ],
+  'source-candidate-qualification-request.schema.json': [
+    'SourceCandidateQualificationRequest',
+  ],
   'source-comparison.schema.json': ['SourceComparison', 'SourceComparisonEntry'],
   'source-coverage-matrix.schema.json': ['SourceCoverageMatrix', 'SourceCoverageCell'],
   'source-detail.schema.json': ['SourceDetail'],
@@ -165,6 +199,12 @@ const publicExports = {
     'SourceLifecycleAction',
     'SourceLifecycleState',
     'RuntimeAuthorization',
+  ],
+  'source-stream-page.schema.json': [
+    'SourceStreamPage',
+    'SourceStreamView',
+    'SourceStreamAction',
+    'SourceStreamStatus',
   ],
   'source-trial-run-request.schema.json': ['SourceTrialRunRequest'],
   'source-trial-quality-summary.schema.json': ['SourceTrialQualitySummary'],
@@ -192,6 +232,7 @@ const publicExports = {
   'version-change-escalation-request.schema.json': ['VersionChangeEscalationRequest'],
   'version-response.schema.json': ['VersionResponse'],
   'version-timeline-response.schema.json': ['VersionTimelineResponse'],
+  'qualification-run.schema.json': ['QualificationRunView'],
 }
 
 await mkdir(dirname(outputPath), { recursive: true })

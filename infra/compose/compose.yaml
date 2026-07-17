@@ -14,6 +14,16 @@ x-python-environment: &python-environment
   SRBG_CURSOR_SIGNING_KEY: ${SRBG_CURSOR_SIGNING_KEY:-demo-only-round10-cursor-signing-key}
   SRBG_SEMANTIC_SEARCH_ENABLED: ${SRBG_SEMANTIC_SEARCH_ENABLED:-false}
   SRBG_SEMANTIC_SEARCH_TIMEOUT_SECONDS: ${SRBG_SEMANTIC_SEARCH_TIMEOUT_SECONDS:-0.3}
+  SRBG_SOURCE_DISCOVERY_ENABLED: ${SRBG_SOURCE_DISCOVERY_ENABLED:-false}
+  SRBG_SOURCE_QUALIFICATION_ENABLED: ${SRBG_SOURCE_QUALIFICATION_ENABLED:-false}
+  SRBG_BAIDU_SEARCH_ENABLED: ${SRBG_BAIDU_SEARCH_ENABLED:-false}
+  SRBG_BAIDU_SEARCH_API_URL: ${SRBG_BAIDU_SEARCH_API_URL:-https://qianfan.baidubce.com/v2/ai_search}
+  SRBG_BAIDU_SEARCH_API_KEY: ${SRBG_BAIDU_SEARCH_API_KEY:-}
+  SRBG_BAIDU_SEARCH_TIMEOUT_SECONDS: ${SRBG_BAIDU_SEARCH_TIMEOUT_SECONDS:-2}
+  SRBG_BAIDU_SEARCH_MONTHLY_CAP_MICRORMB: ${SRBG_BAIDU_SEARCH_MONTHLY_CAP_MICRORMB:-200000000}
+  SRBG_BAIDU_SEARCH_COST_PER_CALL_MICRORMB: ${SRBG_BAIDU_SEARCH_COST_PER_CALL_MICRORMB:-36000}
+  SRBG_BAIDU_SEARCH_FREE_CALLS_PER_MONTH: ${SRBG_BAIDU_SEARCH_FREE_CALLS_PER_MONTH:-1500}
+  SRBG_BAIDU_SEARCH_BUDGET_ALERT_BPS: ${SRBG_BAIDU_SEARCH_BUDGET_ALERT_BPS:-8000}
   SRBG_METRICS_BEARER_TOKEN: ${SRBG_METRICS_BEARER_TOKEN:-demo-only-round11-metrics-token-000000}
   SRBG_OTEL_EXPORTER_OTLP_ENDPOINT: ${SRBG_OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
   SRBG_SENTRY_DSN: ${SRBG_SENTRY_DSN:-}
@@ -271,7 +281,7 @@ services:
         - CMD-SHELL
         - celery -A srbg_worker.app:celery_app inspect ping --destination celery@worker --timeout 2
       interval: 10s
-      timeout: 4s
+      timeout: 8s
       retries: 12
     restart: unless-stopped
 
@@ -294,6 +304,48 @@ services:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
+    restart: unless-stopped
+
+  source-discovery:
+    build:
+      context: .
+      dockerfile: infra/compose/Dockerfile.python
+    hostname: source-discovery
+    environment:
+      <<: *python-environment
+      SRBG_DATABASE_URL: postgresql+asyncpg://srbg_worker_login:${SRBG_WORKER_DB_PASSWORD:-srbg_worker_local_only}@postgres:5432/${POSTGRES_DB:-srbg}
+    command: ["celery", "-A", "srbg_worker.app:celery_app", "worker", "--loglevel=INFO", "--queues=discovery", "--concurrency=2", "--max-tasks-per-child=25"]
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    depends_on:
+      role-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  source-qualification:
+    build:
+      context: .
+      dockerfile: infra/compose/Dockerfile.python
+    hostname: source-qualification
+    environment:
+      <<: *python-environment
+      SRBG_DATABASE_URL: postgresql+asyncpg://srbg_worker_login:${SRBG_WORKER_DB_PASSWORD:-srbg_worker_local_only}@postgres:5432/${POSTGRES_DB:-srbg}
+    command: ["celery", "-A", "srbg_worker.app:celery_app", "worker", "--loglevel=INFO", "--queues=qualification", "--concurrency=1", "--max-tasks-per-child=10"]
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    depends_on:
+      role-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      clamav:
+        condition: service_healthy
     restart: unless-stopped
 
   ai-worker:

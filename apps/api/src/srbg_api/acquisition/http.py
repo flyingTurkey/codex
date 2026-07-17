@@ -156,6 +156,7 @@ class ResilientHttpClient:
         checkpoint: SourceCheckpoint,
         accept: str = "text/html",
         credential_headers: dict[str, str] | None = None,
+        allow_not_found: bool = False,
     ) -> FetchResult:
         hostname = _hostname(url)
         open_until = self._circuit_open_until.get(hostname, 0.0)
@@ -199,6 +200,16 @@ class ResilientHttpClient:
                         redirect_chain,
                         self._clock.now(),
                         True,
+                    )
+                if allow_not_found and response.status_code in {404, 410}:
+                    self._record_success(hostname)
+                    return _fetch_result(
+                        response,
+                        url,
+                        final_url,
+                        redirect_chain,
+                        self._clock.now(),
+                        False,
                     )
                 if not 200 <= response.status_code < 300:
                     raise OSError(f"upstream returned {response.status_code}")

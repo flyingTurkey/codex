@@ -523,7 +523,7 @@ async def transition(
         status_code=status.HTTP_410_GONE,
         detail="Legacy state writes are retired",
         headers={
-            "Link": f"</api/v1/admin/sources/{source_id}/approve>; rel=\"successor-version\""
+            "Link": "</api/v1/admin/source-candidates>; rel=\"successor-version\""
         },
     )
 
@@ -539,7 +539,7 @@ async def enable_source(
         status_code=status.HTTP_410_GONE,
         detail="Legacy enable is retired",
         headers={
-            "Link": f"</api/v1/admin/sources/{source_id}/approve>; rel=\"successor-version\""
+            "Link": "</api/v1/admin/source-candidates>; rel=\"successor-version\""
         },
     )
 
@@ -697,11 +697,13 @@ async def approve_source(
     request: Request,
     principal: WritePrincipal,
 ) -> SourceDetail:
-    return await _service(request).approve_production(
-        source_id,
-        payload,
-        actor_id=principal.user_id,
-        request_id=request.state.request_id,
+    del source_id, payload, request, principal
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="Legacy production approval is retired",
+        headers={
+            "Link": "</api/v1/admin/source-candidates>; rel=\"successor-version\""
+        },
     )
 
 

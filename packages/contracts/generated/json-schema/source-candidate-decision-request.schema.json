@@ -1,0 +1,57 @@
+{
+  "$defs": {
+    "SourceCandidateDecision": {
+      "enum": [
+        "ENABLE",
+        "DISMISS"
+      ],
+      "title": "SourceCandidateDecision",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "decision": {
+      "$ref": "#/$defs/SourceCandidateDecision"
+    },
+    "expected_bundle_sha256": {
+      "anyOf": [
+        {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Expected Bundle Sha256"
+    },
+    "reason": {
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Reason",
+      "type": "string"
+    },
+    "waiver_reason": {
+      "anyOf": [
+        {
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Waiver Reason"
+    }
+  },
+  "required": [
+    "decision",
+    "reason"
+  ],
+  "title": "SourceCandidateDecisionRequest",
+  "type": "object"
+}

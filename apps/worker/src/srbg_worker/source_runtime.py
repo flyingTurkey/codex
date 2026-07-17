@@ -27,6 +27,7 @@ from xml.etree import ElementTree
 from defusedxml import ElementTree as DefusedElementTree  # type: ignore[import-untyped]
 from defusedxml.common import DefusedXmlException  # type: ignore[import-untyped]
 from sqlalchemy import text
+from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncEngine
 from srbg_api.acquisition.contracts import (
     DiscoveryBatch,
@@ -184,6 +185,7 @@ class RuntimeGateway(Protocol):
         *,
         result: RuntimeRunResult,
         failure_kind: str | None,
+        next_checkpoint: SourceCheckpoint | None = None,
     ) -> str: ...
 
     async def close(self) -> None: ...
@@ -338,6 +340,7 @@ class ScheduledDeclarativeSourceAdapter(SourceAdapter):
         record: DiscoveryRecord,
         checkpoint: SourceCheckpoint,
     ) -> FetchResult:
+        del checkpoint  # List/feed validators are not valid for a distinct detail URL.
         prefetched = self._prefetched.get(record.url)
         if prefetched:
             fetched = prefetched.pop(0)
@@ -346,7 +349,7 @@ class ScheduledDeclarativeSourceAdapter(SourceAdapter):
             return fetched
         fetched, _capture = await self._fetch_raw_first(
             request=ConnectorRequest(record.url, "DOCUMENT", "*/*"),
-            checkpoint=checkpoint,
+            checkpoint=SourceCheckpoint(),
             purpose="DOCUMENT",
         )
         return fetched
@@ -506,7 +509,7 @@ class RuntimeFetchExecutor:
                 gateway=self._gateway,
                 authority_heartbeat_seconds=self._authority_heartbeat_seconds,
             )
-            result, failure_kind = await self._execute_binding(
+            result, failure_kind, next_checkpoint = await self._execute_binding(
                 binding,
                 adapter=adapter,
             )
@@ -516,6 +519,7 @@ class RuntimeFetchExecutor:
                 binding,
                 result=result,
                 failure_kind=failure_kind,
+                next_checkpoint=next_checkpoint,
             )
             return result
         except ConnectorConfigRejected:
@@ -562,9 +566,10 @@ class RuntimeFetchExecutor:
         binding: RuntimeBinding,
         *,
         adapter: ScheduledDeclarativeSourceAdapter,
-    ) -> tuple[RuntimeRunResult, str | None]:
+    ) -> tuple[RuntimeRunResult, str | None, SourceCheckpoint | None]:
         records: tuple[DiscoveryRecord, ...] = ()
         checkpoint = binding.checkpoint
+        next_checkpoint: SourceCheckpoint | None = None
         fetched_count = 0
         failed_count = 0
         failure_kind: str | None = None
@@ -572,6 +577,7 @@ class RuntimeFetchExecutor:
             batch = await adapter.discover(checkpoint)
             records = batch.records
             checkpoint = batch.next_checkpoint
+            next_checkpoint = checkpoint
         except RuntimeExecutionError as error:
             failed_count += 1
             failure_kind = error.failure_kind
@@ -620,7 +626,7 @@ class RuntimeFetchExecutor:
             duplicate_ratio=_duplicate_ratio(records),
             required_fields_missing=adapter.required_fields_missing,
         )
-        return result, failure_kind
+        return result, failure_kind, next_checkpoint
 
     async def _persist_document(
         self,
@@ -791,6 +797,10 @@ class PostgresRuntimeGateway:
             )
         if row is None:
             return None
+        try:
+            checkpoint = _runtime_checkpoint_from_row(row)
+        except (TypeError, ValueError):
+            return None
         config = row["config_document"]
         policy = row["policy_document"]
         if not isinstance(config, dict) or not isinstance(policy, dict):
@@ -835,7 +845,7 @@ class PostgresRuntimeGateway:
             allowed_hosts=allowed_hosts,
             policy_version_id=row["policy_version_id"],
             connector_config_version_id=row["connector_config_version_id"],
-            checkpoint=SourceCheckpoint(),
+            checkpoint=checkpoint,
             freshness_slo_seconds=int(row["freshness_slo_seconds"]),
             fetch_policy=fetch_policy,
         )
@@ -1053,6 +1063,7 @@ class PostgresRuntimeGateway:
         *,
         result: RuntimeRunResult,
         failure_kind: str | None,
+        next_checkpoint: SourceCheckpoint | None = None,
     ) -> str:
         if binding is None or failure_kind in {"AUTHORIZATION", "ORIGIN_ISOLATION"}:
             token = self._execution_lease_token
@@ -1104,7 +1115,7 @@ class PostgresRuntimeGateway:
             and result.discovery_structure_sha256 is not None
             and previous_structure_sha256 != result.discovery_structure_sha256
         )
-        return await self._scheduling.record_outcome(
+        terminal = await self._scheduling.record_outcome(
             source_id=binding.source_id,
             run_id=binding.run_id,
             observation=HealthObservation(
@@ -1125,6 +1136,70 @@ class PostgresRuntimeGateway:
             response_bytes=result.response_bytes,
             failure=failure,
         )
+        if (
+            next_checkpoint is not None
+            and failure_kind in {None, "NOT_MODIFIED"}
+            and terminal in {"SUCCEEDED", "NOT_MODIFIED"}
+        ):
+            try:
+                advanced = await self._advance_successful_checkpoint(
+                    binding,
+                    checkpoint=next_checkpoint,
+                )
+            except Exception:
+                logger.exception(
+                    "scheduled_checkpoint_update_failed",
+                    extra={
+                        "event_name": "scheduled_checkpoint_update_failed",
+                        "source_id": str(binding.source_id),
+                        "run_id": str(binding.run_id),
+                        "outcome": "RETRY_ON_NEXT_RUN",
+                    },
+                )
+            else:
+                if not advanced:
+                    logger.error(
+                        "scheduled_checkpoint_update_skipped",
+                        extra={
+                            "event_name": "scheduled_checkpoint_update_skipped",
+                            "source_id": str(binding.source_id),
+                            "run_id": str(binding.run_id),
+                            "outcome": "AUTHORITY_NOT_FOUND",
+                        },
+                    )
+        return terminal
+
+    async def _advance_successful_checkpoint(
+        self,
+        binding: RuntimeBinding,
+        *,
+        checkpoint: SourceCheckpoint,
+    ) -> bool:
+        now = datetime.now(UTC)
+        async with self._engine.begin() as connection:
+            row = (
+                (
+                    await connection.execute(
+                        text(_UPSERT_SUCCESSFUL_CHECKPOINT_SQL),
+                        {
+                            "checkpoint_id": uuid7(),
+                            "source_id": binding.source_id,
+                            "run_id": binding.run_id,
+                            "cursor": json.dumps(
+                                {"value": checkpoint.cursor},
+                                ensure_ascii=False,
+                                separators=(",", ":"),
+                            ),
+                            "etag": checkpoint.etag,
+                            "last_modified": checkpoint.last_modified,
+                            "now": now,
+                        },
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        return row is not None
 
     async def _zero_discovery_streak(
         self,
@@ -1466,6 +1541,44 @@ def _next_runtime_checkpoint(
     )
 
 
+def _runtime_checkpoint_from_row(
+    row: Mapping[str, object] | RowMapping,
+) -> SourceCheckpoint:
+    cursor_document = row.get("checkpoint_cursor")
+    if cursor_document is None:
+        cursor: str | None = None
+    elif isinstance(cursor_document, dict):
+        cursor_value = cursor_document.get("value")
+        if cursor_value is not None and not isinstance(cursor_value, str):
+            raise ValueError("source checkpoint cursor must be a string")
+        cursor = cursor_value
+    else:
+        raise ValueError("source checkpoint cursor document must be an object")
+
+    etag = row.get("checkpoint_etag")
+    last_modified = row.get("checkpoint_last_modified")
+    if etag is not None and not isinstance(etag, str):
+        raise ValueError("source checkpoint etag must be a string")
+    if last_modified is not None and not isinstance(last_modified, str):
+        raise ValueError("source checkpoint last-modified must be a string")
+
+    failures_value = row.get("checkpoint_consecutive_failures")
+    failures = 0 if failures_value is None else failures_value
+    if isinstance(failures, bool) or not isinstance(failures, int) or failures < 0:
+        raise ValueError("source checkpoint failure count is invalid")
+
+    circuit_open_until = row.get("checkpoint_circuit_open_until")
+    if circuit_open_until is not None and not isinstance(circuit_open_until, datetime):
+        raise ValueError("source checkpoint circuit timestamp is invalid")
+    return SourceCheckpoint(
+        cursor=cursor,
+        etag=etag,
+        last_modified=last_modified,
+        consecutive_failures=failures,
+        circuit_open_until=circuit_open_until,
+    )
+
+
 def _empty_result(
     *,
     acquired: bool,
@@ -1586,18 +1699,25 @@ SELECT r.run_origin,r.execution_domain,r.policy_version_id,
        r.connector_config_version_id,d.connector_type,c.config_document,
        c.allowed_hosts AS config_allowed_hosts,p.document AS policy_document,
        fs.max_attempts,fs.backoff_base_seconds,fs.backoff_cap_seconds,
-       fs.freshness_slo_seconds
+       fs.freshness_slo_seconds,
+       checkpoint.cursor AS checkpoint_cursor,
+       checkpoint.etag AS checkpoint_etag,
+       checkpoint.last_modified AS checkpoint_last_modified,
+       checkpoint.consecutive_failures AS checkpoint_consecutive_failures,
+       checkpoint.circuit_open_until AS checkpoint_circuit_open_until
   FROM fetch_run r
   JOIN source s ON s.id=r.source_id
   JOIN source_policy_version p ON p.id=s.current_policy_version_id
   JOIN connector_config_version c ON c.id=s.current_connector_config_version_id
   JOIN connector_definition d ON d.id=c.connector_definition_id
   JOIN fetch_schedule fs ON fs.id=r.schedule_id
+  LEFT JOIN source_checkpoint checkpoint
+    ON checkpoint.source_connector_id=r.source_connector_id
  WHERE r.id=:run_id AND r.source_id=:source_id AND r.status='RUNNING'
    AND s.lifecycle_state='ACTIVE' AND fs.status='ACTIVE'
-   AND p.id=r.policy_version_id AND p.status='APPROVED'
-   AND p.valid_from <= :now AND p.valid_until > :now
-   AND p.document->>'storage_policy'='RAW_EVIDENCE_ALLOWED'
+   AND p.id=r.policy_version_id
+   AND source_policy_compliance_current(s.id,p.id,:now)
+   AND source_private_evidence_capture_allowed(p.document)
    AND c.id=r.connector_config_version_id AND c.validation_status='VALID'
    AND fs.interval_seconds=s.poll_interval_minutes * 60
    AND fs.freshness_slo_seconds=(p.document #>> '{slo,target_minutes}')::int * 60
@@ -1709,4 +1829,28 @@ SELECT record_scheduled_source_document(
   :source_id,:run_id,:raw_object_id,:capture_id,:canonical_url,:document_kind,
   :content_hash,:filename,:title,:acquired_at
 )
+"""
+
+_UPSERT_SUCCESSFUL_CHECKPOINT_SQL = """
+INSERT INTO source_checkpoint (
+  id,source_connector_id,cursor,etag,last_modified,last_success_at,
+  consecutive_failures,circuit_open_until,updated_at
+)
+SELECT :checkpoint_id,r.source_connector_id,CAST(:cursor AS jsonb),:etag,
+       :last_modified,:now,0,NULL,:now
+  FROM fetch_run r
+  JOIN source_connector connector
+    ON connector.id=r.source_connector_id AND connector.source_id=r.source_id
+ WHERE r.id=:run_id AND r.source_id=:source_id
+   AND r.run_origin='SCHEDULED' AND r.execution_domain='PRODUCTION'
+   AND r.status IN ('SUCCEEDED','NOT_MODIFIED')
+ON CONFLICT (source_connector_id) DO UPDATE SET
+  cursor=EXCLUDED.cursor,
+  etag=EXCLUDED.etag,
+  last_modified=EXCLUDED.last_modified,
+  last_success_at=EXCLUDED.last_success_at,
+  consecutive_failures=0,
+  circuit_open_until=NULL,
+  updated_at=EXCLUDED.updated_at
+RETURNING source_connector_id
 """

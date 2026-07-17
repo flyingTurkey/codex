@@ -6,9 +6,11 @@ import type {
   ConnectorType,
   ReviewEvidence,
   RuntimeAuthorization as CanonicalRuntimeAuthorization,
+  SourceAttentionItem as CanonicalSourceAttentionItem,
   SourceAssessmentSubmission,
   SourceAuditEventView as CanonicalSourceAuditEventView,
   SourceAuthorityAssessment,
+  SourceCandidateSummary as CanonicalSourceCandidateSummary,
   SourceCoverageCell as CanonicalSourceCoverageCell,
   SourceCoverageMatrix,
   SourceDetail,
@@ -19,6 +21,7 @@ import type {
   SourcePolicyV2Submission,
   SourcePolicyVersionView as CanonicalSourcePolicyVersionView,
   SourceSummary,
+  SourceStreamView as CanonicalSourceStreamView,
   SourceTrialQualitySummary as CanonicalSourceTrialQualitySummary,
   SourceTrialRunView as CanonicalSourceTrialRunView,
 } from '@srbg/contracts'
@@ -275,4 +278,106 @@ export function apiProblemMessage(value: unknown): string {
   }
   if ('message' in value && typeof value.message === 'string') return value.message
   return '请求失败，请检查治理证据和服务状态。'
+}
+
+export function apiProblemStatus(value: unknown): number | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  if ('statusCode' in value && typeof value.statusCode === 'number') return value.statusCode
+  const data = 'data' in value ? value.data : undefined
+  if (typeof data !== 'object' || data === null) return undefined
+  return 'status' in data && typeof data.status === 'number' ? data.status : undefined
+}
+
+export type SourceWorkspaceView = 'attention' | 'candidates' | 'enabled'
+
+interface CandidateQualificationProjection {
+  readonly verdict?: string | null
+}
+
+interface CandidateDecisionProjection {
+  readonly available_actions?: readonly string[]
+  readonly latest_qualification?: CandidateQualificationProjection | null
+}
+
+export type SourceCandidateCardProjection = CanonicalSourceCandidateSummary
+
+export type SourceStreamCardProjection = CanonicalSourceStreamView
+
+export type SourceAttentionCardProjection = CanonicalSourceAttentionItem
+
+/** Keep the route query bounded to the three server-backed source work queues. */
+export function workspaceViewOf(value: unknown): SourceWorkspaceView {
+  if (value === 'enabled' || value === 'attention') return value
+  return 'candidates'
+}
+
+export function qualificationVerdictLabel(candidate: CandidateDecisionProjection): string {
+  const verdict = candidate.latest_qualification?.verdict
+  if (verdict === 'QUALIFIED') return '资格通过'
+  if (verdict === 'WARN_WAIVABLE') return '需单独豁免'
+  if (verdict === 'BLOCKED') return '硬阻断'
+  return '资格待运行'
+}
+
+export function qualificationVerdictTone(
+  candidate: CandidateDecisionProjection,
+): StatusBadgeTone {
+  const verdict = candidate.latest_qualification?.verdict
+  if (verdict === 'QUALIFIED') return 'healthy'
+  if (verdict === 'WARN_WAIVABLE') return 'degraded'
+  if (verdict === 'BLOCKED') return 'conflict'
+  return 'pending'
+}
+
+export function candidateCanEnable(
+  candidate: CandidateDecisionProjection,
+  roles: readonly string[],
+): boolean {
+  const verdict = candidate.latest_qualification?.verdict
+  return roles.includes('platform_admin')
+    && candidate.available_actions?.includes('ENABLE') === true
+    && (verdict === 'QUALIFIED' || verdict === 'WARN_WAIVABLE')
+}
+
+export function candidateCanDismiss(
+  candidate: CandidateDecisionProjection,
+  roles: readonly string[],
+): boolean {
+  return roles.includes('platform_admin')
+    && candidate.available_actions?.includes('DISMISS') === true
+}
+
+export function candidateCanRequestQualification(
+  candidate: CandidateDecisionProjection,
+  roles: readonly string[],
+): boolean {
+  return roles.some(role => role === 'source_admin' || role === 'platform_admin')
+    && candidate.available_actions?.includes('REQUEST_QUALIFICATION') === true
+}
+
+export function candidateCanBatchSelect(
+  candidate: CandidateDecisionProjection & { readonly batch_enable_eligible?: boolean },
+  roles: readonly string[],
+): boolean {
+  return candidate.batch_enable_eligible === true
+    && candidate.latest_qualification?.verdict === 'QUALIFIED'
+    && candidateCanEnable(candidate, roles)
+}
+
+export function sourceStreamTone(stream: SourceStreamCardProjection): StatusBadgeTone {
+  if (stream.status === 'ACTIVE') return 'healthy'
+  if (stream.status === 'QUALIFIED') return 'verified'
+  if (stream.status === 'PAUSED') return 'degraded'
+  return 'conflict'
+}
+
+export function attentionTone(item: SourceAttentionCardProjection): StatusBadgeTone {
+  const hardFailure = item.stream.status === 'REVOKED'
+    || item.reason_codes.some(code => (
+      code.includes('BLOCKED')
+      || code.includes('SSRF')
+      || code.includes('LOGIN_REQUIRED')
+      || code.includes('CAPTCHA')
+    ))
+  return hardFailure ? 'conflict' : 'degraded'
 }

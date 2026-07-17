@@ -15,9 +15,18 @@ from srbg_api.identifiers import uuid7
 TASK_POLICIES = {
     "srbg.safety_regulations.discover": ("SOURCE_FETCH", True),
     "srbg.source.fetch": ("SOURCE_FETCH", True),
+    "srbg.sources.qualify": ("SOURCE_QUALIFICATION", True),
+    "srbg.sources.activation_outbox": ("SOURCE_ACTIVATION_OUTBOX", True),
+    "srbg.source_content.outbox": ("SOURCE_CONTENT_OUTBOX", True),
     "srbg.publication.outbox": ("PUBLICATION_OUTBOX", True),
     "srbg.publication.projections": ("PROJECTION", True),
     "srbg.ai.generate": ("AI", False),
+}
+
+_AUTHORITATIVE_TASK_ARGUMENTS = {
+    "srbg.sources.qualify": "qualification_run_id",
+    "srbg.sources.activation_outbox": "outbox_id",
+    "srbg.source_content.outbox": "outbox_id",
 }
 
 
@@ -54,12 +63,26 @@ def failure_record(
     except ValueError:
         execution_id = uuid7()
     task_kind, policy_replayable = TASK_POLICIES.get(task_name, ("UNKNOWN", False))
-    source_id = _safe_uuid(kwargs.get("source_id"))
-    run_id = _safe_uuid(kwargs.get("run_id"))
-    document_version_id = _safe_uuid(kwargs.get("document_version_id"))
-    event_id = _safe_uuid(kwargs.get("event_id"))
-    has_authoritative_reference = any((run_id, document_version_id, event_id))
-    requires_reference = task_name == "srbg.source.fetch"
+    authoritative_argument = _AUTHORITATIVE_TASK_ARGUMENTS.get(task_name)
+    if authoritative_argument is not None:
+        authoritative_id = _safe_uuid(kwargs.get(authoritative_argument))
+        source_id = None
+        run_id = None
+        document_version_id = None
+        event_id = None
+        processing_version = None
+        has_authoritative_reference = authoritative_id is not None
+        requires_reference = True
+        if authoritative_id is not None:
+            execution_id = authoritative_id
+    else:
+        source_id = _safe_uuid(kwargs.get("source_id"))
+        run_id = _safe_uuid(kwargs.get("run_id"))
+        document_version_id = _safe_uuid(kwargs.get("document_version_id"))
+        event_id = _safe_uuid(kwargs.get("event_id"))
+        processing_version = _bounded_version(kwargs.get("processing_version"))
+        has_authoritative_reference = any((run_id, document_version_id, event_id))
+        requires_reference = task_name == "srbg.source.fetch"
     replayable = policy_replayable and (has_authoritative_reference or not requires_reference)
     if run_id is not None:
         execution_id = run_id
@@ -76,10 +99,18 @@ def failure_record(
         run_id=run_id,
         document_version_id=document_version_id,
         event_id=event_id,
-        processing_version=_bounded_version(kwargs.get("processing_version")),
+        processing_version=processing_version,
         reconstruction_status="REPLAYABLE" if replayable else "NON_REPLAYABLE",
         blocked_reason=(
-            None if replayable else "LEGACY_TASK_ID_ONLY" if requires_reference else None
+            None
+            if replayable
+            else (
+                "AUTHORITATIVE_REFERENCE_MISSING"
+                if authoritative_argument is not None
+                else "LEGACY_TASK_ID_ONLY"
+                if requires_reference
+                else None
+            )
         ),
     )
 

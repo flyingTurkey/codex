@@ -55,6 +55,7 @@ from srbg_contracts import (
     ReplayTaskView,
     SourceAnomalyView,
     SourceHealthView,
+    SourceLifecycleActionRequest,
 )
 
 from srbg_api.identifiers import uuid7
@@ -803,6 +804,52 @@ def _schedule_view(row: Mapping[str, Any] | RowMapping) -> FetchScheduleView:
     )
 
 
+_LOCK_REPAIRABLE_SCHEDULE_SQL = """
+SELECT schedule.*
+  FROM fetch_schedule schedule
+  JOIN source source_row ON source_row.id=schedule.source_id
+  JOIN source_policy_version policy
+    ON policy.id=source_row.current_policy_version_id
+  LEFT JOIN source_stream stream ON stream.schedule_id=schedule.id
+  LEFT JOIN source_candidate candidate ON candidate.id=stream.candidate_id
+  LEFT JOIN source_qualification_bundle bundle ON bundle.id=candidate.current_bundle_id
+ WHERE schedule.source_id=:source_id
+   AND schedule.status IN ('ACTIVE','PAUSED')
+   AND source_row.lifecycle_state='ACTIVE'
+   AND source_policy_compliance_current(source_row.id,policy.id,:now)
+   AND NOT EXISTS (
+     SELECT 1 FROM fetch_run running
+      WHERE running.schedule_id=schedule.id
+        AND running.status='RUNNING'
+        AND running.execution_lease_until>=:now
+   )
+   AND (
+     stream.id IS NULL
+     OR stream.candidate_id IS NULL
+     OR (
+       stream.status IN ('ACTIVE','PAUSED')
+       AND candidate.status='ENABLED'
+       AND bundle.material_fingerprint=candidate.material_fingerprint
+       AND bundle.valid_until>:now
+     )
+   )
+ FOR UPDATE OF schedule
+"""
+
+_REPAIR_SCHEDULE_SQL = """
+UPDATE fetch_schedule
+   SET consecutive_failures=0,
+       circuit_state='CLOSED',
+       circuit_open_until=NULL,
+       next_run_at=CASE WHEN status='ACTIVE' THEN :now ELSE next_run_at END,
+       version=version+1,
+       last_idempotency_key=:idempotency_key,
+       updated_at=:now
+ WHERE id=:schedule_id
+ RETURNING *
+"""
+
+
 class PostgresOperationsService:
     def __init__(
         self,
@@ -1290,6 +1337,71 @@ class PostgresOperationsService:
                 .one()
             )
         return _schedule_view(row)
+
+    async def repair_schedule(
+        self,
+        source_id: UUID,
+        payload: SourceLifecycleActionRequest,
+        *,
+        actor_id: UUID,
+        idempotency_key: str,
+    ) -> FetchScheduleView:
+        """Reset a failed circuit without weakening current source authorization."""
+
+        now = self._now()
+        async with self._engine.begin() as connection:
+            row = (
+                (
+                    await connection.execute(
+                        text(_LOCK_REPAIRABLE_SCHEDULE_SQL),
+                        {"source_id": source_id, "now": now},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if row is None:
+                raise OperationsRejected(
+                    "schedule repair requires current source authority and no running fetch"
+                )
+            if row["last_idempotency_key"] == idempotency_key:
+                return _schedule_view(row)
+            repaired = (
+                (
+                    await connection.execute(
+                        text(_REPAIR_SCHEDULE_SQL),
+                        {
+                            "schedule_id": row["id"],
+                            "idempotency_key": idempotency_key,
+                            "now": now,
+                        },
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            await connection.execute(
+                text(
+                    "SELECT append_audit_event("
+                    ":id,'FETCH_SCHEDULE_REPAIRED',:actor,'fetch_schedule',:target,"
+                    "jsonb_build_object('circuit_state',:before_circuit,"
+                    "'consecutive_failures',:before_failures),"
+                    "jsonb_build_object('circuit_state','CLOSED',"
+                    "'consecutive_failures',0,'idempotency_key',:key),"
+                    ":reason,:key,:now)"
+                ),
+                {
+                    "id": uuid7(),
+                    "actor": actor_id,
+                    "target": row["id"],
+                    "before_circuit": row["circuit_state"],
+                    "before_failures": row["consecutive_failures"],
+                    "key": idempotency_key,
+                    "reason": payload.reason,
+                    "now": now,
+                },
+            )
+        return _schedule_view(repaired)
 
     async def source_health(self) -> list[SourceHealthView]:
         async with self._engine.connect() as connection:
@@ -2379,11 +2491,14 @@ class PostgresOperationsService:
                                 WHERE source_row.id=:source
                                   AND source_row.registry_code=:source_code
                                   AND source_row.lifecycle_state='ACTIVE'
-                                  AND policy.status='APPROVED'
+                                  AND source_policy_compliance_current(
+                                        source_row.id,policy.id,:now
+                                      )
                                   AND policy.valid_from<=:now
                                   AND policy.valid_until>=:ends
-                                  AND policy.document->>'storage_policy'=
-                                      'RAW_EVIDENCE_ALLOWED'
+                                  AND source_private_evidence_capture_allowed(
+                                        policy.document
+                                      )
                                   AND config.validation_status='VALID'
                                   AND schedule.status='ACTIVE'
                                   AND trial.kind='LIVE_TRIAL'
@@ -2781,8 +2896,7 @@ class PostgresOperationsService:
                                    ON assignment.source_id=s.id
                                 WHERE s.registry_code=:source_code
                                   AND s.lifecycle_state='ACTIVE'
-                                  AND policy.status='APPROVED'
-                                  AND policy.valid_from<=:now AND policy.valid_until>:now
+                                  AND source_policy_compliance_current(s.id,policy.id,:now)
                                   AND config.validation_status='VALID'
                                   AND trial.kind='LIVE_TRIAL'
                                   AND trial.execution_domain='TRIAL'

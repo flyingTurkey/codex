@@ -16,7 +16,19 @@ export type SourceContentDomain =
   | 'UNKNOWN'
 export type Gap = boolean
 export type SourceIndustry =
-  'HIGHWAY' | 'BRIDGE' | 'TUNNEL' | 'RAILWAY' | 'RAIL_TRANSIT' | 'GENERAL_TRANSPORT' | 'UNKNOWN'
+  | 'HIGHWAY'
+  | 'BRIDGE'
+  | 'TUNNEL'
+  | 'RAILWAY'
+  | 'RAIL_TRANSIT'
+  | 'WATER_CONSERVANCY'
+  | 'MUNICIPAL'
+  | 'BUILDING'
+  | 'ENERGY'
+  | 'PORT_WATERWAY'
+  | 'AIRPORT'
+  | 'GENERAL_TRANSPORT'
+  | 'UNKNOWN'
 export type Language = string
 export type Region = string
 export type SourceType =

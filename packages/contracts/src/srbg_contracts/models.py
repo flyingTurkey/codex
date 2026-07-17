@@ -223,6 +223,12 @@ class SourceIndustry(StrEnum):
     TUNNEL = "TUNNEL"
     RAILWAY = "RAILWAY"
     RAIL_TRANSIT = "RAIL_TRANSIT"
+    WATER_CONSERVANCY = "WATER_CONSERVANCY"
+    MUNICIPAL = "MUNICIPAL"
+    BUILDING = "BUILDING"
+    ENERGY = "ENERGY"
+    PORT_WATERWAY = "PORT_WATERWAY"
+    AIRPORT = "AIRPORT"
     GENERAL_TRANSPORT = "GENERAL_TRANSPORT"
     UNKNOWN = "UNKNOWN"
 
@@ -272,6 +278,83 @@ class StoragePolicy(StrEnum):
     RAW_EVIDENCE_ALLOWED = "RAW_EVIDENCE_ALLOWED"
     METADATA_ONLY = "METADATA_ONLY"
     LINK_ONLY = "LINK_ONLY"
+
+
+class DiscoveryChannel(StrEnum):
+    DIRECTORY = "DIRECTORY"
+    RSS = "RSS"
+    SITEMAP = "SITEMAP"
+    OUTBOUND_LINK = "OUTBOUND_LINK"
+    MANUAL = "MANUAL"
+    BAIDU_SEARCH = "BAIDU_SEARCH"
+
+
+class SourceCandidateStatus(StrEnum):
+    DISCOVERED = "DISCOVERED"
+    QUALIFYING = "QUALIFYING"
+    READY_FOR_DECISION = "READY_FOR_DECISION"
+    ENABLED = "ENABLED"
+    DISMISSED = "DISMISSED"
+    BLOCKED = "BLOCKED"
+    STALE = "STALE"
+
+
+class QualificationRunStatus(StrEnum):
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+
+
+class QualificationVerdict(StrEnum):
+    QUALIFIED = "QUALIFIED"
+    WARN_WAIVABLE = "WARN_WAIVABLE"
+    BLOCKED = "BLOCKED"
+
+
+class QualificationCheckLevel(StrEnum):
+    PASS = "PASS"  # noqa: S105 - qualification outcome, not a credential
+    WARN = "WARN"
+    BLOCK = "BLOCK"
+
+
+class EvidenceCapturePolicy(StrEnum):
+    """How qualification evidence may be captured, independent of display policy."""
+
+    PRIVATE_RAW_ALLOWED = "PRIVATE_RAW_ALLOWED"
+    TRANSIENT_METADATA_ONLY = "TRANSIENT_METADATA_ONLY"
+
+
+class SourceCandidateDecision(StrEnum):
+    ENABLE = "ENABLE"
+    DISMISS = "DISMISS"
+
+
+class SourceCandidateDecisionItemOutcome(StrEnum):
+    APPLIED = "APPLIED"
+    CONFLICT = "CONFLICT"
+    REJECTED = "REJECTED"
+
+
+class SourceCandidateAction(StrEnum):
+    REQUEST_QUALIFICATION = "REQUEST_QUALIFICATION"
+    ENABLE = "ENABLE"
+    DISMISS = "DISMISS"
+
+
+class SourceStreamStatus(StrEnum):
+    QUALIFIED = "QUALIFIED"
+    ACTIVE = "ACTIVE"
+    PAUSED = "PAUSED"
+    REVOKED = "REVOKED"
+
+
+class SourceStreamAction(StrEnum):
+    PAUSE = "PAUSE"
+    RESUME = "RESUME"
+    REQUEST_REPAIR = "REQUEST_REPAIR"
+    REVOKE = "REVOKE"
 
 
 class DisplayPolicy(StrEnum):
@@ -1076,6 +1159,229 @@ class CursorPage[T](ContractModel):
 
 HttpUrlString = str
 Sha256String = str
+
+
+class QualificationCheckView(ContractModel):
+    code: AssessmentReasonCode
+    level: QualificationCheckLevel
+    message: str = Field(min_length=1, max_length=500)
+    evidence_refs: list[EvidenceReference] = Field(default_factory=list, max_length=50)
+    observed_at: AssessmentTimestamp
+
+    @model_validator(mode="after")
+    def reject_future_observation(self) -> "QualificationCheckView":
+        if self.observed_at > datetime.now(UTC):
+            raise ValueError("qualification observations cannot be in the future")
+        if len(self.evidence_refs) != len(set(self.evidence_refs)):
+            raise ValueError("qualification evidence references must be unique")
+        return self
+
+
+class QualificationBundleView(ContractModel):
+    id: UUID
+    candidate_id: UUID
+    run_id: UUID
+    rule_version: str = Field(min_length=1, max_length=100)
+    material_fingerprint: Sha256String = Field(pattern=r"^[a-f0-9]{64}$")
+    verdict: QualificationVerdict
+    storage_policy: StoragePolicy
+    evidence_capture_policy: EvidenceCapturePolicy = EvidenceCapturePolicy.PRIVATE_RAW_ALLOWED
+    checks: list[QualificationCheckView] = Field(default_factory=list, max_length=100)
+    sampled_item_count: int = Field(ge=0, le=10000)
+    relevant_item_count: int = Field(ge=0, le=10000)
+    reason_codes: list[AssessmentReasonCode] = Field(default_factory=list, max_length=100)
+    bundle_sha256: Sha256String = Field(pattern=r"^[a-f0-9]{64}$")
+    created_at: AssessmentTimestamp
+    expires_at: AssessmentTimestamp
+
+    @model_validator(mode="after")
+    def validate_bundle_consistency(self) -> "QualificationBundleView":
+        if self.relevant_item_count > self.sampled_item_count:
+            raise ValueError("relevant item count cannot exceed sampled item count")
+        if self.expires_at <= self.created_at:
+            raise ValueError("qualification bundle expiry must follow creation")
+        if len(self.reason_codes) != len(set(self.reason_codes)):
+            raise ValueError("qualification reason codes must be unique")
+        return self
+
+
+class SourceCandidateCreateRequest(ContractModel):
+    """Discovery input; lifecycle status and qualification facts remain server-owned."""
+
+    url: HttpUrlString = Field(pattern=r"^https://[^\s]+$", max_length=2048)
+    industries: list[SourceIndustry] = Field(default_factory=list, max_length=30)
+    content_domains: list[SourceContentDomain] = Field(default_factory=list, max_length=30)
+    language_tags: list[LanguageTag] = Field(default_factory=list, max_length=20)
+    reason: GovernanceReason
+
+    @model_validator(mode="after")
+    def require_unique_classification_values(self) -> "SourceCandidateCreateRequest":
+        fields = (self.industries, self.content_domains, self.language_tags)
+        if any(len(values) != len(set(values)) for values in fields):
+            raise ValueError("candidate classification values must be unique")
+        return self
+
+
+class SourceCandidateSummary(ContractModel):
+    id: UUID
+    institution_name: str
+    canonical_url: HttpUrlString
+    authorization_boundary: str
+    discovery_channels: list[DiscoveryChannel]
+    status: SourceCandidateStatus
+    industries: list[SourceIndustry] = Field(default_factory=list)
+    content_domains: list[SourceContentDomain] = Field(default_factory=list)
+    language_tags: list[LanguageTag] = Field(default_factory=list)
+    occurrence_count: int = Field(ge=1)
+    first_discovered_at: AssessmentTimestamp
+    last_discovered_at: AssessmentTimestamp
+    latest_qualification: QualificationBundleView | None = None
+    available_actions: list[SourceCandidateAction] = Field(default_factory=list)
+    batch_enable_eligible: bool = False
+
+    @model_validator(mode="after")
+    def validate_discovery_window(self) -> "SourceCandidateSummary":
+        if self.last_discovered_at < self.first_discovered_at:
+            raise ValueError("last discovery cannot precede first discovery")
+        return self
+
+
+class SourceCandidateDetail(SourceCandidateSummary):
+    discovery_references: list[EvidenceReference] = Field(default_factory=list, max_length=100)
+    qualification_history: list[QualificationBundleView] = Field(
+        default_factory=list,
+        max_length=50,
+    )
+    enabled_source_id: UUID | None = None
+    dismissed_reason: str | None = None
+
+
+class SourceCandidatePage(ContractModel):
+    items: list[SourceCandidateSummary]
+    next_cursor: str | None = None
+    has_more: bool
+    status_counts: dict[SourceCandidateStatus, int] = Field(default_factory=dict)
+
+
+class SourceCandidateQualificationRequest(ContractModel):
+    reason: GovernanceReason
+
+
+class QualificationRunView(ContractModel):
+    id: UUID
+    candidate_id: UUID
+    status: QualificationRunStatus
+    rule_version: str = Field(min_length=1, max_length=100)
+    requested_by: UUID
+    created_at: AssessmentTimestamp
+    started_at: AssessmentTimestamp | None = None
+    completed_at: AssessmentTimestamp | None = None
+    failure_code: AssessmentReasonCode | None = None
+    bundle: QualificationBundleView | None = None
+
+
+class SourceCandidateDecisionRequest(ContractModel):
+    decision: SourceCandidateDecision
+    expected_bundle_sha256: Sha256String | None = Field(
+        default=None,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+    reason: GovernanceReason
+    waiver_reason: GovernanceReason | None = None
+
+    @model_validator(mode="after")
+    def bind_enable_to_bundle(self) -> "SourceCandidateDecisionRequest":
+        if self.decision is SourceCandidateDecision.ENABLE and self.expected_bundle_sha256 is None:
+            raise ValueError("enable requires the expected qualification bundle SHA-256")
+        if self.decision is SourceCandidateDecision.DISMISS and self.waiver_reason is not None:
+            raise ValueError("dismiss does not accept a qualification waiver")
+        return self
+
+
+class SourceCandidateDecisionResult(ContractModel):
+    candidate_id: UUID
+    status: SourceCandidateStatus
+    source_id: UUID | None = None
+    production_refetch_enqueued: bool
+    idempotent_replay: bool
+    decided_at: AssessmentTimestamp
+
+
+class SourceCandidateBatchTarget(ContractModel):
+    candidate_id: UUID
+    expected_bundle_sha256: Sha256String = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class SourceCandidateBatchDecisionRequest(ContractModel):
+    targets: list[SourceCandidateBatchTarget] = Field(min_length=1, max_length=10)
+    expected_rule_version: str = Field(min_length=1, max_length=100)
+    reason: GovernanceReason
+
+    @model_validator(mode="after")
+    def require_unique_candidates(self) -> "SourceCandidateBatchDecisionRequest":
+        candidate_ids = [target.candidate_id for target in self.targets]
+        if len(candidate_ids) != len(set(candidate_ids)):
+            raise ValueError("batch decision candidate targets must be unique")
+        return self
+
+
+class SourceCandidateDecisionItemResult(ContractModel):
+    candidate_id: UUID
+    outcome: SourceCandidateDecisionItemOutcome
+    status: SourceCandidateStatus | None = None
+    source_id: UUID | None = None
+    production_refetch_enqueued: bool
+    reason_code: AssessmentReasonCode | None = None
+
+
+class SourceCandidateBatchDecisionResult(ContractModel):
+    items: list[SourceCandidateDecisionItemResult] = Field(min_length=1, max_length=10)
+    rule_version: str
+    decided_at: AssessmentTimestamp
+    idempotent_replay: bool
+
+
+class SourceStreamView(ContractModel):
+    id: UUID
+    source_id: UUID
+    candidate_id: UUID | None
+    institution_name: str
+    canonical_url: HttpUrlString
+    authorization_boundary: str
+    stream_key: str = Field(min_length=1, max_length=200)
+    status: SourceStreamStatus
+    rule_version: str
+    available_actions: list[SourceStreamAction] = Field(default_factory=list)
+    last_success_at: AssessmentTimestamp | None = None
+    last_failure_at: AssessmentTimestamp | None = None
+    consecutive_failure_count: int = Field(default=0, ge=0)
+    next_fetch_at: AssessmentTimestamp | None = None
+    updated_at: AssessmentTimestamp
+
+
+class SourceStreamPage(ContractModel):
+    items: list[SourceStreamView]
+    next_cursor: str | None = None
+    has_more: bool
+
+
+class SourceAttentionItem(ContractModel):
+    stream: SourceStreamView
+    reason_codes: list[AssessmentReasonCode] = Field(min_length=1, max_length=20)
+    first_observed_at: AssessmentTimestamp
+    last_observed_at: AssessmentTimestamp
+
+    @model_validator(mode="after")
+    def validate_attention_window(self) -> "SourceAttentionItem":
+        if self.last_observed_at < self.first_observed_at:
+            raise ValueError("last attention observation cannot precede the first")
+        return self
+
+
+class SourceAttentionPage(ContractModel):
+    items: list[SourceAttentionItem]
+    next_cursor: str | None = None
+    has_more: bool
 
 
 class CreateSourceRequest(ContractModel):

@@ -158,6 +158,29 @@ def test_conditional_request_returns_not_modified_without_content() -> None:
     assert result.content is None
 
 
+def test_optional_public_metadata_fetch_can_observe_missing_resource() -> None:
+    transport = FakeTransport(
+        [HttpResponse(status_code=404, headers={}, content=b"not found", peer_ip="8.8.8.8")]
+    )
+    client = ResilientHttpClient(
+        _policy(max_attempts=1),
+        resolver=FakeResolver({"www.mem.gov.cn": ("8.8.8.8",)}),
+        transport=transport,
+        clock=FakeClock(),
+    )
+
+    result = asyncio.run(
+        client.get(
+            "https://www.mem.gov.cn/robots.txt",
+            checkpoint=SourceCheckpoint(),
+            allow_not_found=True,
+        )
+    )
+
+    assert result.status_code == 404
+    assert result.content == b"not found"
+
+
 def test_retry_is_bounded_then_circuit_opens_for_subsequent_request() -> None:
     transport = FakeTransport(
         [

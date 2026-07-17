@@ -7,6 +7,7 @@ from binascii import Error as BinasciiError
 from datetime import UTC, datetime
 from functools import lru_cache
 from hashlib import sha256
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from cryptography.hazmat.primitives import serialization
@@ -56,6 +57,18 @@ class Settings(BaseSettings):
     )
     semantic_search_enabled: bool = False
     semantic_search_timeout_seconds: float = Field(default=0.3, gt=0, le=2)
+    source_discovery_enabled: bool = False
+    source_qualification_enabled: bool = False
+    baidu_search_enabled: bool = False
+    baidu_search_api_url: str = "https://qianfan.baidubce.com/v2/ai_search"
+    baidu_search_api_key: SecretStr | None = None
+    baidu_search_timeout_seconds: float = Field(default=2.0, gt=0, le=10)
+    baidu_search_monthly_cap_micrormb: int = Field(
+        default=200_000_000, ge=1, le=10_000_000_000
+    )
+    baidu_search_cost_per_call_micrormb: int = Field(default=36_000, ge=0, le=10_000_000)
+    baidu_search_free_calls_per_month: int = Field(default=1_500, ge=0, le=1_000_000)
+    baidu_search_budget_alert_bps: int = Field(default=8_000, ge=1, le=9_999)
     metrics_bearer_token: SecretStr | None = None
     otel_exporter_otlp_endpoint: str | None = None
     sentry_dsn: SecretStr | None = None
@@ -88,6 +101,38 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def reject_demo_cursor_key_in_production(self) -> Settings:
+        baidu_endpoint = urlsplit(self.baidu_search_api_url)
+        if (
+            baidu_endpoint.scheme != "https"
+            or baidu_endpoint.hostname != "qianfan.baidubce.com"
+            or baidu_endpoint.path != "/v2/ai_search"
+            or baidu_endpoint.port is not None
+            or baidu_endpoint.username is not None
+            or baidu_endpoint.password is not None
+            or baidu_endpoint.query
+            or baidu_endpoint.fragment
+        ):
+            raise ValueError("Baidu search endpoint must use the pinned Qianfan HTTPS origin")
+        baidu_api_key = self.baidu_search_api_key
+        if self.baidu_search_enabled and (
+            baidu_api_key is None or not baidu_api_key.get_secret_value()
+        ):
+            raise ValueError("Baidu search requires an API key when enabled")
+        if self.baidu_search_enabled and not self.source_discovery_enabled:
+            raise ValueError("Baidu search requires automated source discovery to be enabled")
+        if self.source_discovery_enabled and not self.source_qualification_enabled:
+            raise ValueError(
+                "Automated source discovery requires source qualification to be enabled"
+            )
+        if (
+            self.baidu_search_monthly_cap_micrormb,
+            self.baidu_search_cost_per_call_micrormb,
+            self.baidu_search_free_calls_per_month,
+            self.baidu_search_budget_alert_bps,
+        ) != (200_000_000, 36_000, 1_500, 8_000):
+            raise ValueError("Baidu search budget policy is database-pinned")
+        if self.baidu_search_cost_per_call_micrormb > self.baidu_search_monthly_cap_micrormb:
+            raise ValueError("Baidu search per-call cost cannot exceed the monthly cap")
         if self.round17_authority_mode not in {"OIDC", "SIGNED_LOCAL_PILOT"}:
             raise ValueError("Round 17 authority mode is invalid")
         signing_values = (

@@ -1,0 +1,91 @@
+{
+  "$defs": {
+    "SourceContentDomain": {
+      "enum": [
+        "DIGITAL_TRANSFORMATION_CASE",
+        "RESEARCH_PAPER",
+        "SOFTWARE_PLATFORM",
+        "IOT_EQUIPMENT",
+        "LOW_ALTITUDE_EQUIPMENT",
+        "AI_APPLICATION",
+        "SAFETY_REGULATION",
+        "STANDARD_GUIDANCE",
+        "ACCIDENT_INVESTIGATION",
+        "OFFICIAL_NOTICE",
+        "PENALTY",
+        "RECTIFICATION",
+        "UNKNOWN"
+      ],
+      "title": "SourceContentDomain",
+      "type": "string"
+    },
+    "SourceIndustry": {
+      "enum": [
+        "HIGHWAY",
+        "BRIDGE",
+        "TUNNEL",
+        "RAILWAY",
+        "RAIL_TRANSIT",
+        "WATER_CONSERVANCY",
+        "MUNICIPAL",
+        "BUILDING",
+        "ENERGY",
+        "PORT_WATERWAY",
+        "AIRPORT",
+        "GENERAL_TRANSPORT",
+        "UNKNOWN"
+      ],
+      "title": "SourceIndustry",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Discovery input; lifecycle status and qualification facts remain server-owned.",
+  "properties": {
+    "content_domains": {
+      "items": {
+        "$ref": "#/$defs/SourceContentDomain"
+      },
+      "maxItems": 30,
+      "title": "Content Domains",
+      "type": "array"
+    },
+    "industries": {
+      "items": {
+        "$ref": "#/$defs/SourceIndustry"
+      },
+      "maxItems": 30,
+      "title": "Industries",
+      "type": "array"
+    },
+    "language_tags": {
+      "items": {
+        "maxLength": 35,
+        "minLength": 2,
+        "pattern": "^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$",
+        "type": "string"
+      },
+      "maxItems": 20,
+      "title": "Language Tags",
+      "type": "array"
+    },
+    "reason": {
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Reason",
+      "type": "string"
+    },
+    "url": {
+      "maxLength": 2048,
+      "pattern": "^https://[^\\s]+$",
+      "title": "Url",
+      "type": "string"
+    }
+  },
+  "required": [
+    "url",
+    "reason"
+  ],
+  "title": "SourceCandidateCreateRequest",
+  "type": "object"
+}

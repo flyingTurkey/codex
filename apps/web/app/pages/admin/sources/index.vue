@@ -1,348 +1,626 @@
 <script setup lang="ts">
-import type { MeResponse } from '@srbg/contracts'
+import type {
+  DiscoveryChannel,
+  MeResponse,
+  QualificationVerdict,
+  SourceAttentionPage,
+  SourceCandidateBatchDecisionResult,
+  SourceCandidateBatchDecisionRequest,
+  SourceCandidateCreateRequest,
+  SourceCandidatePage,
+  SourceCandidateQualificationRequest,
+  SourceCandidateStatus,
+  SourceContentDomain,
+  SourceIndustry,
+  SourceStreamPage,
+} from '@srbg/contracts'
 import { EmptyState, PageHeader, ResponsiveDrawer, StatusBadge } from '@srbg/ui'
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 
-import type { SourceCenterDetail, SourceCenterSummary, SourceLifecycleDisplayState } from '../../../source-center'
+import SourceCandidateCard from '../../../components/SourceCandidateCard.vue'
+import SourceCandidateDrawer from '../../../components/SourceCandidateDrawer.vue'
+import SourceWorkspaceTabs from '../../../components/SourceWorkspaceTabs.vue'
+import type {
+  SourceAttentionCardProjection,
+  SourceCandidateCardProjection,
+  SourceStreamCardProjection,
+  SourceWorkspaceView,
+} from '../../../source-center'
 import {
   apiProblemMessage,
-  lifecycleLabel,
-  lifecycleStateOf,
-  lifecycleTone,
-  runtimeAuthorizationLabel,
-  runtimeAuthorizationTone,
+  apiProblemStatus,
+  attentionTone,
+  formatShanghaiDateTime,
+  sourceStreamTone,
+  workspaceViewOf,
 } from '../../../source-center'
+import { useSourceCenterWorkspace } from '../../../composables/useSourceCenterWorkspace'
+import { createUuidV7 } from '../../../utils/uuid-v7'
 
-const drawerOpen = ref(false)
-const submitting = ref(false)
-const formError = ref<string | null>(null)
+type SourceWorkspacePage = SourceAttentionPage | SourceCandidatePage | SourceStreamPage
 
-const form = reactive({
-  baseUrl: '',
-  channel: '' as '' | 'BOTH' | 'DIGITAL' | 'SAFETY',
-  collectionMethod: '',
+const candidateStatuses: readonly SourceCandidateStatus[] = [
+  'DISCOVERED',
+  'QUALIFYING',
+  'READY_FOR_DECISION',
+  'ENABLED',
+  'DISMISSED',
+  'BLOCKED',
+  'STALE',
+]
+const contentDomains: readonly SourceContentDomain[] = [
+  'DIGITAL_TRANSFORMATION_CASE',
+  'RESEARCH_PAPER',
+  'SOFTWARE_PLATFORM',
+  'IOT_EQUIPMENT',
+  'LOW_ALTITUDE_EQUIPMENT',
+  'AI_APPLICATION',
+  'SAFETY_REGULATION',
+  'STANDARD_GUIDANCE',
+  'ACCIDENT_INVESTIGATION',
+  'OFFICIAL_NOTICE',
+  'PENALTY',
+  'RECTIFICATION',
+  'UNKNOWN',
+]
+const discoveryChannels: readonly DiscoveryChannel[] = [
+  'DIRECTORY',
+  'RSS',
+  'SITEMAP',
+  'OUTBOUND_LINK',
+  'MANUAL',
+  'BAIDU_SEARCH',
+]
+const industries: readonly SourceIndustry[] = [
+  'HIGHWAY',
+  'BRIDGE',
+  'TUNNEL',
+  'RAILWAY',
+  'RAIL_TRANSIT',
+  'WATER_CONSERVANCY',
+  'MUNICIPAL',
+  'BUILDING',
+  'ENERGY',
+  'PORT_WATERWAY',
+  'AIRPORT',
+  'GENERAL_TRANSPORT',
+  'UNKNOWN',
+]
+const qualificationVerdicts: readonly QualificationVerdict[] = [
+  'QUALIFIED',
+  'WARN_WAIVABLE',
+  'BLOCKED',
+]
+
+const route = useRoute()
+const workspace = useSourceCenterWorkspace(route.query.view)
+const selectedCandidate = ref<SourceCandidateCardProjection | null>(null)
+const pendingDecision = ref<'' | 'DISMISS' | 'ENABLE'>('')
+const decisionDrawerOpen = ref(false)
+const discoveryDrawerOpen = ref(false)
+const actionError = ref<string | null>(null)
+const actionMessage = ref<string | null>(null)
+const busyCandidateId = ref<string | null>(null)
+const submittingDiscovery = ref(false)
+const selectedCandidateIds = ref<string[]>([])
+
+const draftFilters = reactive({
   contentDomain: '',
-  countryCode: '',
-  governanceOwnerId: '',
+  discoveryChannel: '',
   industry: '',
   languageTag: '',
-  name: '',
-  pollIntervalMinutes: '' as '' | number,
-  priority: '' as '' | 'P0' | 'P1' | 'P2',
-  regionCode: '',
-  sourceRole: '',
-  sourceType: '',
+  query: '',
+  status: '',
+  verdict: '',
 })
-
-const filters = reactive({
-  contentDomain: '',
-  industry: '',
-  lifecycle: '' as '' | SourceLifecycleDisplayState,
-  regionLanguage: '',
-  sourceType: '',
-})
+const discovery = reactive({ canonicalUrl: '', reason: '' })
 
 const { data: identity } = await useFetch<MeResponse>('/api/v1/me', {
   retry: 0,
   timeout: 2_000,
 })
-const canManage = computed(() => identity.value?.roles.some(role =>
-  role === 'source_admin' || role === 'platform_admin',
-) ?? false)
+const roles = computed(() => identity.value?.roles ?? [])
+const canSubmitDiscovery = computed(() => roles.value.some(role => (
+  role === 'source_admin' || role === 'platform_admin'
+)))
+const isPlatformAdmin = computed(() => roles.value.includes('platform_admin'))
 
 const {
-  data: sources,
-  error,
-  refresh,
-  status,
-} = await useFetch<SourceCenterSummary[]>('/api/v1/admin/sources', {
-  default: () => [],
-  retry: 0,
-  timeout: 5_000,
-})
+  data: workspacePage,
+  error: workspaceError,
+  refresh: refreshWorkspace,
+  status: workspaceStatus,
+} = await useFetch<SourceWorkspacePage>(
+  workspace.endpoint,
+  {
+    default: () => ({ has_more: false, items: [], next_cursor: null }),
+    retry: 0,
+    timeout: 5_000,
+  },
+)
 
-function uniqueValues(values: readonly (string | undefined)[]): string[] {
-  return [...new Set(values.filter((value): value is string => Boolean(value)))].sort()
+const viewCounts = reactive<Record<SourceWorkspaceView, number>>({
+  attention: 0,
+  candidates: 0,
+  enabled: 0,
+})
+watch(
+  [workspace.activeView, () => workspacePage.value.items.length],
+  ([view, count]) => { viewCounts[view] = count },
+  { immediate: true },
+)
+watch(
+  () => route.query.view,
+  value => workspace.changeView(workspaceViewOf(value)),
+)
+
+const candidateItems = computed(() => workspace.activeView.value === 'candidates'
+  ? workspacePage.value.items as readonly SourceCandidateCardProjection[]
+  : [])
+const streamItems = computed(() => workspace.activeView.value === 'enabled'
+  ? workspacePage.value.items as readonly SourceStreamCardProjection[]
+  : [])
+const attentionItems = computed(() => workspace.activeView.value === 'attention'
+  ? workspacePage.value.items as readonly SourceAttentionCardProjection[]
+  : [])
+const selectedCandidates = computed(() => candidateItems.value.filter(candidate => (
+  selectedCandidateIds.value.includes(candidate.id)
+)))
+const batchRuleVersion = computed(() => selectedCandidates.value[0]
+  ?.latest_qualification?.rule_version ?? '')
+const canBatchEnable = computed(() => (
+  isPlatformAdmin.value
+  && selectedCandidates.value.length > 0
+  && selectedCandidates.value.length <= 10
+  && selectedCandidates.value.every(candidate => (
+    candidate.batch_enable_eligible
+    && candidate.latest_qualification?.rule_version === batchRuleVersion.value
+  ))
+))
+
+async function changeView(view: SourceWorkspaceView): Promise<void> {
+  if (workspace.activeView.value === view) return
+  workspace.changeView(view)
+  selectedCandidateIds.value = []
+  actionError.value = null
+  await navigateTo({
+    path: route.path,
+    query: { ...route.query, view },
+  }, { replace: true })
 }
 
-const lifecycleOptions: readonly SourceLifecycleDisplayState[] = [
-  'CANDIDATE',
-  'COMPLIANCE_REVIEW',
-  'TRIAL',
-  'ACTIVE',
-  'PAUSED',
-  'RETIRED',
-  'UNKNOWN',
-]
-const industryOptions = computed(() => uniqueValues(sources.value.flatMap(source => source.industries ?? [])))
-const contentDomainOptions = computed(() => uniqueValues(sources.value.flatMap(source => source.content_domains ?? [])))
-const sourceTypeOptions = computed(() => uniqueValues(sources.value.map(source => source.source_type)))
-const regionLanguageOptions = computed(() => uniqueValues(sources.value.flatMap(source =>
-  (source.region_codes ?? ['UNKNOWN']).flatMap(region =>
-    (source.language_tags ?? ['UNKNOWN']).map(language => `${region} / ${language}`),
-  ),
-)))
+function applyFilters(): void {
+  workspace.filters.q = draftFilters.query.trim()
+  workspace.filters.industry = draftFilters.industry
+  workspace.filters.content_domain = draftFilters.contentDomain
+  workspace.filters.discovery_channel = draftFilters.discoveryChannel
+  workspace.filters.language_tag = draftFilters.languageTag
+  workspace.filters.status = draftFilters.status
+  workspace.filters.verdict = draftFilters.verdict
+  workspace.resetCursor()
+  selectedCandidateIds.value = []
+}
 
-const filteredSources = computed(() => sources.value.filter((source) => {
-  if (filters.lifecycle && lifecycleStateOf(source) !== filters.lifecycle) return false
-  if (filters.industry && !(source.industries ?? []).some(value => value === filters.industry)) return false
-  if (filters.contentDomain && !(source.content_domains ?? []).some(value => value === filters.contentDomain)) return false
-  if (filters.sourceType && source.source_type !== filters.sourceType) return false
-  if (filters.regionLanguage) {
-    const combinations = (source.region_codes ?? ['UNKNOWN']).flatMap(region =>
-      (source.language_tags ?? ['UNKNOWN']).map(language => `${region} / ${language}`),
-    )
-    if (!combinations.includes(filters.regionLanguage)) return false
-  }
-  return true
-}))
-
-function resetForm(): void {
-  Object.assign(form, {
-    baseUrl: '',
-    channel: '',
-    collectionMethod: '',
+function resetFilters(): void {
+  Object.assign(draftFilters, {
     contentDomain: '',
-    countryCode: '',
-    governanceOwnerId: '',
+    discoveryChannel: '',
     industry: '',
     languageTag: '',
-    name: '',
-    pollIntervalMinutes: '',
-    priority: '',
-    regionCode: '',
-    sourceRole: '',
-    sourceType: '',
+    query: '',
+    status: '',
+    verdict: '',
   })
+  applyFilters()
 }
 
-async function submitSource(): Promise<void> {
-  submitting.value = true
-  formError.value = null
+function nextPage(): void {
+  if (workspacePage.value.next_cursor) workspace.cursor.value = workspacePage.value.next_cursor
+}
+
+function openDecision(
+  candidate: SourceCandidateCardProjection,
+  decision: 'DISMISS' | 'ENABLE',
+): void {
+  selectedCandidate.value = candidate
+  pendingDecision.value = decision
+  actionError.value = null
+  decisionDrawerOpen.value = true
+}
+
+async function handleCandidateDecision(payload: {
+  decision: 'DISMISS' | 'ENABLE'
+  reason: string
+  waiverReason?: string
+}): Promise<void> {
+  const candidate = selectedCandidate.value
+  const bundle = candidate?.latest_qualification
+  if (!candidate || (payload.decision === 'ENABLE' && !bundle)) return
+
+  busyCandidateId.value = candidate.id
+  actionError.value = null
+  actionMessage.value = null
   try {
-    const created = await $fetch<SourceCenterDetail>('/api/v1/admin/sources', {
+    await workspace.candidateDecision({
+      candidateId: candidate.id,
+      decision: payload.decision,
+      reason: payload.reason,
+      waiverReason: payload.waiverReason,
+      ...(bundle ? { expectedBundleSha256: bundle.bundle_sha256 } : {}),
+    }, {
+      fetcher: (url, options) => $fetch(url, options),
+      refresh: refreshWorkspace,
+    })
+    decisionDrawerOpen.value = false
+    selectedCandidate.value = null
+    pendingDecision.value = ''
+    actionMessage.value = payload.decision === 'ENABLE'
+      ? '来源已启用，首次生产重抓已进入队列。'
+      : '候选已标记为不启用。'
+  } catch (error) {
+    const status = apiProblemStatus(error)
+    if (status === 409) {
+      decisionDrawerOpen.value = false
+      selectedCandidate.value = null
+      pendingDecision.value = ''
+      actionError.value = '资格包已变化或过期。列表已刷新，请重新核对后再决定；旧决定未重试。'
+    } else if (status === 403) {
+      actionError.value = '该决定仅限完成近期二次验证的平台管理员。'
+    } else {
+      actionError.value = apiProblemMessage(error)
+    }
+  } finally {
+    busyCandidateId.value = null
+  }
+}
+
+async function requestQualification(candidate: SourceCandidateCardProjection): Promise<void> {
+  busyCandidateId.value = candidate.id
+  actionError.value = null
+  actionMessage.value = null
+  try {
+    const payload: SourceCandidateQualificationRequest = {
+      reason: '管理员请求按当前规则重新执行资格审核',
+    }
+    await $fetch(`/api/v1/admin/source-candidates/${candidate.id}/qualification-runs`, {
       method: 'POST',
-      body: {
-        authority_level: 'UNKNOWN',
-        base_url: form.baseUrl,
-        channel: form.channel,
-        collection_method: form.collectionMethod,
-        content_domains: [form.contentDomain],
-        country_codes: [form.countryCode],
-        declared_roles: [form.sourceRole],
-        governance_owner_id: form.governanceOwnerId,
-        industries: [form.industry],
-        language_tags: [form.languageTag],
-        name: form.name,
-        owner: form.governanceOwnerId,
-        poll_interval_minutes: form.pollIntervalMinutes,
-        priority: form.priority,
-        region_codes: [form.regionCode],
-        source_type: form.sourceType,
-      },
+      body: payload,
+      headers: { 'Idempotency-Key': createUuidV7() },
+      retry: 0,
       timeout: 5_000,
     })
-    drawerOpen.value = false
-    resetForm()
-    await refresh()
-    await navigateTo(`/admin/sources/${created.id}`)
-  } catch (requestError) {
-    formError.value = apiProblemMessage(requestError)
+    await refreshWorkspace()
+    actionMessage.value = '资格审核已进入隔离队列。'
+  } catch (error) {
+    actionError.value = apiProblemMessage(error)
   } finally {
-    submitting.value = false
+    busyCandidateId.value = null
+  }
+}
+
+function toggleCandidate(candidate: SourceCandidateCardProjection, selected: boolean): void {
+  const existing = new Set(selectedCandidateIds.value)
+  if (!selected) {
+    existing.delete(candidate.id)
+    selectedCandidateIds.value = [...existing]
+    return
+  }
+  const ruleVersion = candidate.latest_qualification?.rule_version
+  if (batchRuleVersion.value && batchRuleVersion.value !== ruleVersion) {
+    actionError.value = '批量启用只能选择同一资格规则版本的全绿候选。'
+    return
+  }
+  if (existing.size >= 10) {
+    actionError.value = '单次最多批量启用 10 个候选；请先处理当前选择。'
+    return
+  }
+  existing.add(candidate.id)
+  selectedCandidateIds.value = [...existing]
+}
+
+async function batchEnable(): Promise<void> {
+  if (!canBatchEnable.value) return
+  actionError.value = null
+  actionMessage.value = null
+  try {
+    const payload: SourceCandidateBatchDecisionRequest = {
+      expected_rule_version: batchRuleVersion.value,
+      reason: '批量启用同一规则版本的全绿资格候选',
+      targets: selectedCandidates.value.map(candidate => ({
+        candidate_id: candidate.id,
+        expected_bundle_sha256: candidate.latest_qualification!.bundle_sha256,
+      })),
+    }
+    const result = await $fetch<SourceCandidateBatchDecisionResult>(
+      '/api/v1/admin/source-candidates/batch-decisions',
+      {
+        method: 'POST',
+        body: payload,
+        headers: { 'Idempotency-Key': createUuidV7() },
+        retry: 0,
+        timeout: 10_000,
+      },
+    )
+    const failedItems = result.items.filter(item => item.outcome !== 'APPLIED')
+    selectedCandidateIds.value = failedItems.map(item => item.candidate_id)
+    await refreshWorkspace()
+    actionMessage.value = `批量决定已逐项处理：${result.items.length - failedItems.length} 项启用，${failedItems.length} 项未启用。`
+    if (failedItems.length) {
+      actionError.value = `未启用候选：${failedItems.map(item => `${item.candidate_id}（${item.reason_code ?? item.outcome}）`).join('；')}`
+    }
+  } catch (error) {
+    if (apiProblemStatus(error) === 409) await refreshWorkspace()
+    actionError.value = apiProblemMessage(error)
+  }
+}
+
+async function submitDiscovery(): Promise<void> {
+  if (!canSubmitDiscovery.value) return
+  submittingDiscovery.value = true
+  actionError.value = null
+  try {
+    const payload: SourceCandidateCreateRequest = {
+      url: discovery.canonicalUrl.trim(),
+      reason: discovery.reason.trim(),
+    }
+    await $fetch('/api/v1/admin/source-candidates', {
+      method: 'POST',
+      body: payload,
+      headers: { 'Idempotency-Key': createUuidV7() },
+      retry: 0,
+      timeout: 5_000,
+    })
+    discoveryDrawerOpen.value = false
+    Object.assign(discovery, { canonicalUrl: '', reason: '' })
+    workspace.changeView('candidates')
+    await refreshWorkspace()
+    actionMessage.value = 'URL 已进入候选发现与隔离资格审核流程。'
+  } catch (error) {
+    actionError.value = apiProblemMessage(error)
+  } finally {
+    submittingDiscovery.value = false
   }
 }
 </script>
 
 <template>
-  <section class="source-registry-page">
+  <section class="source-workspace-page">
     <PageHeader
-      title="来源中心 V2"
-      eyebrow="来源治理"
-      description="登记、合规复核、试运行、批准、暂停和退役均由服务端治理事实驱动；客户端自报状态不产生生产授权。"
+      title="来源中心"
+      eyebrow="自动扩源"
+      description="系统自动发现并在隔离域完成资格试采；来源管理员负责运营，只有平台管理员能作出最终启用决定。"
     >
       <template #status>
-        <StatusBadge tone="pending" label="默认拒绝" />
-        <span>{{ sources.length }} 个治理档案</span>
+        <StatusBadge tone="verified" label="服务端资格包" />
+        <span>当前页 {{ workspacePage.items.length }} 项</span>
       </template>
       <template #actions>
         <NuxtLink class="secondary-button" to="/admin/sources/coverage">查看覆盖缺口</NuxtLink>
-        <button v-if="canManage" class="primary-button" type="button" @click="drawerOpen = true">
-          登记候选来源
+        <button
+          v-if="canSubmitDiscovery"
+          class="primary-button"
+          type="button"
+          @click="discoveryDrawerOpen = true"
+        >
+          提交发现 URL
         </button>
       </template>
     </PageHeader>
 
-    <div v-if="error" class="problem" role="alert">
-      来源列表暂不可用。系统不会用客户端缓存或演示数据替代治理事实。
-      <button type="button" @click="refresh()">重试</button>
+    <SourceWorkspaceTabs
+      :active-view="workspace.activeView.value"
+      :counts="viewCounts"
+      @change="changeView"
+    />
+
+    <form
+      v-if="workspace.activeView.value !== 'attention'"
+      class="source-workspace-filters"
+      aria-label="来源工作区筛选"
+      @submit.prevent="applyFilters"
+    >
+      <label>
+        搜索
+        <input v-model.trim="draftFilters.query" name="source-query" maxlength="200" placeholder="机构、域名或来源名称">
+      </label>
+      <label v-if="workspace.activeView.value === 'candidates'">
+        工程行业
+        <select v-model="draftFilters.industry" name="source-industry">
+          <option value="">全部</option>
+          <option v-for="industry in industries" :key="industry" :value="industry">{{ industry }}</option>
+        </select>
+      </label>
+      <label v-if="workspace.activeView.value === 'candidates'">
+        内容域
+        <select v-model="draftFilters.contentDomain" name="source-content-domain">
+          <option value="">全部</option>
+          <option v-for="domain in contentDomains" :key="domain" :value="domain">{{ domain }}</option>
+        </select>
+      </label>
+      <label v-if="workspace.activeView.value === 'candidates'">
+        状态
+        <select v-model="draftFilters.status" name="source-status">
+          <option value="">全部</option>
+          <option v-for="option in candidateStatuses" :key="option" :value="option">{{ option }}</option>
+        </select>
+      </label>
+      <label v-if="workspace.activeView.value === 'candidates'">
+        资格结论
+        <select v-model="draftFilters.verdict" name="source-verdict">
+          <option value="">全部</option>
+          <option v-for="verdict in qualificationVerdicts" :key="verdict" :value="verdict">{{ verdict }}</option>
+        </select>
+      </label>
+      <label v-if="workspace.activeView.value === 'candidates'">
+        发现渠道
+        <select v-model="draftFilters.discoveryChannel" name="source-discovery-channel">
+          <option value="">全部</option>
+          <option v-for="channel in discoveryChannels" :key="channel" :value="channel">{{ channel }}</option>
+        </select>
+      </label>
+      <label v-if="workspace.activeView.value === 'candidates'">
+        语言标签
+        <input
+          v-model.trim="draftFilters.languageTag"
+          name="source-language-tag"
+          maxlength="35"
+          pattern="[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*"
+          placeholder="zh-CN"
+        >
+      </label>
+      <div class="source-workspace-filters__actions">
+        <button class="secondary-button" type="button" @click="resetFilters">重置</button>
+        <button class="primary-button" type="submit">应用筛选</button>
+      </div>
+    </form>
+
+    <p v-if="actionMessage" class="success" role="status">{{ actionMessage }}</p>
+    <p v-if="actionError" class="problem" role="alert">{{ actionError }}</p>
+    <div v-if="workspaceError" class="problem" role="alert">
+      当前队列暂不可用；不会使用浏览器缓存或演示数据替代服务端事实。
+      <button type="button" @click="refreshWorkspace()">重试</button>
     </div>
+    <p v-else-if="workspaceStatus === 'pending'" class="loading" aria-live="polite">正在读取来源队列…</p>
 
-    <div v-else-if="status === 'pending'" class="loading" aria-live="polite">正在读取来源…</div>
-
-    <template v-else>
-      <form class="source-filters" aria-label="来源筛选" @submit.prevent>
-        <label>
-          生命周期
-          <select v-model="filters.lifecycle">
-            <option value="">全部</option>
-            <option v-for="state in lifecycleOptions" :key="state" :value="state">{{ state }}</option>
-          </select>
-        </label>
-        <label>
-          工程行业
-          <select v-model="filters.industry">
-            <option value="">全部</option>
-            <option v-for="industry in industryOptions" :key="industry" :value="industry">{{ industry }}</option>
-          </select>
-        </label>
-        <label>
-          内容域
-          <select v-model="filters.contentDomain">
-            <option value="">全部</option>
-            <option v-for="domain in contentDomainOptions" :key="domain" :value="domain">{{ domain }}</option>
-          </select>
-        </label>
-        <label>
-          来源类型
-          <select v-model="filters.sourceType">
-            <option value="">全部</option>
-            <option v-for="sourceType in sourceTypeOptions" :key="sourceType" :value="sourceType">{{ sourceType }}</option>
-          </select>
-        </label>
-        <label>
-          地区 / 语言
-          <select v-model="filters.regionLanguage">
-            <option value="">全部</option>
-            <option v-for="value in regionLanguageOptions" :key="value" :value="value">{{ value }}</option>
-          </select>
-        </label>
-      </form>
-
+    <section
+      v-else-if="workspace.activeView.value === 'candidates'"
+      id="source-workspace-panel-candidates"
+      role="tabpanel"
+      aria-labelledby="source-workspace-tab-candidates"
+      class="source-workspace-panel"
+    >
+      <div v-if="selectedCandidateIds.length" class="batch-bar" role="region" aria-label="批量启用候选">
+        <span>已选择 {{ selectedCandidateIds.length }} 项 · {{ batchRuleVersion }}</span>
+        <button class="primary-button" type="button" :disabled="!canBatchEnable" @click="batchEnable">
+          批量启用全绿候选
+        </button>
+      </div>
       <EmptyState
-        v-if="sources.length === 0"
-        title="还没有登记来源"
-        description="新登记来源只会成为 CANDIDATE；缺少明确治理材料时保持生产拒绝。"
-        icon="Database"
-      />
-
-      <EmptyState
-        v-else-if="filteredSources.length === 0"
-        title="没有符合条件的来源"
-        description="调整筛选条件，或到覆盖矩阵查看尚未补齐的维度。"
+        v-if="candidateItems.length === 0"
+        title="当前没有候选来源"
+        description="系统会继续从公开目录、RSS、Sitemap、外链、人工 URL 和搜索服务发现候选。"
         icon="Search"
       />
-
-      <div v-else class="source-list" aria-label="来源列表">
-        <NuxtLink
-          v-for="source in filteredSources"
-          :key="source.id"
-          class="source-row"
-          :to="`/admin/sources/${source.id}`"
-        >
-          <div class="source-row__identity">
-            <span class="source-code">{{ source.registry_code ?? 'CUSTOM' }}</span>
-            <strong>{{ source.name }}</strong>
-            <span>{{ source.base_url }}</span>
-          </div>
-          <div class="source-row__dimensions">
-            <span>{{ source.industries?.join(' / ') || 'UNKNOWN' }}</span>
-            <span>{{ source.content_domains?.join(' / ') || 'UNKNOWN' }}</span>
-            <span>{{ source.region_codes?.join(' / ') || 'UNKNOWN' }} · {{ source.language_tags?.join(' / ') || 'UNKNOWN' }}</span>
-          </div>
-          <div class="source-row__status">
-            <StatusBadge :tone="lifecycleTone(source)" :label="lifecycleLabel(source)" />
-            <StatusBadge
-              :tone="runtimeAuthorizationTone(source)"
-              :label="runtimeAuthorizationLabel(source)"
-            />
-          </div>
-        </NuxtLink>
+      <div v-else class="candidate-grid" aria-label="候选来源">
+        <SourceCandidateCard
+          v-for="candidate in candidateItems"
+          :key="candidate.id"
+          :candidate="candidate"
+          :roles="roles"
+          :busy="busyCandidateId === candidate.id"
+          :selected="selectedCandidateIds.includes(candidate.id)"
+          @decision="openDecision(candidate, $event)"
+          @qualification="requestQualification(candidate)"
+          @select="toggleCandidate(candidate, $event)"
+        />
       </div>
-    </template>
+    </section>
+
+    <section
+      v-else-if="workspace.activeView.value === 'enabled'"
+      id="source-workspace-panel-enabled"
+      role="tabpanel"
+      aria-labelledby="source-workspace-tab-enabled"
+      class="source-workspace-panel"
+    >
+      <EmptyState
+        v-if="streamItems.length === 0"
+        title="当前没有已启用采集流"
+        description="候选通过资格审核并由平台管理员启用后，将在这里显示生产采集状态。"
+        icon="Database"
+      />
+      <div v-else class="stream-list" aria-label="已启用来源流">
+        <article v-for="stream in streamItems" :key="stream.id" class="stream-row">
+          <div>
+            <p>{{ stream.stream_key }} · {{ stream.authorization_boundary }}</p>
+            <h2>{{ stream.institution_name }}</h2>
+            <a :href="stream.canonical_url" target="_blank" rel="noopener noreferrer">{{ stream.canonical_url }}</a>
+          </div>
+          <dl>
+            <div><dt>最近成功</dt><dd>{{ formatShanghaiDateTime(stream.last_success_at) }}</dd></div>
+            <div><dt>最近失败</dt><dd>{{ formatShanghaiDateTime(stream.last_failure_at) }}</dd></div>
+            <div><dt>连续失败</dt><dd>{{ stream.consecutive_failure_count ?? 0 }}</dd></div>
+            <div><dt>下次采集</dt><dd>{{ formatShanghaiDateTime(stream.next_fetch_at) }}</dd></div>
+          </dl>
+          <div class="stream-row__status">
+            <StatusBadge :tone="sourceStreamTone(stream)" :label="stream.status" />
+            <NuxtLink class="secondary-button" :to="`/admin/sources/${stream.source_id}`">查看机构</NuxtLink>
+          </div>
+          <p class="stream-row__reason">规则 {{ stream.rule_version }} · {{ (stream.available_actions ?? []).join(' / ') || '只读' }}</p>
+        </article>
+      </div>
+    </section>
+
+    <section
+      v-else
+      id="source-workspace-panel-attention"
+      role="tabpanel"
+      aria-labelledby="source-workspace-tab-attention"
+      class="source-workspace-panel"
+    >
+      <EmptyState
+        v-if="attentionItems.length === 0"
+        title="当前没有需处理项"
+        description="自动暂停、规则变化、可豁免警告和自愈失败会进入此队列。"
+        icon="CheckCircle"
+      />
+      <div v-else class="attention-list" aria-label="来源需处理队列">
+        <article v-for="item in attentionItems" :key="`${item.stream.id}:${item.last_observed_at}`" class="attention-card">
+          <div class="attention-card__title">
+            <div>
+              <p>{{ item.stream.stream_key }} · {{ item.stream.authorization_boundary }}</p>
+              <h2>{{ item.stream.institution_name }}</h2>
+            </div>
+            <StatusBadge :tone="attentionTone(item)" :label="item.stream.status" />
+          </div>
+          <ul class="attention-card__reasons" aria-label="需处理原因">
+            <li v-for="reasonCode in item.reason_codes" :key="reasonCode">{{ reasonCode }}</li>
+          </ul>
+          <div class="attention-card__meta">
+            <span>首次 {{ formatShanghaiDateTime(item.first_observed_at) }}</span>
+            <span>最近 {{ formatShanghaiDateTime(item.last_observed_at) }}</span>
+            <span>{{ (item.stream.available_actions ?? []).join(' / ') || '只读关注项' }}</span>
+            <NuxtLink :to="`/admin/sources/${item.stream.source_id}`">查看来源</NuxtLink>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <div v-if="workspacePage.has_more" class="pagination-actions">
+      <button class="secondary-button" type="button" @click="nextPage">加载下一页</button>
+    </div>
+
+    <SourceCandidateDrawer
+      v-if="selectedCandidate"
+      v-model="decisionDrawerOpen"
+      :candidate="selectedCandidate"
+      :initial-decision="pendingDecision"
+      :roles="roles"
+      :busy="busyCandidateId === selectedCandidate.id"
+      @decision="handleCandidateDecision"
+    />
 
     <ResponsiveDrawer
-      v-model="drawerOpen"
-      title="登记候选来源"
-      description="仅登记治理档案；不批准、不试运行，也不发起任何网络请求。来源权威初始为 UNKNOWN。"
+      v-model="discoveryDrawerOpen"
+      title="提交发现 URL"
+      description="只登记公开目标并启动隔离资格审核；不会直接创建生产来源或发布内容。"
     >
-      <form id="source-create-form" class="source-form" @submit.prevent="submitSource">
-        <label>来源名称<input v-model.trim="form.name" required maxlength="200"></label>
-        <label>公开基础 URL<input v-model.trim="form.baseUrl" required type="url" maxlength="2048"></label>
-        <label>治理责任人 ID<input v-model.trim="form.governanceOwnerId" required maxlength="100"></label>
+      <form id="candidate-discovery-form" class="discovery-form" @submit.prevent="submitDiscovery">
         <label>
-          情报频道
-          <select v-model="form.channel" required>
-            <option value="" disabled>请选择</option>
-            <option value="BOTH">数字化与安全</option>
-            <option value="DIGITAL">数字化</option>
-            <option value="SAFETY">安全</option>
-          </select>
+          公开 URL
+          <input v-model.trim="discovery.canonicalUrl" name="candidate-url" type="url" required maxlength="2048" placeholder="https://example.gov.cn/">
         </label>
         <label>
-          来源类型
-          <select v-model="form.sourceType" required>
-            <option value="" disabled>请选择</option>
-            <option value="government">政府</option>
-            <option value="standards">标准平台</option>
-            <option value="research_institute">科研机构</option>
-            <option value="association">协会</option>
-            <option value="journal">期刊</option>
-            <option value="enterprise">企业</option>
-            <option value="media">媒体</option>
-            <option value="academic_api">学术 API</option>
-            <option value="academic_database">学术数据库</option>
-          </select>
+          提交原因
+          <textarea v-model.trim="discovery.reason" name="candidate-reason" required minlength="2" maxlength="500" rows="5" />
         </label>
-        <label>
-          工程行业
-          <select v-model="form.industry" required>
-            <option value="" disabled>请选择；无法判断时选 UNKNOWN</option>
-            <option v-for="value in ['HIGHWAY', 'BRIDGE', 'TUNNEL', 'RAILWAY', 'RAIL_TRANSIT', 'GENERAL_TRANSPORT', 'UNKNOWN']" :key="value" :value="value">{{ value }}</option>
-          </select>
-        </label>
-        <label>
-          内容域
-          <select v-model="form.contentDomain" required>
-            <option value="" disabled>请选择</option>
-            <option v-for="value in ['DIGITAL_TRANSFORMATION_CASE', 'RESEARCH_PAPER', 'SOFTWARE_PLATFORM', 'IOT_EQUIPMENT', 'LOW_ALTITUDE_EQUIPMENT', 'AI_APPLICATION', 'SAFETY_REGULATION', 'STANDARD_GUIDANCE', 'ACCIDENT_INVESTIGATION', 'OFFICIAL_NOTICE', 'PENALTY', 'RECTIFICATION', 'UNKNOWN']" :key="value" :value="value">{{ value }}</option>
-          </select>
-        </label>
-        <label>
-          声明角色
-          <select v-model="form.sourceRole" required>
-            <option value="" disabled>请选择；该字段不替代事实证据</option>
-            <option v-for="value in ['OFFICIAL_PRIMARY', 'OFFICIAL_SECONDARY', 'STANDARDS_PUBLISHER', 'RESEARCH_PUBLISHER', 'MANUFACTURER', 'INDEPENDENT_REPORTER', 'AGGREGATOR', 'UNKNOWN']" :key="value" :value="value">{{ value }}</option>
-          </select>
-        </label>
-        <div class="field-grid">
-          <label>国家代码<input v-model.trim="form.countryCode" required maxlength="2" placeholder="CN"></label>
-          <label>地区代码<input v-model.trim="form.regionCode" required maxlength="20" placeholder="CN-SC"></label>
-        </div>
-        <label>语言标签<input v-model.trim="form.languageTag" required maxlength="35" placeholder="zh-CN"></label>
-        <label>
-          预期连接器
-          <select v-model="form.collectionMethod" required>
-            <option value="" disabled>请选择</option>
-            <option value="RSS_ATOM">RSS / Atom</option>
-            <option value="JSON_API">JSON API</option>
-            <option value="SITEMAP">Sitemap</option>
-            <option value="LIST_DETAIL">列表 / 详情</option>
-            <option value="DIRECT_PDF">PDF</option>
-            <option value="MANUAL_IMPORT">人工 URL / 文件导入</option>
-          </select>
-        </label>
-        <div class="field-grid">
-          <label>治理优先级<select v-model="form.priority" required><option value="" disabled>请选择</option><option value="P0">P0</option><option value="P1">P1</option><option value="P2">P2</option></select></label>
-          <label>登记期检查周期（分钟）<input v-model.number="form.pollIntervalMinutes" required type="number" min="1" max="10080"></label>
-        </div>
-        <p v-if="formError" class="problem" role="alert">{{ formError }}</p>
+        <p role="note">平台将自行规范化 URL、验证公网边界、保存证据并生成资格包；客户端不能声明已批准或已启用。</p>
       </form>
       <template #footer>
         <div class="drawer-actions">
-          <button class="secondary-button" type="button" @click="drawerOpen = false">取消</button>
-          <button class="primary-button" type="submit" form="source-create-form" :disabled="submitting">
-            {{ submitting ? '正在登记…' : '登记为候选' }}
+          <button class="secondary-button" type="button" @click="discoveryDrawerOpen = false">取消</button>
+          <button class="primary-button" type="submit" form="candidate-discovery-form" :disabled="submittingDiscovery">
+            {{ submittingDiscovery ? '正在提交…' : '提交并开始资格审核' }}
           </button>
         </div>
       </template>
@@ -351,35 +629,46 @@ async function submitSource(): Promise<void> {
 </template>
 
 <style scoped>
-.source-registry-page {
+.source-workspace-page,
+.source-workspace-panel,
+.candidate-grid,
+.stream-list,
+.attention-list,
+.discovery-form {
   display: grid;
+  gap: var(--spacing-4);
+}
+
+.source-workspace-page {
   width: min(100%, var(--srbg-layout-content-max));
   margin-inline: auto;
   gap: var(--spacing-5);
 }
 
-.source-filters {
+.source-workspace-filters {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: var(--spacing-3);
+  grid-template-columns: minmax(14rem, 1.5fr) repeat(3, minmax(10rem, 1fr)) auto;
+  align-items: end;
   padding: var(--spacing-4);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
+  gap: var(--spacing-3);
 }
 
-.source-filters label,
-.source-form label {
+.source-workspace-filters label,
+.discovery-form label {
   display: grid;
-  gap: var(--spacing-1);
   color: var(--color-ink-700);
   font-size: var(--text-sm);
   font-weight: var(--font-weight-semibold);
+  gap: var(--spacing-1);
 }
 
-.source-filters select,
-.source-form input,
-.source-form select {
+.source-workspace-filters input,
+.source-workspace-filters select,
+.discovery-form input,
+.discovery-form textarea {
   width: 100%;
   min-height: var(--spacing-10);
   padding: var(--spacing-2) var(--spacing-3);
@@ -389,63 +678,172 @@ async function submitSource(): Promise<void> {
   border-radius: var(--radius-sm);
 }
 
-.source-list {
-  display: grid;
-  overflow: hidden;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-}
-
-.source-row {
-  display: grid;
-  grid-template-columns: minmax(18rem, 1.4fr) minmax(14rem, 1fr) auto;
-  align-items: center;
-  gap: var(--spacing-5);
-  padding: var(--spacing-4) var(--spacing-5);
-  text-decoration: none;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.source-row:last-child { border-bottom: 0; }
-.source-row:hover { background: var(--color-surfaceMuted); }
-
-.source-row__identity,
-.source-row__dimensions,
-.source-row__status {
+.source-workspace-filters__actions,
+.drawer-actions,
+.batch-bar,
+.pagination-actions {
   display: flex;
-  min-width: 0;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: var(--spacing-2);
 }
 
-.source-row__identity > span:last-child {
+.batch-bar {
+  position: sticky;
+  z-index: 2;
+  top: var(--spacing-2);
+  justify-content: space-between;
+  padding: var(--spacing-3) var(--spacing-4);
+  color: var(--color-brand-800);
+  background: var(--color-brand-50);
+  border: 1px solid var(--color-brand-200);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+}
+
+.stream-row,
+.attention-card {
+  display: grid;
+  padding: var(--spacing-4) var(--spacing-5);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  gap: var(--spacing-3);
+}
+
+.stream-row {
+  grid-template-columns: minmax(16rem, 1.3fr) minmax(18rem, 1fr) auto;
+  align-items: center;
+}
+
+.stream-row h2,
+.stream-row p,
+.attention-card h2,
+.attention-card p {
+  margin: 0;
+}
+
+.stream-row h2,
+.attention-card h2 {
+  color: var(--color-ink-900);
+  font-size: var(--text-lg);
+}
+
+.stream-row > div:first-child > p,
+.attention-card__title p,
+.attention-card__meta {
+  color: var(--color-ink-600);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.attention-card__reasons {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 0;
+  color: var(--color-conflict-700);
+  list-style: none;
+  gap: var(--spacing-2);
+}
+
+.attention-card__reasons li {
+  padding: var(--spacing-1) var(--spacing-2);
+  background: var(--color-conflict-50);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.stream-row a {
+  display: block;
   overflow: hidden;
+  margin-top: var(--spacing-1);
   color: var(--color-ink-600);
   font-size: var(--text-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.source-row__dimensions {
+.stream-row dl {
+  display: grid;
+  margin: 0;
+  gap: var(--spacing-2);
+}
+
+.stream-row dl div {
+  display: grid;
+  grid-template-columns: 7rem 1fr;
+  gap: var(--spacing-2);
+}
+
+.stream-row dt {
   color: var(--color-ink-600);
+  font-size: var(--text-xs);
+}
+
+.stream-row dd {
+  margin: 0;
+  color: var(--color-ink-900);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
 }
 
-.source-row__status { justify-content: flex-end; }
-
-.source-code {
-  color: var(--color-brand-700);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  font-weight: var(--font-weight-semibold);
+.stream-row__status {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--spacing-2);
 }
 
-.source-form { display: grid; gap: var(--spacing-4); }
-.field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-3); }
-.drawer-actions { display: flex; justify-content: flex-end; gap: var(--spacing-2); }
+.stream-row__reason {
+  grid-column: 1 / -1;
+  padding: var(--spacing-2) var(--spacing-3);
+  color: var(--color-reviewPending-700);
+  background: var(--color-reviewPending-50);
+  border-radius: var(--radius-sm);
+}
+
+.attention-card__title,
+.attention-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-3);
+}
+
+.attention-card__meta {
+  justify-content: flex-start;
+  padding-top: var(--spacing-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.problem,
+.success {
+  margin: 0;
+  padding: var(--spacing-3);
+  border: 1px solid currentColor;
+  border-radius: var(--radius-sm);
+}
+
+.problem {
+  color: var(--color-conflict-700);
+  background: var(--color-conflict-50);
+}
+
+.success {
+  color: var(--color-verified-700);
+  background: var(--color-verified-50);
+}
+
+.loading {
+  padding: var(--spacing-8);
+  color: var(--color-ink-600);
+  text-align: center;
+}
 
 .primary-button,
 .secondary-button {
@@ -454,29 +852,56 @@ async function submitSource(): Promise<void> {
   align-items: center;
   justify-content: center;
   padding: var(--spacing-2) var(--spacing-4);
-  font-weight: var(--font-weight-semibold);
-  text-decoration: none;
   border: 1px solid var(--color-brand-700);
   border-radius: var(--radius-sm);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
   cursor: pointer;
 }
 
-.primary-button { color: var(--color-surface); background: var(--color-brand-700); }
-.secondary-button { color: var(--color-brand-700); background: var(--color-surface); }
-.primary-button:disabled { cursor: wait; opacity: 0.6; }
-.problem { margin: 0; padding: var(--spacing-3); color: var(--color-conflict-700); background: var(--color-conflict-50); border: 1px solid currentColor; border-radius: var(--radius-sm); }
-.loading { padding: var(--spacing-8); color: var(--color-ink-600); text-align: center; }
-
-@media (max-width: 70rem) {
-  .source-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .source-row { grid-template-columns: 1fr auto; }
-  .source-row__dimensions { grid-column: 1 / -1; }
+.primary-button {
+  color: var(--color-surface);
+  background: var(--color-brand-700);
 }
 
-@media (max-width: 45rem) {
-  .source-filters,
-  .source-row,
-  .field-grid { grid-template-columns: 1fr; }
-  .source-row__status { justify-content: flex-start; }
+.secondary-button {
+  color: var(--color-brand-700);
+  background: var(--color-surface);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+@media (max-width: 79.999rem) {
+  .source-workspace-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stream-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .stream-row dl {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 47.999rem) {
+  .source-workspace-filters,
+  .stream-row {
+    grid-template-columns: 1fr;
+  }
+
+  .source-workspace-filters__actions,
+  .stream-row__status {
+    justify-content: stretch;
+  }
+
+  .source-workspace-filters__actions > *,
+  .stream-row__status > * {
+    flex: 1;
+  }
 }
 </style>

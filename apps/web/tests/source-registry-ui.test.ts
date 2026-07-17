@@ -40,12 +40,16 @@ describe('source center UI', () => {
     expect(detail).toContain('ResponsiveDrawer')
   })
 
-  it('uses V2 governance APIs and retires client-driven lifecycle writes', () => {
+  it('uses automation queues while retaining the read-compatible V2 detail route', () => {
     const list = source('pages/admin/sources/index.vue')
+    const workspace = source('composables/useSourceCenterWorkspace.ts')
     const detail = source('pages/admin/sources/[id].vue')
     const document = source('pages/admin/documents/[id].vue')
 
-    expect(list).toContain('/api/v1/admin/sources')
+    expect(list).toContain('useSourceCenterWorkspace')
+    expect(workspace).toContain('/api/v1/admin/source-candidates')
+    expect(workspace).toContain('/api/v1/admin/source-streams')
+    expect(workspace).toContain('/api/v1/admin/source-attention')
     expect(detail).toContain('/policy-versions')
     expect(detail).toContain('/connector-config-versions/preview')
     expect(detail).toContain('/trial-runs')

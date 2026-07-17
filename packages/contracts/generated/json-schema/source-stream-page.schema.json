@@ -1,0 +1,179 @@
+{
+  "$defs": {
+    "SourceStreamAction": {
+      "enum": [
+        "PAUSE",
+        "RESUME",
+        "REQUEST_REPAIR",
+        "REVOKE"
+      ],
+      "title": "SourceStreamAction",
+      "type": "string"
+    },
+    "SourceStreamStatus": {
+      "enum": [
+        "QUALIFIED",
+        "ACTIVE",
+        "PAUSED",
+        "REVOKED"
+      ],
+      "title": "SourceStreamStatus",
+      "type": "string"
+    },
+    "SourceStreamView": {
+      "additionalProperties": false,
+      "properties": {
+        "authorization_boundary": {
+          "title": "Authorization Boundary",
+          "type": "string"
+        },
+        "available_actions": {
+          "items": {
+            "$ref": "#/$defs/SourceStreamAction"
+          },
+          "title": "Available Actions",
+          "type": "array"
+        },
+        "candidate_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Candidate Id"
+        },
+        "canonical_url": {
+          "title": "Canonical Url",
+          "type": "string"
+        },
+        "consecutive_failure_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Consecutive Failure Count",
+          "type": "integer"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "institution_name": {
+          "title": "Institution Name",
+          "type": "string"
+        },
+        "last_failure_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Failure At"
+        },
+        "last_success_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Success At"
+        },
+        "next_fetch_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Fetch At"
+        },
+        "rule_version": {
+          "title": "Rule Version",
+          "type": "string"
+        },
+        "source_id": {
+          "format": "uuid",
+          "title": "Source Id",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/SourceStreamStatus"
+        },
+        "stream_key": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Stream Key",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "source_id",
+        "candidate_id",
+        "institution_name",
+        "canonical_url",
+        "authorization_boundary",
+        "stream_key",
+        "status",
+        "rule_version",
+        "updated_at"
+      ],
+      "title": "SourceStreamView",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "has_more": {
+      "title": "Has More",
+      "type": "boolean"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/SourceStreamView"
+      },
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Next Cursor"
+    }
+  },
+  "required": [
+    "items",
+    "has_more"
+  ],
+  "title": "SourceStreamPage",
+  "type": "object"
+}

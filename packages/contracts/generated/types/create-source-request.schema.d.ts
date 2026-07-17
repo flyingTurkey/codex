@@ -39,7 +39,19 @@ export type SourceDeclaredRole =
 export type DeclaredRoles = SourceDeclaredRole[]
 export type GovernanceOwnerId = string | null
 export type SourceIndustry =
-  'HIGHWAY' | 'BRIDGE' | 'TUNNEL' | 'RAILWAY' | 'RAIL_TRANSIT' | 'GENERAL_TRANSPORT' | 'UNKNOWN'
+  | 'HIGHWAY'
+  | 'BRIDGE'
+  | 'TUNNEL'
+  | 'RAILWAY'
+  | 'RAIL_TRANSIT'
+  | 'WATER_CONSERVANCY'
+  | 'MUNICIPAL'
+  | 'BUILDING'
+  | 'ENERGY'
+  | 'PORT_WATERWAY'
+  | 'AIRPORT'
+  | 'GENERAL_TRANSPORT'
+  | 'UNKNOWN'
 /**
  * @maxItems 20
  */

@@ -94,6 +94,7 @@ class RecordingTransport:
     def __init__(self, results: list[FetchResult]) -> None:
         self._results = list(results)
         self.calls: list[tuple[str, str]] = []
+        self.checkpoints: list[SourceCheckpoint] = []
 
     async def fetch(
         self,
@@ -103,7 +104,7 @@ class RecordingTransport:
         accept: str,
         exact_redirect_host: str,
     ) -> FetchResult:
-        del checkpoint
+        self.checkpoints.append(checkpoint)
         self.calls.append((url, exact_redirect_host))
         result = self._results.pop(0)
         assert result.request_url == url
@@ -162,6 +163,7 @@ class RecordingGateway:
         self.events: list[str] = []
         self.request_authorizations: list[str] = []
         self.outcomes: list[tuple[RuntimeRunResult, str | None]] = []
+        self.outcome_checkpoints: list[SourceCheckpoint | None] = []
 
     async def acquire_execution(self, source_id: UUID, run_id: UUID) -> bool:
         assert (source_id, run_id) == (SOURCE_ID, RUN_ID)
@@ -247,11 +249,13 @@ class RecordingGateway:
         *,
         result: RuntimeRunResult,
         failure_kind: str | None,
+        next_checkpoint: SourceCheckpoint | None = None,
     ) -> str:
         assert (source_id, run_id) == (SOURCE_ID, RUN_ID)
         if binding is not None:
             assert binding.source_id == SOURCE_ID
         self.outcomes.append((result, failure_kind))
+        self.outcome_checkpoints.append(next_checkpoint)
         self.events.append(f"outcome:{failure_kind or 'OK'}")
         return "SUCCEEDED" if failure_kind is None else "FAILED"
 
@@ -299,10 +303,13 @@ async def test_scheduled_runtime_uses_the_canonical_source_adapter_contract() ->
     parser = RecordingParser(gateway.events)
     transport = RecordingTransport(
         [
-            _fetch(
-                "https://source.example.test/feed.xml",
-                b"<rss><channel/></rss>",
-                "application/rss+xml",
+            replace(
+                _fetch(
+                    "https://source.example.test/feed.xml",
+                    b"<rss><channel/></rss>",
+                    "application/rss+xml",
+                ),
+                etag='"list-v1"',
             ),
             _fetch(
                 "https://source.example.test/notices/1.html",
@@ -333,6 +340,8 @@ async def test_scheduled_runtime_uses_the_canonical_source_adapter_contract() ->
         "https://source.example.test/notices/1.html",
     ]
     assert gateway.events.index("raw:DISCOVERY") < gateway.events.index("parse:discovery")
+    assert batch.next_checkpoint.etag == '"list-v1"'
+    assert transport.checkpoints[1] == SourceCheckpoint()
 
 
 @pytest.mark.asyncio
@@ -410,6 +419,53 @@ async def test_real_empty_rss_is_measured_as_zero_discovery_instead_of_parse_fai
     assert result.failed_count == 0
     assert gateway.outcomes == [(result, None)]
     assert "discovery:parsed" in gateway.events
+
+
+@pytest.mark.asyncio
+async def test_successful_executor_carries_the_discovery_checkpoint_to_the_outcome() -> None:
+    binding = replace(
+        _binding(),
+        checkpoint=SourceCheckpoint(
+            cursor="page-1",
+            etag='"old"',
+            last_modified="Wed, 15 Jul 2026 00:00:00 GMT",
+            consecutive_failures=2,
+            circuit_open_until=NOW,
+        ),
+    )
+    gateway = RecordingGateway(binding)
+    transport = RecordingTransport(
+        [
+            FetchResult(
+                url="https://source.example.test/feed.xml",
+                status_code=200,
+                content=b"<rss><channel/></rss>",
+                content_type="application/xml",
+                etag='"new"',
+                last_modified="Thu, 16 Jul 2026 00:00:00 GMT",
+                fetched_at=NOW,
+                request_url="https://source.example.test/feed.xml",
+                response_sha256="b" * 64,
+            )
+        ]
+    )
+
+    result = await RuntimeFetchExecutor(
+        gateway=gateway,
+        transport_factory=lambda _binding: transport,
+        parsers={ConnectorKind.RSS_ATOM: RssAtomConnector()},
+    ).run(source_id=SOURCE_ID, run_id=RUN_ID)
+
+    assert result.failed_count == 0
+    assert gateway.outcome_checkpoints == [
+        SourceCheckpoint(
+            cursor="page-1",
+            etag='"new"',
+            last_modified="Thu, 16 Jul 2026 00:00:00 GMT",
+            consecutive_failures=0,
+            circuit_open_until=None,
+        )
+    ]
 
 
 @pytest.mark.asyncio
@@ -763,6 +819,7 @@ async def test_not_modified_response_is_raw_evidence_without_parser_pollution() 
     assert "raw:DISCOVERY" in gateway.events
     assert "parse:discovery" not in gateway.events
     assert gateway.outcomes == [(result, "NOT_MODIFIED")]
+    assert gateway.outcome_checkpoints == [SourceCheckpoint(etag='"v1"')]
 
 
 @pytest.mark.asyncio
@@ -1156,6 +1213,11 @@ async def test_postgres_binding_requires_immutable_scheduled_origin_and_current_
             "backoff_base_seconds": 30,
             "backoff_cap_seconds": 1800,
             "freshness_slo_seconds": 8 * 60 * 60,
+            "checkpoint_cursor": {"value": "page-7"},
+            "checkpoint_etag": '"checkpoint-etag"',
+            "checkpoint_last_modified": "Thu, 16 Jul 2026 00:00:00 GMT",
+            "checkpoint_consecutive_failures": 2,
+            "checkpoint_circuit_open_until": NOW,
         },
     )
     gateway = PostgresRuntimeGateway(
@@ -1173,13 +1235,21 @@ async def test_postgres_binding_requires_immutable_scheduled_origin_and_current_
     assert binding.freshness_slo_seconds == 8 * 60 * 60
     assert binding.fetch_policy is not None
     assert binding.fetch_policy.minimum_interval_seconds == 21600
+    assert binding.checkpoint == SourceCheckpoint(
+        cursor="page-7",
+        etag='"checkpoint-etag"',
+        last_modified="Thu, 16 Jul 2026 00:00:00 GMT",
+        consecutive_failures=2,
+        circuit_open_until=NOW,
+    )
     statement = connection.statements[0]
     assert "r.run_origin" in statement
     assert "PRODUCTION_APPROVAL" in statement
     assert "decision.policy_version_id=p.id" in statement
     assert "decision.connector_config_version_id=c.id" in statement
     assert "decision.trial_run_id=s.current_trial_run_id" in statement
-    assert "p.document->>'storage_policy'='RAW_EVIDENCE_ALLOWED'" in statement
+    assert "source_private_evidence_capture_allowed(p.document)" in statement
+    assert "source_policy_compliance_current(s.id,p.id,:now)" in statement
     assert "r.status='RUNNING'" in statement
     assert "r.pilot_window_source_id IS NULL" in statement
     assert "NOT EXISTS" in statement
@@ -1190,6 +1260,8 @@ async def test_postgres_binding_requires_immutable_scheduled_origin_and_current_
     assert "segment.segment_ends_at" in statement
     assert "fs.freshness_slo_seconds" in statement
     assert "fs.interval_seconds=s.poll_interval_minutes * 60" in statement
+    assert "LEFT JOIN source_checkpoint checkpoint" in statement
+    assert "checkpoint.source_connector_id=r.source_connector_id" in statement
     assert (
         "fs.interval_seconds=(p.document #>> '{fetch,minimum_interval_seconds}')"
         not in statement
@@ -1384,9 +1456,10 @@ class _RecentHealthConnection:
 
 
 class _OutcomeScheduling:
-    def __init__(self) -> None:
+    def __init__(self, terminal: str = "SUCCEEDED") -> None:
         self.observations: list[HealthObservation] = []
         self.request_counts: list[int] = []
+        self.terminal = terminal
 
     async def record_outcome(self, **kwargs: object) -> str:
         observation = kwargs["observation"]
@@ -1395,7 +1468,7 @@ class _OutcomeScheduling:
         request_count = kwargs["request_count"]
         assert isinstance(request_count, int)
         self.request_counts.append(request_count)
-        return "SUCCEEDED"
+        return self.terminal
 
     async def close(self) -> None:
         return None
@@ -1408,6 +1481,97 @@ class _AcquiringScheduling:
 
     async def close(self) -> None:
         return None
+
+
+class _CheckpointOutcomeGateway(PostgresRuntimeGateway):
+    async def _renew_execution_lease(self, binding: RuntimeBinding) -> bool:
+        assert binding.source_id == SOURCE_ID
+        return True
+
+    async def _zero_discovery_streak(
+        self,
+        source_id: UUID,
+        *,
+        result: RuntimeRunResult,
+        failure_kind: str | None,
+    ) -> int:
+        del result, failure_kind
+        assert source_id == SOURCE_ID
+        return 0
+
+    async def _previous_discovery_shape(
+        self,
+        source_id: UUID,
+    ) -> tuple[int | None, str | None]:
+        assert source_id == SOURCE_ID
+        return None, None
+
+
+@pytest.mark.asyncio
+async def test_successful_postgres_outcome_advances_the_run_connector_checkpoint() -> None:
+    connector_id = UUID("019d0000-0000-7000-8000-000000000003")
+    events: list[str] = []
+    connection = _DatabaseConnection(
+        events,
+        {"source_connector_id": connector_id},
+    )
+    gateway = _CheckpointOutcomeGateway(
+        Settings(),
+        engine=cast(AsyncEngine, _DatabaseEngine(connection)),
+        object_store=cast(S3ObjectStore, _ObjectStore(events)),
+        malware_scanner=cast(ClamAVScanner, _Scanner(events)),
+    )
+    gateway._scheduling = cast(Any, _OutcomeScheduling("SUCCEEDED"))
+    checkpoint = SourceCheckpoint(
+        cursor="page-8",
+        etag='"new"',
+        last_modified="Thu, 16 Jul 2026 00:00:00 GMT",
+    )
+
+    terminal = await gateway.record_outcome(
+        SOURCE_ID,
+        RUN_ID,
+        _binding(),
+        result=RuntimeRunResult(True, False, 0, 0, 0, 1, 128),
+        failure_kind=None,
+        next_checkpoint=checkpoint,
+    )
+
+    assert terminal == "SUCCEEDED"
+    assert len(connection.statements) == 1
+    assert "INSERT INTO source_checkpoint" in connection.statements[0]
+    assert "r.source_connector_id" in connection.statements[0]
+    assert "r.status IN ('SUCCEEDED','NOT_MODIFIED')" in connection.statements[0]
+    assert connection.parameters[0]["source_id"] == SOURCE_ID
+    assert connection.parameters[0]["run_id"] == RUN_ID
+    assert connection.parameters[0]["cursor"] == '{"value":"page-8"}'
+    assert connection.parameters[0]["etag"] == '"new"'
+    assert connection.parameters[0]["last_modified"] == "Thu, 16 Jul 2026 00:00:00 GMT"
+
+
+@pytest.mark.asyncio
+async def test_failed_postgres_outcome_never_advances_the_source_checkpoint() -> None:
+    events: list[str] = []
+    connection = _DatabaseConnection(events, {})
+    gateway = _CheckpointOutcomeGateway(
+        Settings(),
+        engine=cast(AsyncEngine, _DatabaseEngine(connection)),
+        object_store=cast(S3ObjectStore, _ObjectStore(events)),
+        malware_scanner=cast(ClamAVScanner, _Scanner(events)),
+    )
+    gateway._scheduling = cast(Any, _OutcomeScheduling("FAILED"))
+
+    terminal = await gateway.record_outcome(
+        SOURCE_ID,
+        RUN_ID,
+        _binding(),
+        result=RuntimeRunResult(True, False, 0, 0, 1, 1, 128),
+        failure_kind="PARSE",
+        next_checkpoint=SourceCheckpoint(cursor="must-not-advance", etag='"new"'),
+    )
+
+    assert terminal == "FAILED"
+    assert connection.statements == []
 
 
 @pytest.mark.asyncio

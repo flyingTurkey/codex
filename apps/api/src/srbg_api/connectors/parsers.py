@@ -40,6 +40,91 @@ MAX_DISCOVERY_TITLE_LENGTH = 500
 MAX_DISCOVERY_URL_LENGTH = 2_048
 MAX_DISCOVERY_TIMESTAMP_LENGTH = 100
 
+_GENERIC_ENGINEERING_TERMS = (
+    "工程",
+    "公路",
+    "道路",
+    "桥梁",
+    "隧道",
+    "路桥",
+    "交通",
+    "建设",
+    "施工",
+    "engineering",
+    "highway",
+    "road",
+    "bridge",
+    "tunnel",
+    "construction",
+    "transport",
+)
+_GENERIC_SAFETY_TERMS = (
+    "安全",
+    "事故",
+    "应急",
+    "通报",
+    "处罚",
+    "整改",
+    "标准",
+    "规范",
+    "指南",
+    "safety",
+    "accident",
+    "emergency",
+    "penalty",
+    "standard",
+)
+_GENERIC_DIGITAL_TERMS = (
+    "数字化",
+    "智慧",
+    "人工智能",
+    "物联网",
+    "低空",
+    "无人机",
+    "软件",
+    "平台",
+    "设备",
+    "digital",
+    "artificial intelligence",
+    "iot",
+    "drone",
+    "software",
+    "platform",
+)
+_GENERIC_DETAIL_PATH_TERMS = (
+    "detail",
+    "article",
+    "content",
+    "notice",
+    "news",
+    "report",
+    "case",
+    "document",
+    "bulletin",
+    "announcement",
+    "policy",
+    "standard",
+)
+_GENERIC_NAVIGATION_TERMS = (
+    "首页",
+    "导航",
+    "栏目",
+    "部门",
+    "机构",
+    "联系我们",
+    "网站地图",
+    "home",
+    "navigation",
+    "menu",
+    "channel",
+    "category",
+    "department",
+    "contact",
+    "sitemap",
+)
+_GENERIC_DETAIL_SUFFIXES = (".html", ".htm", ".shtml", ".pdf")
+_GENERIC_INDEX_NAMES = frozenset({"", "index", "index.html", "default", "list", "home"})
+
 
 @dataclass(frozen=True, slots=True)
 class ConnectorRequest:
@@ -288,33 +373,63 @@ class ListDetailConnector:
         title_selector = _string(config, "title_selector")
         published_selector = config.get("published_selector")
         items = _find_nodes(parser.root, item_selector)
-        _enforce_record_limit(len(items))
+        generic_internal_links = (
+            item_selector == "a" and link_selector == "a" and title_selector == "a"
+        )
+        if not generic_internal_links:
+            _enforce_record_limit(len(items))
         records: list[DiscoveryRecord] = []
-        for item in items:
+        generic_candidates: list[tuple[int, int, DiscoveryRecord]] = []
+        generic_candidate_indexes: dict[str, int] = {}
+        for document_position, item in enumerate(items):
             link_node = _find_first(item, link_selector)
             title_node = _find_first(item, title_selector)
             href = link_node.attrs.get("href") if link_node is not None else None
             title = _node_text(title_node) if title_node is not None else ""
             if not href or not title:
+                if generic_internal_links:
+                    continue
                 raise RequiredFieldMissingError(
                     "list item lacks a declarative link or title"
                 )
             url = urljoin(fetched.url, href)
+            if generic_internal_links and (
+                not _generic_internal_url_allowed(url, config)
+                or url == fetched.url
+            ):
+                continue
             published = None
             if isinstance(published_selector, str):
                 published_node = _find_first(item, published_selector)
                 published = _parse_datetime(
                     _node_text(published_node) if published_node is not None else None
                 )
-            records.append(
-                _discovery_record(
+            try:
+                record = _discovery_record(
                     external_id=_stable_id(url),
                     url=url,
                     title=title,
                     published_at=published,
                     discovered_at=fetched.fetched_at,
                 )
-            )
+            except DeclarativeParseError:
+                if generic_internal_links:
+                    continue
+                raise
+            if not generic_internal_links:
+                records.append(record)
+                continue
+            quality = _generic_link_quality(title=title, url=url)
+            existing_index = generic_candidate_indexes.get(url)
+            if existing_index is None:
+                generic_candidate_indexes[url] = len(generic_candidates)
+                generic_candidates.append((quality, document_position, record))
+            elif quality > generic_candidates[existing_index][0]:
+                first_position = generic_candidates[existing_index][1]
+                generic_candidates[existing_index] = (quality, first_position, record)
+        if generic_internal_links:
+            generic_candidates.sort(key=lambda candidate: (-candidate[0], candidate[1]))
+            records = [candidate[2] for candidate in generic_candidates[:50]]
         if not records:
             raise EmptyDiscoveryError("list contains no matching items")
         return tuple(records)
@@ -471,6 +586,64 @@ def _find_nodes(root: _HtmlNode, selector: str) -> list[_HtmlNode]:
             matches.append(child)
         matches.extend(_find_nodes(child, selector))
     return matches
+
+
+def _generic_internal_url_allowed(url: str, config: dict[str, object]) -> bool:
+    allowed_value = config.get("allowed_hosts")
+    if not isinstance(allowed_value, list) or not allowed_value:
+        return False
+    allowed_hosts = {
+        value.rstrip(".").casefold()
+        for value in allowed_value
+        if isinstance(value, str) and value
+    }
+    try:
+        parts = urlsplit(url)
+        hostname = None if parts.hostname is None else parts.hostname.rstrip(".").casefold()
+        port = parts.port
+    except ValueError:
+        return False
+    return bool(
+        parts.scheme.casefold() == "https"
+        and hostname in allowed_hosts
+        and port in {None, 443}
+        and parts.username is None
+        and parts.password is None
+        and not parts.query
+        and not parts.fragment
+    )
+
+
+def _generic_link_quality(*, title: str, url: str) -> int:
+    """Rank generic links using only deterministic, auditable page evidence."""
+    path = urlsplit(url).path.casefold()
+    evidence = f"{title.casefold()} {path}"
+    score = 0
+    for terms in (
+        _GENERIC_ENGINEERING_TERMS,
+        _GENERIC_SAFETY_TERMS,
+        _GENERIC_DIGITAL_TERMS,
+    ):
+        if any(term in evidence for term in terms):
+            score += 100
+    if path.endswith(_GENERIC_DETAIL_SUFFIXES):
+        score += 30
+    if any(term in path for term in _GENERIC_DETAIL_PATH_TERMS):
+        score += 20
+    last_segment = path.rstrip("/").rsplit("/", maxsplit=1)[-1]
+    if last_segment.casefold() not in _GENERIC_INDEX_NAMES and not path.endswith("/"):
+        score += 20
+    if any(character.isdigit() for character in last_segment):
+        score += 10
+    if len([segment for segment in path.split("/") if segment]) >= 2:
+        score += 5
+    if len(title.strip()) >= 8:
+        score += 5
+    if any(term in evidence for term in _GENERIC_NAVIGATION_TERMS):
+        score -= 100
+    if path.endswith("/"):
+        score -= 20
+    return score
 
 
 def _find_first(root: _HtmlNode, selector: str) -> _HtmlNode | None:

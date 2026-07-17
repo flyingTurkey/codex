@@ -292,8 +292,11 @@ describe('round 15 source center V2 UI', () => {
     const detail = appSource('pages/admin/sources/[id].vue')
     const projection = appSource('source-center.ts')
 
-    expect(list).toContain('lifecycleStateOf')
-    expect(list).toContain('runtimeAuthorizationLabel')
+    expect(list).toContain('useSourceCenterWorkspace')
+    expect(list).toContain('SourceCandidateCard')
+    expect(list).toContain('SourceCandidateDrawer')
+    expect(list).not.toContain('filteredSources')
+    expect(list).not.toContain("$fetch<SourceCenterDetail>('/api/v1/admin/sources'")
     expect(projection).toContain("source.lifecycle_state ?? 'UNKNOWN'")
     expect(projection).toContain("source.runtime_authorization ?? 'DENIED'")
     expect(projection).not.toContain("source.state === 'FIXTURE_TEST'")

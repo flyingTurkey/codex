@@ -126,6 +126,21 @@ SOURCE_COVERAGE_GAP_CELLS = Gauge(
     "srbg_source_coverage_gap_cells",
     "Empty cells in the current bounded source coverage profile.",
 )
+SOURCE_AUTOMATION_CANDIDATE_BACKLOG = Gauge(
+    "srbg_source_automation_candidate_backlog",
+    "Source candidates by bounded authoritative workflow status.",
+    ("status",),
+)
+SOURCE_AUTOMATION_QUALIFICATION_REQUESTS = Counter(
+    "srbg_source_automation_qualification_requests_total",
+    "Source qualification requests by bounded trigger and outcome.",
+    ("trigger", "outcome"),
+)
+SOURCE_AUTOMATION_CANDIDATE_DECISIONS = Counter(
+    "srbg_source_automation_candidate_decisions_total",
+    "Candidate decisions by bounded decision and outcome.",
+    ("decision", "outcome"),
+)
 SCHEDULE_DISPATCH_DELAY = Histogram(
     "srbg_schedule_dispatch_delay_seconds",
     "Delay between a due schedule and durable dispatch.",

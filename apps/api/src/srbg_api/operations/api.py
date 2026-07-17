@@ -35,6 +35,7 @@ from srbg_contracts import (
     ReplayResult,
     ReplayTaskView,
     SourceHealthView,
+    SourceLifecycleActionRequest,
     UserRole,
 )
 
@@ -140,6 +141,15 @@ class OperationsService(Protocol):
         self,
         source_id: UUID,
         payload: FetchScheduleUpdate,
+        *,
+        actor_id: UUID,
+        idempotency_key: str,
+    ) -> FetchScheduleView: ...
+
+    async def repair_schedule(
+        self,
+        source_id: UUID,
+        payload: SourceLifecycleActionRequest,
         *,
         actor_id: UUID,
         idempotency_key: str,
@@ -354,6 +364,25 @@ async def update_schedule(
     idempotency_key: IdempotencyKey,
 ) -> FetchScheduleView:
     return await _service(request).update_schedule(
+        source_id,
+        payload,
+        actor_id=principal.user_id,
+        idempotency_key=idempotency_key,
+    )
+
+
+@router.post(
+    "/admin/sources/{source_id}/schedule/repair",
+    response_model=FetchScheduleView,
+)
+async def repair_schedule(
+    source_id: UUID,
+    payload: SourceLifecycleActionRequest,
+    request: Request,
+    principal: ScheduleWritePrincipal,
+    idempotency_key: IdempotencyKey,
+) -> FetchScheduleView:
+    return await _service(request).repair_schedule(
         source_id,
         payload,
         actor_id=principal.user_id,

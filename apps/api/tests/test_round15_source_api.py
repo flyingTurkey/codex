@@ -178,11 +178,36 @@ def test_legacy_state_write_endpoints_are_gone_and_commands_are_rbac_protected()
 
     assert legacy.status_code == 410
     assert legacy.headers["link"].endswith(
-        f"/api/v1/admin/sources/{SOURCE_ID}/approve>; rel=\"successor-version\""
+        "/api/v1/admin/source-candidates>; rel=\"successor-version\""
     )
     assert pause.status_code == 200
     assert stub.actions[0][0] == "PAUSE"
     assert viewer_pause.status_code == 403
+
+
+def test_legacy_production_approval_is_gone_in_favor_of_candidate_decisions() -> None:
+    client = TestClient(
+        create_app(checkers={}, source_service=SourceV2Stub()),
+        raise_server_exceptions=False,
+    )
+    response = client.post(
+        f"/api/v1/admin/sources/{SOURCE_ID}/approve",
+        headers={
+            "X-SRBG-Local-Roles": "platform_admin",
+            "X-SRBG-Local-Step-Up": "true",
+        },
+        json={
+            "policy_version_id": "019b1500-0000-7000-8000-000000000012",
+            "connector_config_version_id": "019b1500-0000-7000-8000-000000000013",
+            "trial_run_id": "019b1500-0000-7000-8000-000000000014",
+            "reason": "legacy approval must not bypass candidate qualification",
+        },
+    )
+
+    assert response.status_code == 410
+    assert response.headers["link"].endswith(
+        "/api/v1/admin/source-candidates>; rel=\"successor-version\""
+    )
 
 
 def test_source_detail_exposes_authoritative_lifecycle_separately_from_legacy_flags() -> None:

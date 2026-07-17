@@ -26,6 +26,14 @@ def test_compose_uses_pinned_services_and_loopback_ports() -> None:
     assert "service_completed_successfully" in compose
 
 
+def test_primary_worker_healthcheck_has_bounded_startup_margin() -> None:
+    compose = (ROOT / "infra/compose/compose.yaml").read_text(encoding="utf-8")
+    worker_section = compose.split("  worker:\n", 1)[1].split("  parser:\n", 1)[0]
+
+    assert "celery@worker --timeout 2" in worker_section
+    assert "      timeout: 8s" in worker_section
+
+
 def test_source_upload_runtime_requires_private_healthy_clamav() -> None:
     compose = (ROOT / "infra/compose/compose.yaml").read_text(encoding="utf-8")
 
@@ -176,7 +184,7 @@ def test_compose_commands_use_repository_as_project_directory() -> None:
     assert "-include .env" in makefile
     assert "export WEB_PORT API_PORT" in makefile
     assert COMPOSE[:5] == ["docker", "compose", "--project-directory", ".", "-f"]
-    assert compose.count("context: .\n") == 9
+    assert compose.count("context: .\n") == 11
     assert "  parser:" in compose
     assert "  publisher:" in compose
     assert "context: ../.." not in compose

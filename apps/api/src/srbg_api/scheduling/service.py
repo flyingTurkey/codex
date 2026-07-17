@@ -196,7 +196,7 @@ class PostgresSchedulingService:
                          AND fs.bytes_used < fs.daily_byte_budget
                          AND fs.circuit_state IN ('CLOSED','HALF_OPEN')
                          AND p.id=s.current_policy_version_id AND p.id=r.policy_version_id
-                         AND p.status='APPROVED' AND p.valid_from <= :now AND p.valid_until > :now
+                         AND source_policy_compliance_current(s.id,p.id,:now)
                          AND c.id=s.current_connector_config_version_id
                          AND c.id=r.connector_config_version_id AND c.validation_status='VALID'
                          AND EXISTS (
@@ -297,9 +297,9 @@ class PostgresSchedulingService:
                           AND r.execution_lease_until>=:now
                           AND s.id=r.source_id AND s.lifecycle_state='ACTIVE'
                           AND p.id=s.current_policy_version_id
-                          AND p.id=r.policy_version_id AND p.status='APPROVED'
-                          AND p.valid_from<=:now AND p.valid_until>:now
-                          AND p.document->>'storage_policy'='RAW_EVIDENCE_ALLOWED'
+                          AND p.id=r.policy_version_id
+                          AND source_policy_compliance_current(s.id,p.id,:now)
+                          AND source_private_evidence_capture_allowed(p.document)
                           AND c.id=s.current_connector_config_version_id
                           AND c.id=r.connector_config_version_id
                           AND c.validation_status='VALID'
@@ -472,8 +472,8 @@ class PostgresSchedulingService:
                              AND fs.requests_used < fs.daily_request_budget
                              AND fs.bytes_used < fs.daily_byte_budget
                              AND fs.circuit_state IN ('CLOSED','HALF_OPEN')
-                             AND p.id=r.policy_version_id AND p.status='APPROVED'
-                             AND p.valid_from <= :now AND p.valid_until > :now
+                             AND p.id=r.policy_version_id
+                             AND source_policy_compliance_current(s.id,p.id,:now)
                              AND c.id=r.connector_config_version_id
                              AND c.validation_status='VALID'
                              AND EXISTS (

@@ -43,7 +43,19 @@ export type FixtureCount = number
 export type GovernanceOwnerId = string | null
 export type Id = string
 export type SourceIndustry =
-  'HIGHWAY' | 'BRIDGE' | 'TUNNEL' | 'RAILWAY' | 'RAIL_TRANSIT' | 'GENERAL_TRANSPORT' | 'UNKNOWN'
+  | 'HIGHWAY'
+  | 'BRIDGE'
+  | 'TUNNEL'
+  | 'RAILWAY'
+  | 'RAIL_TRANSIT'
+  | 'WATER_CONSERVANCY'
+  | 'MUNICIPAL'
+  | 'BUILDING'
+  | 'ENERGY'
+  | 'PORT_WATERWAY'
+  | 'AIRPORT'
+  | 'GENERAL_TRANSPORT'
+  | 'UNKNOWN'
 export type Industries = SourceIndustry[]
 export type LanguageTags = string[]
 /**

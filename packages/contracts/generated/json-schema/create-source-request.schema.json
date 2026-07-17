@@ -62,6 +62,12 @@
         "TUNNEL",
         "RAILWAY",
         "RAIL_TRANSIT",
+        "WATER_CONSERVANCY",
+        "MUNICIPAL",
+        "BUILDING",
+        "ENERGY",
+        "PORT_WATERWAY",
+        "AIRPORT",
         "GENERAL_TRANSPORT",
         "UNKNOWN"
       ],

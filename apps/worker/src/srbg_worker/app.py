@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
@@ -9,10 +10,11 @@ from celery import Celery
 from celery.signals import task_failure
 from redis.asyncio import Redis, from_url
 from sqlalchemy.ext.asyncio import AsyncEngine
-from srbg_api.config import get_settings
+from srbg_api.config import Settings, get_settings
 from srbg_api.database import create_database_engine, create_publication_engine
 from srbg_api.discovery.projections import PostgresDiscoveryProjectionWriter
 from srbg_api.document_vault.storage import S3ObjectStore
+from srbg_api.identifiers import uuid7
 from srbg_api.internal_projection.audit_anchor import anchor_latest_audit_root
 from srbg_api.logging import configure_logging
 from srbg_api.observability import REPLAY_RESULTS
@@ -22,6 +24,7 @@ from srbg_api.operations.replays import (
     claim_replay,
     execute_source_fetch_replay,
     finish_replay,
+    prepare_task_redelivery,
 )
 from srbg_api.publication.gate import PublicationGate
 from srbg_api.publication.repository import PostgresPublicationRepository
@@ -29,7 +32,33 @@ from srbg_api.publication.service import PublicationService
 from srbg_api.safety_regulations.runner import run_scheduled_mem_discovery
 from srbg_api.scheduling.domain import build_fetch_message
 from srbg_api.scheduling.service import PostgresSchedulingService
+from srbg_api.source_automation.search import (
+    BAIDU_SEARCH_API_URL,
+    BaiduSearchProvider,
+    PinnedBaiduJsonTransport,
+    PostgresMonthlyBudgetLedger,
+)
 
+from srbg_worker.source_content_bridge import (
+    PostgresSourceContentGateway,
+    SourceContentOutboxExecutor,
+)
+from srbg_worker.source_discovery import (
+    QUERY_CATALOG,
+    DiscoveryExecutor,
+    DiscoveryOutcome,
+    PostgresDiscoveryGateway,
+    SafeDiscoveryTargetProbe,
+)
+from srbg_worker.source_qualification import (
+    ActivationOutboxExecutor,
+    CanonicalTargetProvider,
+    DisabledTargetProbe,
+    PostgresActivationOutboxGateway,
+    PostgresQualificationGateway,
+    QualificationExecutor,
+    ResilientTargetProbe,
+)
 from srbg_worker.source_runtime import (
     LiveRuntimeTransport,
     PostgresRuntimeGateway,
@@ -77,11 +106,36 @@ celery_app.conf.update(
             "schedule": 86400.0,
             "options": {"queue": "publisher"},
         },
+        "dispatch-source-activation-outbox": {
+            "task": "srbg.sources.activation_outbox",
+            "schedule": 5.0,
+            "options": {"queue": "celery"},
+        },
+        "dispatch-pending-source-qualifications": {
+            "task": "srbg.sources.qualify",
+            "schedule": 5.0,
+            "options": {"queue": "qualification"},
+        },
+        "dispatch-automated-source-discovery": {
+            "task": "srbg.sources.discovery.dispatch",
+            "schedule": 21600.0,
+            "options": {"queue": "celery"},
+        },
+        "dispatch-source-content-outbox": {
+            "task": "srbg.source_content.outbox",
+            "schedule": 5.0,
+            "options": {"queue": "parser"},
+        },
     },
     task_routes={
         "srbg.safety_regulations.discover": {"queue": "parser"},
         "srbg.schedules.dispatch": {"queue": "celery"},
         "srbg.source.fetch": {"queue": "parser"},
+        "srbg.sources.qualify": {"queue": "qualification"},
+        "srbg.sources.activation_outbox": {"queue": "celery"},
+        "srbg.sources.discovery.dispatch": {"queue": "celery"},
+        "srbg.sources.discovery.query": {"queue": "discovery"},
+        "srbg.source_content.outbox": {"queue": "parser"},
         "srbg.publication.outbox": {"queue": "publisher"},
         "srbg.publication.projections": {"queue": "publisher"},
         "srbg.operations.replay": {"queue": "publisher"},
@@ -144,6 +198,143 @@ def execute_source_fetch(*, source_id: str, run_id: str) -> dict[str, object]:
     return asyncio.run(_execute_source_fetch(UUID(source_id), UUID(run_id)))
 
 
+@celery_app.task(name="srbg.source_content.outbox")  # type: ignore[untyped-decorator]
+def process_source_content_outbox(
+    *,
+    outbox_id: str | None = None,
+) -> dict[str, object]:
+    return asyncio.run(
+        _drain_source_content_outbox(None if outbox_id is None else UUID(outbox_id))
+    )
+
+
+@celery_app.task(name="srbg.sources.qualify")  # type: ignore[untyped-decorator]
+def execute_source_qualification(
+    *,
+    qualification_run_id: str | None = None,
+) -> dict[str, object]:
+    if qualification_run_id is None:
+        return asyncio.run(_dispatch_pending_source_qualifications())
+    return asyncio.run(_execute_source_qualification(UUID(qualification_run_id)))
+
+
+@celery_app.task(name="srbg.sources.activation_outbox")  # type: ignore[untyped-decorator]
+def process_source_activation_outbox(
+    *,
+    outbox_id: str | None = None,
+) -> dict[str, object]:
+    return asyncio.run(
+        _drain_source_activation_outbox(
+            None if outbox_id is None else UUID(outbox_id),
+        )
+    )
+
+
+@celery_app.task(name="srbg.sources.discovery.dispatch")  # type: ignore[untyped-decorator]
+def dispatch_automated_source_discovery() -> dict[str, object]:
+    return _dispatch_automated_source_discovery()
+
+
+@celery_app.task(name="srbg.sources.discovery.query")  # type: ignore[untyped-decorator]
+def execute_automated_source_discovery_query(
+    *,
+    query_code: str,
+    discovery_run_id: str,
+) -> dict[str, object]:
+    return asyncio.run(
+        _execute_automated_source_discovery_query(
+            query_code=query_code,
+            discovery_run_id=UUID(discovery_run_id),
+        )
+    )
+
+
+def _dispatch_automated_source_discovery() -> dict[str, object]:
+    if not (settings.source_discovery_enabled and settings.baidu_search_enabled):
+        return {"disabled": True, "dispatched": 0, "discovery_run_id": None}
+    discovery_run_id = uuid7()
+    for query_code in sorted(QUERY_CATALOG):
+        celery_app.send_task(
+            "srbg.sources.discovery.query",
+            kwargs={
+                "query_code": query_code,
+                "discovery_run_id": str(discovery_run_id),
+            },
+            queue="discovery",
+        )
+    return {
+        "disabled": False,
+        "dispatched": len(QUERY_CATALOG),
+        "discovery_run_id": str(discovery_run_id),
+    }
+
+
+async def _execute_automated_source_discovery_query(
+    *,
+    query_code: str,
+    discovery_run_id: UUID,
+) -> dict[str, object]:
+    enabled = settings.source_discovery_enabled and settings.baidu_search_enabled
+    if not enabled:
+        return DiscoveryOutcome(
+            discovery_run_id,
+            query_code,
+            disabled=True,
+        ).as_task_result()
+    api_key = settings.baidu_search_api_key
+    if api_key is None or not api_key.get_secret_value():
+        return DiscoveryOutcome(
+            discovery_run_id,
+            query_code,
+            provider_failures=1,
+        ).as_task_result()
+
+    engine = create_database_engine(settings)
+    gateway = PostgresDiscoveryGateway(engine)
+    provider = BaiduSearchProvider(
+        api_url=BAIDU_SEARCH_API_URL,
+        api_key=api_key.get_secret_value(),
+        transport=PinnedBaiduJsonTransport(),
+        budget_ledger=PostgresMonthlyBudgetLedger(
+            engine,
+            provider="BAIDU_SEARCH",
+            monthly_cap_micrormb=min(
+                settings.baidu_search_monthly_cap_micrormb,
+                200_000_000,
+            ),
+            free_calls_per_month=min(
+                settings.baidu_search_free_calls_per_month,
+                1_500,
+            ),
+            alert_threshold_bps=min(
+                settings.baidu_search_budget_alert_bps,
+                8_000,
+            ),
+        ),
+        cost_per_call_micrormb=36_000,
+        timeout_seconds=settings.baidu_search_timeout_seconds,
+    )
+    try:
+        outcome = await DiscoveryExecutor(
+            enabled=True,
+            provider=provider,
+            probe=SafeDiscoveryTargetProbe(settings),
+            gateway=gateway,
+        ).run(
+            query_code=query_code,
+            discovery_run_id=discovery_run_id,
+            now=datetime.now(UTC),
+        )
+        if outcome.budget_alerts:
+            logger.warning(
+                "baidu_search_monthly_budget_threshold_reached",
+                extra={"discovery_run_id": str(discovery_run_id)},
+            )
+        return outcome.as_task_result()
+    finally:
+        await gateway.close()
+
+
 async def _dispatch_due_schedules() -> dict[str, int]:
     service = PostgresSchedulingService(create_database_engine(settings))
     dispatched = 0
@@ -192,6 +383,126 @@ async def _execute_source_fetch(source_id: UUID, run_id: UUID) -> dict[str, obje
         "request_count": result.request_count,
         "response_bytes": result.response_bytes,
     }
+
+
+async def _drain_source_content_outbox(
+    outbox_id: UUID | None,
+) -> dict[str, object]:
+    gateway = PostgresSourceContentGateway(engine=create_database_engine(settings))
+    try:
+        if outbox_id is None:
+            pending_ids = await gateway.pending_ids(limit=50)
+            for pending_id in pending_ids:
+                celery_app.send_task(
+                    "srbg.source_content.outbox",
+                    kwargs={"outbox_id": str(pending_id)},
+                )
+            return {"dispatched": len(pending_ids)}
+
+        outcome = await SourceContentOutboxExecutor(gateway=gateway).run(outbox_id)
+        if outcome is None:
+            return {
+                "outbox_id": str(outbox_id),
+                "document_version_id": None,
+                "pipeline_run_id": None,
+                "status": "ALREADY_CLAIMED",
+                "queued": False,
+            }
+        return {
+            "outbox_id": str(outcome.outbox_id),
+            "document_version_id": str(outcome.document_version_id),
+            "pipeline_run_id": str(outcome.pipeline_run_id),
+            "status": outcome.status,
+            "queued": outcome.queued,
+        }
+    finally:
+        await gateway.close()
+
+
+async def _execute_source_qualification(
+    qualification_run_id: UUID,
+) -> dict[str, object]:
+    if not settings.source_qualification_enabled:
+        return {
+            "qualification_run_id": str(qualification_run_id),
+            "status": "DISABLED",
+            "acquired": False,
+            "target_evidence_count": 0,
+            "disabled": True,
+        }
+    result = await QualificationExecutor(
+        gateway=PostgresQualificationGateway(settings),
+        provider=CanonicalTargetProvider(),
+        target_probe=_build_qualification_target_probe(settings),
+    ).run(
+        qualification_run_id=qualification_run_id,
+    )
+    return {
+        "qualification_run_id": str(result.qualification_run_id),
+        "status": result.status,
+        "acquired": result.acquired,
+        "target_evidence_count": result.target_evidence_count,
+    }
+
+
+def _build_qualification_target_probe(
+    config: Settings,
+) -> DisabledTargetProbe | ResilientTargetProbe:
+    if not config.source_qualification_enabled:
+        return DisabledTargetProbe()
+    return ResilientTargetProbe(config)
+
+
+async def _dispatch_pending_source_qualifications() -> dict[str, object]:
+    if not settings.source_qualification_enabled:
+        return {"disabled": True, "dispatched": 0}
+    gateway = PostgresQualificationGateway(settings)
+    try:
+        pending_ids = await gateway.pending_ids(limit=50)
+        for pending_id in pending_ids:
+            celery_app.send_task(
+                "srbg.sources.qualify",
+                kwargs={"qualification_run_id": str(pending_id)},
+                queue="qualification",
+            )
+        return {"dispatched": len(pending_ids)}
+    finally:
+        await gateway.close()
+
+
+async def _drain_source_activation_outbox(
+    outbox_id: UUID | None,
+) -> dict[str, object]:
+    gateway = PostgresActivationOutboxGateway(settings)
+    try:
+        if outbox_id is None:
+            pending_ids = await gateway.pending_ids(limit=50)
+            for pending_id in pending_ids:
+                celery_app.send_task(
+                    "srbg.sources.activation_outbox",
+                    kwargs={"outbox_id": str(pending_id)},
+                )
+            return {"dispatched": len(pending_ids)}
+
+        async def dispatch_source_fetch(source_id: UUID, run_id: UUID) -> None:
+            celery_app.send_task(
+                "srbg.source.fetch",
+                kwargs={"source_id": str(source_id), "run_id": str(run_id)},
+            )
+
+        outcome = await ActivationOutboxExecutor(
+            gateway=gateway,
+            dispatch_source_fetch=dispatch_source_fetch,
+        ).run(outbox_id)
+        return {
+            "outbox_id": str(outcome.outbox_id),
+            "source_id": None if outcome.source_id is None else str(outcome.source_id),
+            "fetch_run_id": (None if outcome.fetch_run_id is None else str(outcome.fetch_run_id)),
+            "status": outcome.status,
+            "dispatched": outcome.dispatched,
+        }
+    finally:
+        await gateway.close()
 
 
 @celery_app.task(name="srbg.publication.outbox")  # type: ignore[untyped-decorator]
@@ -251,7 +562,16 @@ async def _execute_priority_replay() -> dict[str, object]:
         metric_kind = (
             replay.task_kind
             if replay.task_kind
-            in {"SOURCE_FETCH", "PARSER", "AI", "PUBLICATION_OUTBOX", "PROJECTION"}
+            in {
+                "SOURCE_FETCH",
+                "SOURCE_QUALIFICATION",
+                "SOURCE_ACTIVATION_OUTBOX",
+                "SOURCE_CONTENT_OUTBOX",
+                "PARSER",
+                "AI",
+                "PUBLICATION_OUTBOX",
+                "PROJECTION",
+            }
             else "UNKNOWN"
         )
         REPLAY_RESULTS.labels(
@@ -262,6 +582,18 @@ async def _execute_priority_replay() -> dict[str, object]:
 
 
 async def _execute_replay_kind(replay: ClaimedReplay, engine: AsyncEngine) -> None:
+    if replay.task_kind in {
+        "SOURCE_QUALIFICATION",
+        "SOURCE_ACTIVATION_OUTBOX",
+        "SOURCE_CONTENT_OUTBOX",
+    }:
+        redelivery = await prepare_task_redelivery(engine, replay)
+        if redelivery is not None:
+            celery_app.send_task(
+                redelivery.task_name,
+                kwargs=redelivery.task_kwargs(),
+            )
+        return
     if replay.task_kind == "SOURCE_FETCH":
         await execute_source_fetch_replay(
             engine,
