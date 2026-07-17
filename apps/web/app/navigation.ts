@@ -44,7 +44,7 @@ export const adminNavigation = [
   { id: 'operations', label: '运行中心', to: '/admin/operations', icon: 'RefreshDouble' },
   { id: 'ai', label: 'AI 模型配置', to: '/admin/ai', icon: 'Settings' },
   { id: 'quality', label: '质量看板', to: '/admin/quality', icon: 'Reports' },
-  { id: 'sources', label: '管理入口', to: '/admin/sources', icon: 'Settings' },
+  { id: 'sources', label: '我的来源', to: '/sources', icon: 'Settings' },
   { id: 'source-coverage', label: '覆盖缺口', to: '/admin/sources/coverage', icon: 'Reports' },
   { id: 'review', label: '审核工作台', to: '/admin/review', icon: 'ShieldCheck' },
   { id: 'clusters', label: '聚类工作台', to: '/admin/clusters', icon: 'List' },

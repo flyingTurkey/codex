@@ -98,6 +98,16 @@ PERSONAL_SOURCE_PROBE_QUEUE = Gauge(
     "srbg_personal_source_probe_queue",
     "Queued one-shot personal source probe runs seen by the dispatcher.",
 )
+PERSONAL_DISCOVERY_RESULTS = Counter(
+    "srbg_personal_discovery_results_total",
+    "Personal source discoveries by bounded channel and outcome.",
+    ("channel", "outcome"),
+)
+PERSONAL_AUTO_ENABLE_RESULTS = Counter(
+    "srbg_personal_auto_enable_results_total",
+    "Personal source automatic enable decisions by bounded outcome.",
+    ("outcome",),
+)
 SOURCE_PROFILE_QUEUE = Gauge(
     "srbg_source_profile_queue",
     "Queued automatic source profile runs seen by the dispatcher.",

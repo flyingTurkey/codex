@@ -282,6 +282,8 @@ async function setDesiredEnabled(source: PersonalSourceView): Promise<void> {
       </button>
     </header>
 
+    <PersonalDiscoveryPanel />
+
     <p v-if="actionMessage" class="success" role="status">{{ actionMessage }}</p>
     <p v-if="actionError" class="problem" role="alert">{{ actionError }}</p>
     <div v-if="error" class="problem" role="alert">
@@ -329,6 +331,7 @@ async function setDesiredEnabled(source: PersonalSourceView): Promise<void> {
             <dd>{{ runtimeLabel(source) }}</dd>
           </div>
         </dl>
+        <SourceAutoScorePanel :source-id="source.id" :summary="source.auto_score_summary ?? null" />
         <section class="stream-list" :aria-label="`${source.display_name} 的采集入口`">
           <p v-if="source.latest_probe_run?.status === 'QUEUED' || source.latest_probe_run?.status === 'RUNNING'" class="probe-progress" aria-live="polite">
             探测中，请稍候…

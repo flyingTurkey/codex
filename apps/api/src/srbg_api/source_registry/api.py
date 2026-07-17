@@ -11,6 +11,11 @@ from srbg_contracts import (
     ConnectorConfigVersionView,
     ConnectorDefinitionView,
     CreateSourceRequest,
+    DiscoveryDailyUsageView,
+    DiscoverySettingPatchRequest,
+    DiscoverySettingView,
+    DiscoveryTopicPatchRequest,
+    DiscoveryTopicView,
     DocumentDetail,
     FixtureUploadResponse,
     MeResponse,
@@ -21,6 +26,7 @@ from srbg_contracts import (
     SourceActionRequest,
     SourceAssessmentSubmission,
     SourceAuditEventView,
+    SourceAutoScoreDetailView,
     SourceCoverageMatrix,
     SourceDetail,
     SourceEligibility,
@@ -104,6 +110,31 @@ def _fixture_content_length(request: Request, max_bytes: int) -> int | None:
 
 
 class AdminSourceService(Protocol):
+    async def get_discovery_setting(self) -> DiscoverySettingView: ...
+
+    async def patch_discovery_setting(
+        self,
+        payload: DiscoverySettingPatchRequest,
+        *,
+        actor_id: UUID,
+        request_id: str,
+    ) -> DiscoverySettingView: ...
+
+    async def list_discovery_topics(self) -> list[DiscoveryTopicView]: ...
+
+    async def patch_discovery_topic(
+        self,
+        topic_id: UUID,
+        payload: DiscoveryTopicPatchRequest,
+        *,
+        actor_id: UUID,
+        request_id: str,
+    ) -> DiscoveryTopicView: ...
+
+    async def get_discovery_usage(self) -> DiscoveryDailyUsageView: ...
+
+    async def get_auto_score(self, source_id: UUID) -> SourceAutoScoreDetailView: ...
+
     async def create_personal_source(
         self,
         payload: PersonalSourceCreateRequest,
@@ -365,6 +396,78 @@ async def list_personal_sources(
     return await _service(request).list_personal_sources()
 
 
+@router.get(
+    "/source-discovery/settings",
+    response_model=DiscoverySettingView,
+    tags=["personal-source-discovery"],
+)
+async def get_discovery_setting(
+    request: Request,
+    _: OwnerPrincipal,
+) -> DiscoverySettingView:
+    return await _service(request).get_discovery_setting()
+
+
+@router.patch(
+    "/source-discovery/settings",
+    response_model=DiscoverySettingView,
+    tags=["personal-source-discovery"],
+)
+async def patch_discovery_setting(
+    payload: DiscoverySettingPatchRequest,
+    request: Request,
+    principal: OwnerPrincipal,
+) -> DiscoverySettingView:
+    return await _service(request).patch_discovery_setting(
+        payload,
+        actor_id=principal.user_id,
+        request_id=request.state.request_id,
+    )
+
+
+@router.get(
+    "/source-discovery/topics",
+    response_model=list[DiscoveryTopicView],
+    tags=["personal-source-discovery"],
+)
+async def list_discovery_topics(
+    request: Request,
+    _: OwnerPrincipal,
+) -> list[DiscoveryTopicView]:
+    return await _service(request).list_discovery_topics()
+
+
+@router.patch(
+    "/source-discovery/topics/{topic_id}",
+    response_model=DiscoveryTopicView,
+    tags=["personal-source-discovery"],
+)
+async def patch_discovery_topic(
+    topic_id: UUID,
+    payload: DiscoveryTopicPatchRequest,
+    request: Request,
+    principal: OwnerPrincipal,
+) -> DiscoveryTopicView:
+    return await _service(request).patch_discovery_topic(
+        topic_id,
+        payload,
+        actor_id=principal.user_id,
+        request_id=request.state.request_id,
+    )
+
+
+@router.get(
+    "/source-discovery/usage",
+    response_model=DiscoveryDailyUsageView,
+    tags=["personal-source-discovery"],
+)
+async def get_discovery_usage(
+    request: Request,
+    _: OwnerPrincipal,
+) -> DiscoveryDailyUsageView:
+    return await _service(request).get_discovery_usage()
+
+
 @router.post(
     "/sources",
     response_model=PersonalSourceView,
@@ -392,6 +495,19 @@ async def get_personal_source(
     _: OwnerPrincipal,
 ) -> PersonalSourceView:
     return await _service(request).get_personal_source(source_id)
+
+
+@router.get(
+    "/sources/{source_id}/auto-score",
+    response_model=SourceAutoScoreDetailView,
+    tags=["personal-source-discovery"],
+)
+async def get_source_auto_score(
+    source_id: UUID,
+    request: Request,
+    _: OwnerPrincipal,
+) -> SourceAutoScoreDetailView:
+    return await _service(request).get_auto_score(source_id)
 
 
 @router.patch(

@@ -1,0 +1,81 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "enum": [
+        "HIGHWAY",
+        "BRIDGE",
+        "TUNNEL",
+        "RAIL",
+        "DIGITAL",
+        "AI_IOT_LOW_ALTITUDE",
+        "SAFETY"
+      ],
+      "title": "Code",
+      "type": "string"
+    },
+    "enabled": {
+      "title": "Enabled",
+      "type": "boolean"
+    },
+    "excluded_terms": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 50,
+      "title": "Excluded Terms",
+      "type": "array"
+    },
+    "focus_regions": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 50,
+      "title": "Focus Regions",
+      "type": "array"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "keywords": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 50,
+      "minItems": 1,
+      "title": "Keywords",
+      "type": "array"
+    },
+    "name": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    },
+    "version": {
+      "minimum": 1,
+      "title": "Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "id",
+    "code",
+    "name",
+    "keywords",
+    "excluded_terms",
+    "focus_regions",
+    "enabled",
+    "version",
+    "updated_at"
+  ],
+  "title": "DiscoveryTopicView",
+  "type": "object"
+}

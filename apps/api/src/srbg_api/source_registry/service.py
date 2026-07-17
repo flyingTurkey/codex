@@ -2,7 +2,7 @@
 
 import logging
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from typing import Any
 from uuid import UUID
@@ -15,6 +15,11 @@ from srbg_contracts import (
     ConnectorConfigVersionView,
     ConnectorDefinitionView,
     CreateSourceRequest,
+    DiscoveryDailyUsageView,
+    DiscoverySettingPatchRequest,
+    DiscoverySettingView,
+    DiscoveryTopicPatchRequest,
+    DiscoveryTopicView,
     DocumentDetail,
     FixtureUploadResponse,
     PersonalSourceCreateRequest,
@@ -25,6 +30,7 @@ from srbg_contracts import (
     RuntimeAuthorization,
     SourceAssessmentSubmission,
     SourceAuditEventView,
+    SourceAutoScoreDetailView,
     SourceChannel,
     SourceContentDomain,
     SourceCoverageMatrix,
@@ -174,11 +180,15 @@ class SourceRegistryService:
         *,
         round17_leo_approver_actor_id: UUID | None = None,
         round17_authority_mode: str = "OIDC",
+        baidu_search_enabled: bool = False,
+        baidu_search_key_configured: bool = False,
     ) -> None:
         self._repository = repository
         self._document_vault = document_vault
         self._round17_leo_approver_actor_id = round17_leo_approver_actor_id
         self._round17_authority_mode = round17_authority_mode
+        self._baidu_search_enabled = baidu_search_enabled
+        self._baidu_search_key_configured = baidu_search_key_configured
         self.metrics = document_vault.metrics
 
     @property
@@ -211,6 +221,67 @@ class SourceRegistryService:
 
     async def get_personal_source(self, source_id: UUID) -> PersonalSourceView:
         return _personal_source_view(await self._repository.get_personal_source(source_id))
+
+    async def get_discovery_setting(self) -> DiscoverySettingView:
+        row = await self._repository.get_discovery_setting()
+        return DiscoverySettingView(
+            automation_enabled=row.automation_enabled,
+            discovery_interval_seconds=21_600,
+            next_run_at=row.updated_at + timedelta(seconds=21_600)
+            if row.automation_enabled
+            else None,
+            baidu_status=(
+                "DISABLED"
+                if not self._baidu_search_enabled
+                else "AVAILABLE"
+                if self._baidu_search_key_configured
+                else "KEY_MISSING"
+            ),
+            updated_at=row.updated_at,
+        )
+
+    async def patch_discovery_setting(
+        self,
+        payload: DiscoverySettingPatchRequest,
+        *,
+        actor_id: UUID,
+        request_id: str,
+    ) -> DiscoverySettingView:
+        enabled = payload.automation_enabled
+        if enabled is None:  # Contract validation prevents this at the HTTP boundary.
+            raise SourceServiceRejected("automation_enabled must not be null", 422)
+        await self._repository.patch_discovery_setting(
+            enabled,
+            actor_id=actor_id,
+            request_id=request_id,
+            now=_now(),
+        )
+        return await self.get_discovery_setting()
+
+    async def list_discovery_topics(self) -> list[DiscoveryTopicView]:
+        return await self._repository.list_discovery_topics()
+
+    async def patch_discovery_topic(
+        self,
+        topic_id: UUID,
+        payload: DiscoveryTopicPatchRequest,
+        *,
+        actor_id: UUID,
+        request_id: str,
+    ) -> DiscoveryTopicView:
+        return await self._repository.patch_discovery_topic(
+            topic_id,
+            payload,
+            actor_id=actor_id,
+            request_id=request_id,
+            now=_now(),
+        )
+
+    async def get_discovery_usage(self) -> DiscoveryDailyUsageView:
+        return await self._repository.get_discovery_usage(now=_now())
+
+    async def get_auto_score(self, source_id: UUID) -> SourceAutoScoreDetailView:
+        return await self._repository.get_auto_score(source_id)
 
     async def get_source_profile(self, source_id: UUID) -> SourceProfileView:
         return await self._repository.get_source_profile(source_id)
@@ -1404,6 +1475,10 @@ def build_default_source_service(settings: Settings) -> SourceRegistryService:
         vault,
         round17_leo_approver_actor_id=settings.round17_leo_approver_actor_id,
         round17_authority_mode=settings.round17_authority_mode,
+        baidu_search_enabled=settings.baidu_search_enabled,
+        baidu_search_key_configured=bool(
+            settings.baidu_search_api_key and settings.baidu_search_api_key.get_secret_value()
+        ),
     )
 
 
@@ -1448,6 +1523,7 @@ def _personal_source_view(row: PersonalSourceRow) -> PersonalSourceView:
             failure_code=row.latest_probe_run.failure_code,
             failure_reason=row.latest_probe_run.failure_reason,
         ),
+        auto_score_summary=row.auto_score_summary,
     )
 
 

@@ -1,4 +1,4 @@
-﻿import runpy
+import runpy
 from pathlib import Path
 
 from alembic.config import Config
@@ -24,7 +24,7 @@ REQUIRED_TABLES = {
 
 def test_round08_migration_follows_round07_and_declares_resolution_tables() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
-    assert script.get_current_head() == "0024_automatic_source_profiles"
+    assert script.get_current_head() == "0025_personal_source_discovery"
     revision = script.get_revision("0009_dedup_events_scoring")
     assert revision.down_revision == "0008_technology_products"
     migration = runpy.run_path("apps/api/migrations/versions/0009_dedup_events_scoring.py")

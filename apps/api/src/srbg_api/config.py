@@ -59,8 +59,8 @@ class Settings(BaseSettings):
     )
     semantic_search_enabled: bool = False
     semantic_search_timeout_seconds: float = Field(default=0.3, gt=0, le=2)
-    source_discovery_enabled: bool = False
-    source_qualification_enabled: bool = False
+    source_discovery_enabled: bool = True
+    source_qualification_enabled: bool = True
     baidu_search_enabled: bool = False
     baidu_search_api_url: str = "https://qianfan.baidubce.com/v2/ai_search"
     baidu_search_api_key: SecretStr | None = None
@@ -111,11 +111,6 @@ class Settings(BaseSettings):
             or baidu_endpoint.fragment
         ):
             raise ValueError("Baidu search endpoint must use the pinned Qianfan HTTPS origin")
-        baidu_api_key = self.baidu_search_api_key
-        if self.baidu_search_enabled and (
-            baidu_api_key is None or not baidu_api_key.get_secret_value()
-        ):
-            raise ValueError("Baidu search requires an API key when enabled")
         if self.baidu_search_enabled and not self.source_discovery_enabled:
             raise ValueError("Baidu search requires automated source discovery to be enabled")
         if self.source_discovery_enabled and not self.source_qualification_enabled:

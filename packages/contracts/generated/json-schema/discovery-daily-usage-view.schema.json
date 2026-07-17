@@ -1,0 +1,57 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "auto_enable_limit": {
+      "default": 20,
+      "maximum": 20,
+      "minimum": 1,
+      "title": "Auto Enable Limit",
+      "type": "integer"
+    },
+    "auto_enable_remaining": {
+      "default": 0,
+      "maximum": 20,
+      "minimum": 0,
+      "title": "Auto Enable Remaining",
+      "type": "integer"
+    },
+    "auto_enable_used": {
+      "maximum": 20,
+      "minimum": 0,
+      "title": "Auto Enable Used",
+      "type": "integer"
+    },
+    "local_date": {
+      "format": "date",
+      "title": "Local Date",
+      "type": "string"
+    },
+    "probe_limit": {
+      "default": 100,
+      "maximum": 100,
+      "minimum": 1,
+      "title": "Probe Limit",
+      "type": "integer"
+    },
+    "probe_remaining": {
+      "default": 0,
+      "maximum": 100,
+      "minimum": 0,
+      "title": "Probe Remaining",
+      "type": "integer"
+    },
+    "probe_used": {
+      "maximum": 100,
+      "minimum": 0,
+      "title": "Probe Used",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "local_date",
+    "probe_used",
+    "auto_enable_used"
+  ],
+  "title": "DiscoveryDailyUsageView",
+  "type": "object"
+}

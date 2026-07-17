@@ -264,6 +264,13 @@ const publicExports = {
   'version-response.schema.json': ['VersionResponse'],
   'version-timeline-response.schema.json': ['VersionTimelineResponse'],
   'qualification-run.schema.json': ['QualificationRunView'],
+  'discovery-setting-patch-request.schema.json': ['DiscoverySettingPatchRequest'],
+  'discovery-setting-view.schema.json': ['DiscoverySettingView'],
+  'discovery-topic-patch-request.schema.json': ['DiscoveryTopicPatchRequest'],
+  'discovery-topic-view.schema.json': ['DiscoveryTopicView'],
+  'discovery-daily-usage-view.schema.json': ['DiscoveryDailyUsageView'],
+  'source-auto-score-summary-view.schema.json': ['SourceAutoScoreSummaryView'],
+  'source-auto-score-detail-view.schema.json': ['SourceAutoScoreDetailView'],
 }
 
 await mkdir(dirname(outputPath), { recursive: true })

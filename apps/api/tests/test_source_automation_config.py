@@ -3,11 +3,11 @@ from pydantic import SecretStr, ValidationError
 from srbg_api.config import Settings
 
 
-def test_search_discovery_is_disabled_by_default_and_budget_is_exact_integer_micrormb() -> None:
+def test_free_discovery_is_enabled_by_default_and_baidu_is_opt_in() -> None:
     settings = Settings()
 
-    assert settings.source_discovery_enabled is False
-    assert settings.source_qualification_enabled is False
+    assert settings.source_discovery_enabled is True
+    assert settings.source_qualification_enabled is True
     assert settings.baidu_search_enabled is False
     assert settings.baidu_search_api_key is None
     assert settings.baidu_search_monthly_cap_micrormb == 200_000_000
@@ -16,17 +16,16 @@ def test_search_discovery_is_disabled_by_default_and_budget_is_exact_integer_mic
     assert settings.baidu_search_budget_alert_bps == 8_000
 
 
-def test_enabling_baidu_without_secret_or_with_untrusted_endpoint_fails_closed() -> None:
-    with pytest.raises(ValidationError, match="API key"):
-        Settings(baidu_search_enabled=True)
-
-    with pytest.raises(ValidationError, match="API key"):
-        Settings(baidu_search_enabled=True, baidu_search_api_key=SecretStr(""))
+def test_baidu_without_secret_skips_search_but_endpoint_remains_pinned() -> None:
+    assert Settings(baidu_search_enabled=True).baidu_search_api_key is None
+    empty = Settings(baidu_search_enabled=True, baidu_search_api_key=SecretStr(""))
+    assert empty.baidu_search_api_key is not None
 
     with pytest.raises(ValidationError, match="source discovery"):
         Settings(
             baidu_search_enabled=True,
             baidu_search_api_key=SecretStr("not-logged-secret"),
+            source_discovery_enabled=False,
             source_qualification_enabled=True,
         )
 
@@ -47,13 +46,13 @@ def test_enabling_baidu_without_secret_or_with_untrusted_endpoint_fails_closed()
         )
 
 
-def test_discovery_requires_qualification_but_qualification_can_run_independently() -> None:
+def test_discovery_requires_qualification_but_can_both_be_disabled() -> None:
     with pytest.raises(ValidationError, match="qualification"):
-        Settings(source_discovery_enabled=True)
+        Settings(source_discovery_enabled=True, source_qualification_enabled=False)
 
-    settings = Settings(source_qualification_enabled=True)
+    settings = Settings(source_discovery_enabled=False, source_qualification_enabled=False)
 
-    assert settings.source_qualification_enabled is True
+    assert settings.source_qualification_enabled is False
     assert settings.source_discovery_enabled is False
 
 

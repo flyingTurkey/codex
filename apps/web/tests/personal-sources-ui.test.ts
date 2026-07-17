@@ -5,6 +5,10 @@ import { describe, expect, it } from 'vitest'
 
 describe('PERS-02 personal sources page', () => {
   const page = readFileSync(resolve(process.cwd(), 'app/pages/sources.vue'), 'utf8')
+  const discovery = readFileSync(
+    resolve(process.cwd(), 'app/components/PersonalDiscoveryPanel.vue'),
+    'utf8',
+  )
   const proxy = readFileSync(resolve(process.cwd(), 'server/api/v1/[...path].ts'), 'utf8')
 
   it('uses only the personal source API and separates intent from runtime', () => {
@@ -60,5 +64,17 @@ describe('PERS-02 personal sources page', () => {
     expect(page).toContain('最近发现内容时间')
     expect(page).toContain('熔断等待恢复')
     expect(page).toContain('robots.txt 禁止访问')
+  })
+
+  it('provides PERS-05 editable topics, daily usage, and score explanations', () => {
+    expect(page).toContain('PersonalDiscoveryPanel')
+    expect(discovery).toContain('/api/v1/source-discovery/settings')
+    expect(discovery).toContain('/api/v1/source-discovery/topics')
+    expect(discovery).toContain('/api/v1/source-discovery/usage')
+    expect(discovery).toContain('自动发现')
+    expect(discovery).toContain('今日探测')
+    expect(discovery).toContain('今日自动启用')
+    expect(discovery).toContain('关键词')
+    expect(discovery).not.toContain('候选审批')
   })
 })

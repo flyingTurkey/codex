@@ -67,13 +67,14 @@ describe('application shell contract', () => {
       '运行中心',
       'AI 模型配置',
       '质量看板',
-      '管理入口',
+      '我的来源',
       '覆盖缺口',
       '审核工作台',
       '聚类工作台',
       'R17观察门禁',
       '金标工作台',
     ])
+    expect(adminNavigation.find(item => item.id === 'sources')?.to).toBe('/sources')
 
     const layoutSource = readAppFile('layouts/default.vue')
     expect(layoutSource.match(/<AppShell(?:\s|>)/g)).toHaveLength(1)

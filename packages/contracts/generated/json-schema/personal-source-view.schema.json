@@ -245,6 +245,55 @@
       "title": "PersonalStreamRuntimeState",
       "type": "string"
     },
+    "SourceAutoScoreSummaryView": {
+      "additionalProperties": false,
+      "properties": {
+        "eligible": {
+          "title": "Eligible",
+          "type": "boolean"
+        },
+        "evaluated_at": {
+          "format": "date-time",
+          "title": "Evaluated At",
+          "type": "string"
+        },
+        "reason_codes": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "title": "Reason Codes",
+          "type": "array"
+        },
+        "rule_version": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Rule Version",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "format": "uuid",
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "total_score": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Total Score",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "total_score",
+        "eligible",
+        "reason_codes",
+        "rule_version",
+        "evaluated_at"
+      ],
+      "title": "SourceAutoScoreSummaryView",
+      "type": "object"
+    },
     "SourceProfileStatus": {
       "enum": [
         "COMPLETE",
@@ -359,6 +408,17 @@
   },
   "additionalProperties": false,
   "properties": {
+    "auto_score_summary": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SourceAutoScoreSummaryView"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "desired_enabled": {
       "title": "Desired Enabled",
       "type": "boolean"

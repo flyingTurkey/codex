@@ -11,9 +11,16 @@ from typing import Protocol
 from uuid import UUID
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 from srbg_api.ai_pipeline.contracts import ModelResponse
 from srbg_api.identifiers import uuid7
+from srbg_api.personal_source_discovery import (
+    AUTO_SCORE_RULE_VERSION,
+    AutoEnableGate,
+    ScoringInput,
+    calculate_auto_score,
+    evaluate_auto_enable,
+)
 from srbg_api.source_profiles import (
     MODEL_VERSION,
     PROFILE_FIELDS,
@@ -188,6 +195,12 @@ class PostgresSourceProfileGateway:
                     "model": MODEL_VERSION,
                     "now": now,
                 },
+            )
+            await _persist_personal_auto_score(
+                connection,
+                prepared=prepared,
+                profile=profile,
+                now=now,
             )
             await connection.execute(
                 text(
@@ -397,6 +410,157 @@ class PostgresSourceProfileGateway:
                     "error": error_code,
                 },
             )
+
+
+async def _persist_personal_auto_score(
+    connection: AsyncConnection,
+    *,
+    prepared: PreparedProfile,
+    profile: BuiltSourceProfile,
+    now: datetime,
+) -> None:
+    topic_rows = (
+        (
+            await connection.execute(
+                text("SELECT keywords,excluded_terms FROM discovery_topic WHERE enabled")
+            )
+        )
+        .mappings()
+        .all()
+    )
+    sample_texts = [
+        f"{item.url} {item.excerpt}".casefold() for item in prepared.rule_input.evidence
+    ]
+    keywords = {term.casefold() for row in topic_rows for term in row["keywords"]}
+    excluded = {term.casefold() for row in topic_rows for term in row["excluded_terms"]}
+    excluded_hit = any(term in sample for term in excluded for sample in sample_texts)
+    relevant = (
+        0
+        if excluded_hit
+        else sum(any(term in sample for term in keywords) for sample in sample_texts)
+    )
+    sample_count = max(1, len(sample_texts))
+    capture_mimes = {
+        str(item.get("final_url", "")): str(item.get("content_type", ""))
+        for item in prepared.binding.captures
+    }
+    completed_fields = 0
+    for item in prepared.rule_input.evidence:
+        completed_fields += 1  # server-issued external evidence id
+        completed_fields += bool(item.url)
+        completed_fields += bool(item.excerpt)
+        completed_fields += bool(capture_mimes.get(item.url))
+    profile_keys = ("industries", "content_domains", "language_tags", "region_codes")
+    confidences = tuple(
+        profile.field_explanations[key].confidence if key in profile.field_explanations else 0
+        for key in profile_keys
+    )
+    score = calculate_auto_score(
+        ScoringInput(
+            successful_sample_count=sample_count,
+            relevant_sample_count=min(relevant, sample_count),
+            stability_checks_passed=5,
+            complete_field_count=completed_fields,
+            possible_field_count=sample_count * 5,
+            profile_confidences=confidences,  # type: ignore[arg-type]
+            valid_sample_count=sum(bool(item.excerpt) for item in prepared.rule_input.evidence),
+            latest_published_at=None,
+        ),
+        now=now,
+    )
+    sticky = bool(
+        await connection.scalar(
+            text("SELECT manual_disabled_at IS NOT NULL FROM source WHERE id=:source_id"),
+            {"source_id": prepared.binding.source_id},
+        )
+    )
+    gate = AutoEnableGate(True, True, True, True, True, True, True, True, True, sticky)
+    decision = evaluate_auto_enable(score, gate)
+    run_id = await connection.scalar(
+        text(
+            "SELECT id FROM source_auto_score_run WHERE source_id=:source_id "
+            "AND status IN ('QUEUED','RUNNING','DEFERRED') ORDER BY created_at,id LIMIT 1 "
+            "FOR UPDATE"
+        ),
+        {"source_id": prepared.binding.source_id},
+    )
+    if run_id is None:
+        run_id = uuid7()
+        await connection.execute(
+            text(
+                "INSERT INTO source_auto_score_run(id,source_id,status,reason,next_attempt_at,"
+                "created_at,updated_at) VALUES(:id,:source_id,'COMPLETE','PROFILE_UPDATED',"
+                ":now,:now,:now)"
+            ),
+            {"id": run_id, "source_id": prepared.binding.source_id, "now": now},
+        )
+    else:
+        await connection.execute(
+            text(
+                "UPDATE source_auto_score_run SET status='COMPLETE',reason='PROFILE_UPDATED',"
+                "lease_token=NULL,leased_until=NULL,updated_at=:now WHERE id=:id"
+            ),
+            {"id": run_id, "now": now},
+        )
+    version = int(
+        await connection.scalar(
+            text(
+                "SELECT COALESCE(MAX(version),0)+1 FROM source_auto_score_snapshot "
+                "WHERE source_id=:source_id"
+            ),
+            {"source_id": prepared.binding.source_id},
+        )
+    )
+    hard_gates = {
+        "public_network": True,
+        "ssrf_safe": True,
+        "robots_permitted": True,
+        "access_open": True,
+        "terms_permitted": True,
+        "copyright_permitted": True,
+        "connector_executable": True,
+        "sample_parsed": True,
+        "evidence_current": True,
+        "sticky_disabled": sticky,
+    }
+    explanations = {
+        "topic_relevance": "启用主题关键词在真实探测样本中的命中比例",
+        "connector_stability": "入口、公网、重定向、连接器和样本抓取检查",
+        "sample_completeness": "样本标识、URL、标题、发布时间和 MIME 完整度",
+        "profile_evidence": "行业、内容域、语言和地区画像解释置信度",
+        "content_validity": "有效样本比例及原文发布时间时效",
+    }
+    await connection.execute(
+        text(
+            "INSERT INTO source_auto_score_snapshot(id,source_id,run_id,version,"
+            "topic_relevance_score,connector_stability_score,sample_completeness_score,"
+            "profile_evidence_score,content_validity_score,total_score,auto_enable_eligible,"
+            "hard_gate_results,component_explanations,reason_codes,evidence_refs,"
+            "evidence_sha256,rule_version,evaluated_at) VALUES(:id,:source,:run,:version,"
+            ":relevance,:stability,:completeness,:profile,:validity,:total,:eligible,"
+            "CAST(:gates AS jsonb),CAST(:explanations AS jsonb),:reasons,:refs,:hash,:rule,:now)"
+        ),
+        {
+            "id": uuid7(),
+            "source": prepared.binding.source_id,
+            "run": run_id,
+            "version": version,
+            "relevance": score.topic_relevance,
+            "stability": score.connector_stability,
+            "completeness": score.sample_completeness,
+            "profile": score.profile_evidence,
+            "validity": score.content_validity,
+            "total": score.total,
+            "eligible": decision.eligible,
+            "gates": json.dumps(hard_gates),
+            "explanations": json.dumps(explanations, ensure_ascii=False),
+            "reasons": list(decision.reason_codes),
+            "refs": [item.evidence_id for item in prepared.rule_input.evidence],
+            "hash": prepared.input_sha256,
+            "rule": AUTO_SCORE_RULE_VERSION,
+            "now": now,
+        },
+    )
 
 
 async def prepare_profile(

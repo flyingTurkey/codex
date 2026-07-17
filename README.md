@@ -49,7 +49,7 @@ make ai-content-preparation-test
 
 百度调用预算以 PostgreSQL 行锁在请求前原子预留：每个 UTC 月前1500次免费，之后按每次0.036元计费；达到200元月度硬上限前拒绝下一次会超额的请求，80%只告警一次。代码还把月度上限、免费次数和告警阈值分别钳制为不高于上述值，客户端或环境变量不能放宽。
 
-该能力在 `.env.example` 和 Compose 中保持 `SRBG_SOURCE_DISCOVERY_ENABLED=false`、`SRBG_SOURCE_QUALIFICATION_ENABLED=false`、`SRBG_BAIDU_SEARCH_ENABLED=false`，API key 为空；必须由平台管理员、来源治理责任人和合规/版权责任人确认百度服务条款、目标站点 robots/条款、预算、告警路由及生产 OIDC/MFA 后才可显式启用。资格审核可以脱离付费发现单独启用，自动发现则必须同时启用资格审核。当前自动定时发现仅实现百度通道；Directory/RSS/Sitemap/Outbound Link 是候选渠道契约而非已运行的自动发现器，自动生成的生产连接器目前为通用 `LIST_DETAIL` V1。来源流的暂停/恢复/修复写操作仍走既有来源生命周期与计划运维接口。完整边界、测试证据、回滚和已知限制见[自动化来源治理验收记录](docs/acceptance/phase-2/round-18-source-automation.md)、[内容处理耐久桥验收记录](docs/acceptance/phase-2/round-19-source-content-bridge.md)和[运行手册](docs/operations/runbooks.md)。
+PERS-05 之后，`.env.example` 和 Compose 默认开启个人免费发现与资格处理，百度仍默认关闭且 API Key 为空。每 6 小时先从已保存的 RSS、Sitemap 和机构页面证据扩展一层外链，再在独立百度开关、非空 Key、月度费用预算和当日探测余额均允许时运行固定查询。发现后的来源不再进入个人候选审批入口，而是安全探测、自动画像、固定五项评分，并在上海自然日 20 个上限内由服务端事务自动启用；Owner 手工停用始终具有 sticky 优先级。旧企业候选表、API 与兼容页面仍保留。使用方法见[个人来源自动发现说明](docs/user-guide/personal-source-discovery.md)，验收边界见[PERS-05 验收记录](docs/acceptance/personal/round-pers05-auto-discovery.md)。
 
 ## 第17轮真实试运行准备
 

@@ -16,6 +16,9 @@ from srbg_contracts import (
     ConnectorDefinitionView,
     ConnectorType,
     CreateSourceRequest,
+    DiscoveryDailyUsageView,
+    DiscoveryTopicPatchRequest,
+    DiscoveryTopicView,
     DocumentDetail,
     DocumentVersionSummary,
     FixtureUploadResponse,
@@ -34,6 +37,8 @@ from srbg_contracts import (
     ScanStatus,
     SourceAssessmentSubmission,
     SourceAuthorityAssessment,
+    SourceAutoScoreDetailView,
+    SourceAutoScoreSummaryView,
     SourceContentDomain,
     SourceCoverageCell,
     SourceCoverageMatrix,
@@ -136,6 +141,13 @@ class PersonalSourceRow:
     normalized_origin: str | None = None
     streams: tuple["PersonalStreamRow", ...] = ()
     latest_probe_run: "ProbeRunRow | None" = None
+    auto_score_summary: SourceAutoScoreSummaryView | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AutomationSettingRow:
+    automation_enabled: bool
+    updated_at: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -253,10 +265,22 @@ class SourceVaultRepository:
                 await connection.execute(
                     text(
                         """
-                        SELECT id,name,base_url,desired_enabled,runtime_state,manual_disabled_at,
-                               normalized_origin
+                        SELECT source.id,source.name,source.base_url,source.desired_enabled,
+                               source.runtime_state,source.manual_disabled_at,
+                               source.normalized_origin,score.id AS score_id,
+                               score.total_score,score.auto_enable_eligible,
+                               score.reason_codes AS score_reason_codes,
+                               score.rule_version AS score_rule_version,
+                               score.evaluated_at AS score_evaluated_at
                           FROM source
-                         ORDER BY lower(name),id
+                          LEFT JOIN LATERAL (
+                            SELECT id,total_score,auto_enable_eligible,reason_codes,
+                                   rule_version,evaluated_at
+                              FROM source_auto_score_snapshot snapshot
+                             WHERE snapshot.source_id=source.id
+                             ORDER BY version DESC LIMIT 1
+                          ) score ON true
+                         ORDER BY lower(source.name),source.id
                         """
                     )
                 )
@@ -271,9 +295,23 @@ class SourceVaultRepository:
                     await connection.execute(
                         text(
                             """
-                            SELECT id,name,base_url,desired_enabled,runtime_state,
-                                   manual_disabled_at,normalized_origin
-                              FROM source WHERE id=:source_id
+                            SELECT source.id,source.name,source.base_url,
+                                   source.desired_enabled,source.runtime_state,
+                                   source.manual_disabled_at,source.normalized_origin,
+                                   score.id AS score_id,score.total_score,
+                                   score.auto_enable_eligible,
+                                   score.reason_codes AS score_reason_codes,
+                                   score.rule_version AS score_rule_version,
+                                   score.evaluated_at AS score_evaluated_at
+                              FROM source
+                              LEFT JOIN LATERAL (
+                                SELECT id,total_score,auto_enable_eligible,reason_codes,
+                                       rule_version,evaluated_at
+                                  FROM source_auto_score_snapshot snapshot
+                                 WHERE snapshot.source_id=source.id
+                                 ORDER BY version DESC LIMIT 1
+                              ) score ON true
+                             WHERE source.id=:source_id
                             """
                         ),
                         {"source_id": source_id},
@@ -285,6 +323,212 @@ class SourceVaultRepository:
         if row is None:
             raise SourceNotFound("source does not exist")
         return await self._personal_source_with_probe(_personal_source_row(row))
+
+    async def get_discovery_setting(self) -> AutomationSettingRow:
+        async with self._engine.connect() as connection:
+            row = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT automation_enabled,updated_at FROM personal_automation_setting "
+                            "WHERE singleton_slot=1"
+                        )
+                    )
+                )
+                .mappings()
+                .one()
+            )
+        return AutomationSettingRow(row["automation_enabled"], row["updated_at"])
+
+    async def patch_discovery_setting(
+        self,
+        enabled: bool,
+        *,
+        actor_id: UUID,
+        request_id: str,
+        now: datetime,
+    ) -> AutomationSettingRow:
+        async with self._engine.begin() as connection:
+            before = await connection.scalar(
+                text(
+                    "SELECT automation_enabled FROM personal_automation_setting "
+                    "WHERE singleton_slot=1 FOR UPDATE"
+                )
+            )
+            if not isinstance(before, bool):
+                raise RepositoryConflict("personal automation setting does not exist")
+            await connection.execute(
+                text(
+                    "UPDATE personal_automation_setting SET automation_enabled=:enabled,"
+                    "updated_at=:now WHERE singleton_slot=1"
+                ),
+                {"enabled": enabled, "now": now},
+            )
+            if before != enabled:
+                await connection.execute(
+                    text(
+                        "INSERT INTO personal_discovery_setting_event(id,actor_id,request_id,"
+                        "before_enabled,after_enabled,created_at) "
+                        "VALUES(:id,:actor_id,:request_id,:before,:after,:now)"
+                    ),
+                    {
+                        "id": uuid7(),
+                        "actor_id": actor_id,
+                        "request_id": request_id,
+                        "before": before,
+                        "after": enabled,
+                        "now": now,
+                    },
+                )
+        return AutomationSettingRow(enabled, now)
+
+    async def list_discovery_topics(self) -> list[DiscoveryTopicView]:
+        async with self._engine.connect() as connection:
+            rows = (
+                await connection.execute(
+                    text(
+                        "SELECT id,code,name,keywords,excluded_terms,focus_regions,enabled,"
+                        "version,updated_at FROM discovery_topic ORDER BY code"
+                    )
+                )
+            ).mappings()
+            return [DiscoveryTopicView.model_validate(dict(row)) for row in rows]
+
+    async def patch_discovery_topic(
+        self,
+        topic_id: UUID,
+        payload: DiscoveryTopicPatchRequest,
+        *,
+        actor_id: UUID,
+        request_id: str,
+        now: datetime,
+    ) -> DiscoveryTopicView:
+        async with self._engine.begin() as connection:
+            row = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT id,code,name,keywords,excluded_terms,focus_regions,enabled,"
+                            "version,updated_at FROM discovery_topic WHERE id=:id FOR UPDATE"
+                        ),
+                        {"id": topic_id},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            if row is None:
+                raise SourceNotFound("discovery topic does not exist")
+            before = dict(row)
+            keywords = (
+                payload.keywords
+                if "keywords" in payload.model_fields_set
+                else list(row["keywords"])
+            )
+            excluded = (
+                payload.excluded_terms
+                if "excluded_terms" in payload.model_fields_set
+                else list(row["excluded_terms"])
+            )
+            regions = (
+                payload.focus_regions
+                if "focus_regions" in payload.model_fields_set
+                else list(row["focus_regions"])
+            )
+            enabled = payload.enabled if "enabled" in payload.model_fields_set else row["enabled"]
+            updated = (
+                (
+                    await connection.execute(
+                        text(
+                            "UPDATE discovery_topic SET keywords=:keywords,"
+                            "excluded_terms=:excluded,focus_regions=:regions,"
+                            "enabled=:enabled,version=version+1,updated_at=:now "
+                            "WHERE id=:id RETURNING id,code,name,keywords,"
+                            "excluded_terms,focus_regions,"
+                            "enabled,version,updated_at"
+                        ),
+                        {
+                            "id": topic_id,
+                            "keywords": keywords,
+                            "excluded": excluded,
+                            "regions": regions,
+                            "enabled": enabled,
+                            "now": now,
+                        },
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO discovery_topic_event(id,topic_id,actor_id,request_id,"
+                    "before_state,after_state,created_at) VALUES(:id,:topic,:actor,:request,"
+                    "CAST(:before AS jsonb),CAST(:after AS jsonb),:now)"
+                ),
+                {
+                    "id": uuid7(),
+                    "topic": topic_id,
+                    "actor": actor_id,
+                    "request": request_id,
+                    "before": json.dumps(before, default=str),
+                    "after": json.dumps(dict(updated), default=str),
+                    "now": now,
+                },
+            )
+        return DiscoveryTopicView.model_validate(dict(updated))
+
+    async def get_discovery_usage(self, *, now: datetime) -> DiscoveryDailyUsageView:
+        async with self._engine.connect() as connection:
+            row = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT personal_discovery_local_date(:now) AS local_date,"
+                            "COALESCE((SELECT used_count FROM "
+                            "personal_probe_daily_ledger "
+                            "WHERE local_date=personal_discovery_local_date(:now)),0) "
+                            "AS probe_used,"
+                            "COALESCE((SELECT used_count FROM "
+                            "personal_auto_enable_daily_ledger WHERE "
+                            "local_date=personal_discovery_local_date(:now)),0) "
+                            "AS enable_used"
+                        ),
+                        {"now": now},
+                    )
+                )
+                .mappings()
+                .one()
+            )
+        return DiscoveryDailyUsageView(
+            local_date=row["local_date"],
+            probe_used=row["probe_used"],
+            auto_enable_used=row["enable_used"],
+        )
+
+    async def get_auto_score(self, source_id: UUID) -> SourceAutoScoreDetailView:
+        async with self._engine.connect() as connection:
+            row = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT id AS snapshot_id,source_id,total_score,auto_enable_eligible "
+                            "AS eligible,reason_codes,rule_version,evaluated_at,"
+                            "topic_relevance_score,connector_stability_score,"
+                            "sample_completeness_score,profile_evidence_score,"
+                            "content_validity_score,component_explanations,hard_gate_results,"
+                            "evidence_refs FROM source_auto_score_snapshot "
+                            "WHERE source_id=:source_id ORDER BY version DESC LIMIT 1"
+                        ),
+                        {"source_id": source_id},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+        if row is None:
+            raise SourceNotFound("source auto score does not exist")
+        return SourceAutoScoreDetailView.model_validate(dict(row))
 
     async def get_source_profile(self, source_id: UUID) -> SourceProfileView:
         async with self._engine.connect() as connection:
@@ -734,6 +978,7 @@ class SourceVaultRepository:
             base.normalized_origin,
             streams,
             latest,
+            base.auto_score_summary,
         )
 
     async def patch_personal_source(
@@ -872,14 +1117,7 @@ class SourceVaultRepository:
                         "created_at": now,
                     },
                 )
-            return PersonalSourceRow(
-                id=row["id"],
-                display_name=display_name,
-                url=row["base_url"],
-                desired_enabled=desired_enabled,
-                runtime_state=PersonalSourceRuntimeState(row["runtime_state"]),
-                manual_disabled_at=manual_disabled_at,
-            )
+        return await self.get_personal_source(source_id)
 
     async def list_sources(self) -> list[SourceRow]:
         async with self._engine.connect() as connection:
@@ -3200,6 +3438,18 @@ def _source_row(row: RowMapping) -> SourceRow:
 
 
 def _personal_source_row(row: RowMapping) -> PersonalSourceRow:
+    score = (
+        None
+        if row.get("score_id") is None
+        else SourceAutoScoreSummaryView(
+            snapshot_id=row["score_id"],
+            total_score=row["total_score"],
+            eligible=row["auto_enable_eligible"],
+            reason_codes=list(row["score_reason_codes"]),
+            rule_version=row["score_rule_version"],
+            evaluated_at=row["score_evaluated_at"],
+        )
+    )
     return PersonalSourceRow(
         id=row["id"],
         display_name=row["name"],
@@ -3208,6 +3458,7 @@ def _personal_source_row(row: RowMapping) -> PersonalSourceRow:
         runtime_state=PersonalSourceRuntimeState(row["runtime_state"]),
         manual_disabled_at=row["manual_disabled_at"],
         normalized_origin=row.get("normalized_origin"),
+        auto_score_summary=score,
     )
 
 

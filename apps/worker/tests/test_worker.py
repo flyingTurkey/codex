@@ -39,9 +39,7 @@ def test_worker_periodically_dispatches_fixed_code_source_discovery() -> None:
     assert worker.celery_app.conf.task_routes["srbg.sources.discovery.query"] == {
         "queue": "discovery"
     }
-    assert worker.celery_app.conf.task_routes["srbg.sources.qualify"] == {
-        "queue": "qualification"
-    }
+    assert worker.celery_app.conf.task_routes["srbg.sources.qualify"] == {"queue": "qualification"}
     assert worker.celery_app.conf.task_routes["srbg.source.fetch"] == {"queue": "parser"}
 
 
@@ -100,7 +98,11 @@ def test_enabled_dispatch_messages_contain_only_controlled_code_and_id(
         worker,
         "settings",
         worker.settings.model_copy(
-            update={"source_discovery_enabled": True, "baidu_search_enabled": True}
+            update={
+                "source_discovery_enabled": True,
+                "baidu_search_enabled": True,
+                "baidu_search_api_key": worker.settings.baidu_search_api_key,
+            }
         ),
     )
 
@@ -112,10 +114,12 @@ def test_enabled_dispatch_messages_contain_only_controlled_code_and_id(
     result = worker.celery_app.tasks["srbg.sources.discovery.dispatch"].run()
 
     assert result["disabled"] is False
-    assert result["dispatched"] == len(QUERY_CATALOG)
+    assert result["dispatched"] == 1
     assert set(result) == {"disabled", "dispatched", "discovery_run_id"}
-    assert len(sent) == len(QUERY_CATALOG)
-    for name, values in sent:
+    assert len(sent) == 1
+    assert sent[0][0] == "srbg.sources.discovery.personal_cycle"
+    assert sent[0][1]["queue"] == "discovery"
+    for name, values in sent[1:]:
         assert name == "srbg.sources.discovery.query"
         assert set(values) == {"kwargs", "queue"}
         assert values["queue"] == "discovery"

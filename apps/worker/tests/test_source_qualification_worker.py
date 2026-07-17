@@ -799,14 +799,16 @@ async def test_pending_qualification_dispatcher_emits_only_run_identifiers(
     ]
 
 
-def test_qualification_probe_feature_flag_is_off_by_default_without_live_transport() -> None:
+def test_qualification_probe_is_on_for_free_discovery_and_can_be_disabled() -> None:
     assert isinstance(
         worker._build_qualification_target_probe(Settings()),
-        qualification.DisabledTargetProbe,
+        ResilientTargetProbe,
     )
     assert isinstance(
-        worker._build_qualification_target_probe(Settings(source_qualification_enabled=True)),
-        ResilientTargetProbe,
+        worker._build_qualification_target_probe(
+            Settings(source_discovery_enabled=False, source_qualification_enabled=False)
+        ),
+        qualification.DisabledTargetProbe,
     )
 
 

@@ -1,4 +1,4 @@
-﻿import runpy
+import runpy
 from pathlib import Path
 
 from alembic.config import Config
@@ -18,7 +18,7 @@ REQUIRED_TABLES = {
 
 def test_round10_migration_follows_round09_and_declares_portal_tables() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
-    assert script.get_current_head() == "0024_automatic_source_profiles"
+    assert script.get_current_head() == "0025_personal_source_discovery"
     revision = script.get_revision("0011_feed_search_daily")
     assert revision.down_revision == "0010_ai_editorial_governance"
     migration = runpy.run_path("apps/api/migrations/versions/0011_feed_search_daily.py")

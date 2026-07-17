@@ -4,16 +4,23 @@ from uuid import UUID
 from fastapi.testclient import TestClient
 from srbg_api.main import create_app
 from srbg_contracts import (
+    DiscoveryDailyUsageView,
+    DiscoverySettingPatchRequest,
+    DiscoverySettingView,
+    DiscoveryTopicPatchRequest,
+    DiscoveryTopicView,
     PersonalSourceCreateRequest,
     PersonalSourcePatchRequest,
     PersonalSourceReprobeRequest,
     PersonalSourceRuntimeState,
     PersonalSourceView,
+    SourceAutoScoreDetailView,
     SourceProfileOverrideRequest,
     SourceProfileView,
 )
 
 SOURCE_ID = UUID("019b0000-0000-7000-8000-000000000001")
+TOPIC_ID = UUID("019b0000-0000-7000-8000-000000000002")
 
 
 def _view(
@@ -37,6 +44,83 @@ class StubPersonalSourceService:
         self.create_calls: list[PersonalSourceCreateRequest] = []
         self.reprobe_calls: list[PersonalSourceReprobeRequest] = []
         self.profile_override_calls: list[SourceProfileOverrideRequest] = []
+        self.setting_calls: list[DiscoverySettingPatchRequest] = []
+        self.topic_calls: list[DiscoveryTopicPatchRequest] = []
+
+    async def get_discovery_setting(self) -> DiscoverySettingView:
+        return DiscoverySettingView(
+            automation_enabled=True,
+            discovery_interval_seconds=21_600,
+            next_run_at=datetime(2026, 7, 17, 6, tzinfo=UTC),
+            baidu_status="KEY_MISSING",
+            updated_at=datetime(2026, 7, 17, tzinfo=UTC),
+        )
+
+    async def patch_discovery_setting(
+        self,
+        payload: DiscoverySettingPatchRequest,
+        *,
+        actor_id: UUID,
+        request_id: str,
+    ) -> DiscoverySettingView:
+        del actor_id, request_id
+        self.setting_calls.append(payload)
+        return (await self.get_discovery_setting()).model_copy(
+            update={"automation_enabled": payload.automation_enabled}
+        )
+
+    async def list_discovery_topics(self) -> list[DiscoveryTopicView]:
+        return [
+            DiscoveryTopicView(
+                id=TOPIC_ID,
+                code="HIGHWAY",
+                name="公路",
+                keywords=["公路"],
+                excluded_terms=[],
+                focus_regions=[],
+                enabled=True,
+                version=1,
+                updated_at=datetime(2026, 7, 17, tzinfo=UTC),
+            )
+        ]
+
+    async def patch_discovery_topic(
+        self,
+        topic_id: UUID,
+        payload: DiscoveryTopicPatchRequest,
+        *,
+        actor_id: UUID,
+        request_id: str,
+    ) -> DiscoveryTopicView:
+        del actor_id, request_id
+        assert topic_id == TOPIC_ID
+        self.topic_calls.append(payload)
+        return (await self.list_discovery_topics())[0].model_copy(
+            update={"keywords": payload.keywords or ["公路"]}
+        )
+
+    async def get_discovery_usage(self) -> DiscoveryDailyUsageView:
+        return DiscoveryDailyUsageView(local_date="2026-07-17", probe_used=9, auto_enable_used=3)
+
+    async def get_auto_score(self, source_id: UUID) -> SourceAutoScoreDetailView:
+        assert source_id == SOURCE_ID
+        return SourceAutoScoreDetailView(
+            snapshot_id=UUID("019b0000-0000-7000-8000-000000000003"),
+            source_id=SOURCE_ID,
+            total_score=70,
+            eligible=True,
+            reason_codes=[],
+            rule_version="personal-source-auto-score-v1",
+            evaluated_at=datetime(2026, 7, 17, tzinfo=UTC),
+            topic_relevance_score=30,
+            connector_stability_score=20,
+            sample_completeness_score=10,
+            profile_evidence_score=5,
+            content_validity_score=5,
+            component_explanations={"topic_relevance": "3/4"},
+            hard_gate_results={"ssrf_safe": True},
+            evidence_refs=["probe:a"],
+        )
 
     async def list_personal_sources(self) -> list[PersonalSourceView]:
         return [_view(desired_enabled=True)]
@@ -150,11 +234,15 @@ def _profile(*, overridden_fields: list[str] | None = None) -> SourceProfileView
             "field_explanations": {field: explanation for field in values},
             "overall_confidence": 85,
             "overridden_fields": overridden_fields or [],
-            "evidence": [{
-                "evidence_id": "homepage-1", "kind": "HOMEPAGE",
-                "url": "https://www.mot.gov.cn/", "sha256": "a" * 64,
-                "excerpt": "交通运输部",
-            }],
+            "evidence": [
+                {
+                    "evidence_id": "homepage-1",
+                    "kind": "HOMEPAGE",
+                    "url": "https://www.mot.gov.cn/",
+                    "sha256": "a" * 64,
+                    "excerpt": "交通运输部",
+                }
+            ],
             "technical_facts": ["RSS_ATOM"],
             "reason_codes": [],
             "rule_version": "source-profile-rules-v1",
@@ -259,12 +347,56 @@ def test_owner_can_view_override_and_revoke_profile_without_review_semantics() -
         json={"industries": ["HIGHWAY"]},
         headers=headers,
     )
-    revoked = client.delete(
-        f"/api/v1/sources/{SOURCE_ID}/profile-override", headers=headers
-    )
+    revoked = client.delete(f"/api/v1/sources/{SOURCE_ID}/profile-override", headers=headers)
 
     assert viewed.status_code == 200
     assert viewed.json()["field_explanations"]["authority_level"]["basis"] == "AUTO_INFERRED"
     assert overridden.json()["overridden_fields"] == ["industries"]
     assert revoked.json()["overridden_fields"] == []
     assert "human_review" not in viewed.text.casefold()
+
+
+def test_owner_can_manage_discovery_topics_setting_usage_and_score() -> None:
+    service = StubPersonalSourceService()
+    client = _client(service)
+    headers = {"X-SRBG-Local-Roles": "owner"}
+
+    setting = client.get("/api/v1/source-discovery/settings", headers=headers)
+    patched_setting = client.patch(
+        "/api/v1/source-discovery/settings",
+        json={"automation_enabled": False},
+        headers=headers,
+    )
+    topics = client.get("/api/v1/source-discovery/topics", headers=headers)
+    patched_topic = client.patch(
+        f"/api/v1/source-discovery/topics/{TOPIC_ID}",
+        json={"keywords": ["公路", "道路工程"]},
+        headers=headers,
+    )
+    usage = client.get("/api/v1/source-discovery/usage", headers=headers)
+    score = client.get(f"/api/v1/sources/{SOURCE_ID}/auto-score", headers=headers)
+
+    assert setting.status_code == 200
+    assert patched_setting.json()["automation_enabled"] is False
+    assert topics.json()[0]["code"] == "HIGHWAY"
+    assert patched_topic.json()["keywords"] == ["公路", "道路工程"]
+    assert usage.json()["probe_remaining"] == 91
+    assert score.json()["total_score"] == 70
+    assert len(service.setting_calls) == 1
+    assert len(service.topic_calls) == 1
+
+
+def test_non_owner_cannot_read_or_change_personal_discovery_configuration() -> None:
+    client = _client()
+    headers = {"X-SRBG-Local-Roles": "viewer"}
+
+    read = client.get("/api/v1/source-discovery/topics", headers=headers)
+    write = client.patch(
+        "/api/v1/source-discovery/settings",
+        json={"automation_enabled": False},
+        headers=headers,
+    )
+
+    assert read.status_code == 403
+    assert write.status_code == 403
+    assert read.headers["content-type"].startswith("application/problem+json")

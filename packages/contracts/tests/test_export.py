@@ -144,6 +144,13 @@ def test_exported_json_schemas_are_deterministic(tmp_path: Path) -> None:
         "version-change-escalation-request.schema.json",
         "version-response.schema.json",
         "version-timeline-response.schema.json",
+        "discovery-daily-usage-view.schema.json",
+        "discovery-setting-patch-request.schema.json",
+        "discovery-setting-view.schema.json",
+        "discovery-topic-patch-request.schema.json",
+        "discovery-topic-view.schema.json",
+        "source-auto-score-detail-view.schema.json",
+        "source-auto-score-summary-view.schema.json",
     }
     assert {path.name for path in tmp_path.glob("*.json")} == expected_names
     version_schema = json.loads((tmp_path / "version-response.schema.json").read_text())

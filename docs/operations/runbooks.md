@@ -51,8 +51,8 @@ PERS-01 仅支持单机回环访问。执行 `make dev` 后，从宿主机打开
 默认配置是：
 
 ```dotenv
-SRBG_SOURCE_DISCOVERY_ENABLED=false
-SRBG_SOURCE_QUALIFICATION_ENABLED=false
+SRBG_SOURCE_DISCOVERY_ENABLED=true
+SRBG_SOURCE_QUALIFICATION_ENABLED=true
 SRBG_BAIDU_SEARCH_ENABLED=false
 SRBG_BAIDU_SEARCH_API_URL=https://qianfan.baidubce.com/v2/ai_search
 SRBG_BAIDU_SEARCH_API_KEY=
@@ -62,7 +62,7 @@ SRBG_BAIDU_SEARCH_BUDGET_ALERT_BPS=8000
 SRBG_BAIDU_SEARCH_MONTHLY_CAP_MICRORMB=200000000
 ```
 
-只有完成上述确认后，才允许从 Secret 注入 API key，并同时显式开启 `SRBG_SOURCE_QUALIFICATION_ENABLED`、`SRBG_SOURCE_DISCOVERY_ENABLED` 和 `SRBG_BAIDU_SEARCH_ENABLED`。Worker 启动时会拒绝非钉死的百度 HTTPS origin/path、空 key、只开百度而未开来源发现、开启自动发现但关闭资格审核、单次成本高于月上限等配置。资格审核可以在关闭百度和自动发现时单独启用，以处理手工候选和既有来源续期。每6小时一次的 Beat 只发送代码固定的查询代码与 `discovery_run_id`，不能由请求或消息注入任意查询。
+免费 RSS、Sitemap 和机构外链发现及安全资格处理默认开启。百度仍需完成上述确认后，才允许从 Secret 注入 API key 并显式开启 `SRBG_BAIDU_SEARCH_ENABLED`；开关已开但 Key 缺失时 Worker 只跳过百度，免费发现与应用启动保持正常。Worker 始终拒绝非钉死的百度 HTTPS origin/path、只开百度而关闭来源发现、开启发现但关闭资格处理、单次成本高于月上限等配置。每 6 小时一次的 Beat 先运行免费发现，再按固定查询代码调度百度，消息不能注入任意查询。
 
 启用后先观察一个调度周期，不批量启用候选。确认任务结果仅含有界计数、`source_provider_usage` 正确记账、候选来自目标站点直连证据、资格捕获在私有隔离空间且审计链连续，再逐项放量。当前自动调度器只有百度通道；`DIRECTORY/RSS/SITEMAP/OUTBOUND_LINK` 仅为候选来源渠道契约，不能按多通道已上线验收。
 

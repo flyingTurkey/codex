@@ -4,6 +4,9 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 from srbg_contracts import (
+    DiscoveryDailyUsageView,
+    DiscoverySettingPatchRequest,
+    DiscoveryTopicPatchRequest,
     PersonalSourceCreateRequest,
     PersonalSourceInputKind,
     PersonalSourcePatchRequest,
@@ -155,3 +158,35 @@ def test_pers04_override_rejects_empty_or_non_semantic_fields(
 
 def test_pers04_profile_status_is_only_complete_or_partial() -> None:
     assert {value.value for value in SourceProfileStatus} == {"COMPLETE", "PARTIAL"}
+
+
+def test_pers05_topic_patch_normalizes_and_deduplicates_owner_lists() -> None:
+    patch = DiscoveryTopicPatchRequest(
+        keywords=[" 公路 ", "高速公路", "公路"],
+        excluded_terms=[" 招聘 ", "招聘"],
+        focus_regions=["四川", " 四川 "],
+        enabled=True,
+    )
+
+    assert patch.keywords == ["公路", "高速公路"]
+    assert patch.excluded_terms == ["招聘"]
+    assert patch.focus_regions == ["四川"]
+
+
+@pytest.mark.parametrize("payload", [{}, {"keywords": []}, {"enabled": None}])
+def test_pers05_topic_patch_rejects_empty_or_null_updates(payload: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        DiscoveryTopicPatchRequest.model_validate(payload)
+
+
+def test_pers05_setting_patch_and_daily_usage_are_bounded() -> None:
+    assert DiscoverySettingPatchRequest(automation_enabled=False).automation_enabled is False
+    usage = DiscoveryDailyUsageView(
+        local_date="2026-07-17",
+        probe_used=100,
+        probe_limit=100,
+        auto_enable_used=20,
+        auto_enable_limit=20,
+    )
+    assert usage.probe_remaining == 0
+    assert usage.auto_enable_remaining == 0

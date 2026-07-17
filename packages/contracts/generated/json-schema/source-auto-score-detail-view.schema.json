@@ -1,0 +1,115 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "component_explanations": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Component Explanations",
+      "type": "object"
+    },
+    "connector_stability_score": {
+      "maximum": 25,
+      "minimum": 0,
+      "title": "Connector Stability Score",
+      "type": "integer"
+    },
+    "content_validity_score": {
+      "maximum": 10,
+      "minimum": 0,
+      "title": "Content Validity Score",
+      "type": "integer"
+    },
+    "eligible": {
+      "title": "Eligible",
+      "type": "boolean"
+    },
+    "evaluated_at": {
+      "format": "date-time",
+      "title": "Evaluated At",
+      "type": "string"
+    },
+    "evidence_refs": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Evidence Refs",
+      "type": "array"
+    },
+    "hard_gate_results": {
+      "additionalProperties": {
+        "type": "boolean"
+      },
+      "title": "Hard Gate Results",
+      "type": "object"
+    },
+    "profile_evidence_score": {
+      "maximum": 10,
+      "minimum": 0,
+      "title": "Profile Evidence Score",
+      "type": "integer"
+    },
+    "reason_codes": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 30,
+      "title": "Reason Codes",
+      "type": "array"
+    },
+    "rule_version": {
+      "maxLength": 80,
+      "minLength": 1,
+      "title": "Rule Version",
+      "type": "string"
+    },
+    "sample_completeness_score": {
+      "maximum": 20,
+      "minimum": 0,
+      "title": "Sample Completeness Score",
+      "type": "integer"
+    },
+    "snapshot_id": {
+      "format": "uuid",
+      "title": "Snapshot Id",
+      "type": "string"
+    },
+    "source_id": {
+      "format": "uuid",
+      "title": "Source Id",
+      "type": "string"
+    },
+    "topic_relevance_score": {
+      "maximum": 35,
+      "minimum": 0,
+      "title": "Topic Relevance Score",
+      "type": "integer"
+    },
+    "total_score": {
+      "maximum": 100,
+      "minimum": 0,
+      "title": "Total Score",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "snapshot_id",
+    "total_score",
+    "eligible",
+    "reason_codes",
+    "rule_version",
+    "evaluated_at",
+    "source_id",
+    "topic_relevance_score",
+    "connector_stability_score",
+    "sample_completeness_score",
+    "profile_evidence_score",
+    "content_validity_score",
+    "component_explanations",
+    "hard_gate_results",
+    "evidence_refs"
+  ],
+  "title": "SourceAutoScoreDetailView",
+  "type": "object"
+}

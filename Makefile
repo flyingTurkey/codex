@@ -175,7 +175,10 @@ pers01-test:
 personal-source-test:
 	$(COMPOSE) up --detach --wait postgres minio redis
 	$(UV) run python scripts/run_isolated_integration.py \
-		--migration-verifier verify_pers04_migration.py -- \
+		--migration-verifier verify_pers05_migration.py -- \
+		apps/api/tests/test_pers05_migration.py \
+		apps/api/tests/test_personal_source_discovery_domain.py \
+		apps/worker/tests/test_personal_source_discovery.py \
 		apps/api/tests/test_pers04_migration.py \
 		apps/api/tests/test_source_profile_domain.py \
 		apps/api/tests/test_source_profile_ai.py \

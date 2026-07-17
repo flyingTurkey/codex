@@ -1,0 +1,51 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "automation_enabled": {
+      "title": "Automation Enabled",
+      "type": "boolean"
+    },
+    "baidu_status": {
+      "enum": [
+        "DISABLED",
+        "KEY_MISSING",
+        "AVAILABLE",
+        "BUDGET_EXHAUSTED"
+      ],
+      "title": "Baidu Status",
+      "type": "string"
+    },
+    "discovery_interval_seconds": {
+      "maximum": 86400,
+      "minimum": 3600,
+      "title": "Discovery Interval Seconds",
+      "type": "integer"
+    },
+    "next_run_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Next Run At"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "automation_enabled",
+    "discovery_interval_seconds",
+    "baidu_status",
+    "updated_at"
+  ],
+  "title": "DiscoverySettingView",
+  "type": "object"
+}

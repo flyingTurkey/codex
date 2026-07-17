@@ -2010,6 +2010,112 @@ class SourceProfileView(ContractModel):
     generated_at: datetime
 
 
+class DiscoverySettingPatchRequest(ContractModel):
+    automation_enabled: bool | None = None
+
+    @model_validator(mode="after")
+    def require_enabled_value(self) -> "DiscoverySettingPatchRequest":
+        if "automation_enabled" not in self.model_fields_set or self.automation_enabled is None:
+            raise ValueError("automation_enabled is required and must not be null")
+        return self
+
+
+class DiscoverySettingView(ContractModel):
+    automation_enabled: bool
+    discovery_interval_seconds: int = Field(ge=3600, le=86400)
+    next_run_at: datetime | None = None
+    baidu_status: Literal["DISABLED", "KEY_MISSING", "AVAILABLE", "BUDGET_EXHAUSTED"]
+    updated_at: datetime
+
+
+class DiscoveryTopicPatchRequest(ContractModel):
+    keywords: list[str] | None = Field(default=None, max_length=50)
+    excluded_terms: list[str] | None = Field(default=None, max_length=50)
+    focus_regions: list[str] | None = Field(default=None, max_length=50)
+    enabled: bool | None = None
+
+    @field_validator("keywords", "excluded_terms", "focus_regions", mode="before")
+    @classmethod
+    def normalize_terms(cls, value: object) -> object:
+        if value is None or not isinstance(value, list):
+            return value
+        normalized: list[str] = []
+        for item in value:
+            if not isinstance(item, str) or not item.strip() or len(item.strip()) > 100:
+                raise ValueError("topic terms must contain 1 to 100 visible characters")
+            clean = item.strip()
+            if clean not in normalized:
+                normalized.append(clean)
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_topic_patch(self) -> "DiscoveryTopicPatchRequest":
+        if not self.model_fields_set:
+            raise ValueError("at least one discovery topic field is required")
+        if any(getattr(self, field) is None for field in self.model_fields_set):
+            raise ValueError("discovery topic patch fields must not be null")
+        if "keywords" in self.model_fields_set and not self.keywords:
+            raise ValueError("discovery topic keywords must not be empty")
+        return self
+
+
+class DiscoveryTopicView(ContractModel):
+    id: UUID
+    code: Literal[
+        "HIGHWAY",
+        "BRIDGE",
+        "TUNNEL",
+        "RAIL",
+        "DIGITAL",
+        "AI_IOT_LOW_ALTITUDE",
+        "SAFETY",
+    ]
+    name: str = Field(min_length=1, max_length=100)
+    keywords: list[str] = Field(min_length=1, max_length=50)
+    excluded_terms: list[str] = Field(max_length=50)
+    focus_regions: list[str] = Field(max_length=50)
+    enabled: bool
+    version: int = Field(ge=1)
+    updated_at: datetime
+
+
+class DiscoveryDailyUsageView(ContractModel):
+    local_date: date
+    probe_used: int = Field(ge=0, le=100)
+    probe_limit: int = Field(default=100, ge=1, le=100)
+    probe_remaining: int = Field(default=0, ge=0, le=100)
+    auto_enable_used: int = Field(ge=0, le=20)
+    auto_enable_limit: int = Field(default=20, ge=1, le=20)
+    auto_enable_remaining: int = Field(default=0, ge=0, le=20)
+
+    @model_validator(mode="after")
+    def derive_remaining(self) -> "DiscoveryDailyUsageView":
+        self.probe_remaining = self.probe_limit - self.probe_used
+        self.auto_enable_remaining = self.auto_enable_limit - self.auto_enable_used
+        return self
+
+
+class SourceAutoScoreSummaryView(ContractModel):
+    snapshot_id: UUID
+    total_score: int = Field(ge=0, le=100)
+    eligible: bool
+    reason_codes: list[str] = Field(max_length=30)
+    rule_version: str = Field(min_length=1, max_length=80)
+    evaluated_at: datetime
+
+
+class SourceAutoScoreDetailView(SourceAutoScoreSummaryView):
+    source_id: UUID
+    topic_relevance_score: int = Field(ge=0, le=35)
+    connector_stability_score: int = Field(ge=0, le=25)
+    sample_completeness_score: int = Field(ge=0, le=20)
+    profile_evidence_score: int = Field(ge=0, le=10)
+    content_validity_score: int = Field(ge=0, le=10)
+    component_explanations: dict[str, str]
+    hard_gate_results: dict[str, bool]
+    evidence_refs: list[str] = Field(max_length=100)
+
+
 class PersonalSourceCreateRequest(ContractModel):
     url: HttpUrlString = Field(pattern=r"^https://[^\s]+$", max_length=2048)
 
@@ -2084,6 +2190,7 @@ class PersonalSourceView(ContractModel):
     streams: list[PersonalSourceStreamView] = Field(default_factory=list)
     latest_probe_run: StreamProbeRunView | None = None
     profile_summary: SourceProfileSummaryView | None = None
+    auto_score_summary: SourceAutoScoreSummaryView | None = None
 
 
 class OnboardingCheckEvidence(ContractModel):

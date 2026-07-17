@@ -1,0 +1,19 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "automation_enabled": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Automation Enabled"
+    }
+  },
+  "title": "DiscoverySettingPatchRequest",
+  "type": "object"
+}

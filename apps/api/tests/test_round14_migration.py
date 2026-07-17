@@ -1,4 +1,4 @@
-﻿import runpy
+import runpy
 from pathlib import Path
 
 from alembic.config import Config
@@ -7,7 +7,7 @@ from alembic.script import ScriptDirectory
 
 def test_round14_is_expand_only_and_separates_relation_responsibilities() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
-    assert script.get_current_head() == "0024_automatic_source_profiles"
+    assert script.get_current_head() == "0025_personal_source_discovery"
     completion = script.get_revision("0014b_event_consumer_switch")
     assert completion.down_revision == "0014_event_unification"
     revision = script.get_revision("0014_event_unification")

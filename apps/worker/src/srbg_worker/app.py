@@ -27,6 +27,8 @@ from srbg_api.identifiers import uuid7
 from srbg_api.internal_projection.audit_anchor import anchor_latest_audit_root
 from srbg_api.logging import configure_logging
 from srbg_api.observability import (
+    PERSONAL_AUTO_ENABLE_RESULTS,
+    PERSONAL_DISCOVERY_RESULTS,
     PERSONAL_SOURCE_PROBE_QUEUE,
     REPLAY_RESULTS,
     SOURCE_PROFILE_MODEL_ATTEMPTS,
@@ -64,6 +66,14 @@ from srbg_api.source_profiles import (
 from srbg_contracts import SourceProfileModelOutput
 
 from srbg_worker.ai_content_preparation import PostgresAiPreparationRepository
+from srbg_worker.personal_source_discovery import (
+    PersonalAutoEnableExecutor,
+    PostgresAutoEnableGateway,
+    PostgresPersonalDiscoveryGateway,
+    PostgresPersonalOccurrenceTracker,
+    PostgresSavedEvidenceAdapter,
+    queue_existing_source_scoring,
+)
 from srbg_worker.personal_source_probe import (
     PersonalProbeExecutor,
     PostgresPersonalProbeGateway,
@@ -77,7 +87,8 @@ from srbg_worker.source_discovery import (
     QUERY_CATALOG,
     DiscoveryExecutor,
     DiscoveryOutcome,
-    PostgresDiscoveryGateway,
+    PublicDiscoveryChannel,
+    PublicSeedDiscoveryExecutor,
     SafeDiscoveryTargetProbe,
 )
 from srbg_worker.source_profile import (
@@ -184,6 +195,7 @@ celery_app.conf.update(
         "srbg.sources.activation_outbox": {"queue": "celery"},
         "srbg.sources.discovery.dispatch": {"queue": "celery"},
         "srbg.sources.discovery.query": {"queue": "discovery"},
+        "srbg.sources.discovery.personal_cycle": {"queue": "discovery"},
         "srbg.source_content.outbox": {"queue": "parser"},
         "srbg.ai_content.start": {"queue": "parser"},
         "srbg.ai_content.result": {"queue": "parser"},
@@ -369,24 +381,98 @@ def execute_automated_source_discovery_query(
     )
 
 
+@celery_app.task(name="srbg.sources.discovery.personal_cycle")  # type: ignore[untyped-decorator]
+def execute_personal_source_discovery_cycle(*, discovery_run_id: str) -> dict[str, object]:
+    return asyncio.run(_execute_personal_source_discovery_cycle(UUID(discovery_run_id)))
+
+
 def _dispatch_automated_source_discovery() -> dict[str, object]:
-    if not (settings.source_discovery_enabled and settings.baidu_search_enabled):
+    if not settings.source_discovery_enabled:
         return {"disabled": True, "dispatched": 0, "discovery_run_id": None}
     discovery_run_id = uuid7()
-    for query_code in sorted(QUERY_CATALOG):
-        celery_app.send_task(
-            "srbg.sources.discovery.query",
-            kwargs={
-                "query_code": query_code,
-                "discovery_run_id": str(discovery_run_id),
-            },
-            queue="discovery",
-        )
+    celery_app.send_task(
+        "srbg.sources.discovery.personal_cycle",
+        kwargs={"discovery_run_id": str(discovery_run_id)},
+        queue="discovery",
+    )
     return {
         "disabled": False,
-        "dispatched": len(QUERY_CATALOG),
+        "dispatched": 1,
         "discovery_run_id": str(discovery_run_id),
     }
+
+
+async def _execute_personal_source_discovery_cycle(discovery_run_id: UUID) -> dict[str, object]:
+    engine = create_database_engine(settings)
+    auto_enable_gateway = PostgresAutoEnableGateway(engine)
+    try:
+        if not await auto_enable_gateway.discovery_enabled():
+            return {"disabled": True, "considered": 0, "enabled": 0, "deferred": 0}
+        now = datetime.now(UTC)
+        existing = await queue_existing_source_scoring(engine, now=now)
+        occurrence_tracker = PostgresPersonalOccurrenceTracker(engine)
+        discovery_gateway = PostgresPersonalDiscoveryGateway(engine)
+        object_store = S3ObjectStore(settings)
+        discovered = 0
+        probed = 0
+        free_adapters: tuple[tuple[str, PublicDiscoveryChannel, str], ...] = (
+            ("PERSONAL_RSS", "RSS", "RSS_ATOM"),
+            ("PERSONAL_SITEMAP", "SITEMAP", "SITEMAP"),
+            ("PERSONAL_OUTBOUND", "OUTBOUND_LINK", "LIST_DETAIL"),
+        )
+        for adapter_code, channel, stream_type in free_adapters:
+            discovery = await PublicSeedDiscoveryExecutor(
+                enabled=True,
+                adapter=PostgresSavedEvidenceAdapter(
+                    engine,
+                    object_store,
+                    adapter_code=adapter_code,
+                    channel=channel,
+                    stream_type=stream_type,
+                ),
+                probe=SafeDiscoveryTargetProbe(settings),
+                gateway=discovery_gateway,
+                occurrence_tracker=occurrence_tracker,
+                max_candidates_per_run=50,
+            ).run(discovery_run_id=uuid7(), now=now)
+            discovered += discovery.targets_seen
+            probed += discovery.targets_probed
+            PERSONAL_DISCOVERY_RESULTS.labels(channel, "SEEN").inc(discovery.targets_seen)
+            PERSONAL_DISCOVERY_RESULTS.labels(channel, "PROBED").inc(
+                discovery.targets_probed
+            )
+        outcome = await PersonalAutoEnableExecutor(auto_enable_gateway).run(now=now)
+        PERSONAL_AUTO_ENABLE_RESULTS.labels("ENABLED").inc(outcome.enabled)
+        PERSONAL_AUTO_ENABLE_RESULTS.labels("DEFERRED").inc(outcome.deferred)
+        baidu_dispatched = 0
+        if (
+            settings.baidu_search_enabled
+            and settings.baidu_search_api_key is not None
+            and settings.baidu_search_api_key.get_secret_value()
+        ):
+            for query_code in sorted(QUERY_CATALOG):
+                celery_app.send_task(
+                    "srbg.sources.discovery.query",
+                    kwargs={
+                        "query_code": query_code,
+                        "discovery_run_id": str(discovery_run_id),
+                    },
+                    queue="discovery",
+                )
+                baidu_dispatched += 1
+        return {
+            "disabled": False,
+            "discovered": discovered,
+            "probed": probed,
+            "existing_profiles": existing["profiles"],
+            "existing_probes": existing["probes"],
+            "considered": outcome.considered,
+            "enabled": outcome.enabled,
+            "deferred": outcome.deferred,
+            "baidu_dispatched": baidu_dispatched,
+        }
+    finally:
+        await engine.dispose()
 
 
 async def _execute_automated_source_discovery_query(
@@ -410,7 +496,8 @@ async def _execute_automated_source_discovery_query(
         ).as_task_result()
 
     engine = create_database_engine(settings)
-    gateway = PostgresDiscoveryGateway(engine)
+    gateway = PostgresPersonalDiscoveryGateway(engine)
+    occurrence_tracker = PostgresPersonalOccurrenceTracker(engine)
     provider = BaiduSearchProvider(
         api_url=BAIDU_SEARCH_API_URL,
         api_key=api_key.get_secret_value(),
@@ -440,6 +527,7 @@ async def _execute_automated_source_discovery_query(
             provider=provider,
             probe=SafeDiscoveryTargetProbe(settings),
             gateway=gateway,
+            occurrence_tracker=occurrence_tracker,
         ).run(
             query_code=query_code,
             discovery_run_id=discovery_run_id,

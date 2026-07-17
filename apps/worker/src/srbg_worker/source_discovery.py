@@ -148,11 +148,15 @@ class PublicDiscoverySeed:
     url: str
     industries: tuple[str, ...]
     content_domains: tuple[str, ...]
+    parent_source_id: UUID | None = None
+    depth: int = 0
 
     def __post_init__(self) -> None:
         if _institution_origin(self.url) is None:
             raise ValueError("public discovery seed must be a safe HTTPS URL")
         _validate_classification(self.industries, self.content_domains)
+        if self.depth not in {0, 1}:
+            raise ValueError("public discovery seed depth must be zero or one")
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,6 +201,20 @@ class DiscoveryTargetProbe(Protocol):
     async def probe(self, url: str) -> VerifiedDiscoveryTarget: ...
 
 
+class DiscoveryOccurrenceTracker(Protocol):
+    async def register_occurrence(
+        self,
+        url: str,
+        *,
+        discovery_channel: str,
+        industries: tuple[str, ...],
+        content_domains: tuple[str, ...],
+        parent_source_id: UUID | None,
+        depth: int,
+        now: datetime,
+    ) -> bool: ...
+
+
 class DiscoveryGateway(Protocol):
     async def register_and_request(
         self,
@@ -234,6 +252,7 @@ class DiscoveryExecutor:
         provider: DiscoverySearchProvider,
         probe: DiscoveryTargetProbe,
         gateway: DiscoveryGateway,
+        occurrence_tracker: DiscoveryOccurrenceTracker | None = None,
         max_candidates_per_query: int = DEFAULT_MAX_CANDIDATES_PER_QUERY,
     ) -> None:
         if not 1 <= max_candidates_per_query <= 50:
@@ -242,6 +261,7 @@ class DiscoveryExecutor:
         self._provider = provider
         self._probe = probe
         self._gateway = gateway
+        self._occurrence_tracker = occurrence_tracker
         self._max_candidates_per_query = max_candidates_per_query
 
     async def run(
@@ -295,6 +315,19 @@ class DiscoveryExecutor:
             seen_origins.add(origin)
             targets_seen += 1
             try:
+                if (
+                    self._occurrence_tracker is not None
+                    and not await self._occurrence_tracker.register_occurrence(
+                        item.url,
+                        discovery_channel="BAIDU_SEARCH",
+                        industries=spec.industries,
+                        content_domains=spec.content_domains,
+                        parent_source_id=None,
+                        depth=0,
+                        now=now,
+                    )
+                ):
+                    continue
                 verified = await self._probe.probe(item.url)
                 targets_probed += 1
                 if verified.canonical_url != origin:
@@ -344,6 +377,7 @@ class PublicSeedDiscoveryExecutor:
         adapter: PublicSeedDiscoveryAdapter,
         probe: DiscoveryTargetProbe,
         gateway: DiscoveryGateway,
+        occurrence_tracker: DiscoveryOccurrenceTracker | None = None,
         max_candidates_per_run: int = DEFAULT_MAX_CANDIDATES_PER_QUERY,
     ) -> None:
         if re.fullmatch(r"[A-Z0-9_]{3,80}", adapter.adapter_code) is None:
@@ -356,6 +390,7 @@ class PublicSeedDiscoveryExecutor:
         self._adapter = adapter
         self._probe = probe
         self._gateway = gateway
+        self._occurrence_tracker = occurrence_tracker
         self._limit = max_candidates_per_run
 
     async def run(
@@ -394,6 +429,19 @@ class PublicSeedDiscoveryExecutor:
             seen_origins.add(origin)
             targets_seen += 1
             try:
+                if (
+                    self._occurrence_tracker is not None
+                    and not await self._occurrence_tracker.register_occurrence(
+                        seed.url,
+                        discovery_channel=self._adapter.channel,
+                        industries=seed.industries,
+                        content_domains=seed.content_domains,
+                        parent_source_id=seed.parent_source_id,
+                        depth=seed.depth,
+                        now=now,
+                    )
+                ):
+                    continue
                 target = await self._probe.probe(seed.url)
                 targets_probed += 1
                 if target.canonical_url != origin:
@@ -556,9 +604,7 @@ class PostgresDiscoveryGateway:
         discovery_audit_id = uuid7()
         qualification_run_id = uuid7()
         qualification_audit_id = uuid7()
-        request_id = (
-            f"auto-discovery:{discovery_run_id}:{target.material_fingerprint[:16]}"
-        )
+        request_id = f"auto-discovery:{discovery_run_id}:{target.material_fingerprint[:16]}"
         async with self._engine.begin() as connection:
             registered_id = await connection.scalar(
                 text(_REGISTER_CANDIDATE_SQL),

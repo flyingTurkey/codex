@@ -1,3 +1,12 @@
+export type Eligible = boolean
+export type EvaluatedAt = string
+/**
+ * @maxItems 30
+ */
+export type ReasonCodes = string[]
+export type RuleVersion = string
+export type SnapshotId = string
+export type TotalScore = number
 export type DesiredEnabled = boolean
 export type DisplayName = string
 export type Id = string
@@ -67,6 +76,7 @@ export type Streams = PersonalSourceStreamView[]
 export type Url = string
 
 export interface PersonalSourceView {
+  auto_score_summary?: SourceAutoScoreSummaryView | null
   desired_enabled: DesiredEnabled
   display_name: DisplayName
   id: Id
@@ -77,6 +87,14 @@ export interface PersonalSourceView {
   runtime_state: PersonalSourceRuntimeState
   streams?: Streams
   url: Url
+}
+export interface SourceAutoScoreSummaryView {
+  eligible: Eligible
+  evaluated_at: EvaluatedAt
+  reason_codes: ReasonCodes
+  rule_version: RuleVersion
+  snapshot_id: SnapshotId
+  total_score: TotalScore
 }
 export interface StreamProbeRunView {
   duration_ms?: DurationMs
