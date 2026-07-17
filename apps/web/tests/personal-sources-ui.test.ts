@@ -16,13 +16,20 @@ describe('PERS-02 personal sources page', () => {
     expect(page).toContain('当前正在运行')
   })
 
-  it('does not expose legacy governance or future automation controls', () => {
+  it('does not expose legacy governance or automatic discovery controls', () => {
     expect(page).not.toContain('/api/v1/admin/sources')
     expect(page).not.toContain('策略审批')
     expect(page).not.toContain('试运行批准')
     expect(page).not.toContain('治理元数据')
     expect(page).not.toContain('URL 探测')
-    expect(page).not.toContain('自动画像')
+    expect(page).toContain('自动画像')
+    expect(page).toContain('/profile-override')
+    expect(page).toContain("method: 'DELETE'")
+    expect(page).toContain('个人覆盖')
+    expect(page).toContain('总体置信度')
+    expect(page).toContain('自动推断')
+    expect(page).not.toContain('人工复核')
+    expect(page).not.toContain('全网发现')
   })
 
   it('forwards an ASCII-safe local Owner identity through HTTP headers', () => {

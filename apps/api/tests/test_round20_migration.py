@@ -8,7 +8,7 @@ MIGRATION = Path("apps/api/migrations/versions/0020_ai_content_preparation.py")
 
 def test_round20_is_single_head_after_round19() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
-    assert script.get_current_head() == "0023_personal_source_runtime"
+    assert script.get_current_head() == "0024_automatic_source_profiles"
     revision = script.get_revision("0020_ai_content_preparation")
     assert revision is not None
     assert revision.down_revision == "0019_source_content_bridge"

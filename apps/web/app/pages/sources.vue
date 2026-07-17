@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import type { PersonalSourceView } from '@srbg/contracts'
+import { ResponsiveDrawer } from '@srbg/ui'
+import type { PersonalSourceView, SourceProfileOverrideRequest, SourceProfileView } from '@srbg/contracts'
 
 const { data: sources, error, status, refresh } = await useFetch<PersonalSourceView[]>(
   '/api/v1/sources',
@@ -17,6 +18,16 @@ const newUrl = ref('')
 const addingUrl = ref(false)
 const reprobeSourceIds = ref<string[]>([])
 let probePollTimer: ReturnType<typeof setInterval> | undefined
+const profileOpen = ref(false)
+const selectedSource = ref<PersonalSourceView | null>(null)
+const profile = ref<SourceProfileView | null>(null)
+const profileLoading = ref(false)
+const profileError = ref<string | null>(null)
+const overrideBusy = ref(false)
+const overrideForm = reactive({
+  industries: '', content_domains: '', language_tags: '', country_codes: '',
+  region_codes: '', declared_roles: '', authority_level: '', independence_level: '',
+})
 
 onMounted(() => {
   probePollTimer = setInterval(() => {
@@ -86,6 +97,104 @@ function displayTime(value: string | null | undefined): string {
   return new Intl.DateTimeFormat('zh-CN', {
     timeZone: 'Asia/Shanghai', dateStyle: 'medium', timeStyle: 'short',
   }).format(new Date(value))
+}
+
+function confidenceLabel(value: number): string {
+  if (value >= 85) return `${value} · 高`
+  if (value >= 70) return `${value} · 中高`
+  if (value >= 50) return `${value} · 中`
+  return `${value} · 证据不足`
+}
+
+function arrayText(value: readonly string[]): string {
+  return value.length ? value.join('、') : '暂无'
+}
+
+function splitValues(value: string): string[] | null {
+  const items = [...new Set(value.split(/[,，、\n]/).map(item => item.trim()).filter(Boolean))]
+  return items.length ? items : null
+}
+
+function syncOverrideForm(value: SourceProfileView): void {
+  const effective = value.effective
+  overrideForm.industries = effective.industries.join('、')
+  overrideForm.content_domains = effective.content_domains.join('、')
+  overrideForm.language_tags = effective.language_tags.join('、')
+  overrideForm.country_codes = effective.country_codes.join('、')
+  overrideForm.region_codes = effective.region_codes.join('、')
+  overrideForm.declared_roles = effective.declared_roles.join('、')
+  overrideForm.authority_level = effective.authority_level
+  overrideForm.independence_level = effective.independence_level
+}
+
+async function openProfile(source: PersonalSourceView): Promise<void> {
+  selectedSource.value = source
+  profileOpen.value = true
+  profile.value = null
+  profileError.value = null
+  profileLoading.value = true
+  try {
+    profile.value = await $fetch<SourceProfileView>(`/api/v1/sources/${source.id}/profile`, {
+      retry: 0, timeout: 5_000,
+    })
+    syncOverrideForm(profile.value)
+  }
+  catch {
+    profileError.value = '画像暂不可用；本地采集不会因此中断。'
+  }
+  finally {
+    profileLoading.value = false
+  }
+}
+
+async function saveProfileOverride(): Promise<void> {
+  if (!selectedSource.value || overrideBusy.value) return
+  overrideBusy.value = true
+  profileError.value = null
+  const body = {
+    industries: splitValues(overrideForm.industries),
+    content_domains: splitValues(overrideForm.content_domains),
+    language_tags: splitValues(overrideForm.language_tags),
+    country_codes: splitValues(overrideForm.country_codes),
+    region_codes: splitValues(overrideForm.region_codes),
+    declared_roles: splitValues(overrideForm.declared_roles),
+    authority_level: overrideForm.authority_level || null,
+    independence_level: overrideForm.independence_level || null,
+  } as SourceProfileOverrideRequest
+  try {
+    profile.value = await $fetch<SourceProfileView>(
+      `/api/v1/sources/${selectedSource.value.id}/profile-override`,
+      { method: 'PATCH', body, retry: 0, timeout: 5_000 },
+    )
+    syncOverrideForm(profile.value)
+    actionMessage.value = '个人画像覆盖已保存；后续自动重跑仍保留你的选择。'
+  }
+  catch {
+    profileError.value = '画像覆盖保存失败，现有自动结果和个人选择未被覆盖。'
+  }
+  finally {
+    overrideBusy.value = false
+  }
+}
+
+async function revokeProfileOverride(): Promise<void> {
+  if (!selectedSource.value || overrideBusy.value) return
+  overrideBusy.value = true
+  profileError.value = null
+  try {
+    profile.value = await $fetch<SourceProfileView>(
+      `/api/v1/sources/${selectedSource.value.id}/profile-override`,
+      { method: 'DELETE', retry: 0, timeout: 5_000 },
+    )
+    syncOverrideForm(profile.value)
+    actionMessage.value = '个人画像覆盖已撤销，当前恢复跟随自动画像。'
+  }
+  catch {
+    profileError.value = '撤销失败，当前个人覆盖仍然有效。'
+  }
+  finally {
+    overrideBusy.value = false
+  }
 }
 
 async function addUrl(): Promise<void> {
@@ -272,8 +381,82 @@ async function setDesiredEnabled(source: PersonalSourceView): Promise<void> {
           :disabled="reprobeSourceIds.includes(source.id)"
           @click="reprobe(source)"
         >{{ reprobeSourceIds.includes(source.id) ? '正在重试…' : '重新探测' }}</button>
+        <button class="secondary-button" type="button" @click="openProfile(source)">查看画像</button>
       </article>
     </div>
+
+    <ResponsiveDrawer
+      v-model="profileOpen"
+      :title="selectedSource ? `${selectedSource.display_name} · 自动画像` : '自动画像'"
+      description="画像来自版本化本地规则与受控模型候选；个人覆盖与自动结果分开留存。"
+    >
+      <div class="profile-drawer">
+        <p v-if="profileLoading" aria-live="polite">正在读取画像…</p>
+        <p v-if="profileError" class="problem" role="alert">{{ profileError }}</p>
+        <template v-if="profile">
+          <div class="profile-summary">
+            <span>{{ profile.status === 'COMPLETE' ? '完整画像' : '部分画像' }}</span>
+            <strong>总体置信度 {{ confidenceLabel(profile.overall_confidence) }}</strong>
+            <span>自动推断 · v{{ profile.version }}</span>
+          </div>
+          <dl class="profile-fields">
+            <div
+              v-for="field in [
+              ['industries', '工程行业'], ['content_domains', '内容域'],
+              ['language_tags', '语言'], ['country_codes', '国家'], ['region_codes', '地区'],
+              ['declared_roles', '来源声明角色'], ['authority_level', '权威等级'],
+              ['independence_level', '独立性等级'],
+            ]"
+              :key="field[0]"
+            >
+              <dt>{{ field[1] }}</dt>
+              <dd>
+                {{ Array.isArray(profile.effective[field[0] as keyof typeof profile.effective])
+                  ? arrayText(profile.effective[field[0] as keyof typeof profile.effective] as string[])
+                  : profile.effective[field[0] as keyof typeof profile.effective] }}
+              </dd>
+              <small>
+                {{ (profile.overridden_fields ?? []).includes(field[0]) ? '个人覆盖' : '自动结果' }} ·
+                {{ confidenceLabel(profile.field_explanations[field[0]]?.confidence ?? 0) }}
+              </small>
+            </div>
+          </dl>
+          <section>
+            <h3>证据与理由</h3>
+            <ul class="profile-evidence">
+              <li v-for="item in profile.evidence" :key="item.evidence_id">
+                <a :href="item.url" target="_blank" rel="noopener noreferrer">{{ item.kind }} · {{ item.url }}</a>
+                <p>{{ item.excerpt }}</p>
+              </li>
+            </ul>
+            <p>理由：{{ arrayText(profile.reason_codes) }}</p>
+            <p>技术事实：{{ arrayText(profile.technical_facts) }}</p>
+          </section>
+          <section>
+            <h3>版本</h3>
+            <p>规则 {{ profile.rule_version }} · Prompt {{ profile.prompt_version }} · Schema {{ profile.schema_version }} · 模型 {{ profile.model_version }}</p>
+          </section>
+          <form class="profile-override-form" @submit.prevent="saveProfileOverride">
+            <h3>个人覆盖</h3>
+            <p>多个值使用逗号分隔；留空表示该字段跟随自动结果。</p>
+            <label>工程行业<input v-model="overrideForm.industries"></label>
+            <label>内容域<input v-model="overrideForm.content_domains"></label>
+            <label>语言<input v-model="overrideForm.language_tags"></label>
+            <label>国家<input v-model="overrideForm.country_codes"></label>
+            <label>地区<input v-model="overrideForm.region_codes"></label>
+            <label>来源声明角色<input v-model="overrideForm.declared_roles"></label>
+            <label>权威等级<input v-model="overrideForm.authority_level"></label>
+            <label>独立性等级<input v-model="overrideForm.independence_level"></label>
+            <button class="primary-button" type="submit" :disabled="overrideBusy">保存个人覆盖</button>
+            <button
+              class="secondary-button" type="button"
+              :disabled="overrideBusy || (profile.overridden_fields ?? []).length === 0"
+              @click="revokeProfileOverride"
+            >一键撤销覆盖</button>
+          </form>
+        </template>
+      </div>
+    </ResponsiveDrawer>
   </section>
 </template>
 
@@ -319,6 +502,17 @@ async function setDesiredEnabled(source: PersonalSourceView): Promise<void> {
 .stream-health div { display: grid; gap: var(--spacing-1); }
 .stream-health dt { color: var(--color-ink-600); font-size: var(--text-xs); }
 .stream-health dd { margin: 0; color: var(--color-ink-900); font-size: var(--text-sm); }
+.profile-drawer, .profile-fields, .profile-fields div, .profile-override-form { display: grid; gap: var(--spacing-3); }
+.profile-summary { display: flex; flex-wrap: wrap; justify-content: space-between; padding: var(--spacing-3); background: var(--color-brand-50); border-radius: var(--radius-sm); gap: var(--spacing-2); }
+.profile-fields { grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); margin: 0; }
+.profile-fields div { padding: var(--spacing-3); border: 1px solid var(--color-border); border-radius: var(--radius-sm); gap: var(--spacing-1); }
+.profile-fields dd { margin: 0; font-weight: var(--font-weight-semibold); }
+.profile-fields small { color: var(--color-ink-600); }
+.profile-evidence { display: grid; padding-left: var(--spacing-5); gap: var(--spacing-2); }
+.profile-evidence a { color: var(--color-brand-700); overflow-wrap: anywhere; }
+.profile-evidence p { margin: var(--spacing-1) 0 0; color: var(--color-ink-600); }
+.profile-override-form label { display: grid; gap: var(--spacing-1); }
+.profile-override-form input { min-height: var(--spacing-10); padding: var(--spacing-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
 
 .personal-sources-header {
   grid-template-columns: minmax(0, 1fr) auto;

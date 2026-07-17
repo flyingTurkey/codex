@@ -16,6 +16,8 @@ from srbg_contracts import (
     PersonalStreamHealthReason,
     PersonalStreamHealthStatus,
     PersonalStreamRuntimeState,
+    SourceProfileOverrideRequest,
+    SourceProfileStatus,
     StreamProbeRunView,
     UserRole,
 )
@@ -124,3 +126,32 @@ def test_pers03_stream_contract_exposes_authoritative_health() -> None:
 
     assert stream.health_reason is PersonalStreamHealthReason.CIRCUIT_OPEN
     assert stream.consecutive_failures == 5
+
+
+def test_pers04_override_supports_partial_update_and_explicit_follow_auto() -> None:
+    request = SourceProfileOverrideRequest(
+        industries=["HIGHWAY"], authority_level="A1", region_codes=None
+    )
+    assert request.industries == ["HIGHWAY"]
+    assert request.authority_level.value == "A1"
+    assert "region_codes" in request.model_fields_set
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"industries": []},
+        {"technical_facts": ["RSS_ATOM"]},
+        {"publication_status": "PUBLISHED"},
+    ],
+)
+def test_pers04_override_rejects_empty_or_non_semantic_fields(
+    payload: dict[str, object],
+) -> None:
+    with pytest.raises(ValidationError):
+        SourceProfileOverrideRequest.model_validate(payload)
+
+
+def test_pers04_profile_status_is_only_complete_or_partial() -> None:
+    assert {value.value for value in SourceProfileStatus} == {"COMPLETE", "PARTIAL"}

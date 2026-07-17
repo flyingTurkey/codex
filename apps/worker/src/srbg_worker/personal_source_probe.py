@@ -466,6 +466,21 @@ class PostgresPersonalProbeGateway:
                 ),
                 {"now": now, "source_id": binding.source_id},
             )
+            active_profile = await connection.scalar(
+                text(
+                    "SELECT id FROM source_profile_run WHERE source_id=:source_id "
+                    "AND status IN ('QUEUED','RUNNING') LIMIT 1"
+                ),
+                {"source_id": binding.source_id},
+            )
+            if active_profile is None:
+                await connection.execute(
+                    text(
+                        "INSERT INTO source_profile_run(id,source_id,status,next_attempt_at,"
+                        "created_at,updated_at) VALUES(:id,:source_id,'QUEUED',:now,:now,:now)"
+                    ),
+                    {"id": uuid7(), "source_id": binding.source_id, "now": now},
+                )
 
     async def fail(
         self,

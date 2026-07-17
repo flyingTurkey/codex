@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srbg.example.internal/schemas/source-profile-output-1.0.0.json",
+  "title": "Source Profile Semantic Clues",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "industry_candidates",
+    "content_domain_candidates",
+    "language_candidates",
+    "country_candidates",
+    "region_candidates",
+    "declared_role_candidates",
+    "organization_clues",
+    "ownership_clues"
+  ],
+  "$defs": {
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "confidence", "reason_code", "evidence_ids"],
+      "properties": {
+        "value": {"type": "string", "minLength": 1, "maxLength": 100},
+        "confidence": {"type": "integer", "minimum": 0, "maximum": 100},
+        "reason_code": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$", "maxLength": 100},
+        "evidence_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 100}
+        }
+      }
+    }
+  },
+  "properties": {
+    "industry_candidates": {"type": "array", "maxItems": 20, "items": {"$ref": "#/$defs/candidate"}},
+    "content_domain_candidates": {"type": "array", "maxItems": 30, "items": {"$ref": "#/$defs/candidate"}},
+    "language_candidates": {"type": "array", "maxItems": 20, "items": {"$ref": "#/$defs/candidate"}},
+    "country_candidates": {"type": "array", "maxItems": 20, "items": {"$ref": "#/$defs/candidate"}},
+    "region_candidates": {"type": "array", "maxItems": 50, "items": {"$ref": "#/$defs/candidate"}},
+    "declared_role_candidates": {"type": "array", "maxItems": 20, "items": {"$ref": "#/$defs/candidate"}},
+    "organization_clues": {"type": "array", "maxItems": 20, "items": {"$ref": "#/$defs/candidate"}},
+    "ownership_clues": {"type": "array", "maxItems": 20, "items": {"$ref": "#/$defs/candidate"}}
+  }
+}

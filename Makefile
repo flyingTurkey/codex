@@ -141,6 +141,7 @@ fixture-replay:
 		apps/api/tests/test_ai_pipeline_runtime.py \
 		apps/api/tests/test_ai01_content_preparation.py \
 		apps/api/tests/test_ai01_orchestration.py \
+		apps/api/tests/test_source_profile_replay.py \
 		apps/api/tests/test_round09_feed_projection.py \
 		apps/api/tests/test_round09_projection_contract.py \
 		apps/api/tests/test_round10_discovery_domain.py \
@@ -174,7 +175,12 @@ pers01-test:
 personal-source-test:
 	$(COMPOSE) up --detach --wait postgres minio redis
 	$(UV) run python scripts/run_isolated_integration.py \
-		--migration-verifier verify_pers03_migration.py -- \
+		--migration-verifier verify_pers04_migration.py -- \
+		apps/api/tests/test_pers04_migration.py \
+		apps/api/tests/test_source_profile_domain.py \
+		apps/api/tests/test_source_profile_ai.py \
+		apps/api/tests/test_source_profile_replay.py \
+		apps/worker/tests/test_source_profile_worker.py \
 		apps/api/tests/test_pers03_migration.py \
 		apps/api/tests/test_personal_source_runtime.py \
 		apps/api/tests/test_pers03_runtime_integration.py \

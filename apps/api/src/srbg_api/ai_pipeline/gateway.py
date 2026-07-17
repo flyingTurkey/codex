@@ -149,6 +149,7 @@ class MockProvider:
         AiStep.EXTRACT: "extract-output.schema.json",
         AiStep.SUMMARIZE: "summarize-output.schema.json",
         AiStep.VERIFY: "verify-output.schema.json",
+        AiStep.SOURCE_PROFILE: "source-profile-output.schema.json",
     }
 
     def __init__(
@@ -241,6 +242,8 @@ class OpenAICompatibleProvider:
             timeout=self._timeout_seconds,
         )
         status_code = getattr(response, "status_code", None)
+        if status_code == 402:
+            raise RuntimeError("PROVIDER_BALANCE_INSUFFICIENT")
         if status_code in {429, 500, 503}:
             raise TransientProviderError(f"provider returned HTTP {status_code}")
         response.raise_for_status()
@@ -286,7 +289,13 @@ class DeepSeekProvider:
     async def complete(self, request: ModelRequest) -> ProviderResult:
         if request.model_profile != "deepseek-v4-flash":
             raise ValueError("DeepSeek model is not approved")
-        expected_max_tokens = 1200 if request.step is AiStep.CLASSIFY else 4000
+        expected_max_tokens = (
+            1200
+            if request.step is AiStep.CLASSIFY
+            else 2000
+            if request.step is AiStep.SOURCE_PROFILE
+            else 4000
+        )
         supplied_max_tokens = request.parameters.get("max_tokens", expected_max_tokens)
         if supplied_max_tokens != expected_max_tokens:
             raise ValueError("DeepSeek max_tokens is pinned per step")
@@ -313,6 +322,8 @@ class DeepSeekProvider:
             timeout=self._timeout_seconds,
         )
         status_code = getattr(response, "status_code", None)
+        if status_code == 402:
+            raise RuntimeError("PROVIDER_BALANCE_INSUFFICIENT")
         if status_code in {429, 500, 503}:
             raise TransientProviderError(f"provider returned HTTP {status_code}")
         response.raise_for_status()

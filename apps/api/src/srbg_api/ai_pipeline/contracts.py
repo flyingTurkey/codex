@@ -4,6 +4,7 @@ from enum import StrEnum
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from srbg_contracts import SourceProfileModelOutput
 
 
 class StrictModel(BaseModel):
@@ -17,6 +18,7 @@ class AiStep(StrEnum):
     EXTRACT = "EXTRACT"
     SUMMARIZE = "SUMMARIZE"
     VERIFY = "VERIFY"
+    SOURCE_PROFILE = "SOURCE_PROFILE"
 
 
 class CandidateSecurity(StrictModel):
@@ -205,9 +207,10 @@ class ModelResponse(StrictModel):
     finish_reason: str | None = None
 
 
-STEP_OUTPUT_MODELS: dict[AiStep, type[StrictModel]] = {
+STEP_OUTPUT_MODELS: dict[AiStep, type[BaseModel]] = {
     AiStep.CLASSIFY: ClassificationOutput,
     AiStep.EXTRACT: ExtractionOutput,
     AiStep.SUMMARIZE: SummaryOutput,
     AiStep.VERIFY: VerificationOutput,
+    AiStep.SOURCE_PROFILE: SourceProfileModelOutput,
 }

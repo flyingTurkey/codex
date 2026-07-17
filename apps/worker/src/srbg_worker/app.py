@@ -14,7 +14,7 @@ from srbg_api.ai_pipeline.content_preparation import (
     AiContentPreparationService,
     PreparationDocument,
 )
-from srbg_api.ai_pipeline.contracts import AiStep, ModelResponse
+from srbg_api.ai_pipeline.contracts import AiStep, ModelRequest, ModelResponse
 from srbg_api.ai_pipeline.gateway import ModelOutputRejected, validate_step_output
 from srbg_api.ai_pipeline.preparation import PreparedDocumentInput, prepare_document_input
 from srbg_api.ai_pipeline.runtime import AttemptKind
@@ -26,7 +26,13 @@ from srbg_api.document_vault.storage import S3ObjectStore
 from srbg_api.identifiers import uuid7
 from srbg_api.internal_projection.audit_anchor import anchor_latest_audit_root
 from srbg_api.logging import configure_logging
-from srbg_api.observability import PERSONAL_SOURCE_PROBE_QUEUE, REPLAY_RESULTS
+from srbg_api.observability import (
+    PERSONAL_SOURCE_PROBE_QUEUE,
+    REPLAY_RESULTS,
+    SOURCE_PROFILE_MODEL_ATTEMPTS,
+    SOURCE_PROFILE_QUEUE,
+    SOURCE_PROFILE_RUNS,
+)
 from srbg_api.operations.failures import FailureRecord, failure_record, persist_failure
 from srbg_api.operations.replays import (
     ClaimedReplay,
@@ -49,6 +55,13 @@ from srbg_api.source_automation.search import (
     PinnedBaiduJsonTransport,
     PostgresMonthlyBudgetLedger,
 )
+from srbg_api.source_profile_ai import build_profile_request
+from srbg_api.source_profiles import (
+    ProfileEvidence,
+    ProfileRuleInput,
+    build_source_profile,
+)
+from srbg_contracts import SourceProfileModelOutput
 
 from srbg_worker.ai_content_preparation import PostgresAiPreparationRepository
 from srbg_worker.personal_source_probe import (
@@ -66,6 +79,12 @@ from srbg_worker.source_discovery import (
     DiscoveryOutcome,
     PostgresDiscoveryGateway,
     SafeDiscoveryTargetProbe,
+)
+from srbg_worker.source_profile import (
+    PostgresSourceProfileGateway,
+    PreparedProfile,
+    ProfileBinding,
+    prepare_profile,
 )
 from srbg_worker.source_qualification import (
     ActivationOutboxExecutor,
@@ -102,6 +121,11 @@ celery_app.conf.update(
         "dispatch-personal-source-probes": {
             "task": "srbg.personal_source.probe",
             "schedule": 5.0,
+            "options": {"queue": "qualification"},
+        },
+        "dispatch-source-profiles": {
+            "task": "srbg.source_profile.run",
+            "schedule": 10.0,
             "options": {"queue": "qualification"},
         },
         "dispatch-due-source-schedules": {
@@ -155,6 +179,8 @@ celery_app.conf.update(
         "srbg.source.fetch": {"queue": "parser"},
         "srbg.sources.qualify": {"queue": "qualification"},
         "srbg.personal_source.probe": {"queue": "qualification"},
+        "srbg.source_profile.run": {"queue": "qualification"},
+        "srbg.source_profile.result": {"queue": "qualification"},
         "srbg.sources.activation_outbox": {"queue": "celery"},
         "srbg.sources.discovery.dispatch": {"queue": "celery"},
         "srbg.sources.discovery.query": {"queue": "discovery"},
@@ -277,6 +303,37 @@ def execute_personal_source_probe(*, probe_run_id: str | None = None) -> dict[st
     return asyncio.run(
         _dispatch_or_execute_personal_source_probe(
             None if probe_run_id is None else UUID(probe_run_id)
+        )
+    )
+
+
+@celery_app.task(name="srbg.source_profile.run")  # type: ignore[untyped-decorator]
+def execute_source_profile(*, profile_run_id: str | None = None) -> dict[str, object]:
+    return asyncio.run(
+        _dispatch_or_start_source_profile(None if profile_run_id is None else UUID(profile_run_id))
+    )
+
+
+@celery_app.task(name="srbg.source_profile.result")  # type: ignore[untyped-decorator]
+def handle_source_profile_result(
+    result: dict[str, object],
+    *,
+    prepared_payload: dict[str, object],
+    attempt: int,
+    kind: str,
+    network_retries: int,
+    repair_used: bool,
+    reservation_id: str,
+) -> dict[str, object]:
+    return asyncio.run(
+        _handle_source_profile_result(
+            result=result,
+            prepared=_deserialize_prepared_profile(prepared_payload),
+            attempt=attempt,
+            kind=AttemptKind(kind),
+            network_retries=network_retries,
+            repair_used=repair_used,
+            reservation_id=UUID(reservation_id),
         )
     )
 
@@ -800,6 +857,271 @@ async def _dispatch_or_execute_personal_source_probe(
         return {"probe_run_id": str(probe_run_id), "status": outcome}
     finally:
         await engine.dispose()
+
+
+async def _dispatch_or_start_source_profile(
+    profile_run_id: UUID | None,
+) -> dict[str, object]:
+    gateway = PostgresSourceProfileGateway(create_database_engine(settings))
+    try:
+        if profile_run_id is None:
+            pending = await gateway.pending_ids(limit=100)
+            SOURCE_PROFILE_QUEUE.set(len(pending))
+            for pending_id in pending:
+                celery_app.send_task(
+                    "srbg.source_profile.run",
+                    kwargs={"profile_run_id": str(pending_id)},
+                    queue="qualification",
+                )
+            return {"dispatched": len(pending)}
+        binding = await gateway.acquire(profile_run_id)
+        if binding is None:
+            return {"profile_run_id": str(profile_run_id), "status": "DUPLICATE"}
+        prepared = await prepare_profile(binding, S3ObjectStore(settings))
+        try:
+            request = build_profile_request(prepared.rule_input.evidence)
+        except PermissionError:
+            profile = build_source_profile(
+                prepared.rule_input,
+                model_output=None,
+                partial_reason="PROMPT_INJECTION_DETECTED",
+            )
+            await gateway.persist_snapshot(
+                prepared, profile, failure_code="PROMPT_INJECTION_DETECTED"
+            )
+            SOURCE_PROFILE_RUNS.labels("PARTIAL", "PROMPT_INJECTION_DETECTED").inc()
+            return {"profile_run_id": str(profile_run_id), "status": "PARTIAL"}
+        dispatched = await _dispatch_source_profile_attempt(
+            gateway,
+            prepared=prepared,
+            request=request,
+            attempt=1,
+            kind=AttemptKind.PRIMARY,
+            network_retries=0,
+            repair_used=False,
+        )
+        if not dispatched:
+            await _persist_partial_and_maybe_requeue(gateway, prepared, "BUDGET_DISABLED")
+            return {"profile_run_id": str(profile_run_id), "status": "PARTIAL"}
+        return {"profile_run_id": str(profile_run_id), "status": "RUNNING"}
+    finally:
+        await gateway.close()
+
+
+async def _handle_source_profile_result(
+    *,
+    result: dict[str, object],
+    prepared: PreparedProfile,
+    attempt: int,
+    kind: AttemptKind,
+    network_retries: int,
+    repair_used: bool,
+    reservation_id: UUID,
+) -> dict[str, object]:
+    gateway = PostgresSourceProfileGateway(create_database_engine(settings))
+    try:
+        request = build_profile_request(prepared.rule_input.evidence)
+        if kind is AttemptKind.REPAIR:
+            request = request.model_copy(
+                update={
+                    "user_prompt": request.user_prompt
+                    + "\n<controlled_repair>Return one valid JSON object only.</controlled_repair>"
+                }
+            )
+        if result.get("status") == "SUCCEEDED":
+            response = ModelResponse.model_validate(result.get("response"))
+            validated = validate_step_output(response.output, request)
+            output = SourceProfileModelOutput.model_validate(validated.model_dump(mode="json"))
+            profile = build_source_profile(
+                prepared.rule_input, model_output=output, partial_reason=None
+            )
+            await gateway.settle_budget(reservation_id, response)
+            await gateway.record_model_attempt(
+                run_id=prepared.binding.run_id,
+                attempt=attempt,
+                kind=kind.value,
+                input_sha256=request.input_sha256,
+                response=response,
+                error_code=None,
+            )
+            await gateway.persist_snapshot(prepared, profile)
+            SOURCE_PROFILE_MODEL_ATTEMPTS.labels(kind.value, "SUCCEEDED").inc()
+            SOURCE_PROFILE_RUNS.labels(profile.status, "NONE").inc()
+            return {
+                "profile_run_id": str(prepared.binding.run_id),
+                "status": profile.status,
+            }
+        await gateway.settle_budget(reservation_id, None)
+        code = str(result.get("error_code") or "MODEL_UNAVAILABLE")[:80]
+        await gateway.record_model_attempt(
+            run_id=prepared.binding.run_id,
+            attempt=attempt,
+            kind=kind.value,
+            input_sha256=request.input_sha256,
+            response=None,
+            error_code=code,
+        )
+        SOURCE_PROFILE_MODEL_ATTEMPTS.labels(kind.value, "FAILED").inc()
+        retryable = result.get("retryable") is True
+        repairable = result.get("repairable") is True
+        next_kind: AttemptKind | None = None
+        next_network_retries = network_retries
+        next_repair_used = repair_used
+        if retryable and network_retries < 2:
+            next_kind = AttemptKind.NETWORK_RETRY
+            next_network_retries += 1
+        elif repairable and not repair_used:
+            next_kind = AttemptKind.REPAIR
+            next_repair_used = True
+        if next_kind is not None:
+            dispatched = await _dispatch_source_profile_attempt(
+                gateway,
+                prepared=prepared,
+                request=request,
+                attempt=attempt + 1,
+                kind=next_kind,
+                network_retries=next_network_retries,
+                repair_used=next_repair_used,
+            )
+            if dispatched:
+                return {
+                    "profile_run_id": str(prepared.binding.run_id),
+                    "status": "RETRYING",
+                }
+            code = "BUDGET_DISABLED"
+        await _persist_partial_and_maybe_requeue(gateway, prepared, code)
+        return {"profile_run_id": str(prepared.binding.run_id), "status": "PARTIAL"}
+    except (ModelOutputRejected, ValueError) as error:
+        await gateway.settle_budget(reservation_id, None)
+        code = type(error).__name__.upper()[:80]
+        await gateway.record_model_attempt(
+            run_id=prepared.binding.run_id,
+            attempt=attempt,
+            kind=kind.value,
+            input_sha256=build_profile_request(prepared.rule_input.evidence).input_sha256,
+            response=None,
+            error_code=code,
+        )
+        if not repair_used:
+            request = build_profile_request(prepared.rule_input.evidence)
+            dispatched = await _dispatch_source_profile_attempt(
+                gateway,
+                prepared=prepared,
+                request=request,
+                attempt=attempt + 1,
+                kind=AttemptKind.REPAIR,
+                network_retries=network_retries,
+                repair_used=True,
+            )
+            if dispatched:
+                return {
+                    "profile_run_id": str(prepared.binding.run_id),
+                    "status": "REPAIRING",
+                }
+        await _persist_partial_and_maybe_requeue(gateway, prepared, code)
+        return {"profile_run_id": str(prepared.binding.run_id), "status": "PARTIAL"}
+    finally:
+        await gateway.close()
+
+
+async def _dispatch_source_profile_attempt(
+    gateway: PostgresSourceProfileGateway,
+    *,
+    prepared: PreparedProfile,
+    request: ModelRequest,
+    attempt: int,
+    kind: AttemptKind,
+    network_retries: int,
+    repair_used: bool,
+) -> bool:
+    reservation = await gateway.reserve_budget(prepared.binding.run_id, attempt)
+    if reservation is None:
+        return False
+    callback = celery_app.signature(
+        "srbg.source_profile.result",
+        kwargs={
+            "prepared_payload": _serialize_prepared_profile(prepared),
+            "attempt": attempt,
+            "kind": kind.value,
+            "network_retries": network_retries,
+            "repair_used": repair_used,
+            "reservation_id": str(reservation),
+        },
+        immutable=False,
+    )
+    try:
+        model_request = request
+        if kind is AttemptKind.REPAIR:
+            model_request = build_profile_request(prepared.rule_input.evidence).model_copy(
+                update={
+                    "user_prompt": build_profile_request(prepared.rule_input.evidence).user_prompt
+                    + "\n<controlled_repair>Return one valid JSON object only.</controlled_repair>"
+                }
+            )
+        celery_app.send_task(
+            "srbg.ai.generate_attempt",
+            args=[model_request.model_dump(mode="json")],
+            link=callback,
+        )
+        return True
+    except Exception:
+        await gateway.settle_budget(reservation, None)
+        raise
+
+
+async def _persist_partial_and_maybe_requeue(
+    gateway: PostgresSourceProfileGateway,
+    prepared: PreparedProfile,
+    code: str,
+) -> None:
+    profile = build_source_profile(prepared.rule_input, model_output=None, partial_reason=code)
+    await gateway.persist_snapshot(prepared, profile, failure_code=code)
+    SOURCE_PROFILE_RUNS.labels("PARTIAL", code).inc()
+    await gateway.requeue(prepared.binding.run_id, failure_code=code)
+
+
+def _serialize_prepared_profile(prepared: PreparedProfile) -> dict[str, object]:
+    return {
+        "run_id": str(prepared.binding.run_id),
+        "source_id": str(prepared.binding.source_id),
+        "origin": prepared.binding.origin,
+        "stream_types": list(prepared.binding.stream_types),
+        "attempt_count": prepared.binding.attempt_count,
+        "input_sha256": prepared.input_sha256,
+        "evidence": [
+            {
+                "evidence_id": item.evidence_id,
+                "kind": item.kind,
+                "url": item.url,
+                "sha256": item.sha256,
+                "excerpt": item.excerpt,
+            }
+            for item in prepared.rule_input.evidence
+        ],
+    }
+
+
+def _deserialize_prepared_profile(payload: dict[str, object]) -> PreparedProfile:
+    evidence_value = payload.get("evidence")
+    if not isinstance(evidence_value, list):
+        raise ValueError("profile evidence payload is invalid")
+    evidence = tuple(ProfileEvidence(**item) for item in evidence_value if isinstance(item, dict))
+    stream_value = payload.get("stream_types")
+    if not isinstance(stream_value, list):
+        raise ValueError("profile stream payload is invalid")
+    attempt_value = payload.get("attempt_count")
+    if not isinstance(attempt_value, int) or isinstance(attempt_value, bool):
+        raise ValueError("profile attempt payload is invalid")
+    binding = ProfileBinding(
+        run_id=UUID(str(payload["run_id"])),
+        source_id=UUID(str(payload["source_id"])),
+        origin=str(payload["origin"]),
+        stream_types=tuple(str(item) for item in stream_value),
+        captures=(),
+        attempt_count=attempt_value,
+    )
+    rule_input = ProfileRuleInput(binding.origin, binding.stream_types, evidence)
+    return PreparedProfile(binding, rule_input, str(payload["input_sha256"]))
 
 
 async def _dispatch_pending_source_qualifications() -> dict[str, object]:

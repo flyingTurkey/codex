@@ -1,12 +1,18 @@
 # 四川路桥·智安情报
 
-## PERS-02 个人公开 URL 来源
+## PERS-04 自动来源画像与个人纠错
+
+`/sources` 会为已有和新探测成功的来源自动生成工程行业、内容域、语言、国家/地区、来源声明角色、权威等级和独立性等级。画像保存输入哈希、证据、理由、逐字段/总体置信度以及规则、Prompt、Schema 和模型版本；权威与独立性始终标记为自动推断，不冒充人工结论。
+
+Owner 可在来源画像侧栏覆盖全部语义字段，自动重跑不会覆盖个人选择；“一键撤销覆盖”可恢复跟随最新自动画像。RSS、Sitemap、API、PDF 等技术事实只读。DeepSeek 不可用、余额不足、预算关闭或输入含提示注入时，本地规则结果仍以 `PARTIAL` 提供，且不会中断采集。字段与置信度解释见[个人来源画像说明](docs/user-guide/personal-source-profiles.md)。本轮不实现全网自动发现或内容自动发布。
+
+## PERS-03 个人公开 URL 来源
 
 平台当前唯一产品形态是本机单一 Owner 的个人研究平台，不提供企业模式开关。`/sources` 用两个独立状态管理来源：`desired_enabled` 只记录 Owner 的启停意图，`runtime_state` 只显示系统实际运行状态；“用户已启用”不代表“当前正在运行”。手工停用会写入不可变关键活动事件和最高优先级标记，旧自动任务不能重新启用该来源。
 
 Owner 现在可在 `/sources` 只粘贴一个公开 HTTPS URL，系统自动识别来源主页、栏目列表、RSS/Atom、Sitemap、JSON API 或直接 PDF，并在同一规范化 Origin 下展示多个采集入口。操作说明见[个人用户：添加公开 URL](docs/user-guide/personal-add-url.md)。
 
-PERS-02 只执行一次性有界安全探测，不实现持续抓取、自动画像或旧治理表删除。旧角色、`/api/v1/admin` 和治理页面暂时保留供历史代码运行，但不是新的产品交互。公网安全、robots、限速、预算、raw-first、证据追溯、Schema 校验及 `PublicationService` 单一发布边界继续有效；证据事实与 AI 判断保持不同语义。
+个人 URL 探测与受控运行不删除旧治理表。旧角色、`/api/v1/admin` 和治理页面暂时保留供历史代码运行，但不是新的产品交互。公网安全、robots、限速、预算、raw-first、证据追溯、Schema 校验及 `PublicationService` 单一发布边界继续有效；证据事实与 AI 判断保持不同语义。
 
 本轮只支持本机访问。Compose 将 Web 和 API 绑定到 `127.0.0.1`，Nuxt 服务端代理为固定本地 UUIDv7 注入 `owner`；不要把本地身份头或端口代理到局域网、公网。远程 OIDC Owner 尚未实现，非本地身份不能调用新的个人来源 API。
 

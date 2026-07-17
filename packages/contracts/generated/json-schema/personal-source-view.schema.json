@@ -245,6 +245,48 @@
       "title": "PersonalStreamRuntimeState",
       "type": "string"
     },
+    "SourceProfileStatus": {
+      "enum": [
+        "COMPLETE",
+        "PARTIAL"
+      ],
+      "title": "SourceProfileStatus",
+      "type": "string"
+    },
+    "SourceProfileSummaryView": {
+      "additionalProperties": false,
+      "properties": {
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "overall_confidence": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Overall Confidence",
+          "type": "integer"
+        },
+        "overridden_fields": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Overridden Fields",
+          "type": "array"
+        },
+        "status": {
+          "$ref": "#/$defs/SourceProfileStatus"
+        }
+      },
+      "required": [
+        "status",
+        "overall_confidence",
+        "generated_at"
+      ],
+      "title": "SourceProfileSummaryView",
+      "type": "object"
+    },
     "StreamProbeRunView": {
       "additionalProperties": false,
       "properties": {
@@ -369,6 +411,17 @@
       ],
       "default": null,
       "title": "Normalized Origin"
+    },
+    "profile_summary": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SourceProfileSummaryView"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "runtime_state": {
       "$ref": "#/$defs/PersonalSourceRuntimeState"

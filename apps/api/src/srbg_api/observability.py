@@ -98,6 +98,20 @@ PERSONAL_SOURCE_PROBE_QUEUE = Gauge(
     "srbg_personal_source_probe_queue",
     "Queued one-shot personal source probe runs seen by the dispatcher.",
 )
+SOURCE_PROFILE_QUEUE = Gauge(
+    "srbg_source_profile_queue",
+    "Queued automatic source profile runs seen by the dispatcher.",
+)
+SOURCE_PROFILE_RUNS = Counter(
+    "srbg_source_profile_runs_total",
+    "Automatic source profile runs by bounded outcome and reason.",
+    ("outcome", "reason"),
+)
+SOURCE_PROFILE_MODEL_ATTEMPTS = Counter(
+    "srbg_source_profile_model_attempts_total",
+    "Source profile model attempts by bounded kind and outcome.",
+    ("kind", "outcome"),
+)
 SOURCE_POLICY_REJECTIONS = Counter(
     "srbg_source_policy_rejections_total",
     "Source policy decisions rejected by bounded reason code.",

@@ -83,7 +83,11 @@ async def _generate_attempt(payload: dict[str, Any]) -> dict[str, Any]:
         return _safe_failure(str(exc), repairable=True)
     except (ValueError, RuntimeError) as exc:
         code = str(exc)
-        if code not in {"MODEL_DISABLED", "AI provider is not approved"}:
+        if code not in {
+            "MODEL_DISABLED",
+            "PROVIDER_BALANCE_INSUFFICIENT",
+            "AI provider is not approved",
+        }:
             code = "PROVIDER_REQUEST_REJECTED"
         return _safe_failure(code)
 
@@ -146,6 +150,17 @@ def _api_key() -> str | None:
 
 
 def _mock_output(request: ModelRequest) -> dict[str, Any]:
+    if request.step is AiStep.SOURCE_PROFILE:
+        return {
+            "industry_candidates": [],
+            "content_domain_candidates": [],
+            "language_candidates": [],
+            "country_candidates": [],
+            "region_candidates": [],
+            "declared_role_candidates": [],
+            "organization_clues": [],
+            "ownership_clues": [],
+        }
     if request.step is AiStep.CLASSIFY:
         return {
             "channel": "UNKNOWN",

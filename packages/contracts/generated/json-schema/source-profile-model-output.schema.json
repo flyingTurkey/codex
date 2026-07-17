@@ -1,0 +1,125 @@
+{
+  "$defs": {
+    "SourceProfileCandidate": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "integer"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "minItems": 1,
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "reason_code": {
+          "maxLength": 100,
+          "minLength": 1,
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "title": "Reason Code",
+          "type": "string"
+        },
+        "value": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value",
+        "confidence",
+        "reason_code",
+        "evidence_ids"
+      ],
+      "title": "SourceProfileCandidate",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Semantic clues only; authority and independence remain server-derived.",
+  "properties": {
+    "content_domain_candidates": {
+      "items": {
+        "$ref": "#/$defs/SourceProfileCandidate"
+      },
+      "maxItems": 30,
+      "title": "Content Domain Candidates",
+      "type": "array"
+    },
+    "country_candidates": {
+      "items": {
+        "$ref": "#/$defs/SourceProfileCandidate"
+      },
+      "maxItems": 20,
+      "title": "Country Candidates",
+      "type": "array"
+    },
+    "declared_role_candidates": {
+      "items": {
+        "$ref": "#/$defs/SourceProfileCandidate"
+      },
+      "maxItems": 20,
+      "title": "Declared Role Candidates",
+      "type": "array"
+    },
+    "industry_candidates": {
+      "items": {
+        "$ref": "#/$defs/SourceProfileCandidate"
+      },
+      "maxItems": 20,
+      "title": "Industry Candidates",
+      "type": "array"
+    },
+    "language_candidates": {
+      "items": {
+        "$ref": "#/$defs/SourceProfileCandidate"
+      },
+      "maxItems": 20,
+      "title": "Language Candidates",
+      "type": "array"
+    },
+    "organization_clues": {
+      "items": {
+        "$ref": "#/$defs/SourceProfileCandidate"
+      },
+      "maxItems": 20,
+      "title": "Organization Clues",
+      "type": "array"
+    },
+    "ownership_clues": {
+      "items": {
+        "$ref": "#/$defs/SourceProfileCandidate"
+      },
+      "maxItems": 20,
+      "title": "Ownership Clues",
+      "type": "array"
+    },
+    "region_candidates": {
+      "items": {
+        "$ref": "#/$defs/SourceProfileCandidate"
+      },
+      "maxItems": 50,
+      "title": "Region Candidates",
+      "type": "array"
+    }
+  },
+  "required": [
+    "industry_candidates",
+    "content_domain_candidates",
+    "language_candidates",
+    "country_candidates",
+    "region_candidates",
+    "declared_role_candidates",
+    "organization_clues",
+    "ownership_clues"
+  ],
+  "title": "SourceProfileModelOutput",
+  "type": "object"
+}

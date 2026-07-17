@@ -11,6 +11,13 @@ export type RequestedUrl = string
 export type PersonalSourceProbeStatus = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED'
 export type ManualDisabledAt = string | null
 export type NormalizedOrigin = string | null
+export type GeneratedAt = string
+export type OverallConfidence = number
+/**
+ * @maxItems 8
+ */
+export type OverriddenFields = string[]
+export type SourceProfileStatus = 'COMPLETE' | 'PARTIAL'
 /**
  * Observed personal-source runtime state, independent from owner intent.
  */
@@ -66,6 +73,7 @@ export interface PersonalSourceView {
   latest_probe_run?: StreamProbeRunView | null
   manual_disabled_at?: ManualDisabledAt
   normalized_origin?: NormalizedOrigin
+  profile_summary?: SourceProfileSummaryView | null
   runtime_state: PersonalSourceRuntimeState
   streams?: Streams
   url: Url
@@ -78,6 +86,12 @@ export interface StreamProbeRunView {
   input_kind: PersonalSourceInputKind
   requested_url: RequestedUrl
   status: PersonalSourceProbeStatus
+}
+export interface SourceProfileSummaryView {
+  generated_at: GeneratedAt
+  overall_confidence: OverallConfidence
+  overridden_fields?: OverriddenFields
+  status: SourceProfileStatus
 }
 export interface PersonalSourceStreamView {
   actual_running?: ActualRunning

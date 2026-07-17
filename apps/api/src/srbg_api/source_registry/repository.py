@@ -45,6 +45,8 @@ from srbg_contracts import (
     SourcePolicyDecisionOutcome,
     SourcePolicyV2Submission,
     SourcePolicyVersionView,
+    SourceProfileOverrideRequest,
+    SourceProfileView,
     SourceState,
     SourceTrialKind,
     SourceTrialQualitySummary,
@@ -283,6 +285,144 @@ class SourceVaultRepository:
         if row is None:
             raise SourceNotFound("source does not exist")
         return await self._personal_source_with_probe(_personal_source_row(row))
+
+    async def get_source_profile(self, source_id: UUID) -> SourceProfileView:
+        async with self._engine.connect() as connection:
+            snapshot = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT * FROM source_profile_snapshot WHERE source_id=:source_id "
+                            "ORDER BY version DESC LIMIT 1"
+                        ),
+                        {"source_id": source_id},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            override = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT id,action,values FROM source_profile_override "
+                            "WHERE source_id=:source_id ORDER BY created_at DESC,id DESC LIMIT 1"
+                        ),
+                        {"source_id": source_id},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+        if snapshot is None:
+            raise SourceNotFound("source profile does not exist")
+        return _source_profile_view(snapshot, override)
+
+    async def patch_source_profile_override(
+        self,
+        source_id: UUID,
+        payload: SourceProfileOverrideRequest,
+        *,
+        actor_id: UUID,
+        request_id: str,
+        now: datetime,
+    ) -> SourceProfileView:
+        async with self._engine.begin() as connection:
+            exists = await connection.scalar(
+                text("SELECT EXISTS(SELECT 1 FROM source WHERE id=:source_id)"),
+                {"source_id": source_id},
+            )
+            if not exists:
+                raise SourceNotFound("source does not exist")
+            current = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT id,action,values FROM source_profile_override "
+                            "WHERE source_id=:source_id ORDER BY created_at DESC,id DESC "
+                            "LIMIT 1 FOR UPDATE"
+                        ),
+                        {"source_id": source_id},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            values = (
+                dict(current["values"])
+                if current is not None and current["action"] == "APPLY"
+                else {}
+            )
+            for field in payload.model_fields_set:
+                value = getattr(payload, field)
+                if value is None:
+                    values.pop(field, None)
+                else:
+                    values[field] = (
+                        [getattr(item, "value", item) for item in value]
+                        if isinstance(value, list)
+                        else getattr(value, "value", value)
+                    )
+            action = "APPLY" if values else "REVOKE"
+            await connection.execute(
+                text(
+                    "INSERT INTO source_profile_override(id,source_id,action,values,supersedes_id,"
+                    "actor_id,request_id,created_at) VALUES(:id,:source_id,:action,"
+                    "CAST(:values AS jsonb),:supersedes_id,:actor_id,:request_id,:now)"
+                ),
+                {
+                    "id": uuid7(),
+                    "source_id": source_id,
+                    "action": action,
+                    "values": json.dumps(values, ensure_ascii=False, sort_keys=True),
+                    "supersedes_id": None if current is None else current["id"],
+                    "actor_id": actor_id,
+                    "request_id": request_id,
+                    "now": now,
+                },
+            )
+        return await self.get_source_profile(source_id)
+
+    async def revoke_source_profile_override(
+        self,
+        source_id: UUID,
+        *,
+        actor_id: UUID,
+        request_id: str,
+        now: datetime,
+    ) -> SourceProfileView:
+        async with self._engine.begin() as connection:
+            current = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT id,action FROM source_profile_override "
+                            "WHERE source_id=:source_id "
+                            "ORDER BY created_at DESC,id DESC LIMIT 1 FOR UPDATE"
+                        ),
+                        {"source_id": source_id},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            if current is not None and current["action"] == "APPLY":
+                await connection.execute(
+                    text(
+                        "INSERT INTO source_profile_override(id,source_id,action,values,"
+                        "supersedes_id,actor_id,request_id,created_at) VALUES(:id,:source_id,"
+                        "'REVOKE','{}'::jsonb,:supersedes_id,:actor_id,:request_id,:now)"
+                    ),
+                    {
+                        "id": uuid7(),
+                        "source_id": source_id,
+                        "supersedes_id": current["id"],
+                        "actor_id": actor_id,
+                        "request_id": request_id,
+                        "now": now,
+                    },
+                )
+        return await self.get_source_profile(source_id)
 
     async def create_personal_source(
         self,
@@ -578,9 +718,9 @@ class SourceVaultRepository:
             else PersonalSourceRuntimeState.PENDING_CONFIGURATION
             if not any(stream.status is PersonalSourceStreamStatus.READY for stream in streams)
             else PersonalSourceRuntimeState.ERROR
-            if base.desired_enabled and any(
-                stream.health_status is PersonalStreamHealthStatus.UNHEALTHY
-                for stream in streams
+            if base.desired_enabled
+            and any(
+                stream.health_status is PersonalStreamHealthStatus.UNHEALTHY for stream in streams
             )
             else PersonalSourceRuntimeState.STOPPED
         )
@@ -3071,6 +3211,52 @@ def _personal_source_row(row: RowMapping) -> PersonalSourceRow:
     )
 
 
+def _source_profile_view(snapshot: RowMapping, override: RowMapping | None) -> SourceProfileView:
+    automatic = {
+        "industries": list(snapshot["industries"]),
+        "content_domains": list(snapshot["content_domains"]),
+        "language_tags": list(snapshot["language_tags"]),
+        "country_codes": list(snapshot["country_codes"]),
+        "region_codes": list(snapshot["region_codes"]),
+        "declared_roles": list(snapshot["declared_roles"]),
+        "authority_level": snapshot["authority_level"],
+        "independence_level": snapshot["independence_level"],
+    }
+    override_values = (
+        dict(override["values"]) if override is not None and override["action"] == "APPLY" else {}
+    )
+    effective = {**automatic, **override_values}
+    explanations = dict(snapshot["field_explanations"])
+    for field in override_values:
+        existing = dict(explanations.get(field, {}))
+        explanations[field] = {**existing, "basis": "PERSONAL_OVERRIDE"}
+    raw_facts = list(snapshot["technical_facts"])
+    technical_facts = [
+        str(item.get("code")) if isinstance(item, dict) else str(item) for item in raw_facts
+    ]
+    return SourceProfileView.model_validate(
+        {
+            "snapshot_id": snapshot["id"],
+            "version": snapshot["version"],
+            "status": snapshot["status"],
+            "automatic": automatic,
+            "effective": effective,
+            "field_explanations": explanations,
+            "overall_confidence": snapshot["overall_confidence"],
+            "overridden_fields": sorted(override_values),
+            "evidence": snapshot["evidence"],
+            "technical_facts": technical_facts,
+            "reason_codes": list(snapshot["reason_codes"]),
+            "rule_version": snapshot["rule_version"],
+            "prompt_version": snapshot["prompt_version"],
+            "schema_version": snapshot["schema_version"],
+            "model_version": snapshot["model_version"],
+            "input_sha256": snapshot["input_sha256"],
+            "generated_at": snapshot["generated_at"],
+        }
+    )
+
+
 def _personal_stream_actual_running(base: PersonalSourceRow, row: RowMapping) -> bool:
     request_budget = int(row.get("daily_request_budget") or 0)
     byte_budget = int(row.get("daily_byte_budget") or 0)
@@ -3093,10 +3279,9 @@ def _personal_stream_runtime_state(
         return PersonalStreamRuntimeState.STOPPED
     if row.get("access_state") == "INACCESSIBLE":
         return PersonalStreamRuntimeState.INACCESSIBLE
-    if (
-        int(row.get("requests_used") or 0) >= int(row.get("daily_request_budget") or 0)
-        or int(row.get("bytes_used") or 0) >= int(row.get("daily_byte_budget") or 0)
-    ):
+    if int(row.get("requests_used") or 0) >= int(row.get("daily_request_budget") or 0) or int(
+        row.get("bytes_used") or 0
+    ) >= int(row.get("daily_byte_budget") or 0):
         return PersonalStreamRuntimeState.BUDGET_EXHAUSTED
     if row.get("circuit_state") == "OPEN":
         return PersonalStreamRuntimeState.CIRCUIT_OPEN

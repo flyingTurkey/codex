@@ -34,6 +34,8 @@ from srbg_contracts import (
     SourcePolicyV2Submission,
     SourcePolicyVersionView,
     SourceProductionApprovalRequest,
+    SourceProfileOverrideRequest,
+    SourceProfileView,
     SourceSummary,
     SourceTransitionRequest,
     SourceTrialRunRequest,
@@ -122,6 +124,25 @@ class AdminSourceService(Protocol):
     async def list_personal_sources(self) -> list[PersonalSourceView]: ...
 
     async def get_personal_source(self, source_id: UUID) -> PersonalSourceView: ...
+
+    async def get_source_profile(self, source_id: UUID) -> SourceProfileView: ...
+
+    async def patch_source_profile_override(
+        self,
+        source_id: UUID,
+        payload: SourceProfileOverrideRequest,
+        *,
+        actor_id: UUID,
+        request_id: str,
+    ) -> SourceProfileView: ...
+
+    async def revoke_source_profile_override(
+        self,
+        source_id: UUID,
+        *,
+        actor_id: UUID,
+        request_id: str,
+    ) -> SourceProfileView: ...
 
     async def patch_personal_source(
         self,
@@ -406,6 +427,55 @@ async def reprobe_personal_source(
 ) -> PersonalSourceView:
     return await _service(request).reprobe_personal_source(
         source_id, payload, actor_id=principal.user_id, request_id=request.state.request_id
+    )
+
+
+@router.get(
+    "/sources/{source_id}/profile",
+    response_model=SourceProfileView,
+    tags=["personal-sources"],
+)
+async def get_source_profile(
+    source_id: UUID,
+    request: Request,
+    _: OwnerPrincipal,
+) -> SourceProfileView:
+    return await _service(request).get_source_profile(source_id)
+
+
+@router.patch(
+    "/sources/{source_id}/profile-override",
+    response_model=SourceProfileView,
+    tags=["personal-sources"],
+)
+async def patch_source_profile_override(
+    source_id: UUID,
+    payload: SourceProfileOverrideRequest,
+    request: Request,
+    principal: OwnerPrincipal,
+) -> SourceProfileView:
+    return await _service(request).patch_source_profile_override(
+        source_id,
+        payload,
+        actor_id=principal.user_id,
+        request_id=request.state.request_id,
+    )
+
+
+@router.delete(
+    "/sources/{source_id}/profile-override",
+    response_model=SourceProfileView,
+    tags=["personal-sources"],
+)
+async def revoke_source_profile_override(
+    source_id: UUID,
+    request: Request,
+    principal: OwnerPrincipal,
+) -> SourceProfileView:
+    return await _service(request).revoke_source_profile_override(
+        source_id,
+        actor_id=principal.user_id,
+        request_id=request.state.request_id,
     )
 
 

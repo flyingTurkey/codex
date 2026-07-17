@@ -42,6 +42,8 @@ from srbg_contracts import (
     SourcePolicyV2Submission,
     SourcePolicyVersionView,
     SourceProductionApprovalRequest,
+    SourceProfileOverrideRequest,
+    SourceProfileView,
     SourceState,
     SourceSummary,
     SourceTransitionRequest,
@@ -209,6 +211,57 @@ class SourceRegistryService:
 
     async def get_personal_source(self, source_id: UUID) -> PersonalSourceView:
         return _personal_source_view(await self._repository.get_personal_source(source_id))
+
+    async def get_source_profile(self, source_id: UUID) -> SourceProfileView:
+        return await self._repository.get_source_profile(source_id)
+
+    async def patch_source_profile_override(
+        self,
+        source_id: UUID,
+        payload: SourceProfileOverrideRequest,
+        *,
+        actor_id: UUID,
+        request_id: str,
+    ) -> SourceProfileView:
+        profile = await self._repository.patch_source_profile_override(
+            source_id,
+            payload,
+            actor_id=actor_id,
+            request_id=request_id,
+            now=_now(),
+        )
+        _log_governance_action(
+            event_name="source_profile_override_updated",
+            action="PROFILE_OVERRIDE",
+            outcome="SUCCEEDED",
+            reason_code="OWNER_PROFILE_OVERRIDE",
+            request_id=request_id,
+            source_id=source_id,
+        )
+        return profile
+
+    async def revoke_source_profile_override(
+        self,
+        source_id: UUID,
+        *,
+        actor_id: UUID,
+        request_id: str,
+    ) -> SourceProfileView:
+        profile = await self._repository.revoke_source_profile_override(
+            source_id,
+            actor_id=actor_id,
+            request_id=request_id,
+            now=_now(),
+        )
+        _log_governance_action(
+            event_name="source_profile_override_revoked",
+            action="PROFILE_OVERRIDE_REVOKE",
+            outcome="SUCCEEDED",
+            reason_code="OWNER_PROFILE_OVERRIDE_REVOKED",
+            request_id=request_id,
+            source_id=source_id,
+        )
+        return profile
 
     async def patch_personal_source(
         self,

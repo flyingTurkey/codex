@@ -1,0 +1,375 @@
+{
+  "$defs": {
+    "AuthorityLevel": {
+      "enum": [
+        "A0",
+        "A1",
+        "B1",
+        "B2",
+        "C1",
+        "C2",
+        "UNKNOWN"
+      ],
+      "title": "AuthorityLevel",
+      "type": "string"
+    },
+    "SourceContentDomain": {
+      "enum": [
+        "DIGITAL_TRANSFORMATION_CASE",
+        "RESEARCH_PAPER",
+        "SOFTWARE_PLATFORM",
+        "IOT_EQUIPMENT",
+        "LOW_ALTITUDE_EQUIPMENT",
+        "AI_APPLICATION",
+        "SAFETY_REGULATION",
+        "STANDARD_GUIDANCE",
+        "ACCIDENT_INVESTIGATION",
+        "OFFICIAL_NOTICE",
+        "PENALTY",
+        "RECTIFICATION",
+        "UNKNOWN"
+      ],
+      "title": "SourceContentDomain",
+      "type": "string"
+    },
+    "SourceDeclaredRole": {
+      "enum": [
+        "OFFICIAL_PRIMARY",
+        "OFFICIAL_SECONDARY",
+        "STANDARDS_PUBLISHER",
+        "RESEARCH_PUBLISHER",
+        "MANUFACTURER",
+        "INDEPENDENT_REPORTER",
+        "AGGREGATOR",
+        "UNKNOWN"
+      ],
+      "title": "SourceDeclaredRole",
+      "type": "string"
+    },
+    "SourceIndependenceLevel": {
+      "enum": [
+        "EDITORIALLY_INDEPENDENT",
+        "PARTIALLY_INDEPENDENT",
+        "NOT_INDEPENDENT",
+        "UNKNOWN"
+      ],
+      "title": "SourceIndependenceLevel",
+      "type": "string"
+    },
+    "SourceIndustry": {
+      "enum": [
+        "HIGHWAY",
+        "BRIDGE",
+        "TUNNEL",
+        "RAILWAY",
+        "RAIL_TRANSIT",
+        "WATER_CONSERVANCY",
+        "MUNICIPAL",
+        "BUILDING",
+        "ENERGY",
+        "PORT_WATERWAY",
+        "AIRPORT",
+        "GENERAL_TRANSPORT",
+        "UNKNOWN"
+      ],
+      "title": "SourceIndustry",
+      "type": "string"
+    },
+    "SourceProfileBasis": {
+      "enum": [
+        "AUTO_INFERRED",
+        "PERSONAL_OVERRIDE"
+      ],
+      "title": "SourceProfileBasis",
+      "type": "string"
+    },
+    "SourceProfileEvidenceView": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence_id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Evidence Id",
+          "type": "string"
+        },
+        "excerpt": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Excerpt",
+          "type": "string"
+        },
+        "kind": {
+          "maxLength": 30,
+          "minLength": 1,
+          "title": "Kind",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 2048,
+          "pattern": "^https://[^\\s]+$",
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidence_id",
+        "kind",
+        "url",
+        "sha256",
+        "excerpt"
+      ],
+      "title": "SourceProfileEvidenceView",
+      "type": "object"
+    },
+    "SourceProfileFieldExplanation": {
+      "additionalProperties": false,
+      "properties": {
+        "basis": {
+          "$ref": "#/$defs/SourceProfileBasis",
+          "default": "AUTO_INFERRED"
+        },
+        "confidence": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "integer"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "reason_codes": {
+          "items": {
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Z][A-Z0-9_]*$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Reason Codes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "confidence",
+        "reason_codes",
+        "evidence_ids"
+      ],
+      "title": "SourceProfileFieldExplanation",
+      "type": "object"
+    },
+    "SourceProfileStatus": {
+      "enum": [
+        "COMPLETE",
+        "PARTIAL"
+      ],
+      "title": "SourceProfileStatus",
+      "type": "string"
+    },
+    "SourceProfileValues": {
+      "additionalProperties": false,
+      "properties": {
+        "authority_level": {
+          "$ref": "#/$defs/AuthorityLevel"
+        },
+        "content_domains": {
+          "items": {
+            "$ref": "#/$defs/SourceContentDomain"
+          },
+          "title": "Content Domains",
+          "type": "array"
+        },
+        "country_codes": {
+          "items": {
+            "pattern": "^[A-Z]{2}$",
+            "type": "string"
+          },
+          "title": "Country Codes",
+          "type": "array"
+        },
+        "declared_roles": {
+          "items": {
+            "$ref": "#/$defs/SourceDeclaredRole"
+          },
+          "title": "Declared Roles",
+          "type": "array"
+        },
+        "independence_level": {
+          "$ref": "#/$defs/SourceIndependenceLevel"
+        },
+        "industries": {
+          "items": {
+            "$ref": "#/$defs/SourceIndustry"
+          },
+          "title": "Industries",
+          "type": "array"
+        },
+        "language_tags": {
+          "items": {
+            "maxLength": 35,
+            "minLength": 2,
+            "pattern": "^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$",
+            "type": "string"
+          },
+          "title": "Language Tags",
+          "type": "array"
+        },
+        "region_codes": {
+          "items": {
+            "maxLength": 16,
+            "minLength": 2,
+            "pattern": "^[A-Z0-9]{2,3}(?:-[A-Z0-9]{1,6})?$",
+            "type": "string"
+          },
+          "title": "Region Codes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "industries",
+        "content_domains",
+        "language_tags",
+        "country_codes",
+        "region_codes",
+        "declared_roles",
+        "authority_level",
+        "independence_level"
+      ],
+      "title": "SourceProfileValues",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "automatic": {
+      "$ref": "#/$defs/SourceProfileValues"
+    },
+    "effective": {
+      "$ref": "#/$defs/SourceProfileValues"
+    },
+    "evidence": {
+      "items": {
+        "$ref": "#/$defs/SourceProfileEvidenceView"
+      },
+      "maxItems": 50,
+      "title": "Evidence",
+      "type": "array"
+    },
+    "field_explanations": {
+      "additionalProperties": {
+        "$ref": "#/$defs/SourceProfileFieldExplanation"
+      },
+      "title": "Field Explanations",
+      "type": "object"
+    },
+    "generated_at": {
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    },
+    "input_sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Input Sha256",
+      "type": "string"
+    },
+    "model_version": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Model Version",
+      "type": "string"
+    },
+    "overall_confidence": {
+      "maximum": 100,
+      "minimum": 0,
+      "title": "Overall Confidence",
+      "type": "integer"
+    },
+    "overridden_fields": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 8,
+      "title": "Overridden Fields",
+      "type": "array"
+    },
+    "prompt_version": {
+      "maxLength": 50,
+      "minLength": 1,
+      "title": "Prompt Version",
+      "type": "string"
+    },
+    "reason_codes": {
+      "items": {
+        "maxLength": 100,
+        "minLength": 1,
+        "pattern": "^[A-Z][A-Z0-9_]*$",
+        "type": "string"
+      },
+      "maxItems": 50,
+      "title": "Reason Codes",
+      "type": "array"
+    },
+    "rule_version": {
+      "maxLength": 50,
+      "minLength": 1,
+      "title": "Rule Version",
+      "type": "string"
+    },
+    "schema_version": {
+      "maxLength": 50,
+      "minLength": 1,
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "snapshot_id": {
+      "format": "uuid",
+      "title": "Snapshot Id",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/SourceProfileStatus"
+    },
+    "technical_facts": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 20,
+      "title": "Technical Facts",
+      "type": "array"
+    },
+    "version": {
+      "minimum": 1,
+      "title": "Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "snapshot_id",
+    "version",
+    "status",
+    "automatic",
+    "effective",
+    "field_explanations",
+    "overall_confidence",
+    "evidence",
+    "technical_facts",
+    "reason_codes",
+    "rule_version",
+    "prompt_version",
+    "schema_version",
+    "model_version",
+    "input_sha256",
+    "generated_at"
+  ],
+  "title": "SourceProfileView",
+  "type": "object"
+}

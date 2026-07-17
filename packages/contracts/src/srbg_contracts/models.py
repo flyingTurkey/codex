@@ -1897,6 +1897,119 @@ class PersonalSourceInputKind(StrEnum):
     UNKNOWN = "UNKNOWN"
 
 
+class SourceProfileStatus(StrEnum):
+    COMPLETE = "COMPLETE"
+    PARTIAL = "PARTIAL"
+
+
+class SourceProfileBasis(StrEnum):
+    AUTO_INFERRED = "AUTO_INFERRED"
+    PERSONAL_OVERRIDE = "PERSONAL_OVERRIDE"
+
+
+class SourceProfileCandidate(ContractModel):
+    value: str = Field(min_length=1, max_length=100)
+    confidence: int = Field(ge=0, le=100)
+    reason_code: AssessmentReasonCode
+    evidence_ids: list[str] = Field(min_length=1, max_length=10)
+
+    @model_validator(mode="after")
+    def require_unique_evidence(self) -> "SourceProfileCandidate":
+        if len(self.evidence_ids) != len(set(self.evidence_ids)):
+            raise ValueError("profile candidate evidence ids must be unique")
+        return self
+
+
+class SourceProfileModelOutput(ContractModel):
+    """Semantic clues only; authority and independence remain server-derived."""
+
+    industry_candidates: list[SourceProfileCandidate] = Field(max_length=20)
+    content_domain_candidates: list[SourceProfileCandidate] = Field(max_length=30)
+    language_candidates: list[SourceProfileCandidate] = Field(max_length=20)
+    country_candidates: list[SourceProfileCandidate] = Field(max_length=20)
+    region_candidates: list[SourceProfileCandidate] = Field(max_length=50)
+    declared_role_candidates: list[SourceProfileCandidate] = Field(max_length=20)
+    organization_clues: list[SourceProfileCandidate] = Field(max_length=20)
+    ownership_clues: list[SourceProfileCandidate] = Field(max_length=20)
+
+
+class SourceProfileOverrideRequest(ContractModel):
+    industries: list[SourceIndustry] | None = None
+    content_domains: list[SourceContentDomain] | None = None
+    language_tags: list[LanguageTag] | None = None
+    country_codes: list[CountryCode] | None = None
+    region_codes: list[RegionCode] | None = None
+    declared_roles: list[SourceDeclaredRole] | None = None
+    authority_level: AuthorityLevel | None = None
+    independence_level: SourceIndependenceLevel | None = None
+
+    @model_validator(mode="after")
+    def validate_override_patch(self) -> "SourceProfileOverrideRequest":
+        if not self.model_fields_set:
+            raise ValueError("at least one profile override field is required")
+        for field in self.model_fields_set:
+            value = getattr(self, field)
+            if isinstance(value, list):
+                if not value:
+                    raise ValueError("profile override lists must not be empty")
+                if len(value) != len(set(value)):
+                    raise ValueError("profile override values must be unique")
+        return self
+
+
+class SourceProfileSummaryView(ContractModel):
+    status: SourceProfileStatus
+    overall_confidence: int = Field(ge=0, le=100)
+    overridden_fields: list[str] = Field(default_factory=list, max_length=8)
+    generated_at: datetime
+
+
+class SourceProfileEvidenceView(ContractModel):
+    evidence_id: str = Field(min_length=1, max_length=100)
+    kind: str = Field(min_length=1, max_length=30)
+    url: HttpUrlString = Field(pattern=r"^https://[^\s]+$", max_length=2048)
+    sha256: Sha256String = Field(pattern=r"^[a-f0-9]{64}$")
+    excerpt: str = Field(min_length=1, max_length=2000)
+
+
+class SourceProfileFieldExplanation(ContractModel):
+    confidence: int = Field(ge=0, le=100)
+    reason_codes: list[AssessmentReasonCode] = Field(max_length=20)
+    evidence_ids: list[str] = Field(max_length=50)
+    basis: SourceProfileBasis = SourceProfileBasis.AUTO_INFERRED
+
+
+class SourceProfileValues(ContractModel):
+    industries: list[SourceIndustry]
+    content_domains: list[SourceContentDomain]
+    language_tags: list[LanguageTag]
+    country_codes: list[CountryCode]
+    region_codes: list[RegionCode]
+    declared_roles: list[SourceDeclaredRole]
+    authority_level: AuthorityLevel
+    independence_level: SourceIndependenceLevel
+
+
+class SourceProfileView(ContractModel):
+    snapshot_id: UUID
+    version: int = Field(ge=1)
+    status: SourceProfileStatus
+    automatic: SourceProfileValues
+    effective: SourceProfileValues
+    field_explanations: dict[str, SourceProfileFieldExplanation]
+    overall_confidence: int = Field(ge=0, le=100)
+    overridden_fields: list[str] = Field(default_factory=list, max_length=8)
+    evidence: list[SourceProfileEvidenceView] = Field(max_length=50)
+    technical_facts: list[str] = Field(max_length=20)
+    reason_codes: list[AssessmentReasonCode] = Field(max_length=50)
+    rule_version: str = Field(min_length=1, max_length=50)
+    prompt_version: str = Field(min_length=1, max_length=50)
+    schema_version: str = Field(min_length=1, max_length=50)
+    model_version: str = Field(min_length=1, max_length=100)
+    input_sha256: Sha256String = Field(pattern=r"^[a-f0-9]{64}$")
+    generated_at: datetime
+
+
 class PersonalSourceCreateRequest(ContractModel):
     url: HttpUrlString = Field(pattern=r"^https://[^\s]+$", max_length=2048)
 
@@ -1970,6 +2083,7 @@ class PersonalSourceView(ContractModel):
     )
     streams: list[PersonalSourceStreamView] = Field(default_factory=list)
     latest_probe_run: StreamProbeRunView | None = None
+    profile_summary: SourceProfileSummaryView | None = None
 
 
 class OnboardingCheckEvidence(ContractModel):

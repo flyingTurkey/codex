@@ -1,0 +1,203 @@
+{
+  "$defs": {
+    "AuthorityLevel": {
+      "enum": [
+        "A0",
+        "A1",
+        "B1",
+        "B2",
+        "C1",
+        "C2",
+        "UNKNOWN"
+      ],
+      "title": "AuthorityLevel",
+      "type": "string"
+    },
+    "SourceContentDomain": {
+      "enum": [
+        "DIGITAL_TRANSFORMATION_CASE",
+        "RESEARCH_PAPER",
+        "SOFTWARE_PLATFORM",
+        "IOT_EQUIPMENT",
+        "LOW_ALTITUDE_EQUIPMENT",
+        "AI_APPLICATION",
+        "SAFETY_REGULATION",
+        "STANDARD_GUIDANCE",
+        "ACCIDENT_INVESTIGATION",
+        "OFFICIAL_NOTICE",
+        "PENALTY",
+        "RECTIFICATION",
+        "UNKNOWN"
+      ],
+      "title": "SourceContentDomain",
+      "type": "string"
+    },
+    "SourceDeclaredRole": {
+      "enum": [
+        "OFFICIAL_PRIMARY",
+        "OFFICIAL_SECONDARY",
+        "STANDARDS_PUBLISHER",
+        "RESEARCH_PUBLISHER",
+        "MANUFACTURER",
+        "INDEPENDENT_REPORTER",
+        "AGGREGATOR",
+        "UNKNOWN"
+      ],
+      "title": "SourceDeclaredRole",
+      "type": "string"
+    },
+    "SourceIndependenceLevel": {
+      "enum": [
+        "EDITORIALLY_INDEPENDENT",
+        "PARTIALLY_INDEPENDENT",
+        "NOT_INDEPENDENT",
+        "UNKNOWN"
+      ],
+      "title": "SourceIndependenceLevel",
+      "type": "string"
+    },
+    "SourceIndustry": {
+      "enum": [
+        "HIGHWAY",
+        "BRIDGE",
+        "TUNNEL",
+        "RAILWAY",
+        "RAIL_TRANSIT",
+        "WATER_CONSERVANCY",
+        "MUNICIPAL",
+        "BUILDING",
+        "ENERGY",
+        "PORT_WATERWAY",
+        "AIRPORT",
+        "GENERAL_TRANSPORT",
+        "UNKNOWN"
+      ],
+      "title": "SourceIndustry",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "authority_level": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AuthorityLevel"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "content_domains": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/SourceContentDomain"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Content Domains"
+    },
+    "country_codes": {
+      "anyOf": [
+        {
+          "items": {
+            "pattern": "^[A-Z]{2}$",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Country Codes"
+    },
+    "declared_roles": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/SourceDeclaredRole"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Declared Roles"
+    },
+    "independence_level": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SourceIndependenceLevel"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "industries": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/SourceIndustry"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Industries"
+    },
+    "language_tags": {
+      "anyOf": [
+        {
+          "items": {
+            "maxLength": 35,
+            "minLength": 2,
+            "pattern": "^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Language Tags"
+    },
+    "region_codes": {
+      "anyOf": [
+        {
+          "items": {
+            "maxLength": 16,
+            "minLength": 2,
+            "pattern": "^[A-Z0-9]{2,3}(?:-[A-Z0-9]{1,6})?$",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Region Codes"
+    }
+  },
+  "title": "SourceProfileOverrideRequest",
+  "type": "object"
+}
