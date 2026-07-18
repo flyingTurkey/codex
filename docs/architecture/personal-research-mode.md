@@ -27,13 +27,13 @@ legacy_governance_archive (read-only, no business dependency)
 
 ## 企业治理退场
 
-迁移 `0029_legacy_governance_retirement` 在一个事务中归档并验证旧治理数据，然后删除旧表、触发器和授权。旧角色、审批 API、资格/批准 Worker、人工审核页面、生成契约和企业 Operations 已退出源树和执行图。归档 Schema 只供迁移完整性校验与受控降级，业务角色没有 USAGE，业务模块不得查询。
+迁移 `0029_legacy_governance_retirement` 在一个事务中归档并验证旧治理数据；`0030_pers10_role_archive_repair` 补齐三个企业数据库角色的可回滚快照并删除最后的来源治理角色。旧角色、审批 API、资格/批准 Worker、人工审核页面、生成契约和企业 Operations 已退出源树和执行图。归档 Schema 只供迁移完整性校验与受控降级，业务角色没有 USAGE，业务模块不得查询。
 
 降级前必须停机并完成备份。迁移会重新验证逐行 SHA-256、逐类计数与汇总 SHA-256；损坏时拒绝降级。验证通过后才恢复旧表、约束、授权、触发器和原始数据。详见 [迁移回滚 Runbook](../operations/pers10-migration-rollback-runbook.md)。
 
 ## 回滚原则
 
 - 代码与数据库回滚分开，先备份 PostgreSQL 与对象存储并在隔离环境验证恢复。
-- 仅在应用版本已回退且企业代码确有兼容需求时执行 `0029 → 0028`。
+- 仅在应用版本已回退且企业代码确有兼容需求时执行 `0030 → 0029 → 0028`。
 - 降级不得自动启用来源，也不得降低公网安全、证据或发布边界。
 - 归档校验失败时保留当前个人模式，不得手工跳过验证或恢复部分数据。

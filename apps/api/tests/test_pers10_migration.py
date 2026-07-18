@@ -4,14 +4,49 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 
 MIGRATION = Path("apps/api/migrations/versions/0029_legacy_governance_retirement.py")
+REPAIR_MIGRATION = Path("apps/api/migrations/versions/0030_pers10_role_archive_repair.py")
 
 
-def test_pers10_is_the_single_head_after_pers08() -> None:
+def test_pers10_role_repair_is_the_single_head() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
-    assert script.get_current_head() == "0029_legacy_governance_retirement"
+    assert script.get_current_head() == "0030_pers10_role_archive_repair"
     revision = script.get_revision("0029_legacy_governance_retirement")
     assert revision is not None
     assert revision.down_revision == "0028_automatic_relationships"
+    repair = script.get_revision("0030_pers10_role_archive_repair")
+    assert repair is not None
+    assert repair.down_revision == "0029_legacy_governance_retirement"
+
+
+def test_pers10_role_repair_archives_all_enterprise_roles_and_fails_closed() -> None:
+    sql = REPAIR_MIGRATION.read_text(encoding="utf-8")
+    for token in (
+        "srbg_admin_role",
+        "srbg_model_role",
+        "srbg_source_governance_writer",
+        "reconstructed_from_revision",
+        "0028_automatic_relationships",
+        "PERS10_ROLE_ARCHIVE_CORRUPT",
+        "PERS10_ROLE_STATE_UNEXPECTED",
+        "PERS10_ROLE_EXTERNAL_DEPENDENCIES",
+        "PERS10_ROLE_ARCHIVE_COUNT_MISMATCH",
+        "PERS10_ROLE_ARCHIVE_HASH_MISMATCH",
+        "DROP OWNED BY",
+        "DROP ROLE",
+        "trg_pers10_archive_read_only",
+    ):
+        assert token in sql
+
+
+def test_pers10_role_repair_downgrade_restores_only_source_writer() -> None:
+    sql = REPAIR_MIGRATION.read_text(encoding="utf-8")
+    downgrade = sql[sql.index("def downgrade()") :]
+    assert "_verify_complete_role_archive()" in downgrade
+    assert "_restore_source_governance_writer()" in downgrade
+    assert "_restore_0029_role_manifest()" in downgrade
+    assert downgrade.index("_verify_complete_role_archive()") < downgrade.index(
+        "_restore_source_governance_writer()"
+    )
 
 
 def test_pers10_archives_required_governance_classes_with_hashes() -> None:

@@ -20,7 +20,7 @@ REQUIRED_TABLES = {
 
 def test_round06_migration_follows_round05_and_declares_paper_tables() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
-    assert script.get_current_head() == "0029_legacy_governance_retirement"
+    assert script.get_current_head() == "0030_pers10_role_archive_repair"
     revision = script.get_revision("0007_papers")
     assert revision.down_revision == "0006_digital_cases"
     migration = runpy.run_path("apps/api/migrations/versions/0007_papers.py")

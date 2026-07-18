@@ -8,7 +8,7 @@ MIGRATION = Path("apps/api/migrations/versions/0024_automatic_source_profiles.py
 
 def test_pers04_is_the_single_head_after_pers03() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
-    assert script.get_current_head() == "0029_legacy_governance_retirement"
+    assert script.get_current_head() == "0030_pers10_role_archive_repair"
     revision = script.get_revision("0024_automatic_source_profiles")
     assert revision is not None
     assert revision.down_revision == "0023_personal_source_runtime"

@@ -15,7 +15,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 _DISPOSABLE_DATABASE = re.compile(r"srbg_it_[0-9a-f]{24}\Z")
-_HEAD = "0029_legacy_governance_retirement"
+_HEAD = "0030_pers10_role_archive_repair"
+_RETIRED = "0029_legacy_governance_retirement"
 _PARENT = "0028_automatic_relationships"
 
 
@@ -49,10 +50,7 @@ async def _verify_upgraded(database_url: str) -> None:
                 text("SELECT to_regclass('public.source_candidate') IS NULL")
             )
             assert await connection.scalar(
-                text(
-                    "SELECT to_regclass("
-                    "'legacy_governance_archive.source_candidate') IS NOT NULL"
-                )
+                text("SELECT to_regclass('legacy_governance_archive.source_candidate') IS NOT NULL")
             )
             assert not await connection.scalar(
                 text(
@@ -68,11 +66,24 @@ async def _verify_upgraded(database_url: str) -> None:
                 )
             )
             assert mismatches == 0
-            for role in ("srbg_admin_role", "srbg_model_role"):
+            for role in (
+                "srbg_admin_role",
+                "srbg_model_role",
+                "srbg_source_governance_writer",
+            ):
                 assert not await connection.scalar(
                     text("SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=:role)"),
                     {"role": role},
                 )
+            assert (
+                await connection.scalar(
+                    text(
+                        "SELECT count(*) FROM legacy_governance_archive."
+                        "legacy_governance_archive_record WHERE entity_type='database_role'"
+                    )
+                )
+                == 3
+            )
             assert not await connection.scalar(
                 text(
                     "SELECT EXISTS(SELECT 1 FROM pg_trigger "
@@ -96,7 +107,11 @@ async def _verify_parent(database_url: str) -> None:
             assert await connection.scalar(
                 text("SELECT to_regnamespace('legacy_governance_archive') IS NULL")
             )
-            for role in ("srbg_admin_role", "srbg_model_role"):
+            for role in (
+                "srbg_admin_role",
+                "srbg_model_role",
+                "srbg_source_governance_writer",
+            ):
                 assert await connection.scalar(
                     text("SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=:role)"),
                     {"role": role},
@@ -107,6 +122,36 @@ async def _verify_parent(database_url: str) -> None:
                     "WHERE tgrelid='public.event'::regclass "
                     "AND tgname='trg_event_pending_insert')"
                 )
+            )
+    finally:
+        await engine.dispose()
+
+
+async def _verify_retired(database_url: str) -> None:
+    engine = create_async_engine(database_url)
+    try:
+        async with engine.connect() as connection:
+            version = await connection.scalar(text("SELECT version_num FROM alembic_version"))
+            assert version == _RETIRED
+            assert await connection.scalar(
+                text(
+                    "SELECT EXISTS(SELECT 1 FROM pg_roles "
+                    "WHERE rolname='srbg_source_governance_writer')"
+                )
+            )
+            for role in ("srbg_admin_role", "srbg_model_role"):
+                assert not await connection.scalar(
+                    text("SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=:role)"),
+                    {"role": role},
+                )
+            assert (
+                await connection.scalar(
+                    text(
+                        "SELECT count(*) FROM legacy_governance_archive."
+                        "legacy_governance_archive_record WHERE entity_type='database_role'"
+                    )
+                )
+                == 2
             )
     finally:
         await engine.dispose()
@@ -126,7 +171,7 @@ async def _corrupt_manifest(database_url: str, *, delta: int) -> None:
                 text(
                     "UPDATE legacy_governance_archive.legacy_governance_archive_manifest "
                     "SET archive_count=archive_count+:delta "
-                    "WHERE entity_type='source_candidate'"
+                    "WHERE entity_type='database_role'"
                 ),
                 {"delta": delta},
             )
@@ -140,6 +185,46 @@ async def _corrupt_manifest(database_url: str, *, delta: int) -> None:
         await engine.dispose()
 
 
+async def _simulate_applied_0029_role_drift(database_url: str) -> None:
+    engine = create_async_engine(database_url)
+    try:
+        async with engine.begin() as connection:
+            for relation in (
+                "legacy_governance_archive_record",
+                "legacy_governance_archive_manifest",
+            ):
+                await connection.execute(
+                    text(
+                        "ALTER TABLE legacy_governance_archive."
+                        f"{relation} DISABLE TRIGGER trg_pers10_archive_read_only"
+                    )
+                )
+            await connection.execute(
+                text(
+                    "DELETE FROM legacy_governance_archive.legacy_governance_archive_record "
+                    "WHERE entity_type='database_role'"
+                )
+            )
+            await connection.execute(
+                text(
+                    "DELETE FROM legacy_governance_archive.legacy_governance_archive_manifest "
+                    "WHERE entity_type='database_role'"
+                )
+            )
+            for relation in (
+                "legacy_governance_archive_record",
+                "legacy_governance_archive_manifest",
+            ):
+                await connection.execute(
+                    text(
+                        "ALTER TABLE legacy_governance_archive."
+                        f"{relation} ENABLE TRIGGER trg_pers10_archive_read_only"
+                    )
+                )
+    finally:
+        await engine.dispose()
+
+
 def main() -> None:
     database_url = _url()
     config = Config("apps/api/alembic.ini")
@@ -147,18 +232,32 @@ def main() -> None:
     asyncio.run(_verify_upgraded(database_url))
     asyncio.run(_corrupt_manifest(database_url, delta=1))
     try:
-        command.downgrade(config, _PARENT)
+        command.downgrade(config, _RETIRED)
     except Exception as exc:  # Alembic wraps the migration RuntimeError.
-        if "PERS10_ARCHIVE_CORRUPT" not in str(exc):
+        if not any(
+            reason in str(exc)
+            for reason in (
+                "PERS10_ARCHIVE_CORRUPT",
+                "PERS10_ROLE_ARCHIVE_CORRUPT",
+            )
+        ):
             raise
     else:
         raise AssertionError("corrupt archive downgrade unexpectedly succeeded")
     asyncio.run(_corrupt_manifest(database_url, delta=-1))
+    command.downgrade(config, _RETIRED)
+    asyncio.run(_verify_retired(database_url))
+    command.downgrade(config, _PARENT)
+    asyncio.run(_verify_parent(database_url))
+    command.upgrade(config, _RETIRED)
+    asyncio.run(_simulate_applied_0029_role_drift(database_url))
+    command.upgrade(config, _HEAD)
+    asyncio.run(_verify_upgraded(database_url))
     command.downgrade(config, _PARENT)
     asyncio.run(_verify_parent(database_url))
     command.upgrade(config, _HEAD)
     asyncio.run(_verify_upgraded(database_url))
-    print("PERS-10 migration replay passed: 0028 -> 0029 -> 0028 -> 0029")
+    print("PERS-10 migration replay passed: 0028 -> 0029 -> 0030 -> 0029 -> 0028 -> 0029 -> 0030")
 
 
 if __name__ == "__main__":

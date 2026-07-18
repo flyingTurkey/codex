@@ -15,7 +15,7 @@
 
 ## PERS-10 企业治理退场
 
-数据库头为 `0029_legacy_governance_retirement`。迁移在同一事务中将 52 类旧治理关系写入只读 `legacy_governance_archive`，保存规范化 JSON、逐行 SHA-256、分类计数和分类汇总 SHA-256；数量或哈希不一致时拒绝退场。正常业务角色没有归档 Schema 使用权，业务代码禁止读取归档。
+数据库头为 `0030_pers10_role_archive_repair`。`0029` 在同一事务中归档旧治理关系；`0030` 补齐三个企业数据库角色的规范快照并删除最后的来源治理角色。归档保存规范化 JSON、逐行 SHA-256、分类计数和分类汇总 SHA-256；数量、哈希、角色状态或跨数据库依赖不一致时拒绝退场。正常业务角色没有归档 Schema 使用权，业务代码禁止读取归档。
 
 降级先重新验证每行和每类 manifest，损坏时以 `PERS10_ARCHIVE_CORRUPT`/`PERS10_ARCHIVE_HASH_MISMATCH` 中止；验证通过后恢复旧表、数据、约束、触发器、授权和 0029 前调度函数。操作见[迁移回滚 Runbook](docs/operations/pers10-migration-rollback-runbook.md)和[备份恢复说明](docs/operations/personal-backup-restore.md)。
 
@@ -57,6 +57,6 @@ make web-e2e
 make web-a11y
 ```
 
-`personal-migration-test` 使用隔离的真实 PostgreSQL 执行 `0028 → 0029 → 损坏降级拒绝 → 修复 → 0028 → 0029`，并运行 30 个来源与 30 个内容固定样本评估。Fixture 和固定样本只用于确定性回归，不得冒充真实联网验收。
+`personal-migration-test` 使用隔离的真实 PostgreSQL 执行 `0028 → 0029 → 0030 → 损坏降级拒绝 → 0029 → 0028 → 0029 → 0030`，并覆盖已应用 0029 缺失角色快照的修复路径，再运行 30 个来源与 30 个内容固定样本评估。Fixture 和固定样本只用于确定性回归，不得冒充真实联网验收。
 
 PERS-10 实现与归档统计见[本轮验收记录](docs/acceptance/personal/round-pers10-legacy-retirement.md)；真实交通运输部链路、受控原文变化和失效证据见[最终个人平台验收](docs/acceptance/personal/final-personal-platform.md)。

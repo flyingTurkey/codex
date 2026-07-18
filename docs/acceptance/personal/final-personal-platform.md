@@ -31,9 +31,9 @@
 
 ## 归档与角色
 
-开发库归档 52 类、原始 66 行、归档 66 行，manifest 清单汇总 SHA-256 `c977659c5cfae2355c9b879fcc0bc5b10f9e8bf7bbbb25aa417457461e780274`。正常业务角色无归档 Schema 使用权。降级会先验证逐行及逐类计数和哈希，损坏即拒绝；验证通过才恢复表、数据、约束、触发器、授权和 0029 前函数。
+开发库迁移头为 `0030_pers10_role_archive_repair`，归档 53 类、原始 69 行、归档 69 行，manifest 清单汇总 SHA-256 `780f6fd212970588e84d29f9fba169dc5ee5ef4903264cb46f9c831cbb75825c`；其中三个数据库角色的分类哈希为 `a1e0a36ca4bdd7a0cacebb997bd26a19110d4672b6695cad7a0e4f12f9def1d4`。正常业务角色无归档 Schema 使用权。降级会先验证逐行及逐类计数和哈希，损坏即拒绝；验证通过才按 `0030 → 0029 → 0028` 恢复角色、表、数据、约束、触发器、授权和旧函数。
 
-旧产品角色与旧 NOLOGIN 企业角色 `srbg_admin_role`、`srbg_model_role` 已删除；只保留 owner 语义及 API、Worker、Publisher、投影读取等必要内部服务主体。
+旧产品角色与旧 NOLOGIN 企业角色 `srbg_admin_role`、`srbg_model_role`、`srbg_source_governance_writer` 已删除；只保留 owner 语义及 API、Worker、Publisher、投影读取等必要内部服务主体。
 
 ## 遗留风险
 

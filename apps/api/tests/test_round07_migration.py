@@ -18,7 +18,7 @@ REQUIRED_TABLES = {
 
 def test_round07_migration_follows_round06_and_declares_product_tables() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
-    assert script.get_current_head() == "0029_legacy_governance_retirement"
+    assert script.get_current_head() == "0030_pers10_role_archive_repair"
     revision = script.get_revision("0008_technology_products")
     assert revision.down_revision == "0007_papers"
     migration = runpy.run_path("apps/api/migrations/versions/0008_technology_products.py")

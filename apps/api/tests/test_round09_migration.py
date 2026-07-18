@@ -23,7 +23,7 @@ REQUIRED_TABLES = {
 
 def test_round09_migration_follows_round08_and_declares_governance_tables() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
-    assert script.get_current_head() == "0029_legacy_governance_retirement"
+    assert script.get_current_head() == "0030_pers10_role_archive_repair"
     revision = script.get_revision("0010_ai_editorial_governance")
     assert revision.down_revision == "0009_dedup_events_scoring"
     migration = runpy.run_path(
