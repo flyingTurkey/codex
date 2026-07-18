@@ -30,6 +30,12 @@ const publicExports = {
   'source-governance-metadata-update.schema.json': ['SourceGovernanceMetadataUpdate'],
   'cluster-candidate-view.schema.json': ['ClusterCandidateView'],
   'cluster-decision-request.schema.json': ['ClusterDecisionRequest'],
+  'automatic-relationship-view.schema.json': ['AutomaticRelationshipView', 'AutomaticRelationshipKind'],
+  'owner-relationship-correction-request.schema.json': [
+    'OwnerRelationshipCorrectionRequest',
+    'EventSplitAllocation',
+  ],
+  'owner-relationship-correction-response.schema.json': ['OwnerRelationshipCorrectionResponse'],
   'claim-view.schema.json': ['ClaimView'],
   'claim-conflict.schema.json': ['ClaimConflict'],
   'claim-conflict-decision-request.schema.json': ['ClaimConflictDecisionRequest'],

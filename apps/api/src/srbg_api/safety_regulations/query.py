@@ -19,6 +19,7 @@ from srbg_contracts import (
     AiJudgmentEvidencePreview,
     AiJudgmentPreview,
     AiReviewTrace,
+    AutomaticRelationshipView,
     Channel,
     ClaimView,
     ClusterCandidateView,
@@ -1685,6 +1686,52 @@ class PostgresIntelligenceQueryService:
         }[citation_format]
         return formatter(metadata), media_type
 
+    async def list_automatic_relationships(self, event_id: UUID) -> list[AutomaticRelationshipView]:
+        async with self._engine.connect() as connection:
+            rows = list(
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            WITH members AS (
+                              SELECT item_id FROM event_identity_binding WHERE event_id=:event_id
+                              UNION SELECT item_id FROM event_item WHERE event_id=:event_id
+                            )
+                            SELECT decision.id,decision.relationship_key,
+                              decision.relationship_kind,decision.source_item_id,
+                              decision.target_item_id,decision.status,decision.score_bps,
+                              decision.reason_codes,decision.algorithm_version,
+                              decision.model_version,decision.input_fingerprint_sha256,
+                              decision.created_at
+                            FROM automatic_relationship_decision_version decision
+                            WHERE decision.source_item_id IN (SELECT item_id FROM members)
+                               OR decision.target_item_id IN (SELECT item_id FROM members)
+                            ORDER BY (decision.status='ACTIVE') DESC,
+                              decision.created_at DESC,decision.id DESC
+                            """
+                        ),
+                        {"event_id": event_id},
+                    )
+                ).mappings()
+            )
+        return [
+            AutomaticRelationshipView(
+                id=row["id"],
+                relationship_key=row["relationship_key"],
+                kind=row["relationship_kind"],
+                source_item_id=row["source_item_id"],
+                target_item_id=row["target_item_id"],
+                status=row["status"],
+                score_bps=row["score_bps"],
+                reason_codes=list(row["reason_codes"]),
+                algorithm_version=row["algorithm_version"],
+                model_version=row["model_version"],
+                input_fingerprint_sha256=row["input_fingerprint_sha256"],
+                created_at=row["created_at"],
+            )
+            for row in rows
+        ]
+
     async def get_event(self, event_id: UUID) -> EventDetail:
         async with self._engine.connect() as connection:
             identity = (
@@ -1720,7 +1767,15 @@ class PostgresIntelligenceQueryService:
                                AND child.target_role='CHILD'
                              WHERE source.event_id=:event_id
                                AND source.target_role='SOURCE'
-                             ORDER BY child.event_id
+                            UNION
+                            SELECT DISTINCT (allocation->>'child_event_id')::uuid
+                              FROM owner_relationship_correction correction
+                              CROSS JOIN LATERAL jsonb_array_elements(
+                                correction.payload->'allocations'
+                              ) allocation
+                             WHERE correction.event_id=:event_id
+                               AND correction.action='SPLIT_EVENT'
+                             ORDER BY 1
                             """
                         ),
                         {"event_id": event_id},
@@ -2236,7 +2291,9 @@ class PostgresIntelligenceQueryService:
                                      COALESCE(affiliation.organization_key, item.source_id::text)
                                    )) FILTER (
                                      WHERE lineage.role IS NULL
-                                        OR lineage.role IN ('ORIGINAL','INDEPENDENT_REPORT')
+                                        OR lineage.role IN (
+                                          'ORIGINAL','INDEPENDENT_REPORT','INDEPENDENT_VERIFICATION'
+                                        )
                                    ) AS independent_source_count,
                                    max(item.activity_at) AS latest_activity_at,
                                    COALESCE(max(CASE WHEN dimension.dimension = 'HEAT'

@@ -1,0 +1,128 @@
+{
+  "$defs": {
+    "EventSplitAllocation": {
+      "additionalProperties": false,
+      "properties": {
+        "child_event_id": {
+          "format": "uuid",
+          "title": "Child Event Id",
+          "type": "string"
+        },
+        "item_id": {
+          "format": "uuid",
+          "title": "Item Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "item_id",
+        "child_event_id"
+      ],
+      "title": "EventSplitAllocation",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "WITHDRAW_RELATION",
+        "SPLIT_EVENT",
+        "KEEP_INDEPENDENT",
+        "CORRECT_MODEL_RELATION"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "allocations": {
+      "items": {
+        "$ref": "#/$defs/EventSplitAllocation"
+      },
+      "maxItems": 1000,
+      "title": "Allocations",
+      "type": "array"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "corrected_kind": {
+      "anyOf": [
+        {
+          "enum": [
+            "MODEL_ALIAS",
+            "VERSION_SUCCESSOR"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Corrected Kind"
+    },
+    "corrected_source_item_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Corrected Source Item Id"
+    },
+    "corrected_target_item_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Corrected Target Item Id"
+    },
+    "decision_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Decision Id"
+    },
+    "member_item_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "maxItems": 1000,
+      "title": "Member Item Ids",
+      "type": "array"
+    },
+    "reason": {
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Reason",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "action",
+    "reason"
+  ],
+  "title": "OwnerRelationshipCorrectionRequest",
+  "type": "object"
+}

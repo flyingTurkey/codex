@@ -18,7 +18,14 @@ export type OriginalUrl = string
  */
 export type PublicationRevisionIds = string[]
 export type SourceName = string
-export type SourceLineageRole = 'ORIGINAL' | 'REPRINT' | 'MIRROR' | 'INDEPENDENT_REPORT'
+export type SourceLineageRole =
+  | 'ORIGINAL'
+  | 'REPRINT'
+  | 'MIRROR'
+  | 'INDEPENDENT_REPORT'
+  | 'VENDOR_STATEMENT'
+  | 'MEDIA_REPORT'
+  | 'INDEPENDENT_VERIFICATION'
 export type SourceRolePending = boolean
 /**
  * @maxItems 500

@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+### PERS-08 可撤销的自动关系、事件与型号归一
+
+- 新增 `0028_automatic_relationships`，版本化保存自动关系决定、算法/模型版本、基点分数、理由、输入成员、Owner 纠正与撤销，以及输入变化或事件拆分形成的失效链；所有指向 Item、Document、DocumentVersion、Claim 和 Evidence 的外键均为 `RESTRICT`。
+- 内容处理自动建立高置信重复、同一事件、报告后续、型号/版本、主题和相关内容关系。初报、续报和最终调查报告只建立方向明确的后续/调查关系；厂商声明、媒体报道和独立验证保留不同来源角色，不折叠为同一事实来源。
+- Event 详情新增 Owner 撤销、拆分、保持独立和型号关系纠正。Owner 决定优先于自动重算；只有成员原文内容哈希或文档版本实质变化后，才允许产生新的关系决定版本。
+- 关系变化统一经 `PublicationService` 事务更新 Feed、搜索和日报 generation，并投递缓存/搜索/日报失效事件。旧重复、事件、主题及型号候选表和 API 保留只读兼容，但迁移和 API 双重阻止新增候选。
+
 ### PERS-07 AI 判断、未验证 AI 与自动发布闭环
 
 - 新增 `0027_ai_judgment_versions`，版本化保存 Event、文档、证据集合、Prompt/Schema/模型、用量成本、VERIFY 结果、失效原因和投影引用。

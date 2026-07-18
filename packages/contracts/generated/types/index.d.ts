@@ -1,5 +1,7 @@
 // Generated from canonical Pydantic contracts. Do not edit directly.
 
+export type { AutomaticRelationshipView } from './automatic-relationship-view.schema'
+export type { AutomaticRelationshipKind } from './automatic-relationship-view.schema'
 export type { ClaimConflictDecisionRequest } from './claim-conflict-decision-request.schema'
 export type { ClaimConflictDecisionResponse } from './claim-conflict-decision-response.schema'
 export type { ClaimConflict } from './claim-conflict.schema'
@@ -75,6 +77,9 @@ export type { OperatorWorkSessionHeartbeatRequest } from './operator-work-sessio
 export type { OperatorWorkSessionStart } from './operator-work-session-start.schema'
 export type { OperatorWorkSessionStopRequest } from './operator-work-session-stop-request.schema'
 export type { OperatorWorkSessionView } from './operator-work-session-view.schema'
+export type { OwnerRelationshipCorrectionRequest } from './owner-relationship-correction-request.schema'
+export type { EventSplitAllocation } from './owner-relationship-correction-request.schema'
+export type { OwnerRelationshipCorrectionResponse } from './owner-relationship-correction-response.schema'
 export type { PaperDetail } from './paper-detail.schema'
 export type { PaperAuthor } from './paper-detail.schema'
 export type { ResearchInterpretation } from './paper-detail.schema'

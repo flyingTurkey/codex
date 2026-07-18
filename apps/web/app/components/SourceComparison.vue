@@ -8,6 +8,9 @@ const roleLabels = {
   REPRINT: '转载',
   MIRROR: '同机构镜像',
   INDEPENDENT_REPORT: '独立报道',
+  VENDOR_STATEMENT: '厂商声明',
+  MEDIA_REPORT: '媒体报道',
+  INDEPENDENT_VERIFICATION: '独立验证',
 } as const
 </script>
 

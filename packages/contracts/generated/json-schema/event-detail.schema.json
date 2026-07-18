@@ -230,6 +230,117 @@
       "title": "AiJudgmentPreview",
       "type": "object"
     },
+    "AutomaticRelationshipKind": {
+      "enum": [
+        "DUPLICATE",
+        "SAME_EVENT",
+        "FOLLOW_UP_OF",
+        "INVESTIGATES",
+        "MODEL_ALIAS",
+        "VERSION_SUCCESSOR",
+        "TOPIC",
+        "RELATED_CONTENT"
+      ],
+      "title": "AutomaticRelationshipKind",
+      "type": "string"
+    },
+    "AutomaticRelationshipView": {
+      "additionalProperties": false,
+      "properties": {
+        "algorithm_version": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Algorithm Version",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "input_fingerprint_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Input Fingerprint Sha256",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/AutomaticRelationshipKind"
+        },
+        "model_version": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Version"
+        },
+        "reason_codes": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Reason Codes",
+          "type": "array"
+        },
+        "relationship_key": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Relationship Key",
+          "type": "string"
+        },
+        "score_bps": {
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Score Bps",
+          "type": "integer"
+        },
+        "source_item_id": {
+          "format": "uuid",
+          "title": "Source Item Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "ACTIVE",
+            "INVALIDATED",
+            "WITHDRAWN",
+            "SUPERSEDED"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "target_item_id": {
+          "format": "uuid",
+          "title": "Target Item Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "relationship_key",
+        "kind",
+        "source_item_id",
+        "target_item_id",
+        "status",
+        "score_bps",
+        "reason_codes",
+        "algorithm_version",
+        "input_fingerprint_sha256",
+        "created_at"
+      ],
+      "title": "AutomaticRelationshipView",
+      "type": "object"
+    },
     "Channel": {
       "enum": [
         "DIGITAL",
@@ -2213,7 +2324,10 @@
         "ORIGINAL",
         "REPRINT",
         "MIRROR",
-        "INDEPENDENT_REPORT"
+        "INDEPENDENT_REPORT",
+        "VENDOR_STATEMENT",
+        "MEDIA_REPORT",
+        "INDEPENDENT_VERIFICATION"
       ],
       "title": "SourceLineageRole",
       "type": "string"
@@ -2315,6 +2429,14 @@
       },
       "maxItems": 500,
       "title": "Ai Judgments",
+      "type": "array"
+    },
+    "automatic_relationships": {
+      "items": {
+        "$ref": "#/$defs/AutomaticRelationshipView"
+      },
+      "maxItems": 1000,
+      "title": "Automatic Relationships",
       "type": "array"
     },
     "canonical_event_id": {

@@ -167,3 +167,8 @@ groups:
         for: 5m
         labels: {severity: p2}
         annotations: {summary: "Personal AI content processing failures increased"}
+      - alert: PersonalRelationshipCorrectionFailure
+        expr: increase(srbg_personal_relationship_corrections_total{outcome="failed"}[15m]) > 0
+        for: 5m
+        labels: {severity: p2}
+        annotations: {summary: "Owner relationship correction or projection refresh failed"}

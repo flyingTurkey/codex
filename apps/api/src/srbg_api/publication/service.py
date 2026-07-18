@@ -13,11 +13,14 @@ from srbg_contracts import (
     ClaimConflictDecisionResponse,
     DailyReport,
     DigitalCaseReviewPatch,
+    OwnerRelationshipCorrectionRequest,
+    OwnerRelationshipCorrectionResponse,
     ReviewDecisionResponse,
     ScoreDimension,
 )
 
 from srbg_api.identifiers import uuid7
+from srbg_api.observability import PERSONAL_RELATIONSHIP_CORRECTIONS
 from srbg_api.publication.gate import PublicationGate
 
 
@@ -132,6 +135,15 @@ class PublicationRepository(Protocol):
     async def process_outbox_once(self, *, processed_at: datetime) -> bool: ...
 
     async def process_personal_content_once(self, *, processed_at: datetime) -> bool: ...
+
+    async def correct_automatic_relationship(
+        self,
+        *,
+        event_id: UUID,
+        payload: OwnerRelationshipCorrectionRequest,
+        owner_id: UUID,
+        corrected_at: datetime,
+    ) -> OwnerRelationshipCorrectionResponse: ...
 
     async def process_projection_invalidation_once(
         self,
@@ -455,6 +467,28 @@ class PublicationService:
         """Write the minimal personal projection through the sole publisher boundary."""
 
         return await self._repository.process_personal_content_once(processed_at=self._now())
+
+    async def correct_automatic_relationship(
+        self,
+        event_id: UUID,
+        *,
+        payload: OwnerRelationshipCorrectionRequest,
+        owner_id: UUID,
+    ) -> OwnerRelationshipCorrectionResponse:
+        """Apply the local Owner's highest-priority correction at the publication boundary."""
+
+        try:
+            return await self._repository.correct_automatic_relationship(
+                event_id=event_id,
+                payload=payload,
+                owner_id=owner_id,
+                corrected_at=self._now(),
+            )
+        except Exception:
+            PERSONAL_RELATIONSHIP_CORRECTIONS.labels(
+                action=payload.action, outcome="failed"
+            ).inc()
+            raise
 
     async def process_projection_invalidation_once(
         self,

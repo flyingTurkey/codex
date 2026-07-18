@@ -102,9 +102,7 @@ def test_viewer_cannot_generate_safety_event_candidates() -> None:
 
 
 @pytest.mark.parametrize("role", ["editor", "reviewer", "platform_admin"])
-def test_authorized_role_invokes_real_candidate_service_and_gets_review_queue_contract(
-    role: str,
-) -> None:
+def test_authorized_role_cannot_create_legacy_relationship_candidates(role: str) -> None:
     store = RecordingCandidateStore()
     client = _client(SafetyEventCandidateService(store))
 
@@ -113,16 +111,8 @@ def test_authorized_role_invokes_real_candidate_service_and_gets_review_queue_co
         headers={"X-SRBG-Local-Roles": role},
     )
 
-    assert response.status_code == 202
-    assert response.json() == {
-        "candidate_id": str(CANDIDATE_ID),
-        "status": "PENDING_REVIEW",
-        "requires_human_review": True,
-    }
-    assert store.saved is not None
-    assert store.saved.event_id == EVENT_ID
-    assert store.saved.item_id == ITEM_ID
-    assert store.saved.requires_human_review is True
+    assert response.status_code == 409
+    assert store.saved is None
 
 
 def test_candidate_generation_has_no_caller_supplied_submitter_contract() -> None:
@@ -136,16 +126,15 @@ def test_candidate_generation_has_no_caller_supplied_submitter_contract() -> Non
         json={"submitted_by": str(CALLER_ID)},
     )
 
-    assert response.status_code == 202
-    assert store.saved is not None
-    assert not hasattr(store.saved, "submitted_by")
+    assert response.status_code == 409
+    assert store.saved is None
     operation = client.get("/openapi.json").json()["paths"][
         "/api/v1/admin/events/{event_id}/candidate-items/{item_id}"
     ]["post"]
     assert "requestBody" not in operation
 
 
-def test_candidate_below_threshold_returns_conflict() -> None:
+def test_frozen_candidate_endpoint_does_not_invoke_service() -> None:
     service = NoCandidateService()
     client = _client(service)
 
@@ -155,26 +144,17 @@ def test_candidate_below_threshold_returns_conflict() -> None:
     )
 
     assert response.status_code == 409
-    assert service.called_with == (EVENT_ID, ITEM_ID)
+    assert service.called_with is None
 
 
-@pytest.mark.parametrize(
-    ("error", "expected_status"),
-    [
-        (LookupError("missing"), 404),
-        (EventCandidateAlreadyDecided("decided"), 409),
-    ],
-)
-def test_candidate_generation_maps_expected_domain_errors_to_problem_details(
-    error: Exception,
-    expected_status: int,
-) -> None:
+@pytest.mark.parametrize("error", [LookupError("missing"), EventCandidateAlreadyDecided("decided")])
+def test_frozen_candidate_endpoint_never_exposes_legacy_domain_errors(error: Exception) -> None:
     response = _client(FailedCandidateService(error)).post(
         f"/api/v1/admin/events/{EVENT_ID}/candidate-items/{ITEM_ID}",
         headers={"X-SRBG-Local-Roles": "editor"},
     )
 
-    assert response.status_code == expected_status
+    assert response.status_code == 409
     assert response.headers["content-type"].startswith("application/problem+json")
 
 

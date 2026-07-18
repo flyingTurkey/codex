@@ -1,5 +1,11 @@
 # 四川路桥·智安情报
 
+## PERS-08 自动关系与个人纠错
+
+内容处理会在保存原始 Item、Document、DocumentVersion、Claim 和 Evidence 的前提下，自动建立高置信重复、同一事件、报告后续、型号/版本继承、主题和相关内容关系。初报、续报与最终调查报告不会互相覆盖；厂商声明、媒体报道和独立验证也始终保留各自来源角色。
+
+Owner 可在 Event 详情撤销关系、拆分事件、标记“保持独立”或修正型号关系。个人纠正具有最高优先级，同一输入版本不会被后续任务重新关联；原文实质变化后则会产生新的可追溯关系版本。关系变化由 `PublicationService` 在同一事务刷新 Feed、搜索、日报与缓存失效链。操作和版本语义见[自动关系和个人纠错说明](docs/user-guide/personal-automatic-relationships.md)，验收边界见[PERS-08 验收记录](docs/acceptance/personal/round-pers08-automatic-relations.md)。
+
 ## PERS-07 AI 判断与自动发布
 
 每个当前文档版本会先发布证据事实信号，再用仅含当前 `EVIDENCE_FACT` 和必要短摘录的输入生成 AI 判断并执行 VERIFY。通过核验的判断标记为 `AI_JUDGMENT`；结构合法但未通过核验的判断以明显不同的“未验证 AI”卡片进入同一时间线和独立搜索/日报分区；错误 JSON、Schema 失败或提示注入只显示 `AI_PROCESSING_FAILED`。

@@ -6,6 +6,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from srbg_contracts.models import (
+    AutomaticRelationshipView,
     ClaimConflict,
     ClaimConflictDecisionRequest,
     ClaimConflictDecisionResponse,
@@ -70,6 +71,8 @@ from srbg_contracts.models import (
     OperatorWorkSessionStart,
     OperatorWorkSessionStopRequest,
     OperatorWorkSessionView,
+    OwnerRelationshipCorrectionRequest,
+    OwnerRelationshipCorrectionResponse,
     PaperDetail,
     PersonalSourceCreateRequest,
     PersonalSourcePatchRequest,
@@ -229,6 +232,9 @@ SCHEMA_MODELS: dict[str, type[BaseModel]] = {
     "evidence-view.schema.json": EvidenceView,
     "event-candidate-generation-response.schema.json": EventCandidateGenerationResponse,
     "event-detail.schema.json": EventDetail,
+    "automatic-relationship-view.schema.json": AutomaticRelationshipView,
+    "owner-relationship-correction-request.schema.json": OwnerRelationshipCorrectionRequest,
+    "owner-relationship-correction-response.schema.json": OwnerRelationshipCorrectionResponse,
     "cluster-candidate-view.schema.json": ClusterCandidateView,
     "cluster-decision-request.schema.json": ClusterDecisionRequest,
     "event-item.schema.json": EventItem,

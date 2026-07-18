@@ -23,6 +23,33 @@ export type Value = string
  * @maxItems 500
  */
 export type AiJudgments = AiJudgmentPreview[]
+export type AlgorithmVersion = string
+export type CreatedAt = string
+export type Id1 = string
+export type InputFingerprintSha256 = string
+export type AutomaticRelationshipKind =
+  | 'DUPLICATE'
+  | 'SAME_EVENT'
+  | 'FOLLOW_UP_OF'
+  | 'INVESTIGATES'
+  | 'MODEL_ALIAS'
+  | 'VERSION_SUCCESSOR'
+  | 'TOPIC'
+  | 'RELATED_CONTENT'
+export type ModelVersion = string | null
+/**
+ * @maxItems 20
+ */
+export type ReasonCodes1 = string[]
+export type RelationshipKey = string
+export type ScoreBps = number
+export type SourceItemId = string
+export type Status1 = 'ACTIVE' | 'INVALIDATED' | 'WITHDRAWN' | 'SUPERSEDED'
+export type TargetItemId = string
+/**
+ * @maxItems 1000
+ */
+export type AutomaticRelationships = AutomaticRelationshipView[]
 export type CanonicalEventId = string | null
 export type ClaimId = string
 /**
@@ -56,8 +83,8 @@ export type SafetyCaseFactField =
   | 'CORRECTIVE_ACTIONS'
 export type Label = string
 export type ReviewedAt = string
-export type SourceItemId = string
-export type Status1 = 'CONFIRMED'
+export type SourceItemId1 = string
+export type Status2 = 'CONFIRMED'
 export type Unit = string | null
 export type Value2 = string | number | string[]
 export type ConfirmedFacts = ConfirmedFact[]
@@ -68,7 +95,14 @@ export type OriginalUrl = string
  */
 export type PublicationRevisionIds = string[]
 export type SourceName = string
-export type SourceLineageRole = 'ORIGINAL' | 'REPRINT' | 'MIRROR' | 'INDEPENDENT_REPORT'
+export type SourceLineageRole =
+  | 'ORIGINAL'
+  | 'REPRINT'
+  | 'MIRROR'
+  | 'INDEPENDENT_REPORT'
+  | 'VENDOR_STATEMENT'
+  | 'MEDIA_REPORT'
+  | 'INDEPENDENT_VERIFICATION'
 export type SourceRolePending = boolean
 /**
  * @maxItems 500
@@ -87,7 +121,7 @@ export type Locator1 = string
  */
 export type Evidence1 = PublishedEvidenceReferenceV1[]
 export type HazardType = string | null
-export type Id1 = string
+export type Id2 = string
 export type IncidentStatus =
   | 'UNVERIFIED_LEAD'
   | 'INITIAL_OFFICIAL_REPORT'
@@ -115,7 +149,7 @@ export type RectificationHasOpenIssues = boolean | null
 export type Region = string | null
 export type EventId = string
 export type FromItemId = string
-export type Id2 = string
+export type Id3 = string
 export type EventRelation = 'FOLLOW_UP' | 'INVESTIGATES' | 'PENALIZES' | 'RECTIFIES' | 'CORRECTS'
 export type ReviewedAt1 = string
 export type ReviewedBy = string
@@ -172,7 +206,7 @@ export type EventVersion1 = number
 export type FactReviewStatus = 'PENDING_HUMAN_REVIEW' | 'HUMAN_REVIEWED'
 export type FirstDiscoveredAt = string
 export type Generation = number
-export type Id3 = string
+export type Id4 = string
 export type OneSentenceFact = string | null
 export type OriginalUrl1 = string
 /**
@@ -381,13 +415,14 @@ export type DisplayValue = '待核实'
 export type EvidenceIds2 = string[]
 export type Label3 = string
 export type Reason = string
-export type SourceItemId1 = string
-export type Status2 = 'PENDING_REVIEW' | 'CONFLICTING'
+export type SourceItemId2 = string
+export type Status3 = 'PENDING_REVIEW' | 'CONFLICTING'
 export type Value3 = null
 export type UnverifiedFacts = UnverifiedFact[]
 
 export interface EventDetail {
   ai_judgments?: AiJudgments
+  automatic_relationships?: AutomaticRelationships
   canonical_event_id?: CanonicalEventId
   claims?: Claims
   confirmed_facts: ConfirmedFacts
@@ -398,7 +433,7 @@ export interface EventDetail {
   event_version?: EventVersion
   evidence?: Evidence1
   hazard_type?: HazardType
-  id: Id1
+  id: Id2
   incident_status?: IncidentStatus | null
   independent_source_count?: IndependentSourceCount
   occurred_at?: OccurredAt
@@ -436,6 +471,20 @@ export interface AiJudgmentEvidencePreview {
   excerpt_sha256: ExcerptSha256
   locator: Locator
 }
+export interface AutomaticRelationshipView {
+  algorithm_version: AlgorithmVersion
+  created_at: CreatedAt
+  id: Id1
+  input_fingerprint_sha256: InputFingerprintSha256
+  kind: AutomaticRelationshipKind
+  model_version?: ModelVersion
+  reason_codes: ReasonCodes1
+  relationship_key: RelationshipKey
+  score_bps: ScoreBps
+  source_item_id: SourceItemId
+  status: Status1
+  target_item_id: TargetItemId
+}
 export interface PublishedClaimV1 {
   claim_id: ClaimId
   evidence_ids: EvidenceIds
@@ -449,8 +498,8 @@ export interface ConfirmedFact {
   field: SafetyCaseFactField
   label: Label
   reviewed_at: ReviewedAt
-  source_item_id: SourceItemId
-  status?: Status1
+  source_item_id: SourceItemId1
+  status?: Status2
   unit?: Unit
   value: Value2
 }
@@ -470,7 +519,7 @@ export interface PublishedEvidenceReferenceV1 {
 export interface EventRelationView {
   event_id: EventId
   from_item_id: FromItemId
-  id: Id2
+  id: Id3
   relation_type: EventRelation
   reviewed_at: ReviewedAt1
   reviewed_by: ReviewedBy
@@ -518,7 +567,7 @@ export interface PublishedEventSummaryV1 {
   fact_review_status: FactReviewStatus
   first_discovered_at: FirstDiscoveredAt
   generation: Generation
-  id: Id3
+  id: Id4
   one_sentence_fact?: OneSentenceFact
   original_url: OriginalUrl1
   projection_level: ProjectionLevel
@@ -681,7 +730,7 @@ export interface UnverifiedFact {
   field: SafetyCaseFactField
   label: Label3
   reason: Reason
-  source_item_id: SourceItemId1
-  status: Status2
+  source_item_id: SourceItemId2
+  status: Status3
   value?: Value3
 }

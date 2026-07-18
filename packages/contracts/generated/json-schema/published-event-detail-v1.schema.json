@@ -1557,7 +1557,10 @@
         "ORIGINAL",
         "REPRINT",
         "MIRROR",
-        "INDEPENDENT_REPORT"
+        "INDEPENDENT_REPORT",
+        "VENDOR_STATEMENT",
+        "MEDIA_REPORT",
+        "INDEPENDENT_VERIFICATION"
       ],
       "title": "SourceLineageRole",
       "type": "string"

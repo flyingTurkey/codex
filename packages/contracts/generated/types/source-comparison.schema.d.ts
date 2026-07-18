@@ -6,7 +6,14 @@ export type ItemId = string
 export type LineageRoot = string
 export type OrganizationKey = string
 export type OriginalUrl = string
-export type SourceLineageRole = 'ORIGINAL' | 'REPRINT' | 'MIRROR' | 'INDEPENDENT_REPORT'
+export type SourceLineageRole =
+  | 'ORIGINAL'
+  | 'REPRINT'
+  | 'MIRROR'
+  | 'INDEPENDENT_REPORT'
+  | 'VENDOR_STATEMENT'
+  | 'MEDIA_REPORT'
+  | 'INDEPENDENT_VERIFICATION'
 export type SourceName = string
 export type SourcePublishedAt = string | null
 export type Sources = SourceComparisonEntry[]

@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
 from srbg_contracts import (
+    AutomaticRelationshipView,
     ClaimConflict,
     ClaimConflictDecisionRequest,
     ClaimConflictDecisionResponse,
@@ -19,6 +20,8 @@ from srbg_contracts import (
     FeedPage,
     HotTopicPage,
     ItemDetail,
+    OwnerRelationshipCorrectionRequest,
+    OwnerRelationshipCorrectionResponse,
     ProductNormalizationCandidateView,
     ProductNormalizationDecisionRequest,
     PublicationRevisionRequest,
@@ -40,13 +43,13 @@ from srbg_contracts import (
 from srbg_api.auth import (
     Principal,
     get_current_principal,
+    require_local_owner,
     require_roles,
     require_roles_with_step_up,
 )
 from srbg_api.config import get_settings
 from srbg_api.event_unification.compatibility import item_deprecation_headers
 from srbg_api.http_cache import contract_etag_response
-from srbg_api.safety_cases.candidates import EventCandidateAlreadyDecided
 
 
 class IntelligenceQueryService(Protocol):
@@ -88,6 +91,10 @@ class IntelligenceQueryService(Protocol):
     async def get_citation(self, item_id: UUID, citation_format: str) -> tuple[str, str]: ...
 
     async def get_event(self, event_id: UUID) -> EventDetail: ...
+
+    async def list_automatic_relationships(
+        self, event_id: UUID
+    ) -> list[AutomaticRelationshipView]: ...
 
     async def get_event_item_projection(self, event_id: UUID) -> ItemDetail: ...
 
@@ -244,6 +251,14 @@ class ReviewPublicationService(Protocol):
         reviewer_id: UUID,
     ) -> None: ...
 
+    async def correct_automatic_relationship(
+        self,
+        event_id: UUID,
+        *,
+        payload: OwnerRelationshipCorrectionRequest,
+        owner_id: UUID,
+    ) -> OwnerRelationshipCorrectionResponse: ...
+
 
 class EventCandidateGenerationService(Protocol):
     async def generate_candidate(
@@ -255,6 +270,7 @@ class EventCandidateGenerationService(Protocol):
 
 
 CurrentPrincipal = Annotated[Principal, Depends(get_current_principal)]
+OwnerPrincipal = Annotated[Principal, Depends(require_local_owner)]
 FromVersionQuery = Annotated[UUID, Query(alias="from")]
 ToVersionQuery = Annotated[UUID, Query(alias="to")]
 ReviewReadPrincipal = Annotated[
@@ -456,13 +472,11 @@ async def decide_product_normalization(
     request: Request,
     principal: ReviewWritePrincipal,
 ) -> Response:
-    await _publication_service(request).decide_product_normalization(
-        candidate_id,
-        action=payload.action,
-        reason=payload.reason,
-        reviewer_id=principal.user_id,
+    del candidate_id, payload, request, principal
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="PERS08_LEGACY_CANDIDATE_FROZEN",
     )
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/items/{item_id}/citation")
@@ -519,6 +533,35 @@ async def get_event_content(
         request,
         await _query_service(request).get_event_item_projection(event_id),
         exclude_unset=True,
+    )
+
+
+@router.get(
+    "/events/{event_id}/automatic-relationships",
+    response_model=list[AutomaticRelationshipView],
+)
+async def list_automatic_relationships(
+    event_id: UUID,
+    request: Request,
+    _: CurrentPrincipal,
+) -> list[AutomaticRelationshipView]:
+    return await _query_service(request).list_automatic_relationships(event_id)
+
+
+@router.post(
+    "/events/{event_id}/relationship-corrections",
+    response_model=OwnerRelationshipCorrectionResponse,
+)
+async def correct_automatic_relationship(
+    event_id: UUID,
+    payload: OwnerRelationshipCorrectionRequest,
+    request: Request,
+    principal: OwnerPrincipal,
+) -> OwnerRelationshipCorrectionResponse:
+    return await _publication_service(request).correct_automatic_relationship(
+        event_id,
+        payload=payload,
+        owner_id=principal.user_id,
     )
 
 
@@ -581,16 +624,11 @@ async def decide_cluster(
     request: Request,
     principal: ReviewWritePrincipal,
 ) -> Response:
-    await _publication_service(request).decide_cluster(
-        candidate_id,
-        candidate_kind=candidate_kind,
-        action=payload.action,
-        member_ids=payload.member_ids,
-        relation_type=payload.relation_type,
-        reason=payload.reason,
-        reviewer_id=principal.user_id,
+    del candidate_kind, candidate_id, payload, request, principal
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="PERS08_LEGACY_CANDIDATE_FROZEN",
     )
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(
@@ -624,30 +662,10 @@ async def generate_event_candidate(
     request: Request,
     _: EventCandidateWritePrincipal,
 ) -> EventCandidateGenerationResponse:
-    try:
-        candidate_id = await _event_candidate_service(request).generate_candidate(
-            event_id=event_id,
-            item_id=item_id,
-        )
-    except LookupError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="The safety event or case item was not found",
-        ) from exc
-    except EventCandidateAlreadyDecided as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="The event candidate already has a terminal review decision",
-        ) from exc
-    if candidate_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="The item does not meet the event-candidate threshold",
-        )
-    return EventCandidateGenerationResponse(
-        candidate_id=candidate_id,
-        status="PENDING_REVIEW",
-        requires_human_review=True,
+    del event_id, item_id, request
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="PERS08_LEGACY_CANDIDATE_FROZEN",
     )
 
 

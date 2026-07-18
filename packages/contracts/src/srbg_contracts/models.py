@@ -2756,6 +2756,79 @@ class SourceLineageRole(StrEnum):
     REPRINT = "REPRINT"
     MIRROR = "MIRROR"
     INDEPENDENT_REPORT = "INDEPENDENT_REPORT"
+    VENDOR_STATEMENT = "VENDOR_STATEMENT"
+    MEDIA_REPORT = "MEDIA_REPORT"
+    INDEPENDENT_VERIFICATION = "INDEPENDENT_VERIFICATION"
+
+
+class AutomaticRelationshipKind(StrEnum):
+    DUPLICATE = "DUPLICATE"
+    SAME_EVENT = "SAME_EVENT"
+    FOLLOW_UP_OF = "FOLLOW_UP_OF"
+    INVESTIGATES = "INVESTIGATES"
+    MODEL_ALIAS = "MODEL_ALIAS"
+    VERSION_SUCCESSOR = "VERSION_SUCCESSOR"
+    TOPIC = "TOPIC"
+    RELATED_CONTENT = "RELATED_CONTENT"
+
+
+class AutomaticRelationshipView(ContractModel):
+    id: UUID
+    relationship_key: str = Field(min_length=1, max_length=500)
+    kind: AutomaticRelationshipKind
+    source_item_id: UUID
+    target_item_id: UUID
+    status: Literal["ACTIVE", "INVALIDATED", "WITHDRAWN", "SUPERSEDED"]
+    score_bps: int = Field(ge=0, le=10000)
+    reason_codes: list[str] = Field(max_length=20)
+    algorithm_version: str = Field(min_length=1, max_length=100)
+    model_version: str | None = Field(default=None, max_length=200)
+    input_fingerprint_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    created_at: datetime
+
+
+class EventSplitAllocation(ContractModel):
+    item_id: UUID
+    child_event_id: UUID
+
+
+class OwnerRelationshipCorrectionRequest(ContractModel):
+    command_id: UUID
+    action: Literal[
+        "WITHDRAW_RELATION", "SPLIT_EVENT", "KEEP_INDEPENDENT", "CORRECT_MODEL_RELATION"
+    ]
+    reason: str = Field(min_length=1, max_length=1000)
+    decision_id: UUID | None = None
+    member_item_ids: list[UUID] = Field(default_factory=list, max_length=1000)
+    allocations: list[EventSplitAllocation] = Field(default_factory=list, max_length=1000)
+    corrected_kind: Literal["MODEL_ALIAS", "VERSION_SUCCESSOR"] | None = None
+    corrected_source_item_id: UUID | None = None
+    corrected_target_item_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def validate_action_payload(self) -> "OwnerRelationshipCorrectionRequest":
+        if self.action == "WITHDRAW_RELATION" and self.decision_id is None:
+            raise ValueError("decision_id is required for withdrawal")
+        if self.action == "SPLIT_EVENT" and not self.allocations:
+            raise ValueError("allocations are required for event split")
+        if self.action == "KEEP_INDEPENDENT" and len(set(self.member_item_ids)) < 2:
+            raise ValueError("at least two distinct member_item_ids are required")
+        if self.action == "CORRECT_MODEL_RELATION" and (
+            self.corrected_kind is None
+            or self.corrected_source_item_id is None
+            or self.corrected_target_item_id is None
+            or self.corrected_source_item_id == self.corrected_target_item_id
+        ):
+            raise ValueError("a complete distinct corrected model relation is required")
+        return self
+
+
+class OwnerRelationshipCorrectionResponse(ContractModel):
+    correction_id: UUID
+    event_id: UUID
+    action: str
+    event_version: int = Field(ge=1)
+    projection_generation: int = Field(ge=1)
 
 
 class HotTopicSummary(ContractModel):
@@ -3230,6 +3303,9 @@ class EventDetail(ContractModel):
     unverified_facts: list[UnverifiedFact]
     timeline: EventTimeline
     relations: list[EventRelationView]
+    automatic_relationships: list[AutomaticRelationshipView] = Field(
+        default_factory=list, max_length=1000
+    )
     similar_scenario_tags: list[SimilarScenarioTag]
     prevention_measure_tags: list[PreventionMeasureTag]
     topic_ids: list[UUID] = Field(default_factory=list)

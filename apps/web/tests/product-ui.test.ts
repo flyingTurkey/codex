@@ -84,13 +84,13 @@ describe('round 07 technology product UI', () => {
     expect(page).not.toContain('适用于四川路桥采购')
   })
 
-  it('provides a reviewer-only manual normalization entry through the existing review workbench', () => {
+  it('keeps legacy normalization candidates read-only after PERS-08', () => {
     const review = readFileSync(resolve(process.cwd(), 'app/pages/admin/review/index.vue'), 'utf8')
 
     expect(review).toContain('/api/v1/admin/product-normalization-candidates')
-    expect(review).toContain('MERGE_ALIAS')
-    expect(review).toContain('LINK_AS_NEW_VERSION')
-    expect(review).toContain('KEEP_DISTINCT')
-    expect(review).toContain('型号与版本归一候选')
+    expect(review).toContain('PERS-08')
+    expect(review).toContain('旧候选只读')
+    expect(review).not.toContain('MERGE_ALIAS')
+    expect(review).not.toContain('/product-normalization-candidates/${candidate.id}/decision')
   })
 })

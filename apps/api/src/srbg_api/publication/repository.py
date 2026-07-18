@@ -24,6 +24,8 @@ from srbg_contracts import (
     CriticalSafetyField,
     DailyReport,
     DigitalCaseReviewPatch,
+    OwnerRelationshipCorrectionRequest,
+    OwnerRelationshipCorrectionResponse,
     PreventionMeasureTag,
     ReviewDecisionResponse,
     ReviewStatus,
@@ -39,6 +41,16 @@ from srbg_api.digital_cases.domain import (
 )
 from srbg_api.discovery.repository import daily_report_from_rows
 from srbg_api.identifiers import uuid7
+from srbg_api.intelligence_resolution.automatic_relationships import (
+    AutomaticRelationshipInput,
+    RelationshipKind,
+    RelationshipSuppression,
+    decide_automatic_relationship,
+)
+from srbg_api.observability import (
+    PERSONAL_AUTOMATIC_RELATIONSHIPS,
+    PERSONAL_RELATIONSHIP_CORRECTIONS,
+)
 from srbg_api.publication.personal_signals import (
     PersonalSignalInput,
     build_personal_signal_projections,
@@ -869,6 +881,19 @@ class PostgresPublicationRepository:
                 )
                 if item["current_document_version_id"] != event["document_version_id"]:
                     raise RuntimeError("PERSONAL_PROJECTION_STALE_DOCUMENT")
+                relationship_items = await _recalculate_automatic_relationships(
+                    connection,
+                    item_id=event["item_id"],
+                    document_version_id=event["document_version_id"],
+                    calculated_at=processed_at,
+                )
+                if relationship_items:
+                    await _refresh_relationship_projections(
+                        connection,
+                        event_id=item["event_id"],
+                        item_ids=relationship_items,
+                        changed_at=processed_at,
+                    )
                 payload = [
                     {
                         "claim_id": str(row["id"]),
@@ -1177,6 +1202,341 @@ class PostgresPublicationRepository:
                 {"id": event["id"], "now": processed_at},
             )
             return True
+
+    async def correct_automatic_relationship(
+        self,
+        *,
+        event_id: UUID,
+        payload: OwnerRelationshipCorrectionRequest,
+        owner_id: UUID,
+        corrected_at: datetime,
+    ) -> OwnerRelationshipCorrectionResponse:
+        """Record an Owner correction and invalidate every old projection atomically."""
+
+        async with self._engine.begin() as connection:
+            prior = (
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT id,action FROM owner_relationship_correction
+                            WHERE command_id=:command_id
+                            UNION ALL
+                            SELECT id,'WITHDRAW_RELATION' AS action
+                            FROM owner_relationship_withdrawal
+                            WHERE command_id=:command_id
+                            LIMIT 1
+                            """
+                        ),
+                        {"command_id": payload.command_id},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            event = (
+                (
+                    await connection.execute(
+                        text("SELECT id,version,status FROM event WHERE id=:id FOR UPDATE"),
+                        {"id": event_id},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            if event is None:
+                raise PublicationDenied(("PERS08_EVENT_NOT_FOUND",))
+            if prior is not None:
+                generation = await _relationship_projection_generation(connection, event_id)
+                return OwnerRelationshipCorrectionResponse(
+                    correction_id=cast(UUID, prior["id"]),
+                    event_id=event_id,
+                    action=str(prior["action"]),
+                    event_version=int(event["version"]),
+                    projection_generation=generation,
+                )
+
+            correction_id = uuid7()
+            affected_item_ids = set(
+                (
+                    await connection.scalars(
+                        text(
+                            """
+                            SELECT item_id FROM event_identity_binding WHERE event_id=:event_id
+                            UNION SELECT item_id FROM event_item WHERE event_id=:event_id
+                            """
+                        ),
+                        {"event_id": event_id},
+                    )
+                ).all()
+            )
+            affected_item_ids.update(payload.member_item_ids)
+            affected_item_ids.update(allocation.item_id for allocation in payload.allocations)
+
+            if payload.action == "WITHDRAW_RELATION":
+                decision = (
+                    (
+                        await connection.execute(
+                            text(
+                                """
+                                SELECT id,relationship_kind,source_item_id,target_item_id,
+                                  input_fingerprint_sha256,status
+                                FROM automatic_relationship_decision_version
+                                WHERE id=:id FOR UPDATE
+                                """
+                            ),
+                            {"id": payload.decision_id},
+                        )
+                    )
+                    .mappings()
+                    .first()
+                )
+                if decision is None or decision["status"] != "ACTIVE":
+                    raise PublicationDenied(("PERS08_RELATION_NOT_ACTIVE",))
+                members = [decision["source_item_id"], decision["target_item_id"]]
+                if not set(members).intersection(affected_item_ids):
+                    raise PublicationDenied(("PERS08_RELATION_EVENT_MISMATCH",))
+                affected_item_ids.update(members)
+                await connection.execute(
+                    text(
+                        """
+                        INSERT INTO owner_relationship_withdrawal(
+                          id,command_id,decision_id,relationship_kind,member_item_ids,
+                          input_fingerprint_sha256,reason,owner_id,created_at
+                        ) VALUES(:id,:command_id,:decision_id,:kind,:members,:fingerprint,
+                          :reason,:owner_id,:now)
+                        """
+                    ),
+                    {
+                        "id": correction_id,
+                        "command_id": payload.command_id,
+                        "decision_id": payload.decision_id,
+                        "kind": decision["relationship_kind"],
+                        "members": members,
+                        "fingerprint": decision["input_fingerprint_sha256"],
+                        "reason": payload.reason.strip(),
+                        "owner_id": owner_id,
+                        "now": corrected_at,
+                    },
+                )
+                await connection.execute(
+                    text(
+                        "UPDATE automatic_relationship_decision_version "
+                        "SET status='WITHDRAWN',invalidated_at=:now WHERE id=:id"
+                    ),
+                    {"id": payload.decision_id, "now": corrected_at},
+                )
+                await connection.execute(
+                    text(
+                        """
+                        INSERT INTO automatic_relationship_invalidation(
+                          id,invalidated_decision_id,withdrawal_id,reason,created_at
+                        ) VALUES(:id,:decision_id,:withdrawal_id,:reason,:now)
+                        """
+                    ),
+                    {
+                        "id": uuid7(),
+                        "decision_id": payload.decision_id,
+                        "withdrawal_id": correction_id,
+                        "reason": payload.reason.strip(),
+                        "now": corrected_at,
+                    },
+                )
+            else:
+                if payload.action == "SPLIT_EVENT":
+                    allocated = {allocation.item_id for allocation in payload.allocations}
+                    if affected_item_ids != allocated:
+                        raise PublicationDenied(("PERS08_SPLIT_ALLOCATION_INCOMPLETE",))
+                serialized = payload.model_dump(mode="json", exclude={"reason"})
+                await connection.execute(
+                    text(
+                        """
+                        INSERT INTO owner_relationship_correction(
+                          id,command_id,event_id,decision_id,action,payload,reason,
+                          owner_id,created_at
+                        ) VALUES(:id,:command_id,:event_id,:decision_id,:action,
+                          CAST(:payload AS jsonb),:reason,:owner_id,:now)
+                        """
+                    ),
+                    {
+                        "id": correction_id,
+                        "command_id": payload.command_id,
+                        "event_id": event_id,
+                        "decision_id": payload.decision_id,
+                        "action": payload.action,
+                        "payload": json.dumps(serialized, ensure_ascii=False),
+                        "reason": payload.reason.strip(),
+                        "owner_id": owner_id,
+                        "now": corrected_at,
+                    },
+                )
+                relationship_filter = ""
+                parameters: dict[str, Any] = {"now": corrected_at, "correction_id": correction_id}
+                if payload.action == "SPLIT_EVENT":
+                    relationship_filter = (
+                        " AND (source_item_id=ANY(CAST(:member_ids AS uuid[]))"
+                        " OR target_item_id=ANY(CAST(:member_ids AS uuid[])))"
+                    )
+                    parameters["member_ids"] = list(affected_item_ids)
+                elif payload.action == "KEEP_INDEPENDENT":
+                    relationship_filter = (
+                        " AND source_item_id=ANY(CAST(:member_ids AS uuid[]))"
+                        " AND target_item_id=ANY(CAST(:member_ids AS uuid[]))"
+                    )
+                    parameters["member_ids"] = list(payload.member_item_ids)
+                elif payload.action == "CORRECT_MODEL_RELATION":
+                    relationship_filter = (
+                        " AND relationship_kind IN ('MODEL_ALIAS','VERSION_SUCCESSOR')"
+                        " AND (source_item_id IN (:source_id,:target_id)"
+                        " OR target_item_id IN (:source_id,:target_id))"
+                    )
+                    parameters["source_id"] = payload.corrected_source_item_id
+                    parameters["target_id"] = payload.corrected_target_item_id
+                invalidated = list(
+                    (
+                        await connection.scalars(
+                            text(
+                                "UPDATE automatic_relationship_decision_version "
+                                "SET status='INVALIDATED',invalidated_at=:now "
+                                "WHERE status='ACTIVE'" + relationship_filter + " RETURNING id"
+                            ),
+                            parameters,
+                        )
+                    ).all()
+                )
+                for decision_id in invalidated:
+                    await connection.execute(
+                        text(
+                            """
+                            INSERT INTO automatic_relationship_invalidation(
+                              id,invalidated_decision_id,correction_id,reason,created_at
+                            ) VALUES(:id,:decision_id,:correction_id,:reason,:now)
+                            """
+                        ),
+                        {
+                            "id": uuid7(),
+                            "decision_id": decision_id,
+                            "correction_id": correction_id,
+                            "reason": payload.reason.strip(),
+                            "now": corrected_at,
+                        },
+                    )
+                if payload.action == "SPLIT_EVENT":
+                    child_event_ids = {
+                        allocation.child_event_id for allocation in payload.allocations
+                    }
+                    if event_id in child_event_ids or len(child_event_ids) < 2:
+                        raise PublicationDenied(("PERS08_SPLIT_REQUIRES_DISTINCT_CHILDREN",))
+                    for child_event_id in child_event_ids:
+                        await connection.execute(
+                            text(
+                                """
+                                INSERT INTO event(
+                                  id,event_type,title,occurred_at,region_code,region_name,
+                                  project_name,subject_names,accident_type,engineering_type,
+                                  incident_status,confirmation_status,confirmed_by,confirmed_at,
+                                  created_at,updated_at,canonical_event_id,status,version
+                                ) SELECT :child_id,event_type,title,occurred_at,
+                                  region_code,region_name,
+                                  project_name,subject_names,accident_type,engineering_type,
+                                  incident_status,confirmation_status,confirmed_by,confirmed_at,
+                                  :now,:now,:child_id,'ACTIVE',1
+                                FROM event WHERE id=:source_id
+                                ON CONFLICT (id) DO NOTHING
+                                """
+                            ),
+                            {
+                                "child_id": child_event_id,
+                                "source_id": event_id,
+                                "now": corrected_at,
+                            },
+                        )
+                    for allocation in payload.allocations:
+                        await connection.execute(
+                            text(
+                                "UPDATE event_item SET event_id=:child_event_id "
+                                "WHERE event_id=:source_event_id AND item_id=:item_id"
+                            ),
+                            {
+                                "child_event_id": allocation.child_event_id,
+                                "source_event_id": event_id,
+                                "item_id": allocation.item_id,
+                            },
+                        )
+                    await connection.execute(
+                        text(
+                            "UPDATE event SET status='SPLIT',version=version+1,"
+                            "updated_at=:now WHERE id=:id"
+                        ),
+                        {"id": event_id, "now": corrected_at},
+                    )
+                elif payload.action == "CORRECT_MODEL_RELATION":
+                    corrected_decision_id = uuid7()
+                    corrected_members = sorted(
+                        (payload.corrected_source_item_id, payload.corrected_target_item_id),
+                        key=str,
+                    )
+                    corrected_key = (
+                        f"{payload.corrected_kind}:{corrected_members[0]}:{corrected_members[1]}"
+                    )
+                    fingerprint = sha256(f"{corrected_key}:{correction_id}".encode()).hexdigest()
+                    await connection.execute(
+                        text(
+                            """
+                            INSERT INTO automatic_relationship_decision_version(
+                              id,relationship_key,relationship_kind,source_item_id,target_item_id,
+                              algorithm_version,model_version,score_bps,reason_codes,reason,
+                              input_fingerprint_sha256,status,created_at
+                            ) VALUES(:id,:key,:kind,:source,:target,'owner-correction-v1',NULL,
+                              10000,ARRAY['OWNER_CORRECTION'],'OWNER_CORRECTION',:fingerprint,
+                              'ACTIVE',:now)
+                            """
+                        ),
+                        {
+                            "id": corrected_decision_id,
+                            "key": corrected_key,
+                            "kind": payload.corrected_kind,
+                            "source": payload.corrected_source_item_id,
+                            "target": payload.corrected_target_item_id,
+                            "fingerprint": fingerprint,
+                            "now": corrected_at,
+                        },
+                    )
+                    await connection.execute(
+                        text(
+                            "UPDATE owner_relationship_correction "
+                            "SET resulting_decision_id=:decision_id "
+                            "WHERE id=:correction_id"
+                        ),
+                        {"decision_id": corrected_decision_id, "correction_id": correction_id},
+                    )
+
+            generation = await _refresh_relationship_projections(
+                connection,
+                event_id=event_id,
+                item_ids=affected_item_ids,
+                changed_at=corrected_at,
+            )
+            await _append_audit(
+                connection,
+                event_type=f"PERS08_{payload.action}",
+                actor_id=owner_id,
+                target_type="automatic_relationship",
+                target_id=correction_id,
+                after_state={"event_id": str(event_id), "action": payload.action},
+                reason=payload.reason.strip(),
+                request_id=str(payload.command_id),
+                now=corrected_at,
+            )
+            PERSONAL_RELATIONSHIP_CORRECTIONS.labels(action=payload.action, outcome="applied").inc()
+            event_version = int(event["version"]) + (1 if payload.action == "SPLIT_EVENT" else 0)
+            return OwnerRelationshipCorrectionResponse(
+                correction_id=correction_id,
+                event_id=event_id,
+                action=payload.action,
+                event_version=event_version,
+                projection_generation=generation,
+            )
 
     async def is_ai_claim_candidate(self, candidate_id: UUID) -> bool:
         async with self._engine.connect() as connection:
@@ -6769,6 +7129,432 @@ async def _apply_event_identity_change(
             ),
             {"ids": ids},
         )
+
+
+async def _recalculate_automatic_relationships(
+    connection: AsyncConnection,
+    *,
+    item_id: UUID,
+    document_version_id: UUID,
+    calculated_at: datetime,
+) -> set[UUID]:
+    """Create conservative, versioned decisions from current authoritative inputs."""
+
+    current = (
+        (
+            await connection.execute(
+                text(
+                    """
+                    SELECT item.id AS item_id,item.item_type,item.current_document_version_id,
+                      version.document_id,version.content_hash,
+                      fingerprint.model_no_key,fingerprint.accident_stage,
+                      fingerprint.region_key,fingerprint.project_key,
+                      fingerprint.embedding_model,
+                      lineage.role AS source_role,
+                      COALESCE(membership.event_id,binding.event_id) AS event_id
+                    FROM intelligence_item item
+                    JOIN document_version version ON version.id=:version_id
+                    LEFT JOIN document_fingerprint fingerprint ON fingerprint.item_id=item.id
+                    LEFT JOIN source_lineage lineage ON lineage.item_id=item.id
+                    LEFT JOIN event_identity_binding binding ON binding.item_id=item.id
+                    LEFT JOIN LATERAL (
+                      SELECT event_id FROM event_item
+                      WHERE item_id=item.id ORDER BY confirmed_at DESC LIMIT 1
+                    ) membership ON true
+                    WHERE item.id=:item_id AND item.current_document_version_id=:version_id
+                    """
+                ),
+                {"item_id": item_id, "version_id": document_version_id},
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if current is None:
+        return set()
+    candidates = list(
+        (
+            await connection.execute(
+                text(
+                    """
+                    SELECT DISTINCT other.id AS item_id,other.item_type,
+                      other.current_document_version_id,version.document_id,
+                      version.content_hash,fingerprint.model_no_key,
+                      fingerprint.accident_stage,fingerprint.region_key,
+                      fingerprint.project_key,fingerprint.embedding_model,
+                      lineage.role AS source_role,
+                      COALESCE(membership.event_id,binding.event_id) AS event_id,
+                      EXISTS(
+                        SELECT 1 FROM item_identity_key left_key
+                        JOIN item_identity_key right_key
+                          ON right_key.key_type=left_key.key_type
+                         AND right_key.scope_key=left_key.scope_key
+                         AND right_key.normalized_value=left_key.normalized_value
+                        WHERE left_key.item_id=:item_id AND right_key.item_id=other.id
+                      ) AS exact_identity,
+                      EXISTS(
+                        SELECT 1 FROM topic_cluster_event left_topic
+                        JOIN topic_cluster_event right_topic
+                          ON right_topic.topic_id=left_topic.topic_id
+                        WHERE left_topic.event_id=
+                          COALESCE(current_membership.event_id,current_binding.event_id)
+                          AND right_topic.event_id=COALESCE(membership.event_id,binding.event_id)
+                      ) AS same_topic
+                    FROM intelligence_item other
+                    JOIN document_version version
+                      ON version.id=other.current_document_version_id
+                    LEFT JOIN document_fingerprint fingerprint ON fingerprint.item_id=other.id
+                    LEFT JOIN source_lineage lineage ON lineage.item_id=other.id
+                    LEFT JOIN event_identity_binding binding ON binding.item_id=other.id
+                    LEFT JOIN LATERAL (
+                      SELECT event_id FROM event_item
+                      WHERE item_id=other.id ORDER BY confirmed_at DESC LIMIT 1
+                    ) membership ON true
+                    LEFT JOIN event_identity_binding current_binding
+                      ON current_binding.item_id=:item_id
+                    LEFT JOIN LATERAL (
+                      SELECT event_id FROM event_item
+                      WHERE item_id=:item_id ORDER BY confirmed_at DESC LIMIT 1
+                    ) current_membership ON true
+                    WHERE other.id<>:item_id
+                      AND (
+                        EXISTS(
+                          SELECT 1 FROM item_identity_key left_key
+                          JOIN item_identity_key right_key
+                            ON right_key.key_type=left_key.key_type
+                           AND right_key.scope_key=left_key.scope_key
+                           AND right_key.normalized_value=left_key.normalized_value
+                          WHERE left_key.item_id=:item_id AND right_key.item_id=other.id
+                        )
+                        OR COALESCE(membership.event_id,binding.event_id)=
+                           COALESCE(current_membership.event_id,current_binding.event_id)
+                        OR (
+                          fingerprint.model_no_key IS NOT NULL
+                          AND fingerprint.model_no_key=(
+                            SELECT model_no_key FROM document_fingerprint WHERE item_id=:item_id
+                          )
+                        )
+                        OR EXISTS(
+                          SELECT 1 FROM topic_cluster_event left_topic
+                          JOIN topic_cluster_event right_topic
+                            ON right_topic.topic_id=left_topic.topic_id
+                          WHERE left_topic.event_id=
+                            COALESCE(current_membership.event_id,current_binding.event_id)
+                            AND right_topic.event_id=COALESCE(membership.event_id,binding.event_id)
+                        )
+                      )
+                    ORDER BY other.id LIMIT 100
+                    """
+                ),
+                {"item_id": item_id},
+            )
+        ).mappings()
+    )
+    withdrawal_rows = list(
+        (
+            await connection.execute(
+                text(
+                    "SELECT relationship_kind,member_item_ids,input_fingerprint_sha256 "
+                    "FROM owner_relationship_withdrawal WHERE :item_id=ANY(member_item_ids)"
+                ),
+                {"item_id": item_id},
+            )
+        ).mappings()
+    )
+    correction_rows = list(
+        (
+            await connection.execute(
+                text(
+                    "SELECT action,payload FROM owner_relationship_correction "
+                    "WHERE action IN ('KEEP_INDEPENDENT','SPLIT_EVENT')"
+                )
+            )
+        ).mappings()
+    )
+    suppressions: list[RelationshipSuppression] = [
+        RelationshipSuppression(
+            kind=RelationshipKind(row["relationship_kind"]),
+            member_ids=frozenset(row["member_item_ids"]),
+            input_fingerprint_sha256=row["input_fingerprint_sha256"],
+        )
+        for row in withdrawal_rows
+    ]
+    keep_independent_pairs = {
+        frozenset(UUID(value) for value in row["payload"].get("member_item_ids", []))
+        for row in correction_rows
+        if row["action"] == "KEEP_INDEPENDENT" and isinstance(row["payload"], dict)
+    }
+    split_allocations = {
+        UUID(allocation["item_id"]): UUID(allocation["child_event_id"])
+        for row in correction_rows
+        if row["action"] == "SPLIT_EVENT" and isinstance(row["payload"], dict)
+        for allocation in row["payload"].get("allocations", [])
+    }
+    changed_items: set[UUID] = set()
+    product_types = {"SOFTWARE_PRODUCT", "IOT_PRODUCT", "LOW_ALTITUDE_EQUIPMENT", "AI_EQUIPMENT"}
+    for candidate in candidates:
+        pair = frozenset((item_id, cast(UUID, candidate["item_id"])))
+        if pair in keep_independent_pairs:
+            continue
+        if (
+            item_id in split_allocations
+            and candidate["item_id"] in split_allocations
+            and split_allocations[item_id] != split_allocations[candidate["item_id"]]
+        ):
+            continue
+        conflicts: list[str] = []
+        for field, code in (("region_key", "REGION"), ("project_key", "PROJECT")):
+            if current[field] and candidate[field] and current[field] != candidate[field]:
+                conflicts.append(code)
+        same_event = bool(current["event_id"] and current["event_id"] == candidate["event_id"])
+        same_model = bool(
+            current["model_no_key"]
+            and current["model_no_key"] == candidate["model_no_key"]
+            and current["item_type"] in product_types
+            and candidate["item_type"] in product_types
+        )
+        hint = (
+            "VERSION_SUCCESSOR"
+            if same_model
+            else "SAME_EVENT"
+            if same_event
+            else "TOPIC"
+            if candidate["same_topic"]
+            else None
+        )
+        value = AutomaticRelationshipInput(
+            left_item_id=item_id,
+            right_item_id=candidate["item_id"],
+            left_document_version_id=document_version_id,
+            right_document_version_id=candidate["current_document_version_id"],
+            left_content_sha256=current["content_hash"],
+            right_content_sha256=candidate["content_hash"],
+            score_bps=10_000 if candidate["exact_identity"] or same_event or same_model else 9_000,
+            hard_conflicts=tuple(conflicts),
+            exact_identity=bool(candidate["exact_identity"]),
+            relation_hint=hint,
+            left_report_stage=current["accident_stage"],
+            right_report_stage=candidate["accident_stage"],
+            left_source_role=current["source_role"],
+            right_source_role=candidate["source_role"],
+            model_version=current["embedding_model"] or candidate["embedding_model"],
+        )
+        decision = decide_automatic_relationship(value, suppressions=tuple(suppressions))
+        if decision is None:
+            continue
+        member_ids = sorted((decision.source_item_id, decision.target_item_id), key=str)
+        relationship_key = f"{decision.kind.value}:{member_ids[0]}:{member_ids[1]}"
+        previous = (
+            (
+                await connection.execute(
+                    text(
+                        "SELECT id,input_fingerprint_sha256,algorithm_version "
+                        "FROM automatic_relationship_decision_version "
+                        "WHERE relationship_key=:key AND status='ACTIVE' FOR UPDATE"
+                    ),
+                    {"key": relationship_key},
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if (
+            previous is not None
+            and previous["input_fingerprint_sha256"] == decision.input_fingerprint_sha256
+        ):
+            continue
+        if previous is not None and previous["algorithm_version"].startswith("owner-correction"):
+            continue
+        decision_id = uuid7()
+        if previous is not None:
+            await connection.execute(
+                text(
+                    "UPDATE automatic_relationship_decision_version "
+                    "SET status='SUPERSEDED',invalidated_at=:now WHERE id=:id"
+                ),
+                {"id": previous["id"], "now": calculated_at},
+            )
+        await connection.execute(
+            text(
+                """
+                INSERT INTO automatic_relationship_decision_version(
+                  id,relationship_key,relationship_kind,source_item_id,target_item_id,
+                  algorithm_version,model_version,score_bps,reason_codes,reason,
+                  input_fingerprint_sha256,status,supersedes_decision_id,created_at
+                ) VALUES(:id,:key,:kind,:source,:target,:algorithm,:model,:score,
+                  :reasons,:reason,:fingerprint,'ACTIVE',:supersedes,:now)
+                """
+            ),
+            {
+                "id": decision_id,
+                "key": relationship_key,
+                "kind": decision.kind.value,
+                "source": decision.source_item_id,
+                "target": decision.target_item_id,
+                "algorithm": value.algorithm_version,
+                "model": value.model_version,
+                "score": decision.score_bps,
+                "reasons": list(decision.reason_codes),
+                "reason": ",".join(decision.reason_codes),
+                "fingerprint": decision.input_fingerprint_sha256,
+                "supersedes": previous["id"] if previous else None,
+                "now": calculated_at,
+            },
+        )
+        input_rows = (current, candidate)
+        for position, member in enumerate(input_rows, start=1):
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO automatic_relationship_member(
+                      id,decision_id,intelligence_item_id,document_id,document_version_id,
+                      event_id,content_sha256,source_role,position
+                    ) VALUES(:id,:decision_id,:item_id,:document_id,:version_id,
+                      :event_id,:hash,:role,:position)
+                    """
+                ),
+                {
+                    "id": uuid7(),
+                    "decision_id": decision_id,
+                    "item_id": member["item_id"],
+                    "document_id": member["document_id"],
+                    "version_id": member["current_document_version_id"],
+                    "event_id": member["event_id"],
+                    "hash": member["content_hash"],
+                    "role": member["source_role"],
+                    "position": position,
+                },
+            )
+        if previous is not None:
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO automatic_relationship_invalidation(
+                      id,invalidated_decision_id,successor_decision_id,reason,created_at
+                    ) VALUES(:id,:previous,:successor,'INPUT_MATERIAL_CHANGED',:now)
+                    """
+                ),
+                {
+                    "id": uuid7(),
+                    "previous": previous["id"],
+                    "successor": decision_id,
+                    "now": calculated_at,
+                },
+            )
+        changed_items.update(pair)
+        logger.info(
+            "automatic_relationship_decided",
+            extra={"kind": decision.kind.value, "score_bps": decision.score_bps},
+        )
+        PERSONAL_AUTOMATIC_RELATIONSHIPS.labels(kind=decision.kind.value, outcome="active").inc()
+    return changed_items
+
+
+async def _relationship_projection_generation(connection: AsyncConnection, event_id: UUID) -> int:
+    value = await connection.scalar(
+        text(
+            """
+            SELECT COALESCE(max(projection.generation),1)
+            FROM personal_content_projection projection
+            JOIN event_identity_binding binding ON binding.item_id=projection.item_id
+            WHERE binding.event_id=:event_id
+            """
+        ),
+        {"event_id": event_id},
+    )
+    return int(value or 1)
+
+
+async def _refresh_relationship_projections(
+    connection: AsyncConnection,
+    *,
+    event_id: UUID,
+    item_ids: set[UUID],
+    changed_at: datetime,
+) -> int:
+    """Advance all database projections before cache invalidation can be observed."""
+
+    if not item_ids:
+        return await _relationship_projection_generation(connection, event_id)
+    parameters = {"item_ids": list(item_ids), "now": changed_at}
+    await connection.execute(
+        text(
+            "UPDATE personal_content_projection SET generation=generation+1,updated_at=:now "
+            "WHERE item_id=ANY(CAST(:item_ids AS uuid[]))"
+        ),
+        parameters,
+    )
+    await connection.execute(
+        text(
+            "UPDATE personal_signal_projection SET generation=generation+1,updated_at=:now "
+            "WHERE item_id=ANY(CAST(:item_ids AS uuid[]))"
+        ),
+        parameters,
+    )
+    for table in ("personal_primary_search_projection", "unverified_ai_search_projection"):
+        await connection.execute(
+            text(
+                f"UPDATE {table} search SET generation=search.generation+1 "  # noqa: S608
+                "FROM personal_signal_projection signal "
+                "WHERE signal.id=search.signal_id "
+                "AND signal.item_id=ANY(CAST(:item_ids AS uuid[]))"
+            ),
+            parameters,
+        )
+    await connection.execute(
+        text(
+            """
+            UPDATE personal_daily_report_projection report
+            SET generation=report.generation+1,updated_at=:now
+            WHERE EXISTS(
+              SELECT 1 FROM personal_daily_signal_projection daily
+              JOIN personal_signal_projection signal ON signal.id=daily.signal_id
+              WHERE daily.report_id=report.id
+                AND signal.item_id=ANY(CAST(:item_ids AS uuid[]))
+            )
+            """
+        ),
+        parameters,
+    )
+    publications = list(
+        (
+            await connection.scalars(
+                text("SELECT id FROM publication WHERE item_id=ANY(CAST(:item_ids AS uuid[]))"),
+                parameters,
+            )
+        ).all()
+    )
+    for publication_id in publications:
+        for projection in ("CACHE", "SEARCH", "DAILY_DIGEST"):
+            generation = int(
+                await connection.scalar(
+                    text(
+                        "SELECT COALESCE(max(generation),0)+1 "
+                        "FROM publication_projection_invalidation "
+                        "WHERE publication_id=:publication_id AND projection=:projection"
+                    ),
+                    {"publication_id": publication_id, "projection": projection},
+                )
+                or 1
+            )
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO publication_projection_invalidation(
+                      id,publication_id,projection,action,generation,status,created_at,applied_at
+                    ) VALUES(:id,:publication_id,:projection,'UPSERT',:generation,
+                      'PENDING',:now,NULL)
+                    """
+                ),
+                {
+                    "id": uuid7(),
+                    "publication_id": publication_id,
+                    "projection": projection,
+                    "generation": generation,
+                    "now": changed_at,
+                },
+            )
+    return await _relationship_projection_generation(connection, event_id)
 
 
 async def _append_audit(

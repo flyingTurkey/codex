@@ -1,0 +1,38 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "title": "Action",
+      "type": "string"
+    },
+    "correction_id": {
+      "format": "uuid",
+      "title": "Correction Id",
+      "type": "string"
+    },
+    "event_id": {
+      "format": "uuid",
+      "title": "Event Id",
+      "type": "string"
+    },
+    "event_version": {
+      "minimum": 1,
+      "title": "Event Version",
+      "type": "integer"
+    },
+    "projection_generation": {
+      "minimum": 1,
+      "title": "Projection Generation",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "correction_id",
+    "event_id",
+    "action",
+    "event_version",
+    "projection_generation"
+  ],
+  "title": "OwnerRelationshipCorrectionResponse",
+  "type": "object"
+}

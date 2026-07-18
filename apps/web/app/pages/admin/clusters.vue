@@ -4,58 +4,23 @@ import { EmptyState, PageHeader, ProblemNotice, Skeleton, StatusBadge } from '@s
 import { computed, ref } from 'vue'
 
 const kind = ref<'DUPLICATE' | 'EVENT' | 'TOPIC' | 'RELATION'>('DUPLICATE')
-const reason = ref('')
 const selected = ref<ClusterCandidateView | null>(null)
-const submitting = ref(false)
-const submitError = ref<string | null>(null)
 const { data, error, refresh, status } = await useFetch<ClusterCandidateView[]>(
   '/api/v1/admin/clustering-workbench',
   { query: { kind, status: 'PENDING_REVIEW' }, retry: 0, server: false, timeout: 5_000 },
 )
 const problem = computed<ProblemDetails | null>(() => error.value?.data as ProblemDetails ?? null)
 
-async function decide(action: 'MERGE' | 'SPLIT' | 'KEEP_DISTINCT' | 'LINK_RELATION'): Promise<void> {
-  if (!selected.value || !reason.value.trim()) return
-  submitting.value = true
-  submitError.value = null
-  try {
-    await $fetch(
-      `/api/v1/admin/clustering-workbench/${selected.value.kind}/${selected.value.id}/decisions`,
-      {
-        method: 'POST',
-        body: {
-          action,
-          member_ids: selected.value.member_ids,
-          reason: reason.value.trim(),
-          ...(action === 'LINK_RELATION'
-            ? { relation_type: selected.value.relation_type }
-            : {}),
-        },
-        retry: 0,
-        timeout: 5_000,
-      },
-    )
-    selected.value = null
-    reason.value = ''
-    await refresh()
-  }
-  catch {
-    submitError.value = '决策未保存，请检查候选状态、硬约束或稍后重试。'
-  }
-  finally {
-    submitting.value = false
-  }
-}
 </script>
 
 <template>
   <section class="cluster-page">
     <PageHeader
-      title="人工聚类工作台"
-      eyebrow="重复、事件、主题与关系"
-      description="所有近似结果仅为候选；人工合并和拆分会写入审计并形成回归样本。"
+      title="旧聚类只读历史"
+      eyebrow="PERS-08 自动关系"
+      description="PERS-08 已停止关系人工候选；旧表和旧 API 仅作为只读历史保留。"
     >
-      <template #status><StatusBadge tone="pending" label="自动合并关闭" /></template>
+      <template #status><StatusBadge tone="info" label="自动关系已启用" /></template>
     </PageHeader>
     <label class="cluster-page__kind">
       候选类型
@@ -81,22 +46,12 @@ async function decide(action: 'MERGE' | 'SPLIT' | 'KEEP_DISTINCT' | 'LINK_RELATI
           </button>
         </li>
       </ol>
-      <form v-if="selected" class="cluster-page__decision" @submit.prevent>
-        <h2>审核候选</h2>
+      <section v-if="selected" class="cluster-page__decision">
+        <h2>只读历史</h2>
         <ul><li v-for="member in selected.member_ids" :key="member">{{ member }}</li></ul>
         <ul><li v-for="feature in selected.feature_explanations" :key="feature">{{ feature }}</li></ul>
-        <label>
-          合并理由 / 拆分理由
-          <textarea v-model="reason" required minlength="1" maxlength="1000" />
-        </label>
-        <p v-if="submitError" role="alert">{{ submitError }}</p>
-        <div>
-          <button v-if="selected.kind === 'RELATION'" type="button" :disabled="submitting || !reason.trim() || !selected.relation_type" @click="decide('LINK_RELATION')">确认关系</button>
-          <button v-if="selected.kind !== 'RELATION'" type="button" :disabled="submitting || !reason.trim() || Boolean(selected.hard_conflicts.length)" @click="decide('MERGE')">确认合并</button>
-          <button v-if="selected.kind === 'EVENT' || selected.kind === 'TOPIC'" type="button" :disabled="submitting || !reason.trim()" @click="decide('SPLIT')">确认拆分</button>
-          <button type="button" :disabled="submitting || !reason.trim()" @click="decide('KEEP_DISTINCT')">保持独立</button>
-        </div>
-      </form>
+        <p>自动决定及个人纠正请在对应事件详情页查看和操作。</p>
+      </section>
     </div>
     <EmptyState v-else title="没有待处理候选" description="当前类型的人工审核队列为空。" icon="EmptyPage" />
   </section>

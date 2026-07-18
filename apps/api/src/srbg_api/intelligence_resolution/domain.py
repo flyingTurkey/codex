@@ -77,7 +77,15 @@ class SourceLineage:
     source_id: str
     organization_key: str
     lineage_root: str
-    role: Literal["ORIGINAL", "REPRINT", "MIRROR", "INDEPENDENT_REPORT"]
+    role: Literal[
+        "ORIGINAL",
+        "REPRINT",
+        "MIRROR",
+        "INDEPENDENT_REPORT",
+        "VENDOR_STATEMENT",
+        "MEDIA_REPORT",
+        "INDEPENDENT_VERIFICATION",
+    ]
 
 
 @dataclass(frozen=True, slots=True)
@@ -262,7 +270,7 @@ def assess_duplicate(
 def count_independent_sources(lineages: list[SourceLineage]) -> int:
     roots: set[tuple[str, str]] = set()
     for lineage in lineages:
-        if lineage.role in {"ORIGINAL", "INDEPENDENT_REPORT"}:
+        if lineage.role in {"ORIGINAL", "INDEPENDENT_REPORT", "INDEPENDENT_VERIFICATION"}:
             roots.add((lineage.lineage_root, lineage.organization_key))
     return len(roots)
 

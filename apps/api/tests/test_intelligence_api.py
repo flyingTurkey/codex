@@ -315,10 +315,10 @@ def test_hot_topics_are_readable_but_cluster_and_score_writes_are_reviewer_only(
     assert hot.json()["auto_merge_enabled"] is False
     assert denied.status_code == 403
     assert queue.status_code == 200
-    assert decided.status_code == 204
+    assert decided.status_code == 409
     assert overridden.status_code == 204
     assert smuggled.status_code == 422
-    assert publication.cluster_action == "MERGE"
+    assert publication.cluster_action is None
     assert publication.score_override == ("IMPACT", 70)
 
 
@@ -444,7 +444,7 @@ def test_reviewer_can_submit_a_structured_digital_case_patch() -> None:
     assert publication.digital_case_patch.maturity_level == "SINGLE_PROJECT_PRODUCTION"
 
 
-def test_product_normalization_entry_is_reviewer_only_and_uses_publication_service() -> None:
+def test_product_normalization_entry_is_reviewer_only_and_frozen_by_pers08() -> None:
     client, publication = _client()
     payload = {"action": "KEEP_DISTINCT", "reason": "型号不同，保持独立产品记录"}  # noqa: RUF001
     denied = client.post(
@@ -462,5 +462,5 @@ def test_product_normalization_entry_is_reviewer_only_and_uses_publication_servi
     )
 
     assert denied.status_code == 403
-    assert accepted.status_code == 204
-    assert publication.product_normalization_action == "KEEP_DISTINCT"
+    assert accepted.status_code == 409
+    assert publication.product_normalization_action is None

@@ -118,6 +118,16 @@ PERSONAL_AI_REPAIR_ATTEMPTS = Counter(
     "Controlled JSON/schema repair attempts by bounded AI step.",
     ("step",),
 )
+PERSONAL_AUTOMATIC_RELATIONSHIPS = Counter(
+    "srbg_personal_automatic_relationships_total",
+    "Automatic relationship decisions by bounded kind and outcome.",
+    ("kind", "outcome"),
+)
+PERSONAL_RELATIONSHIP_CORRECTIONS = Counter(
+    "srbg_personal_relationship_corrections_total",
+    "Local Owner relationship corrections by bounded action and outcome.",
+    ("action", "outcome"),
+)
 SOURCE_PROFILE_QUEUE = Gauge(
     "srbg_source_profile_queue",
     "Queued automatic source profile runs seen by the dispatcher.",

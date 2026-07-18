@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import type { EventDetail, ProblemDetails } from '@srbg/contracts'
+import type { AutomaticRelationshipView, EventDetail, ProblemDetails } from '@srbg/contracts'
 import type { StatusBadgeTone } from '@srbg/ui'
 import { EmptyState, PageHeader, ProblemNotice, Skeleton, StatusBadge } from '@srbg/ui'
 import { computed, ref } from 'vue'
 
 import EventTimeline from '../../components/EventTimeline.vue'
+import AutomaticRelationships from '../../components/AutomaticRelationships.vue'
 import EventRelations from '../../components/EventRelations.vue'
 import EventEvidenceDrawer from '../../components/EventEvidenceDrawer.vue'
 import FactList from '../../components/FactList.vue'
@@ -23,6 +24,14 @@ const { data: detail, error, refresh, status } = await useFetch<EventDetail>(
     timeout: 5_000,
   },
 )
+const { data: automaticRelationships, refresh: refreshRelationships } = await useFetch<AutomaticRelationshipView[]>(
+  `/api/v1/events/${eventId}/automatic-relationships`,
+  { key: `event-relationships:${eventId}`, retry: 0, server: false, timeout: 5_000 },
+)
+
+async function refreshAutomaticRelationships(): Promise<void> {
+  await Promise.all([refresh(), refreshRelationships()])
+}
 const content = computed(() => detail.value?.type_detail ?? null)
 type TypeDetail = NonNullable<EventDetail['type_detail']>
 type ProductTypeDetail = Extract<
@@ -330,6 +339,13 @@ function openEvidence(evidenceIds: string[]): void {
       </section>
 
       <EventRelations :items="detail.timeline.items" :relations="detail.relations" />
+
+      <AutomaticRelationships
+        :event-id="eventId"
+        :relationships="automaticRelationships ?? []"
+        :item-ids="detail.timeline.items.map(item => item.item_id)"
+        @refreshed="refreshAutomaticRelationships"
+      />
 
       <section class="event-detail-page__controlled-tags" aria-labelledby="scenario-tags-title">
         <div>
