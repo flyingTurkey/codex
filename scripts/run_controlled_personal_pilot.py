@@ -404,6 +404,12 @@ def _fail_active_run() -> None:
         "runtime_state='STOPPED',updated_at=now() WHERE id IN (SELECT source_id FROM "
         "personal_controlled_run_source WHERE run_id=(SELECT id FROM personal_controlled_run "
         "WHERE state='STOPPING' ORDER BY created_at DESC LIMIT 1));"
+        "UPDATE stream_probe_run SET status='FAILED',"
+        "failure_code=COALESCE(failure_code,'CONTROLLER_FAILURE'),"
+        "failure_reason=COALESCE(failure_reason,'controlled pilot stopped fail-closed'),"
+        "completed_at=COALESCE(completed_at,now()),updated_at=now() "
+        "WHERE status IN ('QUEUED','RUNNING') AND controlled_run_id=(SELECT id FROM "
+        "personal_controlled_run WHERE state='STOPPING' ORDER BY created_at DESC LIMIT 1);"
         "UPDATE personal_controlled_run run SET state='FAILED',updated_at=now() "
         "WHERE state='STOPPING' AND NOT EXISTS(SELECT 1 FROM personal_controlled_http_attempt "
         "attempt WHERE attempt.run_id=run.id AND attempt.outcome='RESERVED')"
@@ -483,6 +489,20 @@ def main() -> int:
                 continue
             if state != "RUNNING":
                 raise RuntimeError("CONTROLLED_RUN_STATE_INVALID")
+            integrity_failures = int(
+                _psql(
+                    "SELECT count(*) FROM stream_probe_run WHERE controlled_run_id=("
+                    "SELECT id FROM personal_controlled_run ORDER BY created_at DESC LIMIT 1) "
+                    "AND status='FAILED' AND failure_code IN ('RAW_OBJECT_HASH_MISMATCH')"
+                )
+            )
+            if integrity_failures:
+                _psql(
+                    "UPDATE personal_controlled_run SET state='STOPPING',"
+                    "stop_reason='DATA_INTEGRITY_GATE',updated_at=now() "
+                    "WHERE state='RUNNING'"
+                )
+                break
             terminal_failures = int(
                 _psql(
                     "SELECT count(*) FROM stream_probe_run WHERE controlled_run_id=("

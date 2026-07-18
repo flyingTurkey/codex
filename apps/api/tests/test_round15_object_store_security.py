@@ -70,6 +70,23 @@ class _CollisionSession:
         return _CollisionClient()
 
 
+class _ExistingChunkedClient(_CollisionClient):
+    async def head_object(self, **kwargs: object) -> dict[str, object]:
+        del kwargs
+        return {"ETag": '"existing"', "ContentLength": 12}
+
+    async def get_object(self, **kwargs: object) -> dict[str, object]:
+        del kwargs
+        return {"Body": _ChunkedBody((b"first", b"-", b"second"))}
+
+
+class _ExistingChunkedSession:
+    def client(self, service: str, **kwargs: Any) -> _ExistingChunkedClient:
+        del kwargs
+        assert service == "s3"
+        return _ExistingChunkedClient()
+
+
 class _ChunkedBody:
     def __init__(self, chunks: tuple[bytes, ...]) -> None:
         self._chunks = list(chunks)
@@ -135,6 +152,20 @@ async def test_content_address_collision_is_rejected_instead_of_trusted(
             b"evidence",
             "application/octet-stream",
         )
+
+
+async def test_existing_content_address_accepts_short_async_body_chunks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(storage.aioboto3, "Session", _ExistingChunkedSession)
+    store = S3ObjectStore(Settings(_env_file=None, external_io_timeout_seconds=1))
+
+    assert (
+        await store.put_if_absent(
+            "sha256/00/placeholder", b"first-second", "application/octet-stream"
+        )
+        == "existing"
+    )
 
 
 async def test_bounded_read_collects_short_async_body_chunks(

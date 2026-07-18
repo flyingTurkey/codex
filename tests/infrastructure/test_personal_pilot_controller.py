@@ -47,6 +47,9 @@ def test_controller_drains_reservations_and_never_enables_ai_without_ledger() ->
         "post_stop_network_attempts",
         "source_change_observation",
         "baseline_exceptions",
+        "DATA_INTEGRITY_GATE",
+        "RAW_OBJECT_HASH_MISMATCH",
+        "controlled pilot stopped fail-closed",
     ):
         assert marker in source
 

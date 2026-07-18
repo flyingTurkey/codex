@@ -83,6 +83,12 @@ class Store:
         return "etag"
 
 
+class IntegrityFailingStore:
+    async def put_if_absent(self, key: str, content: bytes, content_type: str) -> str:
+        del key, content, content_type
+        raise RuntimeError("RAW_OBJECT_HASH_MISMATCH")
+
+
 @pytest.mark.asyncio
 async def test_probe_stores_raw_before_following_and_completes_feed() -> None:
     gateway, store = Gateway(), Store()
@@ -94,6 +100,18 @@ async def test_probe_stores_raw_before_following_and_completes_feed() -> None:
     assert len(store.keys) == 2
     assert gateway.completed is not None
     assert gateway.completed[1].streams[0].normalized_url == "https://example.test/feed.xml"
+
+
+@pytest.mark.asyncio
+async def test_probe_persists_object_integrity_failure_instead_of_staying_running() -> None:
+    gateway = Gateway()
+    result = await PersonalProbeExecutor(
+        gateway=gateway, fetcher=Fetcher(), object_store=IntegrityFailingStore()
+    ).run(RUN_ID)
+
+    assert result == "FAILED"
+    assert gateway.failed is not None
+    assert gateway.failed[1] == "RAW_OBJECT_HASH_MISMATCH"
 
 
 @dataclass

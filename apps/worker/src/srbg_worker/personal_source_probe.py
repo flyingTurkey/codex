@@ -130,7 +130,7 @@ class PersonalProbeExecutor:
                 captures=captures,
             )
             PERSONAL_SOURCE_PROBES.labels("FAILED", "PROBE_TIMEOUT").inc()
-        except (ProbeDetectionError, ValueError, OSError) as error:
+        except (ProbeDetectionError, ValueError, OSError, RuntimeError) as error:
             code = _bounded_code(str(error))
             await self._gateway.fail(
                 binding, code=code, reason=_failure_reason(code), captures=captures

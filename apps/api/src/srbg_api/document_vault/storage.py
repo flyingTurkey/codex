@@ -57,8 +57,14 @@ class S3ObjectStore:
                         if content_length != len(content):
                             raise RuntimeError("RAW_OBJECT_HASH_MISMATCH") from None
                         existing_result = await client.get_object(Bucket=self._bucket, Key=key)
-                        existing = bytes(await existing_result["Body"].read(len(content) + 1))
-                        if not hmac.compare_digest(existing, content):
+                        body = existing_result["Body"]
+                        existing = bytearray()
+                        while len(existing) <= len(content):
+                            chunk = bytes(await body.read(len(content) + 1 - len(existing)))
+                            if not chunk:
+                                break
+                            existing.extend(chunk)
+                        if not hmac.compare_digest(bytes(existing), content):
                             raise RuntimeError("RAW_OBJECT_HASH_MISMATCH") from None
                         return str(head.get("ETag", "")).strip('"')
                     raise
