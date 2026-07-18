@@ -9,6 +9,7 @@ _CONTROLLER_GLOBALS = run_path(str(CONTROLLER))
 POST_STOP_OBSERVATION_SECONDS = _CONTROLLER_GLOBALS["POST_STOP_OBSERVATION_SECONDS"]
 classify_pilot_verdict = _CONTROLLER_GLOBALS["classify_pilot_verdict"]
 source_outcomes = _CONTROLLER_GLOBALS["_source_outcomes"]
+FIXED_FIVE_POLICY_VERSION = _CONTROLLER_GLOBALS["FIXED_FIVE_POLICY_VERSION"]
 
 
 def test_controller_has_no_network_preflight_and_releases_sleep_state() -> None:
@@ -59,10 +60,30 @@ def test_controller_drains_reservations_and_never_enables_ai_without_ledger() ->
         assert marker in source
 
 
-def test_verdict_keeps_four_source_final_gate_and_three_source_limited_gate() -> None:
+def test_verdict_allows_three_source_pass_only_for_the_versioned_fixed_five_policy() -> None:
     assert classify_pilot_verdict(4, content_chain_ok=True, invariants_ok=True) == "PASS"
     assert (
         classify_pilot_verdict(3, content_chain_ok=True, invariants_ok=True)
+        == "LIMITED_PASS"
+    )
+    assert (
+        classify_pilot_verdict(
+            3,
+            content_chain_ok=True,
+            invariants_ok=True,
+            policy_version=FIXED_FIVE_POLICY_VERSION,
+            exact_fixed_source_set=True,
+        )
+        == "PASS"
+    )
+    assert (
+        classify_pilot_verdict(
+            3,
+            content_chain_ok=True,
+            invariants_ok=True,
+            policy_version=FIXED_FIVE_POLICY_VERSION,
+            exact_fixed_source_set=False,
+        )
         == "LIMITED_PASS"
     )
     assert classify_pilot_verdict(2, content_chain_ok=True, invariants_ok=True) == "FAIL"
@@ -90,3 +111,6 @@ def test_completed_run_can_be_reassessed_without_starting_network_work() -> None
     assert '"report_kind": "POST_RUN_REASSESSMENT"' in source
     assert "PILOT_REASSESS_REQUIRES_COMPLETED_RUN" in source
     assert "started_at>=(SELECT min(source.manual_disabled_at)" in source
+    assert '"reassessment_network_io_performed": False' in source
+    assert '"pilot_policy_version": FIXED_FIVE_POLICY_VERSION' in source
+    assert '"source_failure_diagnosis"' in source

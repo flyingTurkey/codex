@@ -25,20 +25,69 @@ SOURCES = (
 )
 FINAL_PASS_SOURCE_THRESHOLD = 4
 LIMITED_PASS_SOURCE_THRESHOLD = 3
+FIXED_FIVE_POLICY_VERSION = "pers10-fixed-five-3of5-v1"
 POST_STOP_OBSERVATION_SECONDS = 90
 CONTENT_PROJECTION_DRAIN_SECONDS = 600
 
 
 def classify_pilot_verdict(
-    successful_sources: int, *, content_chain_ok: bool, invariants_ok: bool
+    successful_sources: int,
+    *,
+    content_chain_ok: bool,
+    invariants_ok: bool,
+    policy_version: str | None = None,
+    exact_fixed_source_set: bool = False,
 ) -> str:
     if not content_chain_ok or not invariants_ok:
         return "FAIL"
     if successful_sources >= FINAL_PASS_SOURCE_THRESHOLD:
         return "PASS"
     if successful_sources >= LIMITED_PASS_SOURCE_THRESHOLD:
+        if policy_version == FIXED_FIVE_POLICY_VERSION and exact_fixed_source_set:
+            return "PASS"
         return "LIMITED_PASS"
     return "FAIL"
+
+
+def _is_exact_fixed_source_set(source_outcomes: list[dict[str, object]]) -> bool:
+    return {str(item.get("base_url")) for item in source_outcomes} == set(SOURCES)
+
+
+def _source_failure_diagnosis(
+    source_outcomes: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Classify failed fixed-pilot sources without performing new network I/O."""
+    candidates = {
+        "https://xxgk.mot.gov.cn/": (
+            "https://xxgk.mot.gov.cn/2020/zhengce/qtwjlist_3.html",
+            "https://www.mot.gov.cn/gongkai/zcjd/",
+        ),
+        "https://www.mem.gov.cn/gk/sgcc/tbzdsgdcbg/": (
+            "https://www.mem.gov.cn/gk/index.shtml",
+        ),
+    }
+    diagnoses: list[dict[str, object]] = []
+    for outcome in source_outcomes:
+        if bool(outcome.get("successful")):
+            continue
+        base_url = str(outcome.get("base_url"))
+        failure = str(outcome.get("probe_reason") or "UNKNOWN")
+        if failure == "UNSUPPORTED_CLIENT_REDIRECT":
+            category = "SOURCE_RESPONSE_OR_CLIENT_REDIRECT"
+        elif base_url.endswith("/tbzdsgdcbg/"):
+            category = "SOURCE_SELECTION_OR_PATH_BOUNDARY"
+        else:
+            category = "RUNTIME_OR_SOURCE_RELIABILITY"
+        diagnoses.append(
+            {
+                "base_url": base_url,
+                "failure_code": failure,
+                "category": category,
+                "replacement_candidates": list(candidates.get(base_url, ())),
+                "requires_bounded_reprobe_before_replacement": True,
+            }
+        )
+    return diagnoses
 
 
 @dataclass(frozen=True, slots=True)
@@ -311,6 +360,7 @@ def _reassess_completed_run(run_id: str) -> dict[str, object]:
     if stopped_sources != str(len(SOURCES)):
         raise RuntimeError("PILOT_REASSESS_REQUIRES_STOPPED_SOURCES")
     source_outcomes = _source_outcomes(run_id)
+    exact_fixed_source_set = _is_exact_fixed_source_set(source_outcomes)
     content_evidence = _content_evidence(run_id)
     publication_invariant = _publication_invariant()
     change_observation = _source_change_observation(run_id)
@@ -337,15 +387,20 @@ def _reassess_completed_run(run_id: str) -> dict[str, object]:
         successful_sources,
         content_chain_ok=bool(content_evidence.get("end_to_end_ok")),
         invariants_ok=invariants_ok,
+        policy_version=FIXED_FIVE_POLICY_VERSION,
+        exact_fixed_source_set=exact_fixed_source_set,
     )
     return {
         "report_kind": "POST_RUN_REASSESSMENT",
         "run_id": run_id,
         "state": "COMPLETED",
         "verdict": verdict,
+        "pilot_policy_version": FIXED_FIVE_POLICY_VERSION,
+        "exact_fixed_source_set": exact_fixed_source_set,
         "gate_verdict": "PRECHECKED_NO_BASELINE_EXCEPTIONS",
         "baseline_exceptions": [],
         "source_outcomes": source_outcomes,
+        "source_failure_diagnosis": _source_failure_diagnosis(source_outcomes),
         "successful_source_count": successful_sources,
         "content_evidence": content_evidence,
         "publication_invariant": publication_invariant,
@@ -511,6 +566,7 @@ def main() -> int:
     report: dict[str, object] = {
         "state": "BLOCKED_PRE_START",
         "verdict": "PENDING",
+        "pilot_policy_version": FIXED_FIVE_POLICY_VERSION,
         "gate_verdict": "PRECHECK_REQUIRED",
         "baseline_exceptions": [],
         "source_outcomes": [],
@@ -620,6 +676,7 @@ def main() -> int:
         source_outcomes = _source_outcomes(run_id)
         publication_invariant = _publication_invariant()
         report["source_outcomes"] = source_outcomes
+        report["source_failure_diagnosis"] = _source_failure_diagnosis(source_outcomes)
         report["publication_invariant"] = publication_invariant
         stop_reason = _psql(
             "SELECT COALESCE(stop_reason,'') FROM personal_controlled_run "
@@ -704,6 +761,8 @@ def main() -> int:
                 successful_sources,
                 content_chain_ok=content_chain_ok,
                 invariants_ok=invariants_ok,
+                policy_version=FIXED_FIVE_POLICY_VERSION,
+                exact_fixed_source_set=_is_exact_fixed_source_set(source_outcomes),
             )
             if successful_end
             else "FAIL"

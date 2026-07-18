@@ -42,7 +42,7 @@ function Invoke-Preflight {
         throw 'PILOT_PREFLIGHT_RECOVERY_EVIDENCE_MISSING'
     }
     $head = docker exec srbg-intelligence-postgres-1 psql -U srbg -d srbg -At -c 'SELECT version_num FROM alembic_version'
-    if ($head.Trim() -ne '0032_controlled_run_worker_read') {
+    if ($head.Trim() -ne '0033_controlled_ai_budget_bridge') {
         throw "PILOT_PREFLIGHT_MIGRATION_HEAD:$head"
     }
     $workerRunPrivilege = docker exec srbg-intelligence-postgres-1 psql -U srbg -d srbg -At -c "SELECT has_table_privilege('srbg_worker_role','personal_controlled_run','SELECT') AND NOT has_table_privilege('srbg_worker_role','personal_controlled_run','UPDATE')"
