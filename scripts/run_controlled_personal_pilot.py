@@ -22,6 +22,22 @@ SOURCES = (
     "https://jtt.sc.gov.cn/",
     "https://www.mem.gov.cn/gk/sgcc/tbzdsgdcbg/",
 )
+FINAL_PASS_SOURCE_THRESHOLD = 4
+LIMITED_PASS_SOURCE_THRESHOLD = 3
+POST_STOP_OBSERVATION_SECONDS = 90
+CONTENT_PROJECTION_DRAIN_SECONDS = 600
+
+
+def classify_pilot_verdict(
+    successful_sources: int, *, content_chain_ok: bool, invariants_ok: bool
+) -> str:
+    if not content_chain_ok or not invariants_ok:
+        return "FAIL"
+    if successful_sources >= FINAL_PASS_SOURCE_THRESHOLD:
+        return "PASS"
+    if successful_sources >= LIMITED_PASS_SOURCE_THRESHOLD:
+        return "LIMITED_PASS"
+    return "FAIL"
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +86,208 @@ def _psql(sql: str) -> str:
         )
         raise RuntimeError(detail) from error
     return completed.stdout.strip()
+
+
+def _psql_json(sql: str) -> object:
+    payload = _psql(sql)
+    return None if not payload else json.loads(payload)
+
+
+def _source_outcomes(run_id: str) -> list[dict[str, object]]:
+    value = _psql_json(
+        f"""
+WITH run AS (
+  SELECT id,wall_started_at FROM personal_controlled_run WHERE id='{run_id}'::uuid
+), outcomes AS (
+  SELECT source.base_url,
+         COALESCE(probe.status,'MISSING') AS probe_status,
+         probe.failure_code AS probe_reason,
+         COALESCE(profile.status,'MISSING') AS profile_status,
+         COALESCE(stream.ready_streams,0) AS ready_streams,
+         COALESCE(schedule.active_schedules,0) AS active_schedules,
+         schedule.health_status,schedule.health_reason,
+         COALESCE(fetch_stats.fetch_runs,0) AS fetch_runs,
+         COALESCE(fetch_stats.successful_fetch_runs,0) AS successful_fetch_runs,
+         COALESCE(fetch_stats.discovered_count,0) AS discovered_count,
+         COALESCE(fetch_stats.fetched_count,0) AS fetched_count,
+         COALESCE(fetch_stats.failed_count,0) AS failed_count
+    FROM run
+    JOIN personal_controlled_run_source controlled ON controlled.run_id=run.id
+    JOIN source ON source.id=controlled.source_id
+    LEFT JOIN LATERAL (
+      SELECT status,failure_code FROM stream_probe_run
+       WHERE controlled_run_id=run.id AND source_id=source.id
+       ORDER BY created_at DESC,id DESC LIMIT 1
+    ) probe ON true
+    LEFT JOIN LATERAL (
+      SELECT status FROM source_profile_run
+       WHERE source_id=source.id AND created_at>=run.wall_started_at
+       ORDER BY created_at DESC,id DESC LIMIT 1
+    ) profile ON true
+    LEFT JOIN LATERAL (
+      SELECT count(*) FILTER (WHERE status='READY') AS ready_streams
+        FROM source_stream WHERE source_id=source.id
+    ) stream ON true
+    LEFT JOIN LATERAL (
+      SELECT count(*) FILTER (WHERE status='ACTIVE') AS active_schedules,
+             max(health_status) AS health_status,max(health_reason) AS health_reason
+        FROM fetch_schedule WHERE source_id=source.id
+    ) schedule ON true
+    LEFT JOIN LATERAL (
+      SELECT count(*) AS fetch_runs,
+             count(*) FILTER (WHERE status='SUCCEEDED' AND failed_count=0) AS successful_fetch_runs,
+             COALESCE(sum(discovered_count),0) AS discovered_count,
+             COALESCE(sum(fetched_count),0) AS fetched_count,
+             COALESCE(sum(failed_count),0) AS failed_count
+        FROM fetch_run WHERE controlled_run_id=run.id AND source_id=source.id
+    ) fetch_stats ON true
+)
+SELECT COALESCE(json_agg(json_build_object(
+  'base_url',base_url,'probe_status',probe_status,'probe_reason',probe_reason,
+  'profile_status',profile_status,'ready_streams',ready_streams,
+  'active_schedules',active_schedules,'health_status',health_status,
+  'health_reason',health_reason,'fetch_runs',fetch_runs,
+  'successful_fetch_runs',successful_fetch_runs,'discovered_count',discovered_count,
+  'fetched_count',fetched_count,'failed_count',failed_count,
+  'successful',(probe_status='SUCCEEDED' AND profile_status IN ('SUCCEEDED','PARTIAL')
+    AND ready_streams>0 AND active_schedules>0 AND successful_fetch_runs>0)
+) ORDER BY base_url),'[]'::json) FROM outcomes
+"""
+    )
+    if not isinstance(value, list):
+        raise RuntimeError("CONTROLLED_PILOT_SOURCE_OUTCOME_INVALID")
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _content_evidence(run_id: str) -> dict[str, object]:
+    value = _psql_json(
+        f"""
+WITH run_versions AS (
+  SELECT DISTINCT version.id AS version_id,version.document_id,version.content_hash,
+         raw.sha256 AS raw_sha256,capture.final_url,item.id AS item_id
+    FROM fetch_run run_fetch
+    JOIN raw_object_capture capture ON capture.fetch_run_id=run_fetch.id
+    JOIN raw_object raw ON raw.id=capture.raw_object_id
+    JOIN document_version version ON version.raw_object_capture_id=capture.id
+    LEFT JOIN intelligence_item item ON item.current_document_version_id=version.id
+   WHERE run_fetch.controlled_run_id='{run_id}'::uuid
+), facts AS (
+  SELECT run_versions.*,
+         count(DISTINCT claim.id) FILTER (WHERE claim.verification_status='ACCEPTED') AS accepted_claims,
+         count(DISTINCT evidence.id) FILTER (WHERE claim.verification_status='ACCEPTED') AS evidence_ids,
+         count(DISTINCT claim.id) FILTER (
+           WHERE claim.verification_status='ACCEPTED' AND claim.critical
+             AND evidence.id IS NULL
+         ) AS critical_without_evidence,
+         bool_or(COALESCE(projection.visible,false)
+           AND projection.document_version_id=run_versions.version_id) AS projected
+    FROM run_versions
+    LEFT JOIN claim ON claim.item_id=run_versions.item_id
+      AND claim.document_version_id=run_versions.version_id
+    LEFT JOIN claim_evidence evidence ON evidence.claim_id=claim.id
+      AND evidence.document_version_id=run_versions.version_id
+    LEFT JOIN personal_content_projection projection ON projection.item_id=run_versions.item_id
+    GROUP BY run_versions.version_id,run_versions.document_id,run_versions.content_hash,
+             run_versions.raw_sha256,run_versions.final_url,run_versions.item_id
+), ai_index AS (
+  SELECT count(*) AS count
+    FROM unverified_ai_search_projection search
+    JOIN personal_signal_projection signal ON signal.id=search.signal_id
+   WHERE signal.item_id IN (SELECT item_id FROM facts WHERE item_id IS NOT NULL)
+     AND search.visible
+), summary AS (
+  SELECT count(*) AS raw_version_count,
+         count(*) FILTER (WHERE content_hash=raw_sha256) AS valid_hash_count,
+         count(*) FILTER (WHERE item_id IS NOT NULL) AS item_count,
+         COALESCE(sum(accepted_claims),0) AS accepted_claim_count,
+         COALESCE(sum(evidence_ids),0) AS evidence_id_count,
+         COALESCE(sum(critical_without_evidence),0) AS critical_without_evidence,
+         count(*) FILTER (WHERE projected) AS projected_item_count,
+         min(item_id::text) FILTER (WHERE projected) AS sample_item_id,
+         min(final_url) FILTER (WHERE projected) AS sample_original_url,
+         EXISTS(SELECT 1 FROM facts WHERE item_id IS NOT NULL AND accepted_claims>0
+           AND evidence_ids>0 AND critical_without_evidence=0 AND projected
+           AND content_hash=raw_sha256) AS end_to_end_ok
+    FROM facts
+)
+SELECT json_build_object(
+  'raw_version_count',summary.raw_version_count,
+  'valid_hash_count',summary.valid_hash_count,
+  'item_count',summary.item_count,
+  'accepted_claim_count',summary.accepted_claim_count,
+  'evidence_id_count',summary.evidence_id_count,
+  'critical_without_evidence',summary.critical_without_evidence,
+  'projected_item_count',summary.projected_item_count,
+  'unverified_ai_fact_index_count',ai_index.count,
+  'sample_item_id',summary.sample_item_id,
+  'sample_original_url',summary.sample_original_url,
+  'end_to_end_ok',(summary.end_to_end_ok AND summary.raw_version_count>0
+    AND summary.valid_hash_count=summary.raw_version_count
+    AND summary.critical_without_evidence=0 AND ai_index.count=0)
+) FROM summary CROSS JOIN ai_index
+"""
+    )
+    if not isinstance(value, dict):
+        raise RuntimeError("CONTROLLED_PILOT_CONTENT_EVIDENCE_INVALID")
+    return value
+
+
+def _publication_invariant() -> dict[str, object]:
+    value = _psql_json(
+        """
+SELECT json_build_object(
+ 'api_can_write',has_table_privilege('srbg_api_role','personal_content_projection','INSERT')
+   OR has_table_privilege('srbg_api_role','personal_content_projection','UPDATE')
+   OR has_table_privilege('srbg_api_role','personal_content_projection','DELETE'),
+ 'worker_can_write',has_table_privilege('srbg_worker_role','personal_content_projection','INSERT')
+   OR has_table_privilege('srbg_worker_role','personal_content_projection','UPDATE')
+   OR has_table_privilege('srbg_worker_role','personal_content_projection','DELETE'),
+ 'publication_writer_can_write',
+   has_table_privilege('srbg_publication_writer','personal_content_projection','INSERT')
+   AND has_table_privilege('srbg_publication_writer','personal_content_projection','UPDATE'),
+ 'ok',NOT has_table_privilege('srbg_api_role','personal_content_projection','INSERT')
+   AND NOT has_table_privilege('srbg_api_role','personal_content_projection','UPDATE')
+   AND NOT has_table_privilege('srbg_api_role','personal_content_projection','DELETE')
+   AND NOT has_table_privilege('srbg_worker_role','personal_content_projection','INSERT')
+   AND NOT has_table_privilege('srbg_worker_role','personal_content_projection','UPDATE')
+   AND NOT has_table_privilege('srbg_worker_role','personal_content_projection','DELETE')
+   AND has_table_privilege('srbg_publication_writer','personal_content_projection','INSERT')
+   AND has_table_privilege('srbg_publication_writer','personal_content_projection','UPDATE')
+)
+"""
+    )
+    if not isinstance(value, dict):
+        raise RuntimeError("CONTROLLED_PILOT_PUBLICATION_INVARIANT_INVALID")
+    return value
+
+
+def _source_change_observation(run_id: str) -> dict[str, object]:
+    value = _psql_json(
+        f"""
+WITH changed AS (
+  SELECT version.document_id,count(DISTINCT version.content_hash) AS hashes,
+         bool_and(item.current_document_version_id=projection.document_version_id) AS current_only
+    FROM fetch_run run_fetch
+    JOIN raw_object_capture capture ON capture.fetch_run_id=run_fetch.id
+    JOIN document_version version ON version.raw_object_capture_id=capture.id
+    JOIN intelligence_item item ON item.primary_document_id=version.document_id
+    JOIN personal_content_projection projection ON projection.item_id=item.id
+   WHERE run_fetch.controlled_run_id='{run_id}'::uuid
+   GROUP BY version.document_id
+  HAVING count(DISTINCT version.content_hash)>1
+)
+SELECT json_build_object(
+  'status',CASE WHEN count(*)=0 THEN 'NOT_OBSERVED'
+                WHEN bool_and(current_only) THEN 'OBSERVED_INVALIDATED'
+                ELSE 'OBSERVED_INVARIANT_FAILED' END,
+  'changed_document_count',count(*),
+  'all_old_results_invalidated',COALESCE(bool_and(current_only),true)
+) FROM changed
+"""
+    )
+    if not isinstance(value, dict):
+        raise RuntimeError("CONTROLLED_PILOT_CHANGE_OBSERVATION_INVALID")
+    return value
 
 
 def _arm_run(limits: PilotLimits) -> str:
@@ -198,8 +416,16 @@ def main() -> int:
     args = parser.parse_args()
     limits = PilotLimits()
     started = datetime.now(UTC)
-    report = {
+    report: dict[str, object] = {
         "state": "BLOCKED_PRE_START",
+        "verdict": "PENDING",
+        "gate_verdict": "PRECHECK_REQUIRED",
+        "baseline_exceptions": [],
+        "source_outcomes": [],
+        "content_evidence": {},
+        "publication_invariant": {},
+        "post_stop_network_attempts": None,
+        "source_change_observation": {"status": "NOT_EVALUATED"},
         "ai_state": "DEGRADED_DISABLED",
         "ai_reason": "CONTROLLED_AI_LEDGER_NOT_AVAILABLE",
         "started_at": started.isoformat(),
@@ -222,6 +448,12 @@ def main() -> int:
             report["run_id"] = _arm_run(limits)
         elif active != "1":
             raise RuntimeError("CONTROLLED_PILOT_ACTIVE_RUN_CONFLICT")
+        else:
+            report["run_id"] = _psql(
+                "SELECT id FROM personal_controlled_run WHERE state IN "
+                "('PREPARING','ARMED','RUNNING','PAUSED','STOPPING') "
+                "ORDER BY created_at DESC LIMIT 1"
+            )
         armed_state = _psql(
             "SELECT state FROM personal_controlled_run WHERE state IN ('PREPARING','ARMED','RUNNING','PAUSED','STOPPING') ORDER BY created_at DESC LIMIT 1"
         )
@@ -251,6 +483,20 @@ def main() -> int:
                 continue
             if state != "RUNNING":
                 raise RuntimeError("CONTROLLED_RUN_STATE_INVALID")
+            terminal_failures = int(
+                _psql(
+                    "SELECT count(*) FROM stream_probe_run WHERE controlled_run_id=("
+                    "SELECT id FROM personal_controlled_run ORDER BY created_at DESC LIMIT 1) "
+                    "AND status='FAILED'"
+                )
+            )
+            if len(SOURCES) - terminal_failures < LIMITED_PASS_SOURCE_THRESHOLD:
+                _psql(
+                    "UPDATE personal_controlled_run SET state='STOPPING',"
+                    "stop_reason='SOURCE_RELIABILITY_GATE',updated_at=now() "
+                    "WHERE state='RUNNING'"
+                )
+                break
             time.sleep(5)
             current_tick = time.monotonic()
             elapsed = max(0, round(current_tick - previous_tick))
@@ -264,6 +510,16 @@ def main() -> int:
                     "UPDATE personal_controlled_run SET state='STOPPING',stop_reason='ACTIVE_LIMIT',updated_at=now() WHERE state='RUNNING'"
                 )
                 break
+        run_id = str(report["run_id"])
+        source_outcomes = _source_outcomes(run_id)
+        publication_invariant = _publication_invariant()
+        report["source_outcomes"] = source_outcomes
+        report["publication_invariant"] = publication_invariant
+        stop_reason = _psql(
+            "SELECT COALESCE(stop_reason,'') FROM personal_controlled_run "
+            "ORDER BY created_at DESC LIMIT 1"
+        )
+        successful_end = stop_reason == "ACTIVE_LIMIT"
         _disable_controlled_sources()
         drain_deadline = time.monotonic() + 120
         while (
@@ -278,10 +534,34 @@ def main() -> int:
                 )
                 raise RuntimeError("CONTROLLED_RUN_DRAIN_TIMEOUT")
             time.sleep(2)
-        stop_reason = _psql(
-            "SELECT COALESCE(stop_reason,'') FROM personal_controlled_run ORDER BY created_at DESC LIMIT 1"
+        observation_started_at = _psql("SELECT now()")
+        observation_started_monotonic = time.monotonic()
+        content_deadline = time.monotonic() + (
+            CONTENT_PROJECTION_DRAIN_SECONDS if successful_end else 0
         )
-        successful_end = stop_reason == "ACTIVE_LIMIT"
+        while True:
+            content_evidence = _content_evidence(run_id)
+            if content_evidence.get("end_to_end_ok") or time.monotonic() >= content_deadline:
+                break
+            time.sleep(10)
+        report["content_evidence"] = content_evidence
+        source_change_observation = _source_change_observation(run_id)
+        report["source_change_observation"] = source_change_observation
+        observation_remaining = POST_STOP_OBSERVATION_SECONDS - (
+            time.monotonic() - observation_started_monotonic
+        )
+        if observation_remaining > 0:
+            time.sleep(observation_remaining)
+        post_stop_network_attempts = int(
+            _psql(
+                "SELECT count(*) FROM personal_controlled_http_attempt WHERE run_id='"
+                + run_id
+                + "'::uuid AND started_at>'"
+                + observation_started_at
+                + "'::timestamptz"
+            )
+        )
+        report["post_stop_network_attempts"] = post_stop_network_attempts
         _psql(
             "UPDATE personal_controlled_run SET state='"
             + ("COMPLETED" if successful_end else "FAILED")
@@ -302,7 +582,30 @@ def main() -> int:
             "stop_reason": stats[5],
             "ai_cost_microusd": 0,
         }
-        return 0 if report["state"] == "COMPLETED" else 2
+        successful_sources = sum(
+            bool(item.get("successful"))
+            for item in source_outcomes
+        )
+        content_chain_ok = bool(content_evidence.get("end_to_end_ok"))
+        invariants_ok = (
+            bool(publication_invariant.get("ok"))
+            and bool(source_change_observation.get("all_old_results_invalidated"))
+            and post_stop_network_attempts == 0
+        )
+        report["successful_source_count"] = successful_sources
+        verdict = (
+            classify_pilot_verdict(
+                successful_sources,
+                content_chain_ok=content_chain_ok,
+                invariants_ok=invariants_ok,
+            )
+            if successful_end
+            else "FAIL"
+        )
+        report["verdict"] = verdict
+        report["replacement_source_review_required"] = successful_sources < 3
+        report["gate_verdict"] = "PRECHECKED_NO_BASELINE_EXCEPTIONS"
+        return 0 if verdict in {"PASS", "LIMITED_PASS"} else 2
     except Exception as error:
         report["error_code"] = str(error).splitlines()[0][:120]
         try:

@@ -37,6 +37,10 @@ function Invoke-Preflight {
     New-Item -ItemType Directory -Force -Path $reportRoot | Out-Null
     [IO.File]::WriteAllText($writeProbe, 'ok')
     Remove-Item -LiteralPath $writeProbe -Force
+    $migrationReport = Join-Path $reportRoot 'pers10-d-drive-migration-20260718.md'
+    if (-not (Test-Path -LiteralPath $migrationReport)) {
+        throw 'PILOT_PREFLIGHT_RECOVERY_EVIDENCE_MISSING'
+    }
     $head = docker exec srbg-intelligence-postgres-1 psql -U srbg -d srbg -At -c 'SELECT version_num FROM alembic_version'
     if ($head.Trim() -ne '0031_controlled_personal_runs') {
         throw "PILOT_PREFLIGHT_MIGRATION_HEAD:$head"
@@ -56,6 +60,12 @@ function Invoke-Preflight {
     }
     $sourceCount = docker exec srbg-intelligence-postgres-1 psql -U srbg -d srbg -At -c "SELECT count(*) FROM source WHERE base_url IN ('https://www.gov.cn/zhengce/','https://www.mot.gov.cn/','https://xxgk.mot.gov.cn/','https://jtt.sc.gov.cn/','https://www.mem.gov.cn/gk/sgcc/tbzdsgdcbg/')"
     if ($sourceCount.Trim() -ne '5') { throw 'PILOT_PREFLIGHT_SOURCE_SET_INCOMPLETE' }
+    $activeRuns = docker exec srbg-intelligence-postgres-1 psql -U srbg -d srbg -At -q -c "SELECT count(*) FROM personal_controlled_run WHERE state IN ('PREPARING','ARMED','RUNNING','PAUSED','STOPPING')"
+    if ($activeRuns.Trim() -ne '0') { throw 'PILOT_PREFLIGHT_ACTIVE_RUN' }
+    $unsettledAttempts = docker exec srbg-intelligence-postgres-1 psql -U srbg -d srbg -At -q -c "SELECT count(*) FROM personal_controlled_http_attempt WHERE outcome='RESERVED'"
+    if ($unsettledAttempts.Trim() -ne '0') { throw 'PILOT_PREFLIGHT_UNSETTLED_ATTEMPTS' }
+    $stoppedSources = docker exec srbg-intelligence-postgres-1 psql -U srbg -d srbg -At -q -c "SELECT count(*) FROM source WHERE base_url IN ('https://www.gov.cn/zhengce/','https://www.mot.gov.cn/','https://xxgk.mot.gov.cn/','https://jtt.sc.gov.cn/','https://www.mem.gov.cn/gk/sgcc/tbzdsgdcbg/') AND desired_enabled=false AND enabled=false AND runtime_state='STOPPED'"
+    if ($stoppedSources.Trim() -ne '5') { throw 'PILOT_PREFLIGHT_SOURCE_NOT_STOPPED' }
     $aiEnvironment = docker inspect 'srbg-intelligence-ai-worker-1' --format '{{range .Config.Env}}{{println .}}{{end}}'
     if ($aiEnvironment -contains 'SRBG_AI_PROVIDER=mock') {
         $script:disableAiWorker = $true
