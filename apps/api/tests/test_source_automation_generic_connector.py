@@ -28,6 +28,7 @@ def _generic_config() -> dict[str, object]:
         "item_selector": "a",
         "link_selector": "a",
         "title_selector": "a",
+        "max_items": 5,
     }
 
 
@@ -71,13 +72,25 @@ def test_generic_profile_ranks_relevant_detail_links_ahead_of_internal_navigatio
 
     records = ListDetailConnector().discover(_fetched(html), _generic_config())
 
-    assert len(records) == 50
+    assert len(records) == 5
     assert [record.url for record in records[:2]] == [
         "https://jtt.sc.gov.cn/safety/2026/bridge-accident-notice-42.html",
         "https://jtt.sc.gov.cn/digital/2026/highway-iot-case-17.html",
     ]
     assert len({record.url for record in records}) == len(records)
     assert all(record.url.startswith("https://jtt.sc.gov.cn/") for record in records)
+
+
+def test_generic_profile_honors_the_smallest_supported_cycle_limit() -> None:
+    html = "<html><body>" + "".join(
+        f'<a href="/safety/notice-{index}.html">Safety notice {index}</a>'
+        for index in range(6)
+    ) + "</body></html>"
+    config = _generic_config() | {"max_items": 2}
+
+    records = ListDetailConnector().discover(_fetched(html), config)
+
+    assert len(records) == 2
 
 
 def test_generic_profile_preserves_document_order_when_quality_scores_tie() -> None:

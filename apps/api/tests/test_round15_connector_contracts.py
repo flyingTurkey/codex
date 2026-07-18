@@ -38,6 +38,7 @@ VALID_CONFIGS: dict[ConnectorKind, dict[str, object]] = {
         "link_selector": "a.detail",
         "title_selector": "h2.title",
         "published_selector": "time.published",
+        "max_items": 5,
     },
     ConnectorKind.DIRECT_PDF: {
         "document_urls": ["https://files.example.test/rules/bridge-safety.pdf"],
@@ -215,6 +216,19 @@ def test_selector_and_json_pointer_grammars_reject_expressions() -> None:
             ConnectorKind.JSON_API,
             pointer,
             source_allowed_hosts=("api.example.test", "docs.example.test"),
+        )
+
+
+@pytest.mark.parametrize("max_items", [0, 1, 11, "5", True])
+def test_list_detail_cycle_limit_is_a_small_bounded_integer(max_items: object) -> None:
+    document = dict(VALID_CONFIGS[ConnectorKind.LIST_DETAIL])
+    document["max_items"] = max_items
+
+    with pytest.raises(ConnectorConfigRejected, match="schema"):
+        validate_connector_config(
+            ConnectorKind.LIST_DETAIL,
+            document,
+            source_allowed_hosts=("www.example.test",),
         )
 
 

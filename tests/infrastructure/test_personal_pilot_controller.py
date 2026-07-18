@@ -22,6 +22,9 @@ def test_controller_has_no_network_preflight_and_releases_sleep_state() -> None:
         "PILOT_PREFLIGHT_ACTIVE_RUN",
         "PILOT_PREFLIGHT_UNSETTLED_ATTEMPTS",
         "PILOT_PREFLIGHT_SOURCE_NOT_STOPPED",
+        "PILOT_PREFLIGHT_WORKER_RUN_PRIVILEGE",
+        "has_table_privilege('srbg_worker_role','personal_controlled_run','SELECT')",
+        "NOT has_table_privilege('srbg_worker_role','personal_controlled_run','UPDATE')",
         "pers10-d-drive-migration-20260718.md",
     ):
         assert marker in source

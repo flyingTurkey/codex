@@ -846,8 +846,8 @@ class PostgresRuntimeGateway:
             max_attempts=max(1, int(row["max_attempts"])),
             base_backoff_seconds=max(0, int(row["backoff_base_seconds"])),
             rate_limit_per_minute=_positive_int(fetch.get("rate_limit_per_minute"), default=1),
-            minimum_interval_seconds=_positive_int(
-                fetch.get("minimum_interval_seconds"), default=900
+            minimum_interval_seconds=_runtime_minimum_interval_seconds(
+                controlled_run_id=row.get("controlled_run_id")
             ),
             circuit_failure_threshold=5,
             circuit_reset_seconds=1800,
@@ -1834,6 +1834,12 @@ def _positive_int(value: object, *, default: int) -> int:
     except ValueError:
         return default
     return result if result > 0 else default
+
+
+def _runtime_minimum_interval_seconds(*, controlled_run_id: object) -> int:
+    """Keep normal cycles conservative while the durable pilot ledger owns request pacing."""
+
+    return 60 if controlled_run_id is not None else 900
 
 
 _PERSONAL_BINDING_SQL = """

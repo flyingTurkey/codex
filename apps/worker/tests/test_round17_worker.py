@@ -47,6 +47,11 @@ SOURCE_ID = UUID("019d0000-0000-7000-8000-000000000001")
 RUN_ID = UUID("019d0000-0000-7000-8000-000000000002")
 
 
+def test_controlled_run_uses_domain_rate_slot_while_normal_runtime_keeps_cycle_interval() -> None:
+    assert runtime._runtime_minimum_interval_seconds(controlled_run_id=RUN_ID) == 60
+    assert runtime._runtime_minimum_interval_seconds(controlled_run_id=None) == 900
+
+
 class RecordingParser:
     kind = ConnectorKind.RSS_ATOM
 

@@ -45,6 +45,10 @@ function Invoke-Preflight {
     if ($head.Trim() -ne '0032_controlled_run_worker_read') {
         throw "PILOT_PREFLIGHT_MIGRATION_HEAD:$head"
     }
+    $workerRunPrivilege = docker exec srbg-intelligence-postgres-1 psql -U srbg -d srbg -At -c "SELECT has_table_privilege('srbg_worker_role','personal_controlled_run','SELECT') AND NOT has_table_privilege('srbg_worker_role','personal_controlled_run','UPDATE')"
+    if ($workerRunPrivilege.Trim() -ne 't') {
+        throw 'PILOT_PREFLIGHT_WORKER_RUN_PRIVILEGE'
+    }
     foreach ($service in @('api','worker','source-discovery')) {
         $environment = docker inspect "srbg-intelligence-$service-1" --format '{{range .Config.Env}}{{println .}}{{end}}'
         if ($environment -notcontains $requiredDiscoverySetting) {

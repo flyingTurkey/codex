@@ -191,6 +191,7 @@ CONNECTOR_DEFINITIONS: dict[ConnectorKind, ConnectorDefinition] = {
                 "link_selector": _selector_property(),
                 "title_selector": _selector_property(),
                 "published_selector": _selector_property(),
+                "max_items": {"type": "integer", "minimum": 2, "maximum": 10},
             },
             required=("list_url", "item_selector", "link_selector", "title_selector"),
         ),
