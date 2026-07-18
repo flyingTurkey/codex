@@ -68,6 +68,7 @@ personal-pilot-control-test:
 		--migration-verifier verify_controlled_runs_migration.py -- \
 		apps/api/tests/test_controlled_run_domain.py \
 		apps/api/tests/test_0031_controlled_runs_migration.py \
+		apps/api/tests/test_0032_controlled_run_worker_read_migration.py \
 		tests/infrastructure/test_personal_pilot_controller.py \
 		apps/worker/tests/test_personal_source_probe_worker.py \
 		apps/api/tests/test_round15_http_security.py -q

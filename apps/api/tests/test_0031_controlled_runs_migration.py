@@ -41,3 +41,8 @@ def test_migration_reservation_is_path_aware_and_worker_only() -> None:
     assert "s.path_prefix" in source
     assert "p_path='/robots.txt'" in source
     assert "TO srbg_worker_role" in source
+
+
+def test_0031_does_not_claim_worker_can_dispatch_without_run_state_read() -> None:
+    source = MIGRATION.read_text(encoding="utf-8")
+    assert "GRANT SELECT ON personal_controlled_run TO srbg_worker_role" not in source

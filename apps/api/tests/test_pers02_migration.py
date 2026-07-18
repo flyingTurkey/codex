@@ -8,7 +8,7 @@ MIGRATION = Path("apps/api/migrations/versions/0022_personal_source_streams.py")
 
 def test_pers02_is_the_single_head_after_pers01() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
-    assert script.get_current_head() == "0031_controlled_personal_runs"
+    assert script.get_current_head() == "0032_controlled_run_worker_read"
     revision = script.get_revision("0022_personal_source_streams")
     assert revision is not None
     assert revision.down_revision == "0021_personal_source_core"

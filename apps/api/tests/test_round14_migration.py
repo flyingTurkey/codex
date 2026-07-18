@@ -7,7 +7,7 @@ from alembic.script import ScriptDirectory
 
 def test_round14_is_expand_only_and_separates_relation_responsibilities() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
-    assert script.get_current_head() == "0031_controlled_personal_runs"
+    assert script.get_current_head() == "0032_controlled_run_worker_read"
     completion = script.get_revision("0014b_event_consumer_switch")
     assert completion.down_revision == "0014_event_unification"
     revision = script.get_revision("0014_event_unification")

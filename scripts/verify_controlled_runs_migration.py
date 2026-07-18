@@ -1,5 +1,5 @@
 # ruff: noqa: E501, S101
-"""Replay 0030 -> 0031 -> 0030 -> 0031 on an isolated loopback database."""
+"""Replay 0030 -> 0031 -> 0032 -> 0031 -> 0030 -> 0032 in isolation."""
 
 from __future__ import annotations
 
@@ -94,6 +94,18 @@ async def _exercise(database_url: str) -> None:
                 )
                 == "RUNNING"
             )
+            assert await connection.scalar(
+                text(
+                    "SELECT has_table_privilege('srbg_worker_role',"
+                    "'personal_controlled_run','SELECT')"
+                )
+            )
+            assert not await connection.scalar(
+                text(
+                    "SELECT has_table_privilege('srbg_worker_role',"
+                    "'personal_controlled_run','UPDATE')"
+                )
+            )
         try:
             async with engine.begin() as connection:
                 await connection.scalar(
@@ -138,8 +150,8 @@ async def _cleanup(database_url: str) -> None:
 def main() -> None:
     database_url = _url()
     config = Config("apps/api/alembic.ini")
-    command.upgrade(config, "0031_controlled_personal_runs")
-    asyncio.run(_head(database_url, "0031_controlled_personal_runs"))
+    command.upgrade(config, "0032_controlled_run_worker_read")
+    asyncio.run(_head(database_url, "0032_controlled_run_worker_read"))
     asyncio.run(_exercise(database_url))
     try:
         command.downgrade(config, "0030_pers10_role_archive_repair")
@@ -148,11 +160,13 @@ def main() -> None:
     else:
         raise AssertionError("0031 downgrade accepted controlled-run facts")
     asyncio.run(_cleanup(database_url))
+    command.downgrade(config, "0031_controlled_personal_runs")
+    asyncio.run(_head(database_url, "0031_controlled_personal_runs"))
     command.downgrade(config, "0030_pers10_role_archive_repair")
     asyncio.run(_head(database_url, "0030_pers10_role_archive_repair"))
-    command.upgrade(config, "0031_controlled_personal_runs")
-    asyncio.run(_head(database_url, "0031_controlled_personal_runs"))
-    print("Controlled-run migration replay passed: 0030 -> 0031 -> 0030 -> 0031")
+    command.upgrade(config, "0032_controlled_run_worker_read")
+    asyncio.run(_head(database_url, "0032_controlled_run_worker_read"))
+    print("Controlled-run migration replay passed: 0030 -> 0031 -> 0032 -> 0031 -> 0030 -> 0032")
 
 
 if __name__ == "__main__":

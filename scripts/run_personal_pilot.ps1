@@ -42,7 +42,7 @@ function Invoke-Preflight {
         throw 'PILOT_PREFLIGHT_RECOVERY_EVIDENCE_MISSING'
     }
     $head = docker exec srbg-intelligence-postgres-1 psql -U srbg -d srbg -At -c 'SELECT version_num FROM alembic_version'
-    if ($head.Trim() -ne '0031_controlled_personal_runs') {
+    if ($head.Trim() -ne '0032_controlled_run_worker_read') {
         throw "PILOT_PREFLIGHT_MIGRATION_HEAD:$head"
     }
     foreach ($service in @('api','worker','source-discovery')) {
