@@ -17,7 +17,7 @@ REQUIRED_TABLES = {
 def test_round05_migration_follows_round04_and_declares_digital_case_tables() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
 
-    assert script.get_current_head() == "0032_controlled_run_worker_read"
+    assert script.get_current_head() == "0033_controlled_ai_budget_bridge"
     revision = script.get_revision("0006_digital_cases")
     assert revision.down_revision == "0005_safety_case_lifecycle"
     migration = runpy.run_path("apps/api/migrations/versions/0006_digital_cases.py")

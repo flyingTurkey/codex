@@ -9,7 +9,7 @@ REPAIR_MIGRATION = Path("apps/api/migrations/versions/0030_pers10_role_archive_r
 
 def test_pers10_role_repair_is_the_single_head() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
-    assert script.get_current_head() == "0032_controlled_run_worker_read"
+    assert script.get_current_head() == "0033_controlled_ai_budget_bridge"
     revision = script.get_revision("0029_legacy_governance_retirement")
     assert revision is not None
     assert revision.down_revision == "0028_automatic_relationships"

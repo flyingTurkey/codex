@@ -1,5 +1,5 @@
 # ruff: noqa: E501, S101
-"""Replay 0030 -> 0031 -> 0032 -> 0031 -> 0030 -> 0032 in isolation."""
+"""Replay 0030 -> 0031 -> 0032 -> 0033 -> 0032 -> 0030 -> 0033 in isolation."""
 
 from __future__ import annotations
 
@@ -20,6 +20,11 @@ from sqlalchemy.ext.asyncio import create_async_engine
 _DISPOSABLE_DATABASE = re.compile(r"srbg_it_[0-9a-f]{24}\Z")
 _RUN = UUID("019b0000-0000-7000-8000-000000003101")
 _ATTEMPT = UUID("019b0000-0000-7000-8000-000000003102")
+_PIPELINE = UUID("019b0000-0000-7000-8000-000000003104")
+_AI_RESERVATION = UUID("019b0000-0000-7000-8000-000000003105")
+_RAW = UUID("019b0000-0000-7000-8000-000000003106")
+_DOCUMENT = UUID("019b0000-0000-7000-8000-000000003107")
+_VERSION = UUID("019b0000-0000-7000-8000-000000003108")
 
 
 def _url() -> str:
@@ -106,6 +111,75 @@ async def _exercise(database_url: str) -> None:
                     "'personal_controlled_run','UPDATE')"
                 )
             )
+            await connection.execute(
+                text(
+                    "INSERT INTO raw_object(id,sha256,object_key,byte_size,declared_mime,"
+                    "detected_mime,scan_status,created_at) VALUES(:id,:hash,'controlled-ai-replay',"
+                    "1,'text/plain','text/plain','CLEAN',:now)"
+                ),
+                {"id": _RAW, "hash": "2" * 64, "now": now},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO document(id,source_id,canonical_url,document_kind,first_discovered_at) "
+                    "VALUES(:id,:source,'https://www.gov.cn/zhengce/controlled-ai-replay','HTML',:now)"
+                ),
+                {"id": _DOCUMENT, "source": source_id, "now": now},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO document_version(id,document_id,raw_object_id,version_number,"
+                    "content_hash,original_filename,acquired_at) VALUES(:id,:document,:raw,1,:hash,"
+                    "'controlled-ai-replay.html',:now)"
+                ),
+                {
+                    "id": _VERSION,
+                    "document": _DOCUMENT,
+                    "raw": _RAW,
+                    "hash": "2" * 64,
+                    "now": now,
+                },
+            )
+            await connection.execute(
+                text("UPDATE document SET current_version_id=:version WHERE id=:document"),
+                {"version": _VERSION, "document": _DOCUMENT},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO ai_pipeline_run(id,document_version_id,mode,status,input_sha256,"
+                    "started_at,controlled_run_id) VALUES(:id,:version,'SHADOW','QUEUED',:hash,:now,:run)"
+                ),
+                {
+                    "id": _PIPELINE,
+                    "version": _VERSION,
+                    "hash": "2" * 64,
+                    "now": now,
+                    "run": _RUN,
+                },
+            )
+            reservation = (
+                await connection.execute(
+                    text(
+                        "SELECT reservation_id,alert_crossed FROM reserve_controlled_ai_budget("
+                        ":id,:pipeline,'SUMMARIZE',1,12,75000,:now)"
+                    ),
+                    {"id": _AI_RESERVATION, "pipeline": _PIPELINE, "now": now},
+                )
+            ).mappings().one()
+            assert reservation["reservation_id"] == _AI_RESERVATION
+            assert await connection.scalar(
+                text(
+                    "SELECT settle_controlled_ai_budget(:id,1000,'SETTLED',:now)"
+                ),
+                {"id": _AI_RESERVATION, "now": now + timedelta(seconds=1)},
+            ) == 1
+            assert await connection.scalar(
+                text(
+                    "SELECT ai_cost_reserved_microusd=0 AND ai_cost_settled_microusd=1000 "
+                    "FROM personal_controlled_run WHERE id=:run"
+                ),
+                {"run": _RUN},
+            )
         try:
             async with engine.begin() as connection:
                 await connection.scalar(
@@ -134,6 +208,29 @@ async def _cleanup(database_url: str) -> None:
     try:
         async with engine.begin() as connection:
             await connection.execute(
+                text("DELETE FROM ai_budget_reservation WHERE id=:id"),
+                {"id": _AI_RESERVATION},
+            )
+            await connection.execute(
+                text("DELETE FROM ai_pipeline_run WHERE id=:id"), {"id": _PIPELINE}
+            )
+            await connection.execute(text("ALTER TABLE document DISABLE TRIGGER USER"))
+            await connection.execute(
+                text("UPDATE document SET current_version_id=NULL WHERE id=:id"), {"id": _DOCUMENT}
+            )
+            await connection.execute(text("ALTER TABLE document_version DISABLE TRIGGER USER"))
+            await connection.execute(
+                text("DELETE FROM document_version WHERE id=:id"), {"id": _VERSION}
+            )
+            await connection.execute(
+                text("DELETE FROM document WHERE id=:id"), {"id": _DOCUMENT}
+            )
+            await connection.execute(text("ALTER TABLE document_version ENABLE TRIGGER USER"))
+            await connection.execute(text("ALTER TABLE document ENABLE TRIGGER USER"))
+            await connection.execute(text("ALTER TABLE raw_object DISABLE TRIGGER USER"))
+            await connection.execute(text("DELETE FROM raw_object WHERE id=:id"), {"id": _RAW})
+            await connection.execute(text("ALTER TABLE raw_object ENABLE TRIGGER USER"))
+            await connection.execute(
                 text("DELETE FROM personal_controlled_http_attempt WHERE run_id=:run"),
                 {"run": _RUN},
             )
@@ -150,23 +247,25 @@ async def _cleanup(database_url: str) -> None:
 def main() -> None:
     database_url = _url()
     config = Config("apps/api/alembic.ini")
-    command.upgrade(config, "0032_controlled_run_worker_read")
-    asyncio.run(_head(database_url, "0032_controlled_run_worker_read"))
+    command.upgrade(config, "0033_controlled_ai_budget_bridge")
+    asyncio.run(_head(database_url, "0033_controlled_ai_budget_bridge"))
     asyncio.run(_exercise(database_url))
     try:
         command.downgrade(config, "0030_pers10_role_archive_repair")
     except RuntimeError as error:
-        assert "CONTROLLED_RUN_DOWNGRADE_BLOCKED" in str(error)
+        assert "CONTROLLED_AI_BRIDGE_DOWNGRADE_BLOCKED" in str(error)
     else:
         raise AssertionError("0031 downgrade accepted controlled-run facts")
     asyncio.run(_cleanup(database_url))
+    command.downgrade(config, "0032_controlled_run_worker_read")
+    asyncio.run(_head(database_url, "0032_controlled_run_worker_read"))
     command.downgrade(config, "0031_controlled_personal_runs")
     asyncio.run(_head(database_url, "0031_controlled_personal_runs"))
     command.downgrade(config, "0030_pers10_role_archive_repair")
     asyncio.run(_head(database_url, "0030_pers10_role_archive_repair"))
-    command.upgrade(config, "0032_controlled_run_worker_read")
-    asyncio.run(_head(database_url, "0032_controlled_run_worker_read"))
-    print("Controlled-run migration replay passed: 0030 -> 0031 -> 0032 -> 0031 -> 0030 -> 0032")
+    command.upgrade(config, "0033_controlled_ai_budget_bridge")
+    asyncio.run(_head(database_url, "0033_controlled_ai_budget_bridge"))
+    print("Controlled-run migration replay passed: 0030 -> 0031 -> 0032 -> 0033 -> 0032 -> 0030 -> 0033")
 
 
 if __name__ == "__main__":

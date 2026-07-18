@@ -140,18 +140,30 @@ class PostgresAiPreparationRepository:
     async def reserve(self, run_id: UUID, step: AiStep, attempt: int) -> object:
         reservation_id = uuid7()
         async with self._engine.begin() as connection:
+            controlled_run_id = await connection.scalar(
+                text("SELECT controlled_run_id FROM ai_pipeline_run WHERE id=:run_id"),
+                {"run_id": run_id},
+            )
+            if controlled_run_id is not None:
+                budget_sql = (
+                    "SELECT reservation_id,alert_crossed FROM reserve_controlled_ai_budget("
+                    ":id,:run_id,:step,:attempt,12,:controlled_cost_reservation_microusd,:now)"
+                )
+            else:
+                budget_sql = (
+                    "SELECT reservation_id,alert_crossed FROM reserve_ai_budget("
+                    ":id,:run_id,:step,:attempt,12,:now)"
+                )
             row = (
                 (
                     await connection.execute(
-                        text(
-                            "SELECT reservation_id,alert_crossed FROM reserve_ai_budget("
-                            ":id,:run_id,:step,:attempt,12,:now)"
-                        ),
+                        text(budget_sql),
                         {
                             "id": reservation_id,
                             "run_id": run_id,
                             "step": step.value,
                             "attempt": attempt,
+                            "controlled_cost_reservation_microusd": 75_000,
                             "now": datetime.now(UTC),
                         },
                     )
@@ -170,8 +182,16 @@ class PostgresAiPreparationRepository:
         if not isinstance(reservation, UUID):
             raise ValueError("budget reservation identifier is invalid")
         async with self._engine.begin() as connection:
+            controlled_run_id = await connection.scalar(
+                text("SELECT controlled_run_id FROM ai_budget_reservation WHERE id=:id"),
+                {"id": reservation},
+            )
             await connection.execute(
-                text("SELECT settle_ai_budget(:id,:cost,:status,:now)"),
+                text(
+                    "SELECT settle_controlled_ai_budget(:id,:cost,:status,:now)"
+                    if controlled_run_id is not None
+                    else "SELECT settle_ai_budget(:id,:cost,:status,:now)"
+                ),
                 {
                     "id": reservation,
                     "cost": response.cost_microusd if response is not None else 0,
@@ -184,8 +204,16 @@ class PostgresAiPreparationRepository:
         if not isinstance(reservation, UUID):
             raise ValueError("budget reservation identifier is invalid")
         async with self._engine.begin() as connection:
+            controlled_run_id = await connection.scalar(
+                text("SELECT controlled_run_id FROM ai_budget_reservation WHERE id=:id"),
+                {"id": reservation},
+            )
             await connection.execute(
-                text("SELECT release_ai_budget(:id,:now)"),
+                text(
+                    "SELECT release_controlled_ai_budget(:id,:now)"
+                    if controlled_run_id is not None
+                    else "SELECT release_ai_budget(:id,:now)"
+                ),
                 {"id": reservation, "now": datetime.now(UTC)},
             )
 

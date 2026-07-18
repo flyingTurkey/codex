@@ -12,6 +12,9 @@ allowBuilds:
 nodeVersion: 24.14.0
 engineStrict: true
 
+overrides:
+  fontless>esbuild: 0.28.1
+
 hoistPattern:
   - '*'
   - '!@esbuild/*'
