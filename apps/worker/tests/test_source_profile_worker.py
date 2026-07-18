@@ -1,11 +1,14 @@
 import asyncio
+import inspect
 from uuid import UUID
 
 import pytest
 from srbg_worker.source_profile import (
+    PostgresSourceProfileGateway,
     ProfileBinding,
     effective_override,
     prepare_profile,
+    terminal_profile_fallback_reason,
 )
 
 
@@ -21,6 +24,20 @@ class OversizedStore:
     async def get_bytes(self, key: str, *, max_bytes: int | None = None) -> bytes:
         del key, max_bytes
         raise OSError("object exceeds bounded read limit")
+
+
+def test_expired_final_profile_attempt_is_recovered_as_local_partial() -> None:
+    pending_source = inspect.getsource(PostgresSourceProfileGateway.pending_ids)
+    acquire_source = inspect.getsource(PostgresSourceProfileGateway.acquire)
+
+    assert "(status='QUEUED' AND next_attempt_at<=now() AND attempt_count<3)" in pending_source
+    assert "(status='RUNNING' AND leased_until<=now())" in pending_source
+    assert "CASE WHEN attempt_count<3 THEN attempt_count+1 ELSE" in acquire_source
+    assert "attempt_count END" in acquire_source
+    assert hasattr(PostgresSourceProfileGateway, "persist_snapshot")
+    assert hasattr(PostgresSourceProfileGateway, "requeue")
+    assert terminal_profile_fallback_reason(2) is None
+    assert terminal_profile_fallback_reason(3) == "MODEL_RESULT_TIMEOUT"
 
 
 def test_profile_preparation_uses_bounded_raw_evidence() -> None:

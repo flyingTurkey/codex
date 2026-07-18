@@ -69,9 +69,9 @@ class PostgresSourceProfileGateway:
             rows = await connection.execute(
                 text(
                     "SELECT id FROM source_profile_run WHERE "
-                    "((status='QUEUED' AND next_attempt_at<=now()) OR "
+                    "((status='QUEUED' AND next_attempt_at<=now() AND attempt_count<3) OR "
                     "(status='RUNNING' AND leased_until<=now())) "
-                    "AND attempt_count<3 ORDER BY next_attempt_at,id LIMIT :limit"
+                    "ORDER BY next_attempt_at,id LIMIT :limit"
                 ),
                 {"limit": limit},
             )
@@ -85,11 +85,12 @@ class PostgresSourceProfileGateway:
                     await connection.execute(
                         text(
                             "UPDATE source_profile_run SET status='RUNNING',"
-                            "attempt_count=attempt_count+1,lease_token=:token,"
+                            "attempt_count=CASE WHEN attempt_count<3 THEN attempt_count+1 ELSE "
+                            "attempt_count END,lease_token=:token,"
                             "leased_until=now()+interval '5 minutes',updated_at=now() "
-                            "WHERE id=:id AND ((status='QUEUED' AND next_attempt_at<=now()) OR "
-                            "(status='RUNNING' AND leased_until<=now())) "
-                            "AND attempt_count<3 RETURNING source_id,attempt_count"
+                            "WHERE id=:id AND ((status='QUEUED' AND next_attempt_at<=now() "
+                            "AND attempt_count<3) OR (status='RUNNING' AND leased_until<=now())) "
+                            "RETURNING source_id,attempt_count"
                         ),
                         {"id": run_id, "token": token},
                     )
@@ -138,7 +139,6 @@ class PostgresSourceProfileGateway:
             captures=tuple(captures or ()),
             attempt_count=int(row["attempt_count"]),
         )
-
     async def persist_snapshot(
         self,
         prepared: PreparedProfile,
@@ -425,6 +425,12 @@ class PostgresSourceProfileGateway:
                     "error": error_code,
                 },
             )
+
+
+def terminal_profile_fallback_reason(attempt_count: int) -> str | None:
+    """Resolve a lost final model callback from durable probe evidence without more AI I/O."""
+
+    return "MODEL_RESULT_TIMEOUT" if attempt_count >= 3 else None
 
 
 async def _persist_personal_auto_score(

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
+from uuid import UUID
 
 from srbg_api.identifiers import uuid7
 
@@ -108,6 +109,7 @@ WITH run AS (
          schedule.health_status,schedule.health_reason,
          COALESCE(fetch_stats.fetch_runs,0) AS fetch_runs,
          COALESCE(fetch_stats.successful_fetch_runs,0) AS successful_fetch_runs,
+         COALESCE(fetch_stats.controlled_schedules,0) AS controlled_schedules,
          COALESCE(fetch_stats.discovered_count,0) AS discovered_count,
          COALESCE(fetch_stats.fetched_count,0) AS fetched_count,
          COALESCE(fetch_stats.failed_count,0) AS failed_count
@@ -120,9 +122,9 @@ WITH run AS (
        ORDER BY created_at DESC,id DESC LIMIT 1
     ) probe ON true
     LEFT JOIN LATERAL (
-      SELECT status FROM source_profile_run
-       WHERE source_id=source.id AND created_at>=run.wall_started_at
-       ORDER BY created_at DESC,id DESC LIMIT 1
+      SELECT status FROM source_profile_snapshot
+       WHERE source_id=source.id AND generated_at>=run.wall_started_at
+       ORDER BY generated_at DESC,id DESC LIMIT 1
     ) profile ON true
     LEFT JOIN LATERAL (
       SELECT count(*) FILTER (WHERE status='READY') AS ready_streams
@@ -136,6 +138,7 @@ WITH run AS (
     LEFT JOIN LATERAL (
       SELECT count(*) AS fetch_runs,
              count(*) FILTER (WHERE status='SUCCEEDED' AND failed_count=0) AS successful_fetch_runs,
+             count(DISTINCT schedule_id) AS controlled_schedules,
              COALESCE(sum(discovered_count),0) AS discovered_count,
              COALESCE(sum(fetched_count),0) AS fetched_count,
              COALESCE(sum(failed_count),0) AS failed_count
@@ -147,10 +150,12 @@ SELECT COALESCE(json_agg(json_build_object(
   'profile_status',profile_status,'ready_streams',ready_streams,
   'active_schedules',active_schedules,'health_status',health_status,
   'health_reason',health_reason,'fetch_runs',fetch_runs,
+  'controlled_schedules',controlled_schedules,
   'successful_fetch_runs',successful_fetch_runs,'discovered_count',discovered_count,
   'fetched_count',fetched_count,'failed_count',failed_count,
   'successful',(probe_status='SUCCEEDED' AND profile_status IN ('SUCCEEDED','PARTIAL')
-    AND ready_streams>0 AND active_schedules>0 AND successful_fetch_runs>0)
+    AND ready_streams>0 AND (active_schedules>0 OR controlled_schedules>0)
+    AND successful_fetch_runs>0)
 ) ORDER BY base_url),'[]'::json) FROM outcomes
 """
     )
@@ -290,6 +295,79 @@ SELECT json_build_object(
     return value
 
 
+def _reassess_completed_run(run_id: str) -> dict[str, object]:
+    state = _psql(
+        "SELECT state||'|'||COALESCE(stop_reason,'') FROM personal_controlled_run "
+        f"WHERE id='{run_id}'::uuid"
+    )
+    if state != "COMPLETED|ACTIVE_LIMIT":
+        raise RuntimeError("PILOT_REASSESS_REQUIRES_COMPLETED_RUN")
+    stopped_sources = _psql(
+        "SELECT count(*) FROM source JOIN personal_controlled_run_source controlled "
+        "ON controlled.source_id=source.id "
+        f"WHERE controlled.run_id='{run_id}'::uuid AND source.desired_enabled=false "
+        "AND source.enabled=false AND source.runtime_state='STOPPED'"
+    )
+    if stopped_sources != str(len(SOURCES)):
+        raise RuntimeError("PILOT_REASSESS_REQUIRES_STOPPED_SOURCES")
+    source_outcomes = _source_outcomes(run_id)
+    content_evidence = _content_evidence(run_id)
+    publication_invariant = _publication_invariant()
+    change_observation = _source_change_observation(run_id)
+    post_stop_network_attempts = int(
+        _psql(
+            "SELECT count(*) FROM personal_controlled_http_attempt attempt "
+            f"WHERE attempt.run_id='{run_id}'::uuid AND attempt.started_at>=(SELECT min(source.manual_disabled_at) "
+            "FROM source JOIN personal_controlled_run_source controlled "
+            "ON controlled.source_id=source.id WHERE controlled.run_id=attempt.run_id)"
+        )
+    )
+    stats = _psql(
+        "SELECT requests_reserved||'|'||bytes_settled||'|'||attempts_settled||'|'||"
+        "attempts_failed||'|'||active_seconds||'|'||COALESCE(stop_reason,'') "
+        f"FROM personal_controlled_run WHERE id='{run_id}'::uuid"
+    ).split("|")
+    successful_sources = sum(bool(item.get("successful")) for item in source_outcomes)
+    invariants_ok = (
+        bool(publication_invariant.get("ok"))
+        and bool(change_observation.get("all_old_results_invalidated"))
+        and post_stop_network_attempts == 0
+    )
+    verdict = classify_pilot_verdict(
+        successful_sources,
+        content_chain_ok=bool(content_evidence.get("end_to_end_ok")),
+        invariants_ok=invariants_ok,
+    )
+    return {
+        "report_kind": "POST_RUN_REASSESSMENT",
+        "run_id": run_id,
+        "state": "COMPLETED",
+        "verdict": verdict,
+        "gate_verdict": "PRECHECKED_NO_BASELINE_EXCEPTIONS",
+        "baseline_exceptions": [],
+        "source_outcomes": source_outcomes,
+        "successful_source_count": successful_sources,
+        "content_evidence": content_evidence,
+        "publication_invariant": publication_invariant,
+        "post_stop_network_attempts": post_stop_network_attempts,
+        "source_change_observation": change_observation,
+        "ai_state": "DEGRADED_DISABLED",
+        "ai_reason": "CONTROLLED_AI_LEDGER_NOT_AVAILABLE",
+        "usage": {
+            "http_requests": int(stats[0]),
+            "response_bytes": int(stats[1]),
+            "attempts_settled": int(stats[2]),
+            "attempts_failed": int(stats[3]),
+            "active_seconds": int(stats[4]),
+            "stop_reason": stats[5],
+            "ai_cost_microusd": 0,
+        },
+        "replacement_source_review_required": successful_sources < FINAL_PASS_SOURCE_THRESHOLD,
+        "reassessment_network_io_performed": False,
+        "finished_at": datetime.now(UTC).isoformat(),
+    }
+
+
 def _arm_run(limits: PilotLimits) -> str:
     run_id = uuid7()
     owner_id = "019b0000-0000-7000-8000-000000009001"
@@ -419,7 +497,15 @@ def _fail_active_run() -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-root", type=Path, required=True)
+    parser.add_argument("--reassess-run")
     args = parser.parse_args()
+    if args.reassess_run is not None:
+        run_id = str(UUID(args.reassess_run))
+        report = _reassess_completed_run(run_id)
+        report_path = args.data_root / "reports" / f"controlled-pilot-reassessment-{run_id}.json"
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        return 0 if report["verdict"] in {"PASS", "LIMITED_PASS"} else 2
     limits = PilotLimits()
     started = datetime.now(UTC)
     report: dict[str, object] = {
@@ -623,7 +709,9 @@ def main() -> int:
             else "FAIL"
         )
         report["verdict"] = verdict
-        report["replacement_source_review_required"] = successful_sources < 3
+        report["replacement_source_review_required"] = (
+            successful_sources < FINAL_PASS_SOURCE_THRESHOLD
+        )
         report["gate_verdict"] = "PRECHECKED_NO_BASELINE_EXCEPTIONS"
         return 0 if verdict in {"PASS", "LIMITED_PASS"} else 2
     except Exception as error:

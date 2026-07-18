@@ -1,3 +1,4 @@
+import inspect
 from pathlib import Path
 from runpy import run_path
 
@@ -7,6 +8,7 @@ MAKEFILE = Path("Makefile")
 _CONTROLLER_GLOBALS = run_path(str(CONTROLLER))
 POST_STOP_OBSERVATION_SECONDS = _CONTROLLER_GLOBALS["POST_STOP_OBSERVATION_SECONDS"]
 classify_pilot_verdict = _CONTROLLER_GLOBALS["classify_pilot_verdict"]
+source_outcomes = _CONTROLLER_GLOBALS["_source_outcomes"]
 
 
 def test_controller_has_no_network_preflight_and_releases_sleep_state() -> None:
@@ -70,3 +72,21 @@ def test_verdict_keeps_four_source_final_gate_and_three_source_limited_gate() ->
 
 def test_stop_observation_exceeds_one_complete_domain_rate_limit_slot() -> None:
     assert POST_STOP_OBSERVATION_SECONDS >= 90
+
+
+def test_source_success_uses_a_persisted_profile_snapshot_and_executed_schedule() -> None:
+    source = inspect.getsource(source_outcomes)
+
+    assert "FROM source_profile_snapshot" in source
+    assert "generated_at>=run.wall_started_at" in source
+    assert "controlled_schedules" in source
+    assert "active_schedules>0 OR controlled_schedules>0" in source
+
+
+def test_completed_run_can_be_reassessed_without_starting_network_work() -> None:
+    source = CONTROLLER.read_text(encoding="utf-8")
+
+    assert 'parser.add_argument("--reassess-run")' in source
+    assert '"report_kind": "POST_RUN_REASSESSMENT"' in source
+    assert "PILOT_REASSESS_REQUIRES_COMPLETED_RUN" in source
+    assert "started_at>=(SELECT min(source.manual_disabled_at)" in source

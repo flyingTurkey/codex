@@ -95,6 +95,7 @@ from srbg_worker.source_profile import (
     PreparedProfile,
     ProfileBinding,
     prepare_profile,
+    terminal_profile_fallback_reason,
 )
 from srbg_worker.source_runtime import (
     LiveRuntimeTransport,
@@ -976,6 +977,20 @@ async def _dispatch_or_start_source_profile(
         if binding is None:
             return {"profile_run_id": str(profile_run_id), "status": "DUPLICATE"}
         prepared = await prepare_profile(binding, S3ObjectStore(settings))
+        fallback_reason = terminal_profile_fallback_reason(binding.attempt_count)
+        if fallback_reason is not None:
+            profile = build_source_profile(
+                prepared.rule_input,
+                model_output=None,
+                partial_reason=fallback_reason,
+            )
+            await gateway.persist_snapshot(
+                prepared,
+                profile,
+                failure_code=fallback_reason,
+            )
+            SOURCE_PROFILE_RUNS.labels("PARTIAL", fallback_reason).inc()
+            return {"profile_run_id": str(profile_run_id), "status": "PARTIAL"}
         try:
             request = build_profile_request(prepared.rule_input.evidence)
         except PermissionError:
