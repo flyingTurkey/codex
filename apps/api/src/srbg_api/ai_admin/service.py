@@ -49,7 +49,12 @@ class PostgresAiAdminService:
                     "key_configured": key_configured,
                     "runtime_status": "READY" if not reasons else "MODEL_DISABLED",
                     "blocking_reasons": reasons,
-                    "token_limits": {"CLASSIFY": 1200, "EXTRACT": 4000},
+                    "token_limits": {
+                        "CLASSIFY": 1200,
+                        "EXTRACT": 4000,
+                        "SUMMARIZE": 1500,
+                        "VERIFY": 1500,
+                    },
                     "budget": (
                         {
                             "monthly_points": 20_000,
@@ -81,7 +86,8 @@ class PostgresAiAdminService:
             parameters = (
                 '{"thinking":{"type":"disabled"},'
                 '"response_format":{"type":"json_object"},"temperature":0,'
-                '"classify_max_tokens":1200,"extract_max_tokens":4000}'
+                '"classify_max_tokens":1200,"extract_max_tokens":4000,'
+                '"summarize_max_tokens":1500,"verify_max_tokens":1500}'
             )
         else:
             input_price, output_price, pricing = 0, 0, "mock-only-v1"

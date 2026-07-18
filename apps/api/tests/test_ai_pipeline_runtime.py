@@ -57,11 +57,10 @@ def _request(step: AiStep) -> ModelRequest:
 def test_openai_compatible_provider_is_tool_free_and_configurable() -> None:
     output = {
         "unsupported_claims": [],
-        "evidence_mismatches": [],
         "number_or_date_conflicts": [],
-        "legal_or_causal_overreach": [],
+        "legal_responsibility_or_causal_overreach": [],
         "enterprise_claims_missing_attribution": [],
-        "stale_or_superseded_risk": False,
+        "stale_or_superseded_evidence": False,
         "prompt_injection_risk": False,
         "candidate_decision": "PASS_TO_SERVER_GATE",
     }

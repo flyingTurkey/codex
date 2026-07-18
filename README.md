@@ -1,5 +1,11 @@
 # 四川路桥·智安情报
 
+## PERS-07 AI 判断与自动发布
+
+每个当前文档版本会先发布证据事实信号，再用仅含当前 `EVIDENCE_FACT` 和必要短摘录的输入生成 AI 判断并执行 VERIFY。通过核验的判断标记为 `AI_JUDGMENT`；结构合法但未通过核验的判断以明显不同的“未验证 AI”卡片进入同一时间线和独立搜索/日报分区；错误 JSON、Schema 失败或提示注入只显示 `AI_PROCESSING_FAILED`。
+
+Feed、统一搜索和个人日报都只读取 PublicationService 写入的服务端投影。文档变化、撤回、纠正或证据失效时，旧 Feed、搜索、日报和缓存 generation 会事务性失效，然后重新运行内容处理。详见[Feed、搜索与日报状态说明](docs/user-guide/personal-ai-signals.md)。
+
 ## PERS-06 自动证据事实
 
 新内容不再等待 Claim 人工审核。抽取结果先经过服务端确定性证据门禁，只有当前文档版本中可定位、数值一致、归因明确、生命周期有效且无冲突/提示注入风险的内容才成为 `EVIDENCE_FACT`。未通过门禁的模型候选作为“AI 判断（未验证）”仅在 Event 详情预览，不进入卡片摘要、搜索或日报。

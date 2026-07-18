@@ -9,6 +9,29 @@ export type PipelineRunId = string | null
 export type PromptVersion = string | null
 export type SchemaVersion = string | null
 export type Status = 'ASSISTED' | 'DEGRADED'
+/**
+ * @maxItems 10
+ */
+export type CurrentLimitations = string[]
+/**
+ * @maxItems 10
+ */
+export type PotentialEngineeringScenarios = string[]
+/**
+ * @maxItems 10
+ */
+export type PotentialIndustryImpacts = string[]
+/**
+ * @maxItems 10
+ */
+export type QuestionsToVerify = string[]
+/**
+ * @minItems 1
+ * @maxItems 100
+ */
+export type UsedClaimIds = string[]
+export type WhyWorthAttention = string
+export type AutomaticResultType = ('EVIDENCE_FACT' | 'AI_JUDGMENT' | 'UNVERIFIED_AI' | 'AI_PROCESSING_FAILED') | null
 export type CanonicalEventId = string
 export type ItemType =
   | 'DIGITAL_CASE'
@@ -36,6 +59,10 @@ export type IsSaved = boolean | null
 export type LastUpdatedAt = string | null
 export type OneSentenceFact = string | null
 export type OriginalUrl = string
+/**
+ * @maxItems 20
+ */
+export type ProcessingFailureReasons = string[]
 export type PublicationRevisionId = string | null
 export type PublicationStatus = 'PENDING_REVIEW' | 'PUBLISHED' | 'WITHDRAWN'
 export type RelevanceReason = string | null
@@ -70,6 +97,7 @@ export type MatchedFields = string[]
  */
 export type MatchedIdentifiers = string[]
 export type SemanticStatus = 'DISABLED' | 'ENABLED' | 'DEGRADED'
+export type SignalId = string | null
 export type SourceName = string
 export type SourcePublishedAt = string | null
 export type SourceRole = string | null
@@ -279,6 +307,8 @@ export interface FeedPage {
 export interface EventSummary {
   activity_at: ActivityAt
   ai_assistance?: AiAssistance | null
+  ai_judgment?: AiJudgmentSignal | null
+  automatic_result_type?: AutomaticResultType
   canonical_event_id: CanonicalEventId
   content_type: ItemType
   detail_available?: DetailAvailable
@@ -296,6 +326,7 @@ export interface EventSummary {
   last_updated_at?: LastUpdatedAt
   one_sentence_fact?: OneSentenceFact
   original_url: OriginalUrl
+  processing_failure_reasons?: ProcessingFailureReasons
   publication_revision_id: PublicationRevisionId
   publication_status?: PublicationStatus | null
   relevance_reason?: RelevanceReason
@@ -303,6 +334,7 @@ export interface EventSummary {
   revision_state?: PublicationRevisionState | null
   scores?: ScoreSummary | null
   search_context?: SearchContext | null
+  signal_id?: SignalId
   source_name: SourceName
   source_published_at: SourcePublishedAt
   source_role?: SourceRole
@@ -318,6 +350,14 @@ export interface AiAssistance {
   prompt_version?: PromptVersion
   schema_version?: SchemaVersion
   status: Status
+}
+export interface AiJudgmentSignal {
+  current_limitations?: CurrentLimitations
+  potential_engineering_scenarios?: PotentialEngineeringScenarios
+  potential_industry_impacts?: PotentialIndustryImpacts
+  questions_to_verify?: QuestionsToVerify
+  used_claim_ids: UsedClaimIds
+  why_worth_attention: WhyWorthAttention
 }
 export interface PublicationRevisionState {
   action: Action

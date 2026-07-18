@@ -1,8 +1,12 @@
 <script setup lang="ts">
 import type { DailyReport } from '@srbg/contracts'
 import { StatusBadge } from '@srbg/ui'
+import { computed } from 'vue'
 
-defineProps<{ report: DailyReport }>()
+const props = defineProps<{ report: DailyReport }>()
+const isAutomaticPersonalReport = computed(() =>
+  props.report.sections.some(section => ['EVIDENCE_FACTS', 'UNVERIFIED_AI'].includes(section.kind)),
+)
 </script>
 
 <template>
@@ -14,7 +18,7 @@ defineProps<{ report: DailyReport }>()
       </div>
       <StatusBadge
         :tone="report.status === 'PUBLISHED' ? 'verified' : 'pending'"
-        :label="report.status === 'PUBLISHED' ? '已审核发布' : '审核草稿'"
+        :label="isAutomaticPersonalReport ? '自动发布' : report.status === 'PUBLISHED' ? '已审核发布' : '审核草稿'"
       />
     </header>
     <p v-if="report.requires_regeneration" class="daily-report__warning" role="alert">
@@ -28,6 +32,7 @@ defineProps<{ report: DailyReport }>()
             <a :href="`/events/${item.event_id ?? item.item_id}`">{{ item.title }}</a>
             <strong v-if="item.current_state === 'WITHDRAWN'">已撤回</strong>
             <strong v-else-if="item.current_state === 'SOURCE_UNAVAILABLE'">原文失效</strong>
+            <strong v-else-if="item.automatic_result_type === 'UNVERIFIED_AI'">未验证 AI</strong>
           </div>
           <p v-if="item.summary && item.current_state === 'PUBLISHED'">{{ item.summary }}</p>
         </li>

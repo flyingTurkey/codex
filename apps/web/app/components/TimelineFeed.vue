@@ -36,7 +36,7 @@ async function openEvidence(itemId: string): Promise<void> {
     <section v-for="group in groups" :key="group.label" class="timeline-feed__group">
       <h2>{{ group.label }}</h2>
       <ol>
-        <li v-for="item in group.items" :key="item.id">
+        <li v-for="item in group.items" :key="item.signal_id ?? item.id">
           <span class="timeline-feed__marker" aria-hidden="true" />
           <IntelligenceCard :item="item" @evidence="openEvidence" />
         </li>

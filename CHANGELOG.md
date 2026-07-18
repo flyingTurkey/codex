@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+### PERS-07 AI 判断、未验证 AI 与自动发布闭环
+
+- 新增 `0027_ai_judgment_versions`，版本化保存 Event、文档、证据集合、Prompt/Schema/模型、用量成本、VERIFY 结果、失效原因和投影引用。
+- 增加证据事实最小输入的 SUMMARIZE/VERIFY 两阶段处理；DeepSeek 固定使用 `deepseek-v4-flash`、JSON 对象、本地 Schema 校验和至多一次受控修复。
+- PublicationService 独占写入 Feed、事实/未验证搜索索引和日报；验证失败但结构合法的结果以独立“未验证 AI”卡片自动发布，处理失败不暴露原始错误文本。
+- 文档变化、撤回、纠正和证据失效会在同一事务清除旧投影可达性并重新排队；新增 30 个固定样本的离线评估与 PERS-07 专项门禁。
+
 ### PERS-06 证据事实自动接受
 
 - 新增 `0026_automatic_evidence_facts`、版本化自动接受溯源、追加式事实状态、隔离的 `AI_JUDGMENT` 候选及个人内容投影 Outbox；迁移后禁止创建新的 `CLAIM_REVIEW`，历史任务只读保留。

@@ -134,6 +134,24 @@ const productSummary = computed<ProductTypeSummary | null>(() => {
   ].includes(summary.kind) ? summary as ProductTypeSummary : null
 })
 const headingTag = computed(() => `h${props.headingLevel}`)
+const isAutomaticSignal = computed(() => Boolean(props.item.automatic_result_type))
+const isUnverifiedAi = computed(() => props.item.automatic_result_type === 'UNVERIFIED_AI')
+const isAiFailure = computed(() => props.item.automatic_result_type === 'AI_PROCESSING_FAILED')
+const failureReasonLabels: Record<string, string> = {
+  INVALID_JSON_OR_SCHEMA: '模型输出格式校验失败',
+  PROMPT_INJECTION_RISK: '原文包含提示注入风险',
+  MODEL_DISABLED: '模型当前不可用',
+  PROVIDER_BALANCE_INSUFFICIENT: 'AI 预算或余额不可用',
+  UNSUPPORTED_CLAIM: '存在无证据陈述',
+  NUMBER_OR_DATE_CONFLICT: '数字或日期与证据冲突',
+  LEGAL_RESPONSIBILITY_OR_CAUSAL_OVERREACH: '存在法律、责任或因果过度推断',
+  ENTERPRISE_ATTRIBUTION_MISSING: '企业声明缺少归因',
+  STALE_OR_SUPERSEDED_EVIDENCE: '使用了过期或已替代证据',
+}
+
+function failureReasonLabel(value: string): string {
+  return failureReasonLabels[value] ?? value
+}
 
 const typeLabel = computed(() => {
   if (props.item.content_type === 'DIGITAL_CASE') return '数字化案例'
@@ -234,7 +252,16 @@ function formatLoss(amountMinor: number, currency: string): string {
 </script>
 
 <template>
-  <article class="intelligence-card" :data-review-status="item.review_status">
+  <article
+    class="intelligence-card"
+    :class="{
+      'is-unverified-ai': isUnverifiedAi,
+      'is-ai-failure': isAiFailure,
+      'is-ai-judgment': item.automatic_result_type === 'AI_JUDGMENT',
+    }"
+    :data-review-status="item.review_status"
+    :data-result-type="item.automatic_result_type"
+  >
     <div class="intelligence-card__meta">
       <span
         class="intelligence-card__type"
@@ -252,6 +279,18 @@ function formatLoss(amountMinor: number, currency: string): string {
       </span>
       <span v-else-if="item.ai_assistance?.status === 'DEGRADED'" class="intelligence-card__badge is-pending">
         无 AI · 题录降级
+      </span>
+      <span v-if="item.automatic_result_type === 'EVIDENCE_FACT'" class="intelligence-card__badge">
+        证据事实
+      </span>
+      <span v-else-if="item.automatic_result_type === 'AI_JUDGMENT'" class="intelligence-card__badge is-ai">
+        AI 判断 · 已验证
+      </span>
+      <span v-else-if="isUnverifiedAi" class="intelligence-card__badge is-pending">
+        未验证 AI
+      </span>
+      <span v-else-if="isAiFailure" class="intelligence-card__badge is-pending">
+        AI 处理失败
       </span>
       <span v-if="item.revision_state?.action === 'REVISE'" class="intelligence-card__badge">
         第 {{ item.revision_state.revision_number }} 版修订
@@ -273,7 +312,10 @@ function formatLoss(amountMinor: number, currency: string): string {
       <span v-else-if="paperSummary?.relation_status === 'CORRECTED'" data-testid="paper-correction">
         <StatusBadge tone="info" label="已有更正" />
       </span>
-      <span v-if="item.review_status === 'PENDING'" class="intelligence-card__badge is-pending">
+      <span v-if="isAutomaticSignal" class="intelligence-card__badge is-pending">
+        机器整理 / 未人工复核
+      </span>
+      <span v-else-if="item.review_status === 'PENDING'" class="intelligence-card__badge is-pending">
         待人工审核
       </span>
       <template v-else>
@@ -319,6 +361,42 @@ function formatLoss(amountMinor: number, currency: string): string {
       <strong>{{ item.search_context.match_kind === 'SEMANTIC' ? '语义召回' : '关键词命中' }}</strong>
       {{ (item.search_context.matched_fields ?? []).join('、') }}
     </p>
+
+    <section v-if="item.ai_judgment" class="intelligence-card__ai-judgment">
+      <h4>为什么值得关注</h4>
+      <p>{{ item.ai_judgment.why_worth_attention }}</p>
+      <dl>
+        <div v-if="item.ai_judgment.potential_industry_impacts?.length">
+          <dt>可能的行业影响</dt>
+          <dd>{{ item.ai_judgment.potential_industry_impacts?.join('；') }}</dd>
+        </div>
+        <div v-if="item.ai_judgment.potential_engineering_scenarios?.length">
+          <dt>可能的工程应用场景</dt>
+          <dd>{{ item.ai_judgment.potential_engineering_scenarios?.join('；') }}</dd>
+        </div>
+        <div v-if="item.ai_judgment.current_limitations?.length">
+          <dt>当前局限</dt>
+          <dd>{{ item.ai_judgment.current_limitations?.join('；') }}</dd>
+        </div>
+        <div v-if="item.ai_judgment.questions_to_verify?.length">
+          <dt>待核实问题</dt>
+          <dd>{{ item.ai_judgment.questions_to_verify?.join('；') }}</dd>
+        </div>
+      </dl>
+    </section>
+
+    <section
+      v-if="(isUnverifiedAi || isAiFailure) && item.processing_failure_reasons?.length"
+      class="intelligence-card__ai-failure"
+      role="note"
+    >
+      <strong>{{ isUnverifiedAi ? '未通过 VERIFY' : '未生成可用 AI 判断' }}</strong>
+      <ul>
+        <li v-for="reason in item.processing_failure_reasons" :key="reason">
+          {{ failureReasonLabel(reason) }}
+        </li>
+      </ul>
+    </section>
 
     <p
       v-if="item.one_sentence_fact && item.ai_assistance?.accepted_claims_only && item.review_status === 'APPROVED'"
@@ -657,6 +735,40 @@ function formatLoss(amountMinor: number, currency: string): string {
   color: var(--color-ink-900);
   font-size: var(--text-xl);
   line-height: var(--srbg-font-line-height-title);
+}
+
+.intelligence-card.is-unverified-ai {
+  border-color: var(--color-reviewPending-500);
+  background: var(--color-reviewPending-50);
+}
+
+.intelligence-card.is-ai-failure {
+  border-style: dashed;
+  border-color: var(--color-conflict-500);
+}
+
+.intelligence-card__ai-judgment,
+.intelligence-card__ai-failure {
+  display: grid;
+  padding: var(--spacing-4);
+  gap: var(--spacing-2);
+  border-radius: var(--radius-md);
+}
+
+.intelligence-card__ai-judgment {
+  background: var(--color-digital-50);
+}
+
+.intelligence-card__ai-failure {
+  color: var(--color-conflict-700);
+  background: var(--color-conflict-50);
+}
+
+.intelligence-card__ai-judgment h4,
+.intelligence-card__ai-judgment p,
+.intelligence-card__ai-judgment dl,
+.intelligence-card__ai-failure ul {
+  margin: 0;
 }
 
 .intelligence-card__title a {

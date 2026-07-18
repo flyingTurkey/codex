@@ -255,7 +255,7 @@ function openEvidence(evidenceIds: string[]): void {
         class="event-detail-page__ai-judgments"
         aria-labelledby="ai-judgment-title"
       >
-        <h2 id="ai-judgment-title">AI 判断（未验证）</h2>
+        <h2 id="ai-judgment-title">历史抽取候选（未验证）</h2>
         <p>这些候选未通过证据事实门禁，不属于已验证事实，也不会进入普通摘要、搜索或日报。</p>
         <article v-for="judgment in (detail.ai_judgments ?? [])" :key="judgment.id">
           <h3>{{ judgment.field_name }}</h3>

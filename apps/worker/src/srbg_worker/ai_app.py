@@ -206,23 +206,21 @@ def _mock_output(request: ModelRequest) -> dict[str, Any]:
         if not claim_ids:
             raise ValueError("mock summary requires accepted claims")
         return {
-            "one_sentence": "题录与已接受事实摘要。",
-            "why_it_matters": "供内部专业人员继续核验。",
-            "key_points": [],
-            "applicable_scenarios": [],
-            "limitations": ["Mock provider output"],
-            "recommended_actions": ["READ_ORIGINAL"],
+            "why_worth_attention": "供 Owner 继续跟踪。",
+            "potential_industry_impacts": [],
+            "potential_engineering_scenarios": [],
+            "current_limitations": ["Mock provider output"],
+            "questions_to_verify": [],
             "used_claim_ids": list(dict.fromkeys(claim_ids)),
         }
     return {
         "unsupported_claims": [],
-        "evidence_mismatches": [],
         "number_or_date_conflicts": [],
-        "legal_or_causal_overreach": [],
+        "legal_responsibility_or_causal_overreach": [],
         "enterprise_claims_missing_attribution": [],
-        "stale_or_superseded_risk": False,
+        "stale_or_superseded_evidence": False,
         "prompt_injection_risk": False,
-        "candidate_decision": "HUMAN_REVIEW",
+        "candidate_decision": "PASS_TO_SERVER_GATE",
     }
 
 

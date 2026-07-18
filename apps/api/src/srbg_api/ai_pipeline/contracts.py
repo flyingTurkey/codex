@@ -6,6 +6,11 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from srbg_contracts import SourceProfileModelOutput
 
+from srbg_api.ai_pipeline.ai_judgments import SummarizeOutput, VerificationOutput
+
+# Public compatibility name used by the existing pipeline contract exports.
+SummaryOutput = SummarizeOutput
+
 
 class StrictModel(BaseModel):
     """Reject model additions instead of silently accepting authority-shaped fields."""
@@ -129,35 +134,6 @@ class ExtractionOutput(StrictModel):
     security: CandidateSecurity
 
 
-class SummaryOutput(StrictModel):
-    one_sentence: str = Field(min_length=1, max_length=160)
-    why_it_matters: str = Field(min_length=1, max_length=240)
-    key_points: list[str] = Field(max_length=5)
-    applicable_scenarios: list[str]
-    limitations: list[str]
-    recommended_actions: list[
-        Literal[
-            "READ_ORIGINAL",
-            "PROFESSIONAL_REVIEW",
-            "SAVE",
-            "FOLLOW",
-            "TECHNICAL_RESEARCH",
-        ]
-    ]
-    used_claim_ids: list[str] = Field(min_length=1)
-
-
-class VerificationOutput(StrictModel):
-    unsupported_claims: list[str]
-    evidence_mismatches: list[str]
-    number_or_date_conflicts: list[str]
-    legal_or_causal_overreach: list[str]
-    enterprise_claims_missing_attribution: list[str]
-    stale_or_superseded_risk: bool
-    prompt_injection_risk: bool
-    candidate_decision: Literal["PASS_TO_SERVER_GATE", "HUMAN_REVIEW", "REJECT"]
-
-
 class EvidenceAnchor(StrictModel):
     evidence_id: str
     document_block_id: str
@@ -210,7 +186,7 @@ class ModelResponse(StrictModel):
 STEP_OUTPUT_MODELS: dict[AiStep, type[BaseModel]] = {
     AiStep.CLASSIFY: ClassificationOutput,
     AiStep.EXTRACT: ExtractionOutput,
-    AiStep.SUMMARIZE: SummaryOutput,
+    AiStep.SUMMARIZE: SummarizeOutput,
     AiStep.VERIFY: VerificationOutput,
     AiStep.SOURCE_PROFILE: SourceProfileModelOutput,
 }

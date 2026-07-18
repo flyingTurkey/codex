@@ -5,6 +5,7 @@ from hashlib import sha256
 from typing import Any
 from uuid import UUID
 
+from srbg_api.ai_pipeline.ai_judgments import EvidenceFactInput, EvidenceSnippet
 from srbg_api.ai_pipeline.content_preparation import (
     AiContentPreparationService,
     PreparationDocument,
@@ -26,6 +27,7 @@ class FakeRepository:
     steps: list[tuple[AiStep, str]] = field(default_factory=list)
     reservations: list[AiStep] = field(default_factory=list)
     materialized: int = 0
+    judgment_type: str | None = None
 
     async def begin(self, run_id: UUID) -> PreparationDocument:
         self.statuses.append("PREPARING")
@@ -82,6 +84,36 @@ class FakeRepository:
         self.materialized = 1
         return 1
 
+    async def load_judgment_facts(
+        self, document: PreparationDocument
+    ) -> list[EvidenceFactInput]:
+        return [
+            EvidenceFactInput(
+                claim_id=UUID("019b0000-0000-7000-8000-000000000101"),
+                field_name="title",
+                value="公路养护数字化典型案例",
+                evidence=[
+                    EvidenceSnippet(
+                        evidence_id=UUID("019b0000-0000-7000-8000-000000000201"),
+                        excerpt="公路养护数字化典型案例",
+                    )
+                ],
+            )
+        ]
+
+    async def materialize_judgment(
+        self,
+        document: PreparationDocument,
+        summary: dict[str, Any] | None,
+        verification: dict[str, Any] | None,
+        result_type: str,
+        reason_codes: tuple[str, ...],
+    ) -> None:
+        assert summary is not None
+        assert verification is not None
+        assert reason_codes == ()
+        self.judgment_type = result_type
+
     async def fail(self, run_id: UUID, status: str, code: str) -> None:
         self.statuses.append(status)
 
@@ -105,7 +137,7 @@ class FakeModel:
                     "suspicious_patterns": [],
                 },
             }
-        else:
+        elif request.step is AiStep.EXTRACT:
             evidence_id, anchor = next(iter(request.evidence_anchors.items()))
             output = {
                 "claims": [
@@ -133,6 +165,25 @@ class FakeModel:
                     "suspicious_patterns": [],
                 },
             }
+        elif request.step is AiStep.SUMMARIZE:
+            output = {
+                "why_worth_attention": "值得跟踪公路养护数字化应用。",
+                "potential_industry_impacts": ["提升巡检效率"],
+                "potential_engineering_scenarios": ["公路养护"],
+                "current_limitations": ["仅有单一案例"],
+                "questions_to_verify": ["能否规模复制"],
+                "used_claim_ids": ["019b0000-0000-7000-8000-000000000101"],
+            }
+        else:
+            output = {
+                "unsupported_claims": [],
+                "number_or_date_conflicts": [],
+                "legal_responsibility_or_causal_overreach": [],
+                "enterprise_claims_missing_attribution": [],
+                "stale_or_superseded_evidence": False,
+                "prompt_injection_risk": False,
+                "candidate_decision": "PASS_TO_SERVER_GATE",
+            }
         raw = json.dumps(output, ensure_ascii=False)
         return ModelResponse(
             raw_output=raw,
@@ -159,11 +210,23 @@ def test_one_document_reaches_automatic_evidence_gate_without_claim_review() -> 
         "CLASSIFYING",
         "EXTRACTING",
         "EVIDENCE_GATING",
+        "SUMMARIZING",
+        "VERIFYING",
         "SUCCEEDED",
     ]
-    assert [step for step, _ in repository.steps] == [AiStep.CLASSIFY, AiStep.EXTRACT]
-    assert AiStep.SUMMARIZE not in [step for step, _ in repository.steps]
-    assert repository.reservations == [AiStep.CLASSIFY, AiStep.EXTRACT]
+    assert [step for step, _ in repository.steps] == [
+        AiStep.CLASSIFY,
+        AiStep.EXTRACT,
+        AiStep.SUMMARIZE,
+        AiStep.VERIFY,
+    ]
+    assert repository.reservations == [
+        AiStep.CLASSIFY,
+        AiStep.EXTRACT,
+        AiStep.SUMMARIZE,
+        AiStep.VERIFY,
+    ]
+    assert repository.judgment_type == "AI_JUDGMENT"
     assert sha256(result.input_text.encode()).hexdigest() == result.input_sha256
 
 

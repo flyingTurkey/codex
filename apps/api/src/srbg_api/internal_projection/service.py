@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -9,6 +10,7 @@ from uuid import UUID
 from srbg_contracts import (
     DailyReport,
     EventDetail,
+    EventStatus,
     EventSummary,
     EventTimeline,
     EventType,
@@ -64,17 +66,51 @@ class PublishedIntelligenceQueryService:
             event_version=value.event_version,
         )
 
+    @staticmethod
+    def _personal_summary(value: dict[str, Any]) -> EventSummary:
+        payload = value["payload"]
+        result_type = value["result_type"]
+        return EventSummary(
+            id=value["event_id"],
+            signal_id=value["signal_id"],
+            automatic_result_type=result_type,
+            publication_revision_id=None,
+            domain=payload["domain"],
+            content_type=payload["content_type"],
+            title=payload["title"],
+            source_name=payload["source_name"],
+            source_published_at=payload.get("source_published_at"),
+            first_discovered_at=payload["first_discovered_at"],
+            activity_at=payload["activity_at"],
+            original_url=payload["original_url"],
+            review_status=payload["review_status"],
+            event_type=payload["event_type"],
+            event_status=EventStatus.ACTIVE,
+            canonical_event_id=value["event_id"],
+            event_version=max(1, int(value.get("generation", 1))),
+            ai_judgment=(
+                payload.get("judgment") if result_type in {"AI_JUDGMENT", "UNVERIFIED_AI"} else None
+            ),
+            processing_failure_reasons=payload.get("failure_reason_codes", []),
+        )
+
     async def get_feed(self, **filters: Any) -> FeedPage:
-        values = await self._reader.list_events(limit=int(filters.get("limit", 20)))
+        limit = int(filters.get("limit", 20))
+        values, personal = await asyncio.gather(
+            self._reader.list_events(limit=limit),
+            self._reader.list_personal_signals(limit=limit),
+        )
         domain = filters.get("domain")
         content_type = filters.get("content_type")
-        summaries = [self._summary(value) for value in values]
+        summaries = [self._summary(value) for value in values] + [
+            self._personal_summary(value) for value in personal
+        ]
         if domain:
             summaries = [value for value in summaries if value.domain.value == domain.upper()]
         if content_type:
             summaries = [value for value in summaries if value.content_type.value == content_type]
         return FeedPage(
-            items=summaries,
+            items=sorted(summaries, key=lambda value: value.activity_at, reverse=True)[:limit],
             next_cursor=None,
             fingerprint="published-v1:event",
             generated_at=datetime.now(UTC),
@@ -92,13 +128,23 @@ class PublishedIntelligenceQueryService:
         raise RuntimeError("legacy Item reads must resolve through the immutable alias")
 
     async def search_events(self, query: str, *, limit: int) -> list[EventSummary]:
-        return [
-            self._summary(value) for value in await self._reader.title_search(query, limit=limit)
+        published, primary, unverified = await asyncio.gather(
+            self._reader.title_search(query, limit=limit),
+            self._reader.search_personal_primary(query, limit=limit),
+            self._reader.search_personal_unverified(query, limit=limit),
+        )
+        values = [self._summary(value) for value in published] + [
+            self._personal_summary(value) for value in [*primary, *unverified]
         ]
+        return sorted(values, key=lambda value: value.activity_at, reverse=True)[:limit]
 
     async def get_daily_report(
         self, *, report_id: UUID | None = None, report_date: Any = None
     ) -> DailyReport:
+        if report_id is None:
+            personal = await self._reader.get_personal_daily_report(report_date=report_date)
+            if personal is not None:
+                return personal
         return await self._reader.get_daily_report(report_id=report_id, report_date=report_date)
 
     async def get_event(self, event_id: UUID) -> EventDetail:

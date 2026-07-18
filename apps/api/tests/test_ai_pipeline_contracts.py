@@ -33,12 +33,11 @@ def test_summary_requires_accepted_claim_references() -> None:
     with pytest.raises(ValidationError):
         SummaryOutput.model_validate(
             {
-                "one_sentence": "摘要",
-                "why_it_matters": "相关性",
-                "key_points": [],
-                "applicable_scenarios": [],
-                "limitations": [],
-                "recommended_actions": ["READ_ORIGINAL"],
+                "why_worth_attention": "相关性",
+                "potential_industry_impacts": [],
+                "potential_engineering_scenarios": [],
+                "current_limitations": [],
+                "questions_to_verify": [],
                 "used_claim_ids": [],
             }
         )

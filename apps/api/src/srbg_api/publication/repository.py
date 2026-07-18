@@ -39,6 +39,10 @@ from srbg_api.digital_cases.domain import (
 )
 from srbg_api.discovery.repository import daily_report_from_rows
 from srbg_api.identifiers import uuid7
+from srbg_api.publication.personal_signals import (
+    PersonalSignalInput,
+    build_personal_signal_projections,
+)
 from srbg_api.publication.service import PublicationDenied, PublicationTransaction
 from srbg_api.source_registry.repository import canonical_json_hash
 from srbg_api.technology_products.domain import contains_procurement_conclusion
@@ -844,9 +848,18 @@ class PostgresPublicationRepository:
                 item = (
                     (
                         await connection.execute(
-                        text(
-                            "SELECT title,original_url,current_document_version_id "
-                            "FROM intelligence_item WHERE id=:item_id FOR SHARE"
+                            text(
+                                "SELECT item.title,item.original_url,"
+                                "item.current_document_version_id,"
+                                "item.channel,item.item_type,item.source_published_at,"
+                                "item.first_discovered_at,item.review_status,"
+                                "source.name AS source_name,"
+                                "binding.event_id,event.event_type "
+                                "FROM intelligence_item item "
+                                "JOIN source ON source.id=item.source_id "
+                                "JOIN event_identity_binding binding ON binding.item_id=item.id "
+                                "JOIN event ON event.id=binding.event_id "
+                                "WHERE item.id=:item_id FOR SHARE OF item"
                             ),
                             {"item_id": event["item_id"]},
                         )
@@ -889,6 +902,228 @@ class PostgresPublicationRepository:
                         "now": processed_at,
                     },
                 )
+                judgment = (
+                    (
+                        await connection.execute(
+                            text(
+                                """
+                                SELECT id,status,judgment_payload,failure_reason_codes
+                                FROM ai_judgment_version
+                                WHERE item_id=:item_id AND document_version_id=:version_id
+                                  AND status<>'INVALIDATED'
+                                ORDER BY created_at DESC,id DESC LIMIT 1
+                                """
+                            ),
+                            {
+                                "item_id": event["item_id"],
+                                "version_id": event["document_version_id"],
+                            },
+                        )
+                    )
+                    .mappings()
+                    .first()
+                )
+                signals = build_personal_signal_projections(
+                    PersonalSignalInput(
+                        event_id=item["event_id"],
+                        item_id=event["item_id"],
+                        document_version_id=event["document_version_id"],
+                        title=item["title"],
+                        original_url=item["original_url"],
+                        source_name=item["source_name"],
+                        domain=item["channel"],
+                        content_type=item["item_type"],
+                        source_published_at=item["source_published_at"],
+                        first_discovered_at=item["first_discovered_at"],
+                        activity_at=item["source_published_at"] or item["first_discovered_at"],
+                        review_status=item["review_status"],
+                        event_type=item["event_type"],
+                        evidence_facts=payload,
+                        judgment_version_id=judgment["id"] if judgment else None,
+                        judgment_status=judgment["status"] if judgment else None,
+                        judgment_payload=judgment["judgment_payload"] if judgment else None,
+                        failure_reason_codes=(
+                            tuple(judgment["failure_reason_codes"] or ()) if judgment else ()
+                        ),
+                    )
+                )
+                report_date = processed_at.astimezone(ZoneInfo("Asia/Shanghai")).date()
+                report_id = await connection.scalar(
+                    text(
+                        """
+                        INSERT INTO personal_daily_report_projection(
+                          id,report_date,snapshot_at,visible,generation,created_at,updated_at
+                        ) VALUES(:id,:report_date,:now,true,1,:now,:now)
+                        ON CONFLICT(report_date) DO UPDATE SET snapshot_at=EXCLUDED.snapshot_at,
+                          visible=true,generation=personal_daily_report_projection.generation+1,
+                          updated_at=EXCLUDED.updated_at
+                        RETURNING id
+                        """
+                    ),
+                    {"id": uuid7(), "report_date": report_date, "now": processed_at},
+                )
+                # Rebuild the complete projection set for this immutable document version.
+                # This prevents a prior verified/unverified classification from remaining
+                # reachable when a rerun changes the judgment outcome.
+                await connection.execute(
+                    text(
+                        """
+                        DELETE FROM personal_daily_signal_projection
+                        WHERE signal_id IN (
+                          SELECT id FROM personal_signal_projection
+                          WHERE document_version_id=:version_id
+                        )
+                        """
+                    ),
+                    {"version_id": event["version_id"]},
+                )
+                for delete_statement in (
+                    """
+                    DELETE FROM personal_primary_search_projection
+                    WHERE signal_id IN (
+                      SELECT id FROM personal_signal_projection
+                      WHERE document_version_id=:version_id
+                    )
+                    """,
+                    """
+                    DELETE FROM unverified_ai_search_projection
+                    WHERE signal_id IN (
+                      SELECT id FROM personal_signal_projection
+                      WHERE document_version_id=:version_id
+                    )
+                    """,
+                ):
+                    await connection.execute(
+                        text(delete_statement),
+                        {"version_id": event["version_id"]},
+                    )
+                await connection.execute(
+                    text(
+                        """
+                        UPDATE personal_signal_projection
+                        SET visible=false,generation=generation+1,updated_at=:now
+                        WHERE document_version_id=:version_id
+                        """
+                    ),
+                    {"version_id": event["version_id"], "now": processed_at},
+                )
+                for signal in signals:
+                    await connection.execute(
+                        text(
+                            """
+                            INSERT INTO personal_signal_projection(
+                              id,event_id,item_id,document_version_id,judgment_version_id,
+                              result_type,payload,visible,generation,created_at,updated_at
+                            ) VALUES(:id,:event_id,:item_id,:version_id,:judgment_id,
+                              :result_type,CAST(:payload AS jsonb),true,1,:now,:now)
+                            ON CONFLICT(document_version_id,result_type) DO UPDATE SET
+                              judgment_version_id=EXCLUDED.judgment_version_id,
+                              payload=EXCLUDED.payload,visible=true,
+                              generation=personal_signal_projection.generation+1,
+                              updated_at=EXCLUDED.updated_at
+                            """
+                        ),
+                        {
+                            "id": signal.signal_id,
+                            "event_id": signal.event_id,
+                            "item_id": signal.item_id,
+                            "version_id": signal.document_version_id,
+                            "judgment_id": signal.judgment_version_id,
+                            "result_type": signal.result_type,
+                            "payload": json.dumps(signal.payload, ensure_ascii=False, default=str),
+                            "now": processed_at,
+                        },
+                    )
+                    for delete_statement in (
+                        "DELETE FROM personal_primary_search_projection WHERE signal_id=:id",
+                        "DELETE FROM unverified_ai_search_projection WHERE signal_id=:id",
+                    ):
+                        await connection.execute(
+                            text(delete_statement),
+                            {"id": signal.signal_id},
+                        )
+                    if signal.search_surface is not None:
+                        table = (
+                            "personal_primary_search_projection"
+                            if signal.search_surface == "PRIMARY"
+                            else "unverified_ai_search_projection"
+                        )
+                        await connection.execute(
+                            text(
+                                f"""
+                                INSERT INTO {table}(
+                                  signal_id,event_id,result_type,title,search_text,
+                                  activity_at,visible,generation
+                                ) VALUES(:id,:event_id,:result_type,:title,:search_text,:now,true,1)
+                                ON CONFLICT(signal_id) DO UPDATE SET title=EXCLUDED.title,
+                                  search_text=EXCLUDED.search_text,activity_at=EXCLUDED.activity_at,
+                                  visible=true,generation={table}.generation+1
+                                """
+                            ),
+                            {
+                                "id": signal.signal_id,
+                                "event_id": signal.event_id,
+                                "result_type": signal.result_type,
+                                "title": item["title"],
+                                "search_text": " ".join(
+                                    (item["title"], json.dumps(signal.payload, ensure_ascii=False))
+                                ),
+                                "now": processed_at,
+                            },
+                        )
+                    await connection.execute(
+                        text(
+                            "DELETE FROM personal_daily_signal_projection "
+                            "WHERE report_id=:report_id AND signal_id=:signal_id"
+                        ),
+                        {"report_id": report_id, "signal_id": signal.signal_id},
+                    )
+                    if signal.daily_section is not None:
+                        position = int(
+                            await connection.scalar(
+                                text(
+                                    "SELECT COALESCE(max(position),0)+1 "
+                                    "FROM personal_daily_signal_projection "
+                                    "WHERE report_id=:report_id AND section=:section"
+                                ),
+                                {"report_id": report_id, "section": signal.daily_section},
+                            )
+                            or 1
+                        )
+                        await connection.execute(
+                            text(
+                                "INSERT INTO personal_daily_signal_projection("
+                                "report_id,signal_id,section,position) "
+                                "VALUES(:report_id,:signal_id,:section,:position)"
+                            ),
+                            {
+                                "report_id": report_id,
+                                "signal_id": signal.signal_id,
+                                "section": signal.daily_section,
+                                "position": position,
+                            },
+                        )
+                    if signal.judgment_version_id is not None:
+                        surfaces = ["FEED", "CACHE"]
+                        if signal.search_surface is not None:
+                            surfaces.append("SEARCH")
+                        if signal.daily_section is not None:
+                            surfaces.append("DAILY")
+                        for surface in surfaces:
+                            await connection.execute(
+                                text(
+                                    "INSERT INTO ai_judgment_projection_reference("
+                                    "judgment_version_id,signal_id,surface,created_at) "
+                                    "VALUES(:judgment_id,:signal_id,:surface,:now) "
+                                    "ON CONFLICT DO NOTHING"
+                                ),
+                                {
+                                    "judgment_id": signal.judgment_version_id,
+                                    "signal_id": signal.signal_id,
+                                    "surface": surface,
+                                    "now": processed_at,
+                                },
+                            )
             else:
                 await connection.execute(
                     text(
@@ -897,6 +1132,43 @@ class PostgresPublicationRepository:
                     ),
                     {"item_id": event["item_id"], "now": processed_at},
                 )
+                invalidation_statements = (
+                    """
+                    UPDATE personal_signal_projection SET visible=false,
+                      generation=generation+1,updated_at=:now WHERE item_id=:item_id
+                    """,
+                    """
+                    UPDATE personal_primary_search_projection search SET visible=false,
+                      generation=search.generation+1 FROM personal_signal_projection signal
+                    WHERE search.signal_id=signal.id AND signal.item_id=:item_id
+                    """,
+                    """
+                    UPDATE unverified_ai_search_projection search SET visible=false,
+                      generation=search.generation+1 FROM personal_signal_projection signal
+                    WHERE search.signal_id=signal.id AND signal.item_id=:item_id
+                    """,
+                    """
+                    UPDATE personal_daily_report_projection report SET visible=false,
+                      generation=report.generation+1,updated_at=:now
+                    WHERE EXISTS(SELECT 1 FROM personal_daily_signal_projection daily
+                      JOIN personal_signal_projection signal ON signal.id=daily.signal_id
+                      WHERE daily.report_id=report.id AND signal.item_id=:item_id)
+                    """,
+                    """
+                    UPDATE ai_judgment_version SET status='INVALIDATED',
+                      invalidation_reason=:reason,invalidated_at=:now
+                    WHERE item_id=:item_id AND status<>'INVALIDATED'
+                    """,
+                )
+                for statement in invalidation_statements:
+                    await connection.execute(
+                        text(statement),
+                        {
+                            "item_id": event["item_id"],
+                            "reason": "CONTENT_INVALIDATED",
+                            "now": processed_at,
+                        },
+                    )
             await connection.execute(
                 text(
                     "UPDATE personal_content_outbox SET status='SUCCEEDED',"

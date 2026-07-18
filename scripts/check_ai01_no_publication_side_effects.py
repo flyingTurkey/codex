@@ -1,4 +1,8 @@
-"""Fail if R-AI01 implementation calls publication or summary paths."""
+"""Fail if AI preparation bypasses the PublicationService writer boundary.
+
+PERS-07 extends the original R-AI01 preparation slice with SUMMARIZE/VERIFY and a
+durable outbox handoff. Direct feed/search/daily writes remain forbidden here.
+"""
 
 from pathlib import Path
 
@@ -12,7 +16,6 @@ FORBIDDEN = (
     "publication_version",
     "feed_projection",
     "daily_report",
-    "AiStep.SUMMARIZE",
 )
 
 
@@ -22,7 +25,7 @@ def main() -> None:
         for marker in FORBIDDEN:
             if marker in source:
                 raise SystemExit(f"R-AI01 side-effect boundary violated: {path}:{marker}")
-    print("R-AI01 no-publication side-effect boundary passed")
+    print("AI preparation PublicationService boundary passed")
 
 
 if __name__ == "__main__":

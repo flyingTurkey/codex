@@ -2978,6 +2978,15 @@ class SearchContext(ContractModel):
     semantic_status: Literal["DISABLED", "ENABLED", "DEGRADED"]
 
 
+class AiJudgmentSignal(ContractModel):
+    why_worth_attention: str = Field(min_length=1, max_length=500)
+    potential_industry_impacts: list[str] = Field(default_factory=list, max_length=10)
+    potential_engineering_scenarios: list[str] = Field(default_factory=list, max_length=10)
+    current_limitations: list[str] = Field(default_factory=list, max_length=10)
+    questions_to_verify: list[str] = Field(default_factory=list, max_length=10)
+    used_claim_ids: list[UUID] = Field(min_length=1, max_length=100)
+
+
 class ItemSummary(ContractModel):
     id: UUID
     publication_revision_id: UUID | None
@@ -3007,6 +3016,12 @@ class ItemSummary(ContractModel):
     ai_assistance: AiAssistance | None = None
     revision_state: PublicationRevisionState | None = None
     search_context: SearchContext | None = None
+    signal_id: UUID | None = None
+    automatic_result_type: Literal[
+        "EVIDENCE_FACT", "AI_JUDGMENT", "UNVERIFIED_AI", "AI_PROCESSING_FAILED"
+    ] | None = None
+    ai_judgment: AiJudgmentSignal | None = None
+    processing_failure_reasons: list[str] = Field(default_factory=list, max_length=20)
 
 
 class EventSummary(ItemSummary):
@@ -3066,7 +3081,11 @@ class DailyReportItem(ContractModel):
     item_id: UUID | None = None
     event_id: UUID | None = None
     event_revision_id: UUID | None = None
-    publication_revision_id: UUID
+    publication_revision_id: UUID | None = None
+    signal_id: UUID | None = None
+    automatic_result_type: Literal[
+        "EVIDENCE_FACT", "AI_JUDGMENT", "UNVERIFIED_AI", "AI_PROCESSING_FAILED"
+    ] | None = None
     position: int = Field(ge=1)
     title: str = Field(min_length=1, max_length=500)
     summary: str | None = Field(default=None, max_length=1000)
@@ -3081,6 +3100,8 @@ class DailyReportSection(ContractModel):
         "SAFETY_HIGHLIGHTS",
         "WATCHLIST",
         "SOURCE_ANOMALIES",
+        "EVIDENCE_FACTS",
+        "UNVERIFIED_AI",
     ]
     title: str = Field(min_length=1, max_length=100)
     items: list[DailyReportItem]

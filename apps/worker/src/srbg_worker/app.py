@@ -10,6 +10,14 @@ from celery import Celery
 from celery.signals import task_failure
 from redis.asyncio import Redis, from_url
 from sqlalchemy.ext.asyncio import AsyncEngine
+from srbg_api.ai_pipeline.ai_judgments import (
+    AiJudgmentResultType,
+    SummarizeOutput,
+    VerificationOutput,
+    classify_verification,
+    validate_used_claim_ids,
+    verification_reason_codes,
+)
 from srbg_api.ai_pipeline.content_preparation import (
     AiContentPreparationService,
     PreparationDocument,
@@ -438,9 +446,7 @@ async def _execute_personal_source_discovery_cycle(discovery_run_id: UUID) -> di
             discovered += discovery.targets_seen
             probed += discovery.targets_probed
             PERSONAL_DISCOVERY_RESULTS.labels(channel, "SEEN").inc(discovery.targets_seen)
-            PERSONAL_DISCOVERY_RESULTS.labels(channel, "PROBED").inc(
-                discovery.targets_probed
-            )
+            PERSONAL_DISCOVERY_RESULTS.labels(channel, "PROBED").inc(discovery.targets_probed)
         outcome = await PersonalAutoEnableExecutor(auto_enable_gateway).run(now=now)
         PERSONAL_AUTO_ENABLE_RESULTS.labels("ENABLED").inc(outcome.enabled)
         PERSONAL_AUTO_ENABLE_RESULTS.labels("DEFERRED").inc(outcome.deferred)
@@ -652,12 +658,19 @@ async def _start_ai_content_preparation(run_id: UUID) -> dict[str, object]:
     repository = _ai_repository()
     try:
         document, classify_input, extract_input = await _prepare_ai_inputs(repository, run_id)
+        local_fact_count = await repository.materialize_local(document)
         scan = PromptInjectionScanner().scan(extract_input.text)
         await repository.record_security(document, scan.detected)
         if scan.detected:
+            await repository.materialize_judgment(
+                document,
+                None,
+                None,
+                AiJudgmentResultType.AI_PROCESSING_FAILED.value,
+                ("PROMPT_INJECTION_RISK",),
+            )
             await repository.fail(run_id, "DEGRADED", "PROMPT_INJECTION_R4")
             return {"run_id": str(run_id), "status": "DEGRADED"}
-        local_fact_count = await repository.materialize_local(document)
         await repository.transition(run_id, "CLASSIFYING")
         await _dispatch_ai_attempt(
             repository,
@@ -699,7 +712,14 @@ async def _handle_ai_content_result(
     repository = _ai_repository()
     try:
         document, classify_input, extract_input = await _prepare_ai_inputs(repository, run_id)
-        prepared = classify_input if step is AiStep.CLASSIFY else extract_input
+        prepared = await _prepared_for_step(
+            repository,
+            document=document,
+            run_id=run_id,
+            step=step,
+            classify_input=classify_input,
+            extract_input=extract_input,
+        )
         request = AiContentPreparationService.build_request(step, prepared)
         if result.get("status") == "SUCCEEDED":
             response = ModelResponse.model_validate(result.get("response"))
@@ -729,21 +749,57 @@ async def _handle_ai_content_result(
                     repair_used=False,
                 )
                 return {"run_id": str(run_id), "status": "EXTRACTING"}
-            classification = await repository.successful_output(run_id, AiStep.CLASSIFY)
-            await repository.transition(run_id, "EVIDENCE_GATING")
-            candidates = await repository.materialize(
+            if step is AiStep.EXTRACT:
+                classification = await repository.successful_output(run_id, AiStep.CLASSIFY)
+                await repository.transition(run_id, "EVIDENCE_GATING")
+                candidates = await repository.materialize(
+                    document,
+                    classification,
+                    response.output,
+                )
+                if candidates < 1:
+                    raise RuntimeError("NO_VALID_CANDIDATES")
+                facts = await repository.load_judgment_facts(document)
+                await repository.transition(run_id, "SUMMARIZING")
+                await _dispatch_ai_attempt(
+                    repository,
+                    run_id=run_id,
+                    step=AiStep.SUMMARIZE,
+                    prepared=AiContentPreparationService.prepare_summarize_input(facts),
+                    attempt=1,
+                    kind=AttemptKind.PRIMARY,
+                    network_retries=0,
+                    repair_used=False,
+                )
+                return {"run_id": str(run_id), "status": "SUMMARIZING"}
+            if step is AiStep.SUMMARIZE:
+                summary = SummarizeOutput.model_validate(response.output)
+                facts = await repository.load_judgment_facts(document)
+                validate_used_claim_ids(summary.used_claim_ids, {fact.claim_id for fact in facts})
+                await repository.transition(run_id, "VERIFYING")
+                await _dispatch_ai_attempt(
+                    repository,
+                    run_id=run_id,
+                    step=AiStep.VERIFY,
+                    prepared=AiContentPreparationService.prepare_verify_input(facts, summary),
+                    attempt=1,
+                    kind=AttemptKind.PRIMARY,
+                    network_retries=0,
+                    repair_used=False,
+                )
+                return {"run_id": str(run_id), "status": "VERIFYING"}
+            verification = VerificationOutput.model_validate(response.output)
+            summary_payload = await repository.successful_output(run_id, AiStep.SUMMARIZE)
+            result_type = classify_verification(verification)
+            await repository.materialize_judgment(
                 document,
-                classification,
-                response.output,
+                summary_payload,
+                verification.model_dump(mode="json"),
+                result_type.value,
+                verification_reason_codes(verification),
             )
-            if candidates < 1:
-                raise RuntimeError("NO_VALID_CANDIDATES")
             await repository.transition(run_id, "SUCCEEDED")
-            return {
-                "run_id": str(run_id),
-                "status": "SUCCEEDED",
-                "candidate_count": candidates,
-            }
+            return {"run_id": str(run_id), "status": "SUCCEEDED", "result_type": result_type.value}
 
         await repository.settle(reservation_id, None)
         code = str(result.get("error_code") or "MODEL_ATTEMPT_FAILED")[:80]
@@ -778,6 +834,14 @@ async def _handle_ai_content_result(
             )
             return {"run_id": str(run_id), "status": "REPAIRING"}
         failure_status = "FAILED" if step is AiStep.CLASSIFY else "DEGRADED"
+        if step in {AiStep.SUMMARIZE, AiStep.VERIFY}:
+            await repository.materialize_judgment(
+                document,
+                None,
+                None,
+                AiJudgmentResultType.AI_PROCESSING_FAILED.value,
+                (code,),
+            )
         await repository.fail(run_id, failure_status, code)
         return {"run_id": str(run_id), "status": failure_status}
     except (ModelOutputRejected, ValueError) as error:
@@ -800,6 +864,14 @@ async def _handle_ai_content_result(
             )
             return {"run_id": str(run_id), "status": "REPAIRING"}
         failure_status = "FAILED" if step is AiStep.CLASSIFY else "DEGRADED"
+        if step in {AiStep.SUMMARIZE, AiStep.VERIFY}:
+            await repository.materialize_judgment(
+                document,
+                None,
+                None,
+                AiJudgmentResultType.AI_PROCESSING_FAILED.value,
+                (code,),
+            )
         await repository.fail(run_id, failure_status, code)
         return {"run_id": str(run_id), "status": failure_status}
     except Exception as error:
@@ -836,6 +908,28 @@ async def _prepare_ai_inputs(
             max_characters=128_000,
         ),
     )
+
+
+async def _prepared_for_step(
+    repository: PostgresAiPreparationRepository,
+    *,
+    document: PreparationDocument,
+    run_id: UUID,
+    step: AiStep,
+    classify_input: PreparedDocumentInput,
+    extract_input: PreparedDocumentInput,
+) -> PreparedDocumentInput:
+    if step is AiStep.CLASSIFY:
+        return classify_input
+    if step is AiStep.EXTRACT:
+        return extract_input
+    facts = await repository.load_judgment_facts(document)
+    if step is AiStep.SUMMARIZE:
+        return AiContentPreparationService.prepare_summarize_input(facts)
+    summary = SummarizeOutput.model_validate(
+        await repository.successful_output(run_id, AiStep.SUMMARIZE)
+    )
+    return AiContentPreparationService.prepare_verify_input(facts, summary)
 
 
 async def _dispatch_ai_attempt(

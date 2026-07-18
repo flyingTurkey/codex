@@ -11,7 +11,9 @@ from typing import Any, cast
 from uuid import UUID
 
 from sqlalchemy import text
+from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncEngine
+from srbg_api.ai_pipeline.ai_judgments import EvidenceFactInput, EvidenceSnippet
 from srbg_api.ai_pipeline.content_preparation import (
     AiContentPreparationService,
     PreparationDocument,
@@ -119,7 +121,9 @@ class PostgresAiPreparationRepository:
             "CLASSIFYING": "PREPARING",
             "EXTRACTING": "CLASSIFYING",
             "EVIDENCE_GATING": "EXTRACTING",
-            "SUCCEEDED": "EVIDENCE_GATING",
+            "SUMMARIZING": "EVIDENCE_GATING",
+            "VERIFYING": "SUMMARIZING",
+            "SUCCEEDED": "VERIFYING",
         }
         previous = allowed_previous.get(status)
         if previous is None:
@@ -250,9 +254,17 @@ class PostgresAiPreparationRepository:
                     await connection.execute(
                         text(_REGISTRY_SQL),
                         {
-                            "prompt_version": f"ai01-{step.value.lower()}-v1",
-                            "schema_version": f"{step.value.lower()}-output-v1",
-                            "model_version": "ai01-deepseek-deepseek-v4-flash-v1",
+                            "prompt_version": (
+                                f"pers07-{step.value.lower()}-v1"
+                                if step in {AiStep.SUMMARIZE, AiStep.VERIFY}
+                                else f"ai01-{step.value.lower()}-v1"
+                            ),
+                            "schema_version": (
+                                f"{step.value.lower()}-output-v2"
+                                if step in {AiStep.SUMMARIZE, AiStep.VERIFY}
+                                else f"{step.value.lower()}-output-v1"
+                            ),
+                            "model_version": "pers07-deepseek-v4-flash-v1",
                         },
                     )
                 )
@@ -549,6 +561,196 @@ class PostgresAiPreparationRepository:
                 {"id": uuid7(), "item_id": item_id, "version_id": facts["version_id"], "now": now},
             )
             return accepted_count + judgment_count
+
+    async def load_judgment_facts(self, document: PreparationDocument) -> list[EvidenceFactInput]:
+        async with self._engine.connect() as connection:
+            rows = list(
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT claim.id AS claim_id,claim.claim_type,claim.literal_value,
+                              evidence.id AS evidence_id,evidence.excerpt,
+                              CASE WHEN claim.claim_type='claimed_outcome'
+                                THEN claim.subject ELSE NULL END AS attribution
+                            FROM claim
+                            JOIN automatic_evidence_acceptance acceptance
+                              ON acceptance.claim_id=claim.id
+                             AND acceptance.input_document_version_id=:version_id
+                            JOIN claim_evidence evidence ON evidence.claim_id=claim.id
+                            WHERE claim.document_version_id=:version_id
+                              AND claim.verification_status='ACCEPTED'
+                              AND claim.acceptance_method='AUTOMATED_EVIDENCE_GATE'
+                              AND 'ACTIVE'=(SELECT state.state
+                                FROM automatic_evidence_fact_state_event state
+                                WHERE state.claim_id=claim.id
+                                ORDER BY state.created_at DESC,state.id DESC LIMIT 1)
+                            ORDER BY claim.id,evidence.id
+                            """
+                        ),
+                        {"version_id": UUID(document.document_version_id)},
+                    )
+                ).mappings()
+            )
+        grouped: dict[UUID, EvidenceFactInput] = {}
+        evidence_by_claim: dict[UUID, list[EvidenceSnippet]] = {}
+        values: dict[UUID, tuple[str, Any]] = {}
+        for row in rows:
+            claim_id = cast(UUID, row["claim_id"])
+            values[claim_id] = (str(row["claim_type"]), row["literal_value"])
+            evidence_by_claim.setdefault(claim_id, []).append(
+                EvidenceSnippet(
+                    evidence_id=cast(UUID, row["evidence_id"]),
+                    excerpt=str(row["excerpt"])[:500],
+                    attribution=(str(row["attribution"]) if row["attribution"] else None),
+                )
+            )
+        for claim_id, (field_name, value) in values.items():
+            grouped[claim_id] = EvidenceFactInput(
+                claim_id=claim_id,
+                field_name=field_name,
+                value=value,
+                evidence=evidence_by_claim[claim_id],
+            )
+        return list(grouped.values())
+
+    async def materialize_judgment(
+        self,
+        document: PreparationDocument,
+        summary: dict[str, Any] | None,
+        verification: dict[str, Any] | None,
+        result_type: str,
+        reason_codes: tuple[str, ...],
+    ) -> None:
+        now = datetime.now(UTC)
+        async with self._engine.begin() as connection:
+            await connection.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:key,0))"),
+                {"key": f"pers07-judgment:{document.document_version_id}"},
+            )
+            facts = (
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT item.id AS item_id,binding.event_id,
+                              COALESCE(jsonb_agg(jsonb_build_object(
+                                'claim_id',claim.id,'evidence_hash',acceptance.evidence_set_sha256
+                              ) ORDER BY claim.id) FILTER (WHERE claim.id IS NOT NULL),'[]'::jsonb)
+                                AS fact_fingerprint
+                            FROM intelligence_item item
+                            JOIN event_identity_binding binding ON binding.item_id=item.id
+                            LEFT JOIN claim ON claim.item_id=item.id
+                              AND claim.document_version_id=:version_id
+                              AND claim.verification_status='ACCEPTED'
+                              AND claim.acceptance_method='AUTOMATED_EVIDENCE_GATE'
+                            LEFT JOIN automatic_evidence_acceptance acceptance
+                              ON acceptance.claim_id=claim.id
+                            WHERE item.current_document_version_id=:version_id
+                            GROUP BY item.id,binding.event_id
+                            """
+                        ),
+                        {"version_id": UUID(document.document_version_id)},
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            fingerprint = sha256(
+                json.dumps(
+                    facts["fact_fingerprint"],
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    default=str,
+                ).encode()
+            ).hexdigest()
+            step_rows = list(
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT id,step,input_tokens,output_tokens,latency_ms,cost_microusd
+                            FROM ai_step_run WHERE pipeline_run_id=:run_id
+                              AND step IN ('SUMMARIZE','VERIFY') AND status='SUCCEEDED'
+                            ORDER BY step,attempt DESC
+                            """
+                        ),
+                        {"run_id": document.run_id},
+                    )
+                ).mappings()
+            )
+            latest: dict[str, RowMapping] = {str(row["step"]): row for row in step_rows}
+            usage_rows = list(latest.values())
+            summarize_step = latest.get("SUMMARIZE")
+            verify_step = latest.get("VERIFY")
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO ai_judgment_version(
+                      id,event_id,item_id,document_version_id,pipeline_run_id,
+                      summarize_step_run_id,verify_step_run_id,evidence_fact_set_sha256,
+                      summarize_prompt_version,verify_prompt_version,schema_version,model_version,
+                      status,judgment_payload,verification_result,input_tokens,output_tokens,
+                      latency_ms,cost_microusd,failure_reason_codes,invalidation_reason,
+                      created_at,invalidated_at
+                    ) VALUES(
+                      :id,:event_id,:item_id,:version_id,:run_id,:summarize_id,:verify_id,:hash,
+                      'pers07-summarize-v1','pers07-verify-v1','ai-judgment-v2',
+                      'deepseek-v4-flash',:status,CAST(:summary AS jsonb),
+                      CAST(:verification AS jsonb),
+                      :input_tokens,:output_tokens,:latency,:cost,:reasons,NULL,:now,NULL
+                    ) ON CONFLICT(document_version_id,evidence_fact_set_sha256,
+                      summarize_prompt_version,verify_prompt_version,schema_version,model_version)
+                    DO UPDATE SET status=EXCLUDED.status,judgment_payload=EXCLUDED.judgment_payload,
+                      verification_result=EXCLUDED.verification_result,
+                      input_tokens=EXCLUDED.input_tokens,output_tokens=EXCLUDED.output_tokens,
+                      latency_ms=EXCLUDED.latency_ms,cost_microusd=EXCLUDED.cost_microusd,
+                      failure_reason_codes=EXCLUDED.failure_reason_codes,
+                      invalidation_reason=NULL,invalidated_at=NULL
+                    """
+                ),
+                {
+                    "id": uuid7(),
+                    "event_id": facts["event_id"],
+                    "item_id": facts["item_id"],
+                    "version_id": UUID(document.document_version_id),
+                    "run_id": document.run_id,
+                    "summarize_id": summarize_step["id"] if summarize_step else None,
+                    "verify_id": verify_step["id"] if verify_step else None,
+                    "hash": fingerprint,
+                    "status": result_type,
+                    "summary": json.dumps(summary, ensure_ascii=False) if summary else None,
+                    "verification": (
+                        json.dumps(verification, ensure_ascii=False) if verification else None
+                    ),
+                    "input_tokens": sum(int(row["input_tokens"]) for row in usage_rows),
+                    "output_tokens": sum(int(row["output_tokens"]) for row in usage_rows),
+                    "latency": sum(int(row["latency_ms"]) for row in usage_rows),
+                    "cost": sum(int(row["cost_microusd"]) for row in usage_rows),
+                    "reasons": list(reason_codes),
+                    "now": now,
+                },
+            )
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO personal_content_outbox(
+                      id,document_version_id,item_id,action,status,attempt_count,
+                      available_at,created_at,processed_at
+                    ) VALUES(:id,:version_id,:item_id,'PROJECT','PENDING',0,:now,:now,NULL)
+                    ON CONFLICT(document_version_id,action) DO UPDATE SET
+                      status='PENDING',attempt_count=0,available_at=EXCLUDED.available_at,
+                      processed_at=NULL
+                    """
+                ),
+                {
+                    "id": uuid7(),
+                    "version_id": UUID(document.document_version_id),
+                    "item_id": facts["item_id"],
+                    "now": now,
+                },
+            )
 
     async def materialize_local(self, document: PreparationDocument) -> int:
         """Persist bounded local facts before any provider call."""

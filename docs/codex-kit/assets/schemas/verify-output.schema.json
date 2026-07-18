@@ -1,18 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://srbg.example.internal/schemas/verify-output-1.0.0.json",
+  "$id": "https://srbg.example.internal/schemas/verify-output-2.0.0.json",
   "type": "object",
   "additionalProperties": false,
-  "required": ["unsupported_claims", "evidence_mismatches", "number_or_date_conflicts", "legal_or_causal_overreach", "enterprise_claims_missing_attribution", "stale_or_superseded_risk", "prompt_injection_risk", "candidate_decision"],
+  "required": ["unsupported_claims", "number_or_date_conflicts", "legal_responsibility_or_causal_overreach", "enterprise_claims_missing_attribution", "stale_or_superseded_evidence", "prompt_injection_risk", "candidate_decision"],
   "properties": {
     "unsupported_claims": {"type": "array", "items": {"type": "string"}},
-    "evidence_mismatches": {"type": "array", "items": {"type": "string"}},
     "number_or_date_conflicts": {"type": "array", "items": {"type": "string"}},
-    "legal_or_causal_overreach": {"type": "array", "items": {"type": "string"}},
+    "legal_responsibility_or_causal_overreach": {"type": "array", "items": {"type": "string"}},
     "enterprise_claims_missing_attribution": {"type": "array", "items": {"type": "string"}},
-    "stale_or_superseded_risk": {"type": "boolean"},
+    "stale_or_superseded_evidence": {"type": "boolean"},
     "prompt_injection_risk": {"type": "boolean"},
-    "candidate_decision": {"enum": ["PASS_TO_SERVER_GATE", "HUMAN_REVIEW", "REJECT"]}
+    "candidate_decision": {"enum": ["PASS_TO_SERVER_GATE", "UNVERIFIED", "REJECT"]}
   }
 }
-

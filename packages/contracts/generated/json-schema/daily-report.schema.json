@@ -3,6 +3,24 @@
     "DailyReportItem": {
       "additionalProperties": false,
       "properties": {
+        "automatic_result_type": {
+          "anyOf": [
+            {
+              "enum": [
+                "EVIDENCE_FACT",
+                "AI_JUDGMENT",
+                "UNVERIFIED_AI",
+                "AI_PROCESSING_FAILED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Automatic Result Type"
+        },
         "current_state": {
           "enum": [
             "PUBLISHED",
@@ -63,9 +81,30 @@
           "type": "integer"
         },
         "publication_revision_id": {
-          "format": "uuid",
-          "title": "Publication Revision Id",
-          "type": "string"
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Publication Revision Id"
+        },
+        "signal_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Signal Id"
         },
         "summary": {
           "anyOf": [
@@ -88,7 +127,6 @@
         }
       },
       "required": [
-        "publication_revision_id",
         "position",
         "title",
         "current_state",
@@ -113,7 +151,9 @@
             "DIGITAL_SELECTED",
             "SAFETY_HIGHLIGHTS",
             "WATCHLIST",
-            "SOURCE_ANOMALIES"
+            "SOURCE_ANOMALIES",
+            "EVIDENCE_FACTS",
+            "UNVERIFIED_AI"
           ],
           "title": "Kind",
           "type": "string"

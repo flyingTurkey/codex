@@ -292,6 +292,8 @@ class DeepSeekProvider:
         expected_max_tokens = (
             1200
             if request.step is AiStep.CLASSIFY
+            else 1500
+            if request.step in {AiStep.SUMMARIZE, AiStep.VERIFY}
             else 2000
             if request.step is AiStep.SOURCE_PROFILE
             else 4000

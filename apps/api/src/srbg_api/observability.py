@@ -108,6 +108,16 @@ PERSONAL_AUTO_ENABLE_RESULTS = Counter(
     "Personal source automatic enable decisions by bounded outcome.",
     ("outcome",),
 )
+PERSONAL_AI_JUDGMENT_RESULTS = Counter(
+    "srbg_personal_ai_judgment_results_total",
+    "Personal AI judgment pipeline outcomes by bounded automatic result type.",
+    ("result_type",),
+)
+PERSONAL_AI_REPAIR_ATTEMPTS = Counter(
+    "srbg_personal_ai_repair_attempts_total",
+    "Controlled JSON/schema repair attempts by bounded AI step.",
+    ("step",),
+)
 SOURCE_PROFILE_QUEUE = Gauge(
     "srbg_source_profile_queue",
     "Queued automatic source profile runs seen by the dispatcher.",

@@ -161,4 +161,9 @@ groups:
         expr: increase(srbg_source_profile_runs_total{outcome="PARTIAL",reason=~"MODEL_UNAVAILABLE|PROVIDER_BALANCE_INSUFFICIENT|BUDGET_DISABLED"}[30m]) > 5
         for: 5m
         labels: {severity: p2}
-        annotations: {summary: "自动来源画像因模型或预算持续降级"}
+        annotations: {summary: "Automatic source profiling repeatedly degraded"}
+      - alert: PersonalAiProcessingFailureSpike
+        expr: increase(srbg_personal_ai_judgment_results_total{result_type="AI_PROCESSING_FAILED"}[30m]) > 5
+        for: 5m
+        labels: {severity: p2}
+        annotations: {summary: "Personal AI content processing failures increased"}

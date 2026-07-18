@@ -201,14 +201,18 @@ personal-source-test:
 personal-content-test:
 	$(COMPOSE) up --detach --wait postgres minio redis
 	$(UV) run python scripts/run_isolated_integration.py \
-		--migration-verifier verify_pers06_migration.py -- \
+		--migration-verifier verify_pers07_migration.py -- \
+		apps/api/tests/test_pers07_migration.py \
+		apps/api/tests/test_pers07_ai_judgments.py \
+		apps/api/tests/test_pers07_signal_projection.py \
 		apps/api/tests/test_pers06_migration.py \
 		apps/api/tests/test_pers06_evidence_gate.py \
 		apps/api/tests/test_pers06_local_evidence.py \
 		apps/api/tests/test_pers06_publication_boundary.py \
 		apps/api/tests/test_ai01_orchestration.py \
 		apps/api/tests/test_publication_service.py -q
-	$(PNPM) --filter @srbg/web test -- ai01-content-preparation-ui.test.ts
+	$(PNPM) --filter @srbg/web test -- ai01-content-preparation-ui.test.ts pers07-ai-signals-ui.test.ts
+	$(UV) run python scripts/evaluate_pers07.py
 
 quality-gate: lint typecheck test contract-test security-check
 
