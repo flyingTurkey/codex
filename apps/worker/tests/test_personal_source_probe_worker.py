@@ -7,9 +7,34 @@ from srbg_worker.personal_source_probe import (
     PersonalProbeBinding,
     PersonalProbeExecutor,
     ProbeFetch,
+    _probe_timeout_seconds,
 )
 
 RUN_ID = UUID("019b0000-0000-7000-8000-000000000201")
+
+
+def test_controlled_probe_timeout_includes_durable_domain_slots() -> None:
+    binding = PersonalProbeBinding(
+        run_id=RUN_ID,
+        source_id=UUID("019b0000-0000-7000-8000-000000000202"),
+        stream_id=UUID("019b0000-0000-7000-8000-000000000203"),
+        requested_url="https://example.test/",
+        allowed_host="example.test",
+        controlled_run_id=UUID("019b0000-0000-7000-8000-000000000204"),
+    )
+    assert _probe_timeout_seconds(binding) == 900
+    assert (
+        _probe_timeout_seconds(
+            PersonalProbeBinding(
+                run_id=binding.run_id,
+                source_id=binding.source_id,
+                stream_id=binding.stream_id,
+                requested_url=binding.requested_url,
+                allowed_host=binding.allowed_host,
+            )
+        )
+        == 30
+    )
 
 
 class Gateway:

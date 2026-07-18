@@ -25,6 +25,7 @@ from srbg_worker.controlled_run_ledger import ControlledRunAttemptObserver
 
 MAX_LOGICAL_URLS = 6
 MAX_RESPONSE_BYTES = 10 * 1024 * 1024
+CONTROLLED_PROBE_TIMEOUT_SECONDS = 900
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,7 +97,7 @@ class PersonalProbeExecutor:
             return "DUPLICATE"
         captures: list[dict[str, object]] = []
         try:
-            async with asyncio.timeout(30):
+            async with asyncio.timeout(_probe_timeout_seconds(binding)):
                 first = await self._capture(binding, binding.requested_url, captures)
                 _reject_access_barriers(first.content)
                 detected = detect_streams(
@@ -123,7 +124,10 @@ class PersonalProbeExecutor:
             return "SUCCEEDED"
         except TimeoutError:
             await self._gateway.fail(
-                binding, code="PROBE_TIMEOUT", reason="探测超过 30 秒总时限", captures=captures
+                binding,
+                code="PROBE_TIMEOUT",
+                reason="controlled probe exceeded its bounded deadline",
+                captures=captures,
             )
             PERSONAL_SOURCE_PROBES.labels("FAILED", "PROBE_TIMEOUT").inc()
         except (ProbeDetectionError, ValueError, OSError) as error:
@@ -164,6 +168,10 @@ class PersonalProbeExecutor:
             }
         )
         return fetched
+
+
+def _probe_timeout_seconds(binding: PersonalProbeBinding) -> int:
+    return CONTROLLED_PROBE_TIMEOUT_SECONDS if binding.controlled_run_id is not None else 30
 
 
 class SafePersonalProbeFetcher:

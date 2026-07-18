@@ -145,6 +145,10 @@ def upgrade() -> None:
     op.execute(
         "GRANT EXECUTE ON FUNCTION reserve_personal_controlled_http_attempt(uuid,uuid,uuid,text,text,text,text,bigint,timestamptz),settle_personal_controlled_http_attempt(uuid,bigint,boolean,text,timestamptz) TO srbg_worker_role"
     )
+    op.execute(
+        "GRANT SELECT ON personal_controlled_run_source,personal_controlled_http_attempt "
+        "TO srbg_worker_role"
+    )
 
 
 _RESERVE_FUNCTION = r"""

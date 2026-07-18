@@ -29,6 +29,10 @@ def test_migration_grants_no_control_tables_to_api_or_projection_roles() -> None
     source = MIGRATION.read_text(encoding="utf-8")
     assert "REVOKE ALL ON personal_controlled_run" in source
     assert "GRANT SELECT,INSERT,UPDATE ON personal_controlled_run" not in source
+    assert (
+        "GRANT SELECT ON personal_controlled_run_source,personal_controlled_http_attempt" in source
+    )
+    assert "GRANT INSERT ON personal_controlled_http_attempt" not in source
 
 
 def test_migration_reservation_is_path_aware_and_worker_only() -> None:

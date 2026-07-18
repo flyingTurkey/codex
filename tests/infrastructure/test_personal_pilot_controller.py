@@ -31,5 +31,7 @@ def test_controller_drains_reservations_and_never_enables_ai_without_ledger() ->
         '"ai_state": "DEGRADED_DISABLED"',
         "wall_deadline",
         "active_seconds",
+        "CONTROLLER_FAILURE",
+        "fail_closed_cleanup",
     ):
         assert marker in source

@@ -37,27 +37,38 @@ def _psql(sql: str) -> str:
     docker = shutil.which("docker")
     if docker is None:
         raise RuntimeError("PILOT_DOCKER_NOT_FOUND")
-    completed = subprocess.run(
-        [
-            docker,
-            "exec",
-            "srbg-intelligence-postgres-1",
-            "psql",
-            "-U",
-            "srbg",
-            "-d",
-            "srbg",
-            "-At",
-            "-v",
-            "ON_ERROR_STOP=1",
-            "-c",
-            sql,
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+    try:
+        completed = subprocess.run(
+            [
+                docker,
+                "exec",
+                "srbg-intelligence-postgres-1",
+                "psql",
+                "-U",
+                "srbg",
+                "-d",
+                "srbg",
+                "-At",
+                "-q",
+                "-v",
+                "ON_ERROR_STOP=1",
+                "-c",
+                sql,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.CalledProcessError as error:
+        safe_lines = [line.strip() for line in (error.stderr or "").splitlines() if line.strip()]
+        error_lines = [line for line in safe_lines if "ERROR:" in line]
+        detail = (
+            (error_lines[0] if error_lines else safe_lines[-1])[:160]
+            if safe_lines
+            else "PSQL_COMMAND_FAILED"
+        )
+        raise RuntimeError(detail) from error
     return completed.stdout.strip()
 
 
@@ -76,7 +87,7 @@ def _arm_run(limits: PilotLimits) -> str:
             "SELECT '"
             + str(probe_id)
             + "'::uuid,source.id,stream.id,source.base_url,source.base_url,"
-            + f"source.normalized_origin,'UNKNOWN','QUEUED',0,'{owner_id}'::uuid,"
+            + f"'{parsed.scheme}://{parsed.hostname}','UNKNOWN','QUEUED',0,'{owner_id}'::uuid,"
             + f"'controlled-pilot:{run_id}:{index}',now(),now(),'{run_id}'::uuid "
             + "FROM source JOIN LATERAL (SELECT id FROM source_stream WHERE source_id=source.id "
             + "AND canonical_url=source.base_url ORDER BY created_at,id LIMIT 1) stream ON true "
@@ -84,8 +95,7 @@ def _arm_run(limits: PilotLimits) -> str:
         )
         events.append(
             f"('{uuid7()}','{seed_url}','MANUAL_ENABLED','{owner_id}',"
-            + f"'controlled-pilot:{run_id}',jsonb_build_object('desired_enabled',source.desired_enabled),"
-            + "jsonb_build_object('desired_enabled',true),now())"
+            + f"'controlled-pilot:{run_id}')"
         )
     source_list = ",".join(f"'{url}'" for url in SOURCES)
     sql = f"""
@@ -107,9 +117,10 @@ INSERT INTO source_key_activity_event(
  id,source_id,event_type,actor_id,request_id,before_state,after_state,created_at
 )
 SELECT event.id::uuid,source.id,event.event_type,event.actor_id::uuid,event.request_id,
-       event.before_state,event.after_state,event.created_at
+       jsonb_build_object('desired_enabled',source.desired_enabled),
+       jsonb_build_object('desired_enabled',true),now()
 FROM (VALUES {",".join(events)}) AS event(
- id,seed_url,event_type,actor_id,request_id,before_state,after_state,created_at
+ id,seed_url,event_type,actor_id,request_id
 ) JOIN source ON source.base_url=event.seed_url;
 UPDATE source SET desired_enabled=true,manual_disabled_at=NULL,updated_at=now()
  WHERE base_url IN ({source_list});
@@ -160,6 +171,24 @@ UPDATE source SET desired_enabled=false,manual_disabled_at=now(),enabled=false,
  );
 COMMIT;
 """
+    )
+
+
+def _fail_active_run() -> None:
+    _psql(
+        "UPDATE personal_controlled_run SET state='STOPPING',"
+        "stop_reason=COALESCE(stop_reason,'CONTROLLER_FAILURE'),updated_at=now() "
+        "WHERE state IN ('PREPARING','ARMED','RUNNING','PAUSED');"
+        "UPDATE fetch_schedule SET status='PAUSED',updated_at=now() WHERE source_id IN ("
+        "SELECT source_id FROM personal_controlled_run_source WHERE run_id=("
+        "SELECT id FROM personal_controlled_run WHERE state='STOPPING' ORDER BY created_at DESC LIMIT 1));"
+        "UPDATE source SET desired_enabled=false,manual_disabled_at=now(),enabled=false,"
+        "runtime_state='STOPPED',updated_at=now() WHERE id IN (SELECT source_id FROM "
+        "personal_controlled_run_source WHERE run_id=(SELECT id FROM personal_controlled_run "
+        "WHERE state='STOPPING' ORDER BY created_at DESC LIMIT 1));"
+        "UPDATE personal_controlled_run run SET state='FAILED',updated_at=now() "
+        "WHERE state='STOPPING' AND NOT EXISTS(SELECT 1 FROM personal_controlled_http_attempt "
+        "attempt WHERE attempt.run_id=run.id AND attempt.outcome='RESERVED')"
     )
 
 
@@ -276,6 +305,10 @@ def main() -> int:
         return 0 if report["state"] == "COMPLETED" else 2
     except Exception as error:
         report["error_code"] = str(error).splitlines()[0][:120]
+        try:
+            _fail_active_run()
+        except Exception:
+            report["fail_closed_cleanup"] = "FAILED_REQUIRES_OPERATOR"
         return 2
     finally:
         report["finished_at"] = datetime.now(UTC).isoformat()
