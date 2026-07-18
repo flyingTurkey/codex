@@ -87,7 +87,6 @@ def test_legacy_government_list_uses_bounded_generic_anchor_connector() -> None:
         "item_selector": "a",
         "link_selector": "a",
         "list_url": "https://example.test/policy/",
-        "max_items": 5,
         "title_selector": "a",
     }
 

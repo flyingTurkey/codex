@@ -28,7 +28,6 @@ def _generic_config() -> dict[str, object]:
         "item_selector": "a",
         "link_selector": "a",
         "title_selector": "a",
-        "max_items": 5,
     }
 
 
@@ -81,16 +80,14 @@ def test_generic_profile_ranks_relevant_detail_links_ahead_of_internal_navigatio
     assert all(record.url.startswith("https://jtt.sc.gov.cn/") for record in records)
 
 
-def test_generic_profile_honors_the_smallest_supported_cycle_limit() -> None:
+def test_generic_profile_uses_a_fixed_small_cycle_limit() -> None:
     html = "<html><body>" + "".join(
         f'<a href="/safety/notice-{index}.html">Safety notice {index}</a>'
         for index in range(6)
     ) + "</body></html>"
-    config = _generic_config() | {"max_items": 2}
+    records = ListDetailConnector().discover(_fetched(html), _generic_config())
 
-    records = ListDetailConnector().discover(_fetched(html), config)
-
-    assert len(records) == 2
+    assert len(records) == 5
 
 
 def test_generic_profile_preserves_document_order_when_quality_scores_tie() -> None:

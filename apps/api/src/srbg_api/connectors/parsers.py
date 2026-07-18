@@ -429,10 +429,7 @@ class ListDetailConnector:
                 generic_candidates[existing_index] = (quality, first_position, record)
         if generic_internal_links:
             generic_candidates.sort(key=lambda candidate: (-candidate[0], candidate[1]))
-            max_items = config.get("max_items", 50)
-            if isinstance(max_items, bool) or not isinstance(max_items, int) or max_items < 2:
-                raise DeclarativeParseError("generic list max_items is invalid")
-            records = [candidate[2] for candidate in generic_candidates[:max_items]]
+            records = [candidate[2] for candidate in generic_candidates[:5]]
         if not records:
             raise EmptyDiscoveryError("list contains no matching items")
         return tuple(records)

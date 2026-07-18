@@ -379,7 +379,6 @@ def _detect_html(url: str, host: str, content: bytes) -> DetectionResult:
                 "list_url": url,
                 "item_selector": "a",
                 "link_selector": "a",
-                "max_items": 5,
                 "title_selector": "a",
             },
         )
