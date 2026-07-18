@@ -44,7 +44,7 @@ export PLAYWRIGHT_BROWSERS_PATH
 	round08-test round08-eval round09-test round09-eval round10-test round10-eval \
 	round11-test observability-test golden-replay load-test recovery-drill runbook-test \
 	round11-evidence-test readiness-evidence slo-weekly-report \
-	phase2-round13-test phase2-round14-test ai-content-preparation-test pers01-test personal-source-test \
+	phase2-round13-test phase2-round14-test ai-content-preparation-test pers01-test personal-source-test personal-pilot-control-test \
 	personal-content-test personal-migration-test
 
 setup:
@@ -61,6 +61,16 @@ ifeq ($(OS),Windows_NT)
 else
 	test -d "$(SRBG_DATA_ROOT)"
 endif
+
+personal-pilot-control-test:
+	$(COMPOSE) up --detach --wait postgres minio redis
+	$(UV) run python scripts/run_isolated_integration.py \
+		--migration-verifier verify_controlled_runs_migration.py -- \
+		apps/api/tests/test_controlled_run_domain.py \
+		apps/api/tests/test_0031_controlled_runs_migration.py \
+		tests/infrastructure/test_personal_pilot_controller.py \
+		apps/worker/tests/test_personal_source_probe_worker.py \
+		apps/api/tests/test_round15_http_security.py -q
 
 dev: personal-data-ready
 	$(COMPOSE) up --build --detach --wait

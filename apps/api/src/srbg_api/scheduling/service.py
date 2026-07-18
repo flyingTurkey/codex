@@ -31,6 +31,42 @@ from srbg_api.scheduling.domain import (
     next_backoff,
 )
 
+_LEGACY_FETCH_REFS_SQL = """SELECT fs.authority_mode,fs.source_stream_id,
+       fs.stream_config_version_id,s.current_policy_version_id AS policy_id,
+       s.current_connector_config_version_id AS config_id,
+       (SELECT id FROM source_connector sc WHERE sc.source_id=s.id
+         ORDER BY created_at DESC LIMIT 1) AS connector_id,
+       NULL::uuid AS controlled_run_id
+  FROM source s JOIN fetch_schedule fs ON fs.id=:schedule_id
+ WHERE s.id=:source_id"""
+_CONTROLLED_FETCH_REFS_SQL = """SELECT fs.authority_mode,fs.source_stream_id,
+       fs.stream_config_version_id,s.current_policy_version_id AS policy_id,
+       s.current_connector_config_version_id AS config_id,
+       (SELECT id FROM source_connector sc WHERE sc.source_id=s.id
+         ORDER BY created_at DESC LIMIT 1) AS connector_id,
+       (SELECT controlled.id FROM personal_controlled_run controlled
+       JOIN personal_controlled_run_source controlled_source
+         ON controlled_source.run_id=controlled.id
+      WHERE controlled.state='RUNNING' AND controlled_source.source_id=s.id
+      LIMIT 1) AS controlled_run_id
+  FROM source s JOIN fetch_schedule fs ON fs.id=:schedule_id
+ WHERE s.id=:source_id"""
+_LEGACY_FETCH_INSERT_SQL = """INSERT INTO fetch_run
+ (id,source_connector_id,trigger,status,started_at,discovered_count,fetched_count,
+  failed_count,request_id,execution_domain,source_id,schedule_id,policy_version_id,
+  connector_config_version_id,idempotency_key,attempt_count,source_stream_id,
+  stream_config_version_id)
+ VALUES(:id,:connector,'SCHEDULED','PENDING_DISPATCH',:now,0,0,0,:request_id,
+  'PRODUCTION',:source,:schedule,:policy,:config,:idempotency,0,:stream,:stream_config)"""
+_CONTROLLED_FETCH_INSERT_SQL = """INSERT INTO fetch_run
+ (id,source_connector_id,trigger,status,started_at,discovered_count,fetched_count,
+  failed_count,request_id,execution_domain,source_id,schedule_id,policy_version_id,
+  connector_config_version_id,idempotency_key,attempt_count,source_stream_id,
+  stream_config_version_id,controlled_run_id)
+ VALUES(:id,:connector,'SCHEDULED','PENDING_DISPATCH',:now,0,0,0,:request_id,
+  'PRODUCTION',:source,:schedule,:policy,:config,:idempotency,0,:stream,:stream_config,
+  :controlled_run)"""
+
 
 @dataclass(frozen=True, slots=True)
 class ClaimedFetchRun:
@@ -94,21 +130,18 @@ class PostgresSchedulingService:
             )
             if existing is not None:
                 return ClaimedFetchRun(source_id=existing["source_id"], run_id=existing["id"])
+            controlled_available = bool(
+                await connection.scalar(
+                    text("SELECT to_regclass('public.personal_controlled_run') IS NOT NULL")
+                )
+            )
+            refs_sql = (
+                _CONTROLLED_FETCH_REFS_SQL if controlled_available else _LEGACY_FETCH_REFS_SQL
+            )
             refs = (
                 (
                     await connection.execute(
-                        text(
-                            """SELECT fs.authority_mode,fs.source_stream_id,
-                                      fs.stream_config_version_id,
-                                      s.current_policy_version_id AS policy_id,
-                                      s.current_connector_config_version_id AS config_id,
-                                      (SELECT id FROM source_connector sc
-                                        WHERE sc.source_id=s.id
-                                        ORDER BY created_at DESC LIMIT 1) AS connector_id
-                                 FROM source s
-                                 JOIN fetch_schedule fs ON fs.id=:schedule_id
-                                WHERE s.id=:source_id"""
-                        ),
+                        text(refs_sql),
                         {"source_id": row["source_id"], "schedule_id": row["schedule_id"]},
                     )
                 )
@@ -116,18 +149,11 @@ class PostgresSchedulingService:
                 .one()
             )
             run_id = uuid7()
+            insert_sql = (
+                _CONTROLLED_FETCH_INSERT_SQL if controlled_available else _LEGACY_FETCH_INSERT_SQL
+            )
             await connection.execute(
-                text(
-                    """INSERT INTO fetch_run
-                       (id, source_connector_id, trigger, status, started_at,
-                        discovered_count, fetched_count, failed_count, request_id,
-                        execution_domain, source_id, schedule_id, policy_version_id,
-                        connector_config_version_id, idempotency_key, attempt_count,
-                        source_stream_id,stream_config_version_id)
-                       VALUES (:id, :connector, 'SCHEDULED', 'PENDING_DISPATCH', :now,
-                               0, 0, 0, :request_id, 'PRODUCTION', :source, :schedule,
-                               :policy, :config, :idempotency, 0,:stream,:stream_config)"""
-                ),
+                text(insert_sql),
                 {
                     "id": run_id,
                     "connector": refs["connector_id"],
@@ -140,6 +166,7 @@ class PostgresSchedulingService:
                     "idempotency": f"source-fetch:{row['schedule_id']}:{run_id}",
                     "stream": refs["source_stream_id"],
                     "stream_config": refs["stream_config_version_id"],
+                    "controlled_run": refs["controlled_run_id"],
                 },
             )
             return ClaimedFetchRun(source_id=row["source_id"], run_id=run_id)

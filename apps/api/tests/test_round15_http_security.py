@@ -4,12 +4,14 @@ import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from uuid import UUID
 
 import pytest
 from srbg_api.acquisition.contracts import SourceCheckpoint
 from srbg_api.acquisition.http import (
     FetchPolicy,
     HttpResponse,
+    PhysicalAttemptReservation,
     ResilientHttpClient,
     ResponseTooLarge,
     SsrfRejected,
@@ -113,6 +115,27 @@ class TimestampTransport(RecordingTransport):
         )
 
 
+@dataclass
+class RecordingAttemptObserver:
+    settlements: list[tuple[int, bool, str | None]] = field(default_factory=list)
+
+    async def reserve(self, url: str, requested_max_bytes: int) -> PhysicalAttemptReservation:
+        assert url.startswith("https://source.example.test/")
+        assert requested_max_bytes == 64
+        return PhysicalAttemptReservation(UUID("019b0000-0000-7000-8000-000000003104"), 7)
+
+    async def settle(
+        self,
+        reservation: PhysicalAttemptReservation,
+        *,
+        response_bytes: int,
+        failed: bool,
+        failure_code: str | None,
+    ) -> None:
+        assert reservation.max_response_bytes == 7
+        self.settlements.append((response_bytes, failed, failure_code))
+
+
 def _policy(
     *,
     allowed_hosts: tuple[str, ...] = ("source.example.test",),
@@ -132,6 +155,45 @@ def _policy(
         max_response_bytes=64,
         max_backoff_seconds=max_backoff_seconds,
     )
+
+
+async def test_physical_attempt_observer_limits_and_settles_actual_response() -> None:
+    observer = RecordingAttemptObserver()
+    transport = RecordingTransport(
+        [HttpResponse(status_code=200, headers={}, content=b"result", peer_ip="8.8.8.8")]
+    )
+    client = ResilientHttpClient(
+        _policy(),
+        resolver=SequenceResolver({"source.example.test": [("8.8.8.8",)]}),
+        transport=transport,
+        clock=FakeClock(),
+        attempt_observer=observer,
+    )
+
+    result = await client.get("https://source.example.test/a", checkpoint=SourceCheckpoint())
+
+    assert result.content == b"result"
+    assert transport.calls[0][3] == 7
+    assert observer.settlements == [(6, False, None)]
+
+
+async def test_physical_attempt_observer_records_peer_integrity_failure() -> None:
+    observer = RecordingAttemptObserver()
+    transport = RecordingTransport(
+        [HttpResponse(status_code=200, headers={}, content=b"bad", peer_ip="9.9.9.9")]
+    )
+    client = ResilientHttpClient(
+        _policy(),
+        resolver=SequenceResolver({"source.example.test": [("8.8.8.8",)]}),
+        transport=transport,
+        clock=FakeClock(),
+        attempt_observer=observer,
+    )
+
+    with pytest.raises(SsrfRejected):
+        await client.get("https://source.example.test/a", checkpoint=SourceCheckpoint())
+
+    assert observer.settlements == [(0, True, "SSRFREJECTED")]
 
 
 @pytest.mark.parametrize(

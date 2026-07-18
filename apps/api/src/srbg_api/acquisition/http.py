@@ -11,6 +11,7 @@ from email.utils import parsedate_to_datetime
 from hashlib import sha256
 from typing import Protocol
 from urllib.parse import unquote, urljoin, urlsplit
+from uuid import UUID
 
 from srbg_api.acquisition.contracts import FetchResult, SourceCheckpoint
 
@@ -137,6 +138,25 @@ class Clock(Protocol):
     def now(self) -> datetime: ...
 
 
+@dataclass(frozen=True, slots=True)
+class PhysicalAttemptReservation:
+    id: UUID
+    max_response_bytes: int
+
+
+class PhysicalAttemptObserver(Protocol):
+    async def reserve(self, url: str, requested_max_bytes: int) -> PhysicalAttemptReservation: ...
+
+    async def settle(
+        self,
+        reservation: PhysicalAttemptReservation,
+        *,
+        response_bytes: int,
+        failed: bool,
+        failure_code: str | None,
+    ) -> None: ...
+
+
 class ResilientHttpClient:
     def __init__(
         self,
@@ -147,6 +167,7 @@ class ResilientHttpClient:
         clock: Clock,
         before_request: Callable[[str], Awaitable[None]] | None = None,
         after_response: Callable[[str, int], Awaitable[None]] | None = None,
+        attempt_observer: PhysicalAttemptObserver | None = None,
     ) -> None:
         self._policy = policy
         self._resolver = resolver
@@ -154,6 +175,7 @@ class ResilientHttpClient:
         self._clock = clock
         self._before_request = before_request
         self._after_response = after_response
+        self._attempt_observer = attempt_observer
         self._failure_count: dict[str, int] = {}
         self._circuit_open_until: dict[str, float] = {}
         self._last_request_at: dict[str, float] = {}
@@ -261,20 +283,50 @@ class ResilientHttpClient:
             await self._respect_rate_limit(hostname)
             if self._before_request is not None:
                 await self._before_request(current_url)
-            response = await self._transport.request(
-                current_url,
-                headers=dict(headers),
-                timeout_seconds=self._policy.timeout_seconds,
-                max_response_bytes=self._policy.max_response_bytes,
-                validated_ips=resolved_addresses,
-            )
+            reservation = None
+            if self._attempt_observer is not None:
+                reservation = await self._attempt_observer.reserve(
+                    current_url, self._policy.max_response_bytes
+                )
+            try:
+                response = await self._transport.request(
+                    current_url,
+                    headers=dict(headers),
+                    timeout_seconds=self._policy.timeout_seconds,
+                    max_response_bytes=(
+                        reservation.max_response_bytes
+                        if reservation is not None
+                        else self._policy.max_response_bytes
+                    ),
+                    validated_ips=resolved_addresses,
+                )
+                if response.peer_ip is None:
+                    raise SsrfRejected("connected peer address is required")
+                peer_ip = _validated_ip(response.peer_ip)
+                if peer_ip not in resolved_addresses:
+                    raise SsrfRejected("connected peer does not match validated public DNS results")
+            except Exception as error:
+                if reservation is not None and self._attempt_observer is not None:
+                    await self._attempt_observer.settle(
+                        reservation,
+                        response_bytes=0,
+                        failed=True,
+                        failure_code=type(error).__name__[:80].upper(),
+                    )
+                raise
+            if reservation is not None and self._attempt_observer is not None:
+                failed_status = response.status_code >= 400 and response.status_code not in {
+                    404,
+                    410,
+                }
+                await self._attempt_observer.settle(
+                    reservation,
+                    response_bytes=len(response.content or b""),
+                    failed=failed_status,
+                    failure_code=(f"HTTP_{response.status_code}" if failed_status else None),
+                )
             if self._after_response is not None:
                 await self._after_response(current_url, len(response.content or b""))
-            if response.peer_ip is None:
-                raise SsrfRejected("connected peer address is required")
-            peer_ip = _validated_ip(response.peer_ip)
-            if peer_ip not in resolved_addresses:
-                raise SsrfRejected("connected peer does not match validated public DNS results")
             if response.status_code not in {301, 302, 303, 307, 308}:
                 return response, current_url, tuple(redirect_chain)
             location = _header(response.headers, "location")

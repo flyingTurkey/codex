@@ -21,6 +21,8 @@ from srbg_api.identifiers import uuid7
 from srbg_api.observability import PERSONAL_SOURCE_PROBES
 from srbg_api.personal_source_probe import DetectionResult, ProbeDetectionError, detect_streams
 
+from srbg_worker.controlled_run_ledger import ControlledRunAttemptObserver
+
 MAX_LOGICAL_URLS = 6
 MAX_RESPONSE_BYTES = 10 * 1024 * 1024
 
@@ -32,6 +34,7 @@ class PersonalProbeBinding:
     stream_id: UUID
     requested_url: str
     allowed_host: str
+    controlled_run_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,7 +67,15 @@ class ProbeGateway(Protocol):
 
 
 class ProbeFetcher(Protocol):
-    async def fetch(self, url: str, *, allowed_host: str) -> ProbeFetch: ...
+    async def fetch(
+        self,
+        url: str,
+        *,
+        allowed_host: str,
+        controlled_run_id: UUID | None = None,
+        source_id: UUID | None = None,
+        purpose: str = "PROBE",
+    ) -> ProbeFetch: ...
 
 
 class ObjectStore(Protocol):
@@ -86,14 +97,14 @@ class PersonalProbeExecutor:
         captures: list[dict[str, object]] = []
         try:
             async with asyncio.timeout(30):
-                first = await self._capture(binding.requested_url, binding.allowed_host, captures)
+                first = await self._capture(binding, binding.requested_url, captures)
                 _reject_access_barriers(first.content)
                 detected = detect_streams(
                     url=first.final_url, content_type=first.content_type, content=first.content
                 )
                 streams = list(detected.streams)
                 for follow_up in detected.follow_up_urls[: MAX_LOGICAL_URLS - 1]:
-                    fetched = await self._capture(follow_up, binding.allowed_host, captures)
+                    fetched = await self._capture(binding, follow_up, captures)
                     _reject_access_barriers(fetched.content)
                     child = detect_streams(
                         url=fetched.final_url,
@@ -123,10 +134,21 @@ class PersonalProbeExecutor:
             PERSONAL_SOURCE_PROBES.labels("FAILED", code).inc()
         return "FAILED"
 
-    async def _capture(self, url: str, host: str, captures: list[dict[str, object]]) -> ProbeFetch:
+    async def _capture(
+        self, binding: PersonalProbeBinding, url: str, captures: list[dict[str, object]]
+    ) -> ProbeFetch:
         if len(captures) >= MAX_LOGICAL_URLS:
             raise ProbeDetectionError("PROBE_URL_BUDGET_EXCEEDED")
-        fetched = await self._fetcher.fetch(url, allowed_host=host)
+        if binding.controlled_run_id is not None:
+            fetched = await self._fetcher.fetch(
+                url,
+                allowed_host=binding.allowed_host,
+                controlled_run_id=binding.controlled_run_id,
+                source_id=binding.source_id,
+                purpose="PROBE",
+            )
+        else:
+            fetched = await self._fetcher.fetch(url, allowed_host=binding.allowed_host)
         digest = sha256(fetched.content).hexdigest()
         object_key = f"personal-probe/sha256/{digest[:2]}/{digest}"
         await self._object_store.put_if_absent(object_key, fetched.content, fetched.content_type)
@@ -147,14 +169,38 @@ class PersonalProbeExecutor:
 class SafePersonalProbeFetcher:
     """Robots-aware fetcher using the shared DNS-pinned HTTP boundary."""
 
-    async def fetch(self, url: str, *, allowed_host: str) -> ProbeFetch:
-        await self._check_robots(url, allowed_host)
+    def __init__(self, engine: AsyncEngine | None = None) -> None:
+        self._engine = engine
+
+    async def fetch(
+        self,
+        url: str,
+        *,
+        allowed_host: str,
+        controlled_run_id: UUID | None = None,
+        source_id: UUID | None = None,
+        purpose: str = "PROBE",
+    ) -> ProbeFetch:
+        await self._check_robots(
+            url,
+            allowed_host,
+            controlled_run_id=controlled_run_id,
+            source_id=source_id,
+        )
         transport = HttpxTransport()
+        observer = (
+            ControlledRunAttemptObserver(
+                self._engine, run_id=controlled_run_id, source_id=source_id, purpose=purpose
+            )
+            if self._engine is not None and controlled_run_id is not None
+            else None
+        )
         client = ResilientHttpClient(
             _policy(allowed_host, max_bytes=MAX_RESPONSE_BYTES, redirects=3),
             resolver=SystemResolver(),
             transport=transport,
             clock=SystemClock(),
+            attempt_observer=observer,
         )
         try:
             result = await client.get(
@@ -176,14 +222,32 @@ class SafePersonalProbeFetcher:
             redirect_chain=result.redirect_chain,
         )
 
-    async def _check_robots(self, target_url: str, host: str) -> None:
+    async def _check_robots(
+        self,
+        target_url: str,
+        host: str,
+        *,
+        controlled_run_id: UUID | None,
+        source_id: UUID | None,
+    ) -> None:
         robots_url = f"https://{host}/robots.txt"
         transport = HttpxTransport()
+        observer = (
+            ControlledRunAttemptObserver(
+                self._engine,
+                run_id=controlled_run_id,
+                source_id=source_id,
+                purpose="ROBOTS",
+            )
+            if self._engine is not None and controlled_run_id is not None
+            else None
+        )
         client = ResilientHttpClient(
             _policy(host, max_bytes=512 * 1024, redirects=1),
             resolver=SystemResolver(),
             transport=transport,
             clock=SystemClock(),
+            attempt_observer=observer,
         )
         try:
             result = await client.get(
@@ -244,7 +308,7 @@ class PostgresPersonalProbeGateway:
                             "attempt_count=attempt_count+1,"
                             "started_at=COALESCE(started_at,now()),updated_at=now() "
                             "WHERE id=:id AND status='QUEUED' AND attempt_count<2 "
-                            "RETURNING id,source_id,stream_id,requested_url"
+                            "RETURNING id,source_id,stream_id,requested_url,controlled_run_id"
                         ),
                         {"id": run_id},
                     )
@@ -263,6 +327,7 @@ class PostgresPersonalProbeGateway:
                 row["stream_id"],
                 row["requested_url"],
                 host.casefold(),
+                row["controlled_run_id"],
             )
 
     async def complete(
@@ -387,9 +452,7 @@ class PostgresPersonalProbeGateway:
                     .one()
                 )
                 schedule_id = await connection.scalar(
-                    text(
-                        "SELECT id FROM fetch_schedule WHERE source_stream_id=:stream_id"
-                    ),
+                    text("SELECT id FROM fetch_schedule WHERE source_stream_id=:stream_id"),
                     {"stream_id": stream_id},
                 )
                 schedule_status = (
@@ -439,10 +502,7 @@ class PostgresPersonalProbeGateway:
                         },
                     )
                 await connection.execute(
-                    text(
-                        "UPDATE source_stream SET schedule_id=:schedule_id "
-                        "WHERE id=:stream_id"
-                    ),
+                    text("UPDATE source_stream SET schedule_id=:schedule_id WHERE id=:stream_id"),
                     {"schedule_id": schedule_id, "stream_id": stream_id},
                 )
             await connection.execute(

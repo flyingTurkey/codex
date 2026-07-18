@@ -30,7 +30,7 @@ make runtime-ready
 任何切换或试点前，先恢复到全新的隔离容器，禁止覆盖在线实例。依次验证：
 
 1. 备份文件 SHA-256 与清单一致；
-2. Alembic 头为 `0030_pers10_role_archive_repair`；
+2. Alembic 头为 `0031_controlled_personal_runs`，并核对受控运行、来源绑定和物理请求表的记录数；
 3. 关键表记录数和规范化哈希与备份基线完全一致；
 4. 对象版本数量、字节数和规范化清单哈希完全一致；
 5. 归档 manifest 数量/哈希一致，三个退场角色不存在；
@@ -46,3 +46,5 @@ make runtime-ready
 原 Docker named volumes 只停止使用并保留，不得自动删除。若 D 盘切换后验证失败，停止新栈，保留 VHD 现场，重新启用原卷并按切换前指纹验收；不要把部分新数据合并回旧卷。
 
 数据库降级严格执行 PERS-10 Runbook 的 `0030 → 0029 → 0028`。归档损坏必须拒绝降级；不得手工跳过验证或恢复部分数据。
+
+恢复到 0031 后还要核对 `personal_controlled_run.requests_reserved` 与物理请求记录数、`bytes_settled` 与已结算响应字节汇总。存在活动或未结算请求时不得切换恢复库；0031 有运行事实时拒绝直接降至 0030。

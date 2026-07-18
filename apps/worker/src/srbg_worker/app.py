@@ -64,6 +64,7 @@ from srbg_api.source_profiles import (
 from srbg_contracts import SourceProfileModelOutput
 
 from srbg_worker.ai_content_preparation import PostgresAiPreparationRepository
+from srbg_worker.controlled_run_ledger import ControlledRunAttemptObserver
 from srbg_worker.personal_source_discovery import (
     PersonalAutoEnableExecutor,
     PostgresAutoEnableGateway,
@@ -498,13 +499,27 @@ async def _execute_source_fetch(source_id: UUID, run_id: UUID) -> dict[str, obje
     gateway = PostgresRuntimeGateway(settings)
 
     def live_transport(binding: RuntimeBinding) -> LiveRuntimeTransport:
+        if binding.controlled_run_id is None:
+            return LiveRuntimeTransport(
+                binding,
+                before_request=lambda url: gateway.reserve_request(binding, url=url),
+                after_response=lambda url, response_bytes: gateway.record_response_bytes(
+                    binding, url=url, response_bytes=response_bytes
+                ),
+            )
         return LiveRuntimeTransport(
             binding,
             before_request=lambda url: gateway.reserve_request(binding, url=url),
             after_response=lambda url, response_bytes: gateway.record_response_bytes(
-                binding,
-                url=url,
-                response_bytes=response_bytes,
+                binding, url=url, response_bytes=response_bytes
+            ),
+            attempt_observer=(
+                ControlledRunAttemptObserver(
+                    gateway.engine,
+                    run_id=binding.controlled_run_id,
+                    source_id=binding.source_id,
+                    purpose="FETCH",
+                )
             ),
         )
 
@@ -934,7 +949,7 @@ async def _dispatch_or_execute_personal_source_probe(
             return {"dispatched": len(pending_ids)}
         outcome = await PersonalProbeExecutor(
             gateway=gateway,
-            fetcher=SafePersonalProbeFetcher(),
+            fetcher=SafePersonalProbeFetcher(engine),
             object_store=S3ObjectStore(settings),
         ).run(probe_run_id)
         return {"probe_run_id": str(probe_run_id), "status": outcome}

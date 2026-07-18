@@ -38,7 +38,12 @@ from srbg_api.acquisition.contracts import (
     SourceAdapter,
     SourceCheckpoint,
 )
-from srbg_api.acquisition.http import FetchPolicy, HttpStatusError, ResilientHttpClient
+from srbg_api.acquisition.http import (
+    FetchPolicy,
+    HttpStatusError,
+    PhysicalAttemptObserver,
+    ResilientHttpClient,
+)
 from srbg_api.acquisition.live import HttpxTransport, SystemClock, SystemResolver
 from srbg_api.config import Settings
 from srbg_api.connectors.config import (
@@ -105,6 +110,7 @@ class RuntimeBinding:
     authority_mode: str = "PERSONAL_STREAM"
     source_stream_id: UUID | None = None
     stream_config_version_id: UUID | None = None
+    controlled_run_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -680,12 +686,14 @@ class LiveRuntimeTransport:
         *,
         before_request: Callable[[str], Awaitable[None]] | None = None,
         after_response: Callable[[str, int], Awaitable[None]] | None = None,
+        attempt_observer: PhysicalAttemptObserver | None = None,
     ) -> None:
         if binding.fetch_policy is None:
             raise ValueError("live runtime binding has no fetch policy")
         self._base_policy = binding.fetch_policy
         self._before_request = before_request
         self._after_response = after_response
+        self._attempt_observer = attempt_observer
         self._request_count = 0
         self._clients: dict[str, ResilientHttpClient] = {}
         self._transport = HttpxTransport()
@@ -735,6 +743,7 @@ class LiveRuntimeTransport:
                 clock=self._clock,
                 before_request=self._before_physical_request,
                 after_response=self._after_response,
+                attempt_observer=self._attempt_observer,
             )
             self._clients[exact_redirect_host] = client
         return await client.get(url, checkpoint=checkpoint, accept=accept)
@@ -764,6 +773,10 @@ class PostgresRuntimeGateway:
             settings.external_io_timeout_seconds,
         )
         self._execution_lease_token: UUID | None = None
+
+    @property
+    def engine(self) -> AsyncEngine:
+        return self._engine
 
     async def acquire_execution(self, source_id: UUID, run_id: UUID) -> bool:
         acquired = await self._scheduling.acquire_execution(
@@ -860,6 +873,7 @@ class PostgresRuntimeGateway:
             authority_mode=authority_mode,
             source_stream_id=row.get("source_stream_id"),
             stream_config_version_id=row.get("stream_config_version_id"),
+            controlled_run_id=row.get("controlled_run_id"),
         )
 
     async def authorize_request(self, binding: RuntimeBinding, *, url: str) -> bool:
@@ -1101,8 +1115,7 @@ class PostgresRuntimeGateway:
         if failure_kind is not None and failure_kind != "NOT_MODIFIED":
             failure = (
                 FetchFailure(http_status=int(failure_kind.removeprefix("HTTP_")))
-                if failure_kind.startswith("HTTP_")
-                and failure_kind.removeprefix("HTTP_").isdigit()
+                if failure_kind.startswith("HTTP_") and failure_kind.removeprefix("HTTP_").isdigit()
                 else FetchFailure(kind=_schedule_failure_kind(failure_kind))
             )
         required_ratio = (
@@ -1118,16 +1131,17 @@ class PostgresRuntimeGateway:
             zero_discovery_streak = await self._zero_discovery_streak(
                 source_id, result=result, failure_kind=failure_kind
             )
-            previous_body_bytes, previous_structure_sha256 = (
-                await self._previous_discovery_shape(source_id)
+            previous_body_bytes, previous_structure_sha256 = await self._previous_discovery_shape(
+                source_id
             )
         else:
             zero_discovery_streak = await self._personal_zero_discovery_streak(
                 binding, result=result, failure_kind=failure_kind
             )
-            previous_body_bytes, previous_structure_sha256 = (
-                await self._personal_previous_discovery_shape(binding)
-            )
+            (
+                previous_body_bytes,
+                previous_structure_sha256,
+            ) = await self._personal_previous_discovery_shape(binding)
         body_length_ratio = (
             result.discovery_body_bytes / previous_body_bytes
             if previous_body_bytes is not None
@@ -1144,9 +1158,7 @@ class PostgresRuntimeGateway:
             source_id=binding.source_id,
             run_id=binding.run_id,
             observation=HealthObservation(
-                transport_succeeded=failure_kind not in {
-                    "TIMEOUT", "DNS", "TLS", "OBJECT_STORAGE"
-                },
+                transport_succeeded=failure_kind not in {"TIMEOUT", "DNS", "TLS", "OBJECT_STORAGE"},
                 consecutive_zero_discovery=zero_discovery_streak,
                 latest_published_at=result.latest_published_at,
                 freshness_slo_seconds=binding.freshness_slo_seconds,
@@ -1262,9 +1274,7 @@ class PostgresRuntimeGateway:
             streak += 1
         return streak
 
-    async def _previous_discovery_shape(
-        self, source_id: UUID
-    ) -> tuple[int | None, str | None]:
+    async def _previous_discovery_shape(self, source_id: UUID) -> tuple[int | None, str | None]:
         async with self._engine.connect() as connection:
             row = (
                 (
@@ -1483,9 +1493,7 @@ class _StructureHtmlParser(HTMLParser):
                 and name.casefold() in {"id", "class", "role", "itemprop", "name"}
             )
         )
-        self.tokens.add(
-            f"{path}|attrs:{attribute_names}|selector-hashes:{selector_hashes}"
-        )
+        self.tokens.add(f"{path}|attrs:{attribute_names}|selector-hashes:{selector_hashes}")
         self._stack.append(normalized)
 
     def handle_startendtag(
@@ -1750,9 +1758,7 @@ def _schedule_failure_kind(value: str) -> str:
     }.get(value, "PARSE")
 
 
-def _health_reason_code(
-    failure_kind: str | None, result: RuntimeRunResult
-) -> str | None:
+def _health_reason_code(failure_kind: str | None, result: RuntimeRunResult) -> str | None:
     if failure_kind == "DNS":
         return "DNS_FAILURE"
     if failure_kind == "TIMEOUT":
@@ -1831,7 +1837,7 @@ def _positive_int(value: object, *, default: int) -> int:
 
 
 _PERSONAL_BINDING_SQL = """
-SELECT r.run_origin,r.execution_domain,NULL::uuid AS policy_version_id,
+SELECT r.run_origin,r.execution_domain,r.controlled_run_id,NULL::uuid AS policy_version_id,
        NULL::uuid AS connector_config_version_id,
        stream_config.connector_type,stream_config.config AS config_document,
        stream.allowed_hosts AS config_allowed_hosts,NULL::jsonb AS policy_document,
