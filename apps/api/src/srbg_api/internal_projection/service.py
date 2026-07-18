@@ -17,10 +17,12 @@ from srbg_contracts import (
     EventType,
     FeedPage,
     ItemDetail,
+    PublishedClaimV1,
     PublishedEventSummaryV1,
+    PublishedEvidenceReferenceV1,
 )
 
-from srbg_api.internal_projection.reader import PublishedProjectionReader
+from srbg_api.internal_projection.reader import PublishedEventNotFound, PublishedProjectionReader
 
 _EVENT_TYPE_BY_CONTENT_TYPE = {
     "DIGITAL_CASE": EventType.DIGITAL_PROJECT,
@@ -102,9 +104,10 @@ class PublishedIntelligenceQueryService:
         )
         domain = filters.get("domain")
         content_type = filters.get("content_type")
-        summaries = [self._summary(value) for value in values] + [
-            self._personal_summary(value) for value in personal
-        ]
+        summaries = self._collapse_event_summaries(
+            [self._summary(value) for value in values]
+            + [self._personal_summary(value) for value in personal]
+        )
         if domain:
             summaries = [value for value in summaries if value.domain.value == domain.upper()]
         if content_type:
@@ -117,6 +120,26 @@ class PublishedIntelligenceQueryService:
             freshness="fresh",
             notices=[],
         )
+
+    @staticmethod
+    def _collapse_event_summaries(summaries: list[EventSummary]) -> list[EventSummary]:
+        """Keep the strongest projection when old metadata and personal evidence overlap."""
+
+        def rank(value: EventSummary) -> tuple[int, datetime]:
+            if value.publication_revision_id is not None:
+                projection_rank = 2
+            elif value.automatic_result_type == "EVIDENCE_FACT":
+                projection_rank = 1
+            else:
+                projection_rank = 0
+            return projection_rank, value.activity_at
+
+        selected: dict[UUID, EventSummary] = {}
+        for summary in summaries:
+            current = selected.get(summary.id)
+            if current is None or rank(summary) > rank(current):
+                selected[summary.id] = summary
+        return list(selected.values())
 
     async def get_event_summary(self, event_id: UUID) -> EventSummary:
         return self._summary((await self._reader.get_event(event_id)).summary)
@@ -148,10 +171,14 @@ class PublishedIntelligenceQueryService:
         return await self._reader.get_daily_report(report_id=report_id, report_date=report_date)
 
     async def get_event(self, event_id: UUID) -> EventDetail:
-        value, personal_signals = await asyncio.gather(
-            self._reader.get_event(event_id),
-            self._reader.list_personal_signals_for_event(event_id),
-        )
+        personal_signals = await self._reader.list_personal_signals_for_event(event_id)
+        try:
+            value = await self._reader.get_event(event_id)
+        except PublishedEventNotFound:
+            if not personal_signals:
+                raise
+            return self._personal_event_detail(event_id, personal_signals)
+        personal_claims, personal_evidence = self._personal_claims_and_evidence(personal_signals)
         summary = value.summary
         event_type = summary.event_type or _EVENT_TYPE_BY_CONTENT_TYPE[summary.content_type.value]
         return EventDetail(
@@ -168,27 +195,85 @@ class PublishedIntelligenceQueryService:
             similar_scenario_tags=[],
             prevention_measure_tags=[],
             summary=summary,
-            claims=value.claims,
-            evidence=value.evidence,
+            claims=value.claims or personal_claims,
+            evidence=value.evidence or personal_evidence,
             documents=value.documents,
             source_comparison=value.source_comparison,
             type_detail=value.type_detail,
-            automatic_results=[
-                EventAutomaticResultView(
-                    signal_id=signal["signal_id"],
-                    result_type=signal["result_type"],
-                    title=signal["payload"]["title"],
-                    original_url=signal["payload"]["original_url"],
-                    judgment=(
-                        signal["payload"].get("judgment")
-                        if signal["result_type"] in {"AI_JUDGMENT", "UNVERIFIED_AI"}
-                        else None
-                    ),
-                    failure_reason_codes=signal["payload"].get("failure_reason_codes", []),
-                )
-                for signal in personal_signals
-            ],
+            automatic_results=self._automatic_results(personal_signals),
         )
+
+    @staticmethod
+    def _automatic_results(signals: list[dict[str, Any]]) -> list[EventAutomaticResultView]:
+        return [
+            EventAutomaticResultView(
+                signal_id=signal["signal_id"],
+                result_type=signal["result_type"],
+                title=signal["payload"]["title"],
+                original_url=signal["payload"]["original_url"],
+                judgment=(
+                    signal["payload"].get("judgment")
+                    if signal["result_type"] in {"AI_JUDGMENT", "UNVERIFIED_AI"}
+                    else None
+                ),
+                failure_reason_codes=signal["payload"].get("failure_reason_codes", []),
+            )
+            for signal in signals
+        ]
+
+    def _personal_event_detail(
+        self, event_id: UUID, personal_signals: list[dict[str, Any]]
+    ) -> EventDetail:
+        primary = personal_signals[0]
+        payload = primary["payload"]
+        claims, evidence = self._personal_claims_and_evidence(personal_signals)
+        return EventDetail(
+            id=event_id,
+            title=payload["title"],
+            event_type=EventType(payload["event_type"]),
+            event_status=EventStatus.ACTIVE,
+            canonical_event_id=event_id,
+            event_version=max(int(signal.get("generation", 1)) for signal in personal_signals),
+            confirmed_facts=[],
+            unverified_facts=[],
+            timeline=EventTimeline(event_id=event_id, items=[]),
+            relations=[],
+            similar_scenario_tags=[],
+            prevention_measure_tags=[],
+            claims=claims,
+            evidence=evidence,
+            automatic_results=self._automatic_results(personal_signals),
+        )
+
+    @staticmethod
+    def _personal_claims_and_evidence(
+        personal_signals: list[dict[str, Any]],
+    ) -> tuple[list[PublishedClaimV1], list[PublishedEvidenceReferenceV1]]:
+        evidence_by_id: dict[UUID, PublishedEvidenceReferenceV1] = {}
+        claims: list[PublishedClaimV1] = []
+        for signal in personal_signals:
+            if signal["result_type"] != "EVIDENCE_FACT":
+                continue
+            for fact in signal["payload"].get("evidence_facts", []):
+                evidence_ids: list[UUID] = []
+                for evidence in fact.get("evidence", []):
+                    evidence_id = UUID(str(evidence["evidence_id"]))
+                    evidence_ids.append(evidence_id)
+                    evidence_by_id[evidence_id] = PublishedEvidenceReferenceV1(
+                        evidence_id=evidence_id,
+                        locator=str(evidence["locator"]),
+                        content_sha256=str(evidence["excerpt_sha256"]),
+                    )
+                if evidence_ids:
+                    claims.append(
+                        PublishedClaimV1(
+                            claim_id=UUID(str(fact["claim_id"])),
+                            field_name=str(fact["field_name"]),
+                            value=str(fact["value"]),
+                            evidence_ids=evidence_ids,
+                        )
+                    )
+        return claims, list(evidence_by_id.values())
 
     async def resolve_event_redirect(self, event_id: UUID) -> UUID | None:
         return await self._reader.resolve_event_redirect(event_id)

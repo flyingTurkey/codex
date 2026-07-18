@@ -1,6 +1,6 @@
 # PERS-10 旧企业治理退场验收
 
-PERS-10 验收时迁移头为 `0030_pers10_role_archive_repair`；当前运行头随后扩展为 `0032_controlled_run_worker_read`，其中 0031 增加个人真实试点内部预算账本，0032 只授予 Worker 对该账本的只读核验权限，不改变本页归档统计或恢复企业流程。`0029` 在单一 PostgreSQL 事务中归档旧治理记录；`0030` 保存 `srbg_admin_role`、`srbg_model_role`、`srbg_source_governance_writer` 三个角色的规范属性、成员关系和表授权，并修复已应用 0029 但未留下角色记录的数据库。归档 Schema 对 `PUBLIC` 及应用角色撤权，写操作由数据库触发器拒绝。
+PERS-10 验收时迁移头为 `0030_pers10_role_archive_repair`；当前运行头随后扩展为 `0033_controlled_ai_budget_bridge`，其中 0031 增加个人真实试点内部预算账本，0032 只授予 Worker 对该账本的只读核验权限，0033 原子联动受控 AI 费用，不改变本页归档统计或恢复企业流程。`0029` 在单一 PostgreSQL 事务中归档旧治理记录；`0030` 保存 `srbg_admin_role`、`srbg_model_role`、`srbg_source_governance_writer` 三个角色的规范属性、成员关系和表授权，并修复已应用 0029 但未留下角色记录的数据库。归档 Schema 对 `PUBLIC` 及应用角色撤权，写操作由数据库触发器拒绝。
 
 开发库实际归档 53 类、原始 69 行、归档 69 行；manifest 清单汇总 SHA-256 为 `780f6fd212970588e84d29f9fba169dc5ee5ef4903264cb46f9c831cbb75825c`。非零类别如下：
 
@@ -25,14 +25,15 @@ PERS-10 验收时迁移头为 `0030_pers10_role_archive_repair`；当前运行�
 ## 最终门禁
 
 - `make lint`、`make typecheck`：通过；Ruff、设计 Token、ESLint、mypy strict（122 个源文件）、Vue/Nuxt/TypeScript strict 全绿。
-- `make test`：947 通过、25 跳过；UI 53/53、Web 单元 90/90。
+- `make test`：989 通过、25 跳过；UI 53/53、Web 单元 90/90。
 - `make contract-test`：契约可重复生成，79/79 通过。
 - `make security-check`：通过；pnpm 仅 1 个 low，Trivy Secret/Misconfiguration 无 HIGH/CRITICAL。
-- `make fixture-replay`：350/350 通过；Round09 固定评估通过。
+- `make fixture-replay`：354/354 通过；Round09 固定评估通过。
 - `make quality-gate`：通过，并再次执行 lint、typecheck、test、contract-test、security-check。
-- `make personal-source-test`：138/138 后端、90/90 Web，通过 `0024 → 0025 → 0024 → 0025`。
+- `make personal-source-test`：148/148 后端、90/90 Web，通过 `0024 → 0025 → 0024 → 0025`。
 - `make personal-content-test`：58/58 后端、90/90 Web，通过 `0027 → 0028 → 0027 → 0028`。
 - `make personal-migration-test`：17/17，通过独立 PostgreSQL 的 `0028 → 0029 → 0030 → 损坏降级拒绝 → 0029 → 0028 → 0029 → 0030` 及漂移修复；30+30 固定评估达标。
 - `make web-e2e`：54/54；`make web-a11y`：17/17。
+- `make personal-pilot-control-test`：74/74，通过 `0030 → 0031 → 0032 → 0033 → 0032 → 0030 → 0033`，并覆盖详情证据兜底、事件去重和显式 Fixture 状态隔离。
 - 完整 `docker compose up --build --detach --wait`：全部服务健康；`make smoke` 验证 PostgreSQL、Redis、对象存储、API/Feed 通过。
-- 旧管理 API 四个代表路径均为 HTTP 404；最终迁移头为 `0030_pers10_role_archive_repair`，三个退场角色剩余数为 0，应用角色归档 Schema USAGE 均为 false。
+- 旧管理 API 四个代表路径均为 HTTP 404；PERS-10 归档验收头为 `0030_pers10_role_archive_repair`，当前应用头为 `0033_controlled_ai_budget_bridge`，三个退场角色剩余数为 0，应用角色归档 Schema USAGE 均为 false。

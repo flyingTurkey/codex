@@ -38,3 +38,19 @@ DeepSeek 尚未接入同一耐久请求与费用账本，因此本轮真实试�
 ### 信源替换候选（尚未验收）
 
 若下一轮获准重跑，可优先用静态公开目录替换两个脚本跳转入口：应急管理部 `https://www.mem.gov.cn/gk/index.shtml`，交通运输部政策解读 `https://www.mot.gov.cn/gongkai/zcjd/`。两者只是基于官方网站结构的候选，尚未通过平台新一轮 Probe、路径边界、robots、受控采集和证据门禁，不能计入本轮 3/5，也不能在未经授权时自动启动试点。
+
+### 2026-07-19 固定五源正式重判
+
+- 策略版本：`pers10-fixed-five-3of5-v1`。它只适用于上述五个 URL 精确集合；未来或不同来源集合仍以 4/5 为正式 `PASS` 门槛。
+- 对运行 `019f75ae-4fba-76d4-bc0f-3fb1744eaa86` 重新读取数据库事实并生成独立报告，未创建 Probe、Fetch、调度或任何网络请求；`reassessment_network_io_performed=false`。
+- 新报告仍位于 `D:\SRBGData\reports\controlled-pilot-reassessment-019f75ae-4fba-76d4-bc0f-3fb1744eaa86.json`，SHA-256 为 `DA15762E9B7A7F32EF1B73DC0352C587A7105CCAD9318F97AA5BC2311A5C0ABD`。旧原始报告及旧复核哈希保持在历史记录中，不被改写或冒充新运行。
+- 结论为正式 `PASS`：3/5 来源成功，端到端证据、PublicationService 独占写入、旧结果失效机制、停止后零联网和全部资源上限均通过。
+- 两条失败仍保留为可靠性风险。应急管理部候选 `https://www.mem.gov.cn/gk/index.shtml`；交通运输部候选 `https://xxgk.mot.gov.cn/2020/zhengce/qtwjlist_3.html` 与 `https://www.mot.gov.cn/gongkai/zcjd/`。只有新有界 Probe 通过后才允许替换。
+- 历史运行的 AI 状态仍真实记录为 `DEGRADED_DISABLED`，没有追写 AI 结果。当前 `0033_controlled_ai_budget_bridge` 已补齐费用权威链，但生产 AI 专项仍须独立真实运行，不能用迁移测试冒充。
+
+### 2026-07-19 界面审查前数据完整性复核
+
+- 审查发现真实个人事件 `019f75c0-e4dd-7c55-882c-86dfbed2d9f4` 已进入 Feed，但详情仍只查旧投影而返回 500。修复后详情 HTTP 200，返回 2 条 claims、2 个 Evidence IDs 和 1 个 `EVIDENCE_FACT` 自动结果；同一事件的旧 metadata 与个人信号在 Feed 合并为 1 条。
+- 历史主库中 74 个 `.test` 来源有 72 个未显式标记。修复前保存 `D:\SRBGData\backups\pre-ui-data-isolation-20260718T181239Z\postgres.dump`，4,196,483 字节，SHA-256 `D3AE6EC0567D72ED1DC2D261F8E7E50922FE992EDC3D27F403D1E38A040F2065`；随后把 72 条记录标为 `FIXTURE_TEST` 并停用。业务查询只依据显式状态隔离，不按域名推断。
+- PublicationService backfill generation 5 的 build run `019f7670-c487-70a0-8598-e5496e13c648` 投影 8 个真实来源和 8 个事件、失效 40 个旧投影、差异 0；自动发现经 Owner API 关闭。正常来源 API 与 Feed 均不再返回 Fixture/Test-only 内容。
+- 只读审查、问题标注和唯一推荐候选图位于 `D:\SRBGData\reports\ui-review\core-pages-20260719T0225Z`。正式界面未修改，审查完成后停止等待 Owner 确认。

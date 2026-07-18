@@ -30,7 +30,7 @@ make runtime-ready
 任何切换或试点前，先恢复到全新的隔离容器，禁止覆盖在线实例。依次验证：
 
 1. 备份文件 SHA-256 与清单一致；
-2. Alembic 头为 `0032_controlled_run_worker_read`，并核对受控运行、来源绑定和物理请求表的记录数；
+2. Alembic 头为 `0033_controlled_ai_budget_bridge`，并核对受控运行、来源绑定、物理请求、AI 预算预留和受控费用结算的记录数；
 3. 关键表记录数和规范化哈希与备份基线完全一致；
 4. 对象版本数量、字节数和规范化清单哈希完全一致；
 5. 归档 manifest 数量/哈希一致，三个退场角色不存在；
@@ -48,3 +48,5 @@ make runtime-ready
 数据库降级严格执行 PERS-10 Runbook 的 `0030 → 0029 → 0028`。归档损坏必须拒绝降级；不得手工跳过验证或恢复部分数据。
 
 恢复到 0031 后还要核对 `personal_controlled_run.requests_reserved` 与物理请求记录数、`bytes_settled` 与已结算响应字节汇总。存在活动或未结算请求时不得切换恢复库；0031 有运行事实时拒绝直接降至 0030。
+
+2026-07-19 界面审查前数据隔离修复的恢复点为 `D:\SRBGData\backups\pre-ui-data-isolation-20260718T181239Z\postgres.dump`，大小 4,196,483 字节，SHA-256 `D3AE6EC0567D72ED1DC2D261F8E7E50922FE992EDC3D27F403D1E38A040F2065`。该备份保留测试来源显式隔离前的原始状态；只有在隔离实例中验证哈希、迁移头、归档 manifest 和来源计数后才可用于回退，不得覆盖在线数据库。

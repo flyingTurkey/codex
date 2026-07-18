@@ -31,6 +31,10 @@ legacy_governance_archive (read-only, no business dependency)
 
 `0031_controlled_personal_runs` 是个人模式的内部运行安全层，不是产品角色或审批层。Probe 与 Fetch 在每次真实传输前向同一 PostgreSQL 账本预约次数和最大字节，结算实际字节及失败；数据库同时校验运行状态、四小时墙钟、五个来源的主机/路径边界和同域一分钟窗口。控制器只负责累加有效运行时间、暂停来源并等待已预约请求排空，无法放宽数据库上限。
 
+`0032_controlled_run_worker_read` 只授予 Worker 读取停止权威的最小权限；`0033_controlled_ai_budget_bridge` 把受控运行 AI 费用与既有月度预算在一个事务中预留、结算和释放。未知账单按预留额结算，任何受控 AI 事实存在时拒绝破坏性降级；这些迁移不恢复企业角色或审批能力。
+
+普通读取同时消费 `published_v1` 与个人信号投影，但按 Event ID 合并：有正式 publication revision 时优先正式投影，否则 `EVIDENCE_FACT` 优先于 metadata-only。详情在旧投影缺失时由个人信号构建，并以 accepted claims 和 Evidence IDs 补齐 metadata-only 详情。历史测试数据保留在业务库但必须显式标为 `FIXTURE_TEST`/`FIXTURE_REPLAY`；来源列表和 PublicationService backfill 按该权威状态隔离，不使用域名启发式判断。
+
 降级前必须停机并完成备份。迁移会重新验证逐行 SHA-256、逐类计数与汇总 SHA-256；损坏时拒绝降级。验证通过后才恢复旧表、约束、授权、触发器和原始数据。详见 [迁移回滚 Runbook](../operations/pers10-migration-rollback-runbook.md)。
 
 ## 回滚原则

@@ -537,12 +537,16 @@ SELECT item.id AS item_id, item.primary_document_id, item.item_type, item.channe
   JOIN document_version version ON version.id = item.current_document_version_id
   LEFT JOIN publication ON publication.item_id = item.id
   LEFT JOIN publication_revision revision ON revision.id = publication.current_revision_id
- WHERE item.publication_risk_tier = 'R4'
-    OR (item.publication_risk_tier = 'R3' AND item.review_status = 'PENDING'
-        AND source.source_type IN ('government','standards')
-        AND source.authority_level IN ('A0','A1'))
-    OR (item.publication_risk_tier <> 'R4' AND item.review_status = 'APPROVED'
-        AND publication.status = 'PUBLISHED' AND revision.valid)
+ WHERE source.state <> 'FIXTURE_TEST'
+   AND source.trial_kind IS DISTINCT FROM 'FIXTURE_REPLAY'
+   AND (
+        item.publication_risk_tier = 'R4'
+        OR (item.publication_risk_tier = 'R3' AND item.review_status = 'PENDING'
+            AND source.source_type IN ('government','standards')
+            AND source.authority_level IN ('A0','A1'))
+        OR (item.publication_risk_tier <> 'R4' AND item.review_status = 'APPROVED'
+            AND publication.status = 'PUBLISHED' AND revision.valid)
+   )
  ORDER BY item.id
 """
 
