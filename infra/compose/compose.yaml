@@ -63,8 +63,8 @@ services:
       timeout: 2s
       retries: 20
     volumes:
-      - postgres-data:/var/lib/postgresql/data
-      - postgres-wal-archive:/wal-archive
+      - ${SRBG_DATA_ROOT:?SRBG_DATA_ROOT must point to the mounted D-drive ext4 data root}/postgres:/var/lib/postgresql/data
+      - ${SRBG_DATA_ROOT:?SRBG_DATA_ROOT must point to the mounted D-drive ext4 data root}/postgres-wal:/wal-archive
     restart: unless-stopped
 
   redis:
@@ -78,7 +78,7 @@ services:
       timeout: 2s
       retries: 20
     volumes:
-      - redis-data:/data
+      - ${SRBG_DATA_ROOT:?SRBG_DATA_ROOT must point to the mounted D-drive ext4 data root}/redis:/data
     restart: unless-stopped
 
   clamav:
@@ -104,7 +104,7 @@ services:
       timeout: 2s
       retries: 20
     volumes:
-      - minio-data:/data
+      - ${SRBG_DATA_ROOT:?SRBG_DATA_ROOT must point to the mounted D-drive ext4 data root}/minio:/data
     restart: unless-stopped
 
   minio-init:
@@ -139,7 +139,7 @@ services:
       timeout: 2s
       retries: 20
     volumes:
-      - anchor-minio-data:/data
+      - ${SRBG_DATA_ROOT:?SRBG_DATA_ROOT must point to the mounted D-drive ext4 data root}/anchor-minio:/data
     restart: unless-stopped
 
   anchor-minio-init:
@@ -459,7 +459,7 @@ services:
         --storage.tsdb.path=/prometheus
     volumes:
       - ./infra/observability/prometheus:/etc/prometheus:ro
-      - prometheus-data:/prometheus
+      - ${SRBG_DATA_ROOT:?SRBG_DATA_ROOT must point to the mounted D-drive ext4 data root}/prometheus:/prometheus
     ports:
       - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
     depends_on:
@@ -485,7 +485,7 @@ services:
     volumes:
       - ./infra/observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./infra/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
-      - grafana-data:/var/lib/grafana
+      - ${SRBG_DATA_ROOT:?SRBG_DATA_ROOT must point to the mounted D-drive ext4 data root}/grafana:/var/lib/grafana
     ports:
       - "127.0.0.1:${GRAFANA_PORT:-3001}:3000"
     depends_on:
@@ -503,12 +503,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  postgres-data:
-  postgres-wal-archive:
-  redis-data:
-  minio-data:
-  anchor-minio-data:
   clamav-db:
-  prometheus-data:
-  grafana-data:
   ai-secrets:

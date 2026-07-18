@@ -193,7 +193,7 @@ def test_compose_commands_use_repository_as_project_directory() -> None:
 def test_browser_gates_reuse_the_ready_runtime_without_forced_rebuilds() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
-    assert "runtime-ready:\n\t$(COMPOSE) up --detach --wait" in makefile
+    assert "runtime-ready: personal-data-ready\n\t$(COMPOSE) up --detach --wait" in makefile
     assert "web-e2e: runtime-ready" in makefile
     assert "web-a11y: runtime-ready" in makefile
 

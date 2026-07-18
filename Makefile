@@ -38,7 +38,7 @@ export UV_CACHE_DIR
 export UV_PYTHON_INSTALL_DIR
 export PLAYWRIGHT_BROWSERS_PATH
 
-.PHONY: setup dev runtime-ready down lint typecheck test contract-test security-check smoke \
+.PHONY: setup dev personal-data-ready runtime-ready down lint typecheck test contract-test security-check smoke \
 	resilience-test fixture-replay quality-gate web-e2e web-a11y source-fixture-test \
 	safety-regulation-test pdf-ocr-test safety-case-test digital-case-test paper-test product-test \
 	round08-test round08-eval round09-test round09-eval round10-test round10-eval \
@@ -55,10 +55,17 @@ setup:
 	$(PNPM) --filter @srbg/web exec playwright install chromium
 	$(COMPOSE) build
 
-dev:
+personal-data-ready:
+ifeq ($(OS),Windows_NT)
+	powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/mount_personal_data.ps1
+else
+	test -d "$(SRBG_DATA_ROOT)"
+endif
+
+dev: personal-data-ready
 	$(COMPOSE) up --build --detach --wait
 
-runtime-ready:
+runtime-ready: personal-data-ready
 	$(COMPOSE) up --detach --wait
 
 down:

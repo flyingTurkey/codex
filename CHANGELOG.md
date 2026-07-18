@@ -6,6 +6,7 @@
 
 ### PERS-10 旧企业治理退场与个人模式收口
 
+- 将 PostgreSQL/WAL、两套 MinIO、Redis、Prometheus 和 Grafana 的持久化数据切换到 `D:\SRBGData\srbg-data.vhdx` 的 ext4 文件系统；启动前自动挂载并验证七个目录，失败时拒绝 Compose 启动。切换使用经过数据库/对象/缓存/观测隔离恢复验证的备份，原 Docker named volumes 保留不删除；本机试点配置明确关闭自动来源发现。
 - 新增 `0030_pers10_role_archive_repair`：为 `srbg_admin_role`、`srbg_model_role` 和遗漏的 `srbg_source_governance_writer` 保存可校验角色快照，兼容已应用 0029 但缺失角色记录的数据库；跨数据库依赖、角色状态、数量或哈希异常时失败关闭，降级按 `0030 → 0029 → 0028` 精确恢复授权。
 - 新增 `0029_legacy_governance_retirement`：在单事务中保存规范化逐行 JSON/SHA-256、分类计数与汇总 SHA-256，验证后把 52 类旧治理关系移入只读 `legacy_governance_archive`；数量或哈希不一致时拒绝退场或降级。
 - 降级在恢复任何表之前验证完整归档，并恢复原表、数据、约束、触发器、授权和 0029 前双路径调度函数；新增迁移回滚 Runbook、备份恢复说明和 `make personal-migration-test`。

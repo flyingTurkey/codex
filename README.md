@@ -34,7 +34,7 @@ make dev
 make smoke
 ```
 
-正式业务数据、备份与验收报告的持久化根目录是 `D:\SRBGData`；切换前必须按备份恢复说明完成隔离恢复验证，不得直接移动仍在使用的数据目录。
+正式业务数据、备份与验收报告的持久化根目录是 `D:\SRBGData`。七类在线服务数据位于 `srbg-data.vhdx` 的 ext4 文件系统；`make dev` 和 `make runtime-ready` 会先执行 `scripts/mount_personal_data.ps1`，挂载或目录校验失败时拒绝启动。切换前必须按备份恢复说明完成隔离恢复验证，不得直接移动仍在使用的数据目录；原 Docker 数据卷只停用并保留。
 
 Web 与 API 默认只绑定 `127.0.0.1`。不要把固定本地身份头、端口或数据库凭据代理到局域网或公网。Secret 只允许通过环境变量或 Git 忽略的本地 Secret 文件提供，不得提交到仓库。
 

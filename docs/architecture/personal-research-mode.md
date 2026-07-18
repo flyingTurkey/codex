@@ -33,6 +33,8 @@ legacy_governance_archive (read-only, no business dependency)
 
 ## 回滚原则
 
+本地正式数据保存在 `D:\SRBGData\srbg-data.vhdx` 的 ext4 文件系统，Compose 只从 `/mnt/host/wsl/SRBGDataDisk/srv` 挂载七类业务状态目录。启动门禁先验证 VHD 和目录；不允许在挂载失败时隐式创建空 named volume。原 named volumes 作为切换前恢复点保留，未经人工确认不得删除。
+
 - 代码与数据库回滚分开，先备份 PostgreSQL 与对象存储并在隔离环境验证恢复。
 - 仅在应用版本已回退且企业代码确有兼容需求时执行 `0030 → 0029 → 0028`。
 - 降级不得自动启用来源，也不得降低公网安全、证据或发布边界。
