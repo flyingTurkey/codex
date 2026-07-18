@@ -2,7 +2,6 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 
 const itemId = '019b0000-0000-7000-8000-000000001001'
-const taskId = '019b0000-0000-7000-8000-000000001002'
 const revisionId = '019b0000-0000-7000-8000-000000001003'
 const pdfVersionId = '019b0000-0000-7000-8000-000000001020'
 const baseItem = {
@@ -215,93 +214,10 @@ test('PDF evidence supports page jump, highlight, timeline, diff, and focus retu
   await expect(trigger).toBeFocused()
 })
 
-test('review workspace submits only decision and reason to the service endpoint', async ({ page }) => {
+test('review workspace is retired without exposing a publication decision', async ({ page }) => {
   await page.goto('/admin/review/019b0000-0000-7000-8000-000000000001')
   await expect(page).toHaveURL(/\/sources\?migrated=legacy-source-management/)
-  return
-  const reviewDetail = {
-    claims,
-    evidence,
-    item: {
-      ...baseItem,
-      ai_assistance: {
-        accepted_claims_only: true,
-        generated_at: '2026-07-14T01:08:00Z',
-        model_profile: 'mock-v1',
-        pipeline_run_id: '019b0000-0000-7000-8000-000000001030',
-        prompt_version: 'summary-v1',
-        schema_version: 'summary-schema-v1',
-        status: 'ASSISTED',
-      },
-      evidence_count: 1,
-      evidence_status: 'VERIFIED',
-      publication_status: 'PENDING_REVIEW',
-      type_summary: {
-        classification: 'DEPARTMENT_RULE',
-        document_number: '国家安全生产监督管理总局令第88号',
-        issuing_authority: '应急管理部',
-        kind: 'SAFETY_REGULATION',
-        regulation_status: 'UNKNOWN',
-      },
-    },
-    task: {
-      id: taskId,
-      item_id: itemId,
-      risk_level: 'R3',
-      source_name: '应急管理部',
-      status: 'PENDING',
-      submitted_at: '2026-07-14T01:09:04Z',
-      submitted_by: '019b0000-0000-7000-8000-000000001099',
-      title: baseItem.title,
-    },
-  }
-  let decisionBody: unknown
-  await page.route('**/api/v1/me', (route) =>
-    route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        display_name: 'E2E 审核员',
-        local_identity: true,
-        roles: ['reviewer'],
-        user_id: '019b0000-0000-7000-8000-000000001098',
-      }),
-    }),
-  )
-  await page.route('**/api/v1/admin/review-tasks**', async (route) => {
-    const request = route.request()
-    if (request.method() === 'POST') {
-      decisionBody = request.postDataJSON()
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({
-          publication_revision_id: revisionId,
-          review_task_id: taskId,
-          status: 'APPROVED',
-        }),
-      })
-      return
-    }
-    if (request.url().endsWith(`/${taskId}`)) {
-      await route.fulfill({ contentType: 'application/json', body: JSON.stringify(reviewDetail) })
-      return
-    }
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify([reviewDetail.task]) })
-  })
-
-  await page.goto(`/admin/review/${taskId}`)
-  await expect(page.locator('.srbg-app-shell')).toHaveAttribute('aria-busy', 'false', {
-    timeout: 15_000,
-  })
-  const workbench = page.getByRole('region', { name: '三栏审核工作台' })
-  await expect(workbench.getByRole('heading', { name: '原文与定位证据' })).toBeVisible()
-  await expect(workbench.getByRole('heading', { name: '字段与证据' })).toBeVisible()
-  await expect(workbench.getByRole('heading', { name: '摘要对照与决定' })).toBeVisible()
-  await workbench.getByText('Prompt / Schema / 模型版本').click()
-  await expect(workbench.getByText('summary-v1')).toBeVisible()
-  await expect(workbench.getByText('模型建议不具授权性', { exact: false })).toBeVisible()
-  await page.getByRole('button', { name: '批准并发布' }).click()
-
-  expect(decisionBody).toEqual({ action: 'APPROVE', reason: '字段与官方原文证据一致' })
+  await expect(page.getByRole('button', { name: '批准并发布' })).toHaveCount(0)
 })
 
 test('@a11y published safety feed and evidence drawer have no axe violations', async ({ page }) => {

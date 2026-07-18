@@ -25,7 +25,6 @@ from srbg_api.connectors.parsers import ConnectorRequest, DeclarativeParser, Rss
 from srbg_api.document_vault.scanner import ClamAVScanner
 from srbg_api.document_vault.storage import S3ObjectStore
 from srbg_api.identifiers import uuid7
-from srbg_api.operations.replays import ClaimedReplay, SourceFetchReplayOutcome
 from srbg_api.scheduling.domain import HealthObservation
 from srbg_worker.source_runtime import (
     LiveRuntimeTransport,
@@ -1183,7 +1182,7 @@ async def test_s3_orphan_after_database_failure_is_content_addressed_and_retryab
 
 
 @pytest.mark.asyncio
-async def test_postgres_binding_requires_immutable_scheduled_origin_and_current_authority() -> None:
+async def test_postgres_binding_requires_personal_stream_authority() -> None:
     events: list[str] = []
     policy_id = uuid7()
     config_id = uuid7()
@@ -1192,30 +1191,25 @@ async def test_postgres_binding_requires_immutable_scheduled_origin_and_current_
         {
             "run_origin": "SCHEDULED",
             "execution_domain": "PRODUCTION",
-            "policy_version_id": policy_id,
-            "connector_config_version_id": config_id,
+            "policy_version_id": None,
+            "connector_config_version_id": None,
             "connector_type": "RSS_ATOM",
             "config_document": {
                 "allowed_hosts": ["source.example.test"],
                 "feed_url": "https://source.example.test/feed.xml",
             },
             "config_allowed_hosts": ["source.example.test"],
-            "policy_document": {
-                "fetch": {
-                    "allowed_domains": ["source.example.test"],
-                    "minimum_interval_seconds": 21600,
-                    "rate_limit_per_minute": 1,
-                    "user_agent": "SRBGSourceAdapter/17",
-                },
-                "slo": {"target_minutes": 480},
-            },
+            "policy_document": None,
+            "authority_mode": "PERSONAL_STREAM",
+            "source_stream_id": policy_id,
+            "stream_config_version_id": config_id,
             "max_attempts": 3,
             "backoff_base_seconds": 30,
             "backoff_cap_seconds": 1800,
             "freshness_slo_seconds": 8 * 60 * 60,
-            "checkpoint_cursor": {"value": "page-7"},
-            "checkpoint_etag": '"checkpoint-etag"',
-            "checkpoint_last_modified": "Thu, 16 Jul 2026 00:00:00 GMT",
+            "checkpoint_cursor": None,
+            "checkpoint_etag": None,
+            "checkpoint_last_modified": None,
             "checkpoint_consecutive_failures": 2,
             "checkpoint_circuit_open_until": NOW,
         },
@@ -1234,34 +1228,25 @@ async def test_postgres_binding_requires_immutable_scheduled_origin_and_current_
     assert binding.execution_domain is ExecutionDomain.PRODUCTION
     assert binding.freshness_slo_seconds == 8 * 60 * 60
     assert binding.fetch_policy is not None
-    assert binding.fetch_policy.minimum_interval_seconds == 21600
+    assert binding.source_stream_id == policy_id
+    assert binding.stream_config_version_id == config_id
     assert binding.checkpoint == SourceCheckpoint(
-        cursor="page-7",
-        etag='"checkpoint-etag"',
-        last_modified="Thu, 16 Jul 2026 00:00:00 GMT",
+        cursor=None,
+        etag=None,
+        last_modified=None,
         consecutive_failures=2,
         circuit_open_until=NOW,
     )
     statement = connection.statements[0]
     assert "r.run_origin" in statement
-    assert "PRODUCTION_APPROVAL" in statement
-    assert "decision.policy_version_id=p.id" in statement
-    assert "decision.connector_config_version_id=c.id" in statement
-    assert "decision.trial_run_id=s.current_trial_run_id" in statement
-    assert "source_private_evidence_capture_allowed(p.document)" in statement
-    assert "source_policy_compliance_current(s.id,p.id,:now)" in statement
+    assert "PRODUCTION_APPROVAL" not in statement
+    assert "source_policy_version" not in statement
+    assert "JOIN connector_config_version" not in statement
     assert "r.status='RUNNING'" in statement
-    assert "r.pilot_window_source_id IS NULL" in statement
-    assert "NOT EXISTS" in statement
-    assert "cohort_window.state='RUNNING'" in statement
-    assert "segment.status='RUNNING'" in statement
-    assert "window_row.state='RUNNING'" in statement
-    assert "segment.segment_started_at" in statement
-    assert "segment.segment_ends_at" in statement
+    assert "fs.authority_mode='PERSONAL_STREAM'" in statement
+    assert "source_row.desired_enabled=true" in statement
+    assert "source_row.manual_disabled_at IS NULL" in statement
     assert "fs.freshness_slo_seconds" in statement
-    assert "fs.interval_seconds=s.poll_interval_minutes * 60" in statement
-    assert "LEFT JOIN source_checkpoint checkpoint" in statement
-    assert "checkpoint.source_connector_id=r.source_connector_id" in statement
     assert (
         "fs.interval_seconds=(p.document #>> '{fetch,minimum_interval_seconds}')"
         not in statement
@@ -1762,48 +1747,7 @@ def test_round17_migration_exposes_the_worker_runtime_function_abi() -> None:
     assert "decision.trial_run_id=source_row.current_trial_run_id" in raw_function
 
 
-@pytest.mark.asyncio
-async def test_source_fetch_replay_waits_for_network_free_executor(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    replay = ClaimedReplay(
-        id=UUID("019d0000-0000-7000-8000-000000000101"),
-        failed_task_id=UUID("019d0000-0000-7000-8000-000000000102"),
-        task_kind="SOURCE_FETCH",
-        priority=9,
-        source_id=SOURCE_ID,
-        run_id=RUN_ID,
-        document_version_id=None,
-        event_id=None,
-        processing_version=None,
-        lease_token=UUID("019d0000-0000-7000-8000-000000000103"),
-    )
-    calls: list[tuple[object, object]] = []
-
-    async def execute_replay(
-        engine: object,
-        claimed: ClaimedReplay,
-        object_reader: object,
-        *,
-        max_bytes: int,
-    ) -> SourceFetchReplayOutcome:
-        del object_reader, max_bytes
-        calls.append((engine, claimed))
-        return SourceFetchReplayOutcome(
-            replay_run_id=UUID("019d0000-0000-7000-8000-000000000104"),
-            discovery_records=1,
-            document_versions=1,
-            raw_objects=2,
-        )
-
-    def forbidden_live_dispatch(*args: object, **kwargs: object) -> None:
-        del args, kwargs
-        raise AssertionError("SOURCE_FETCH replay must never dispatch a live fetch task")
-
-    monkeypatch.setattr(worker, "execute_source_fetch_replay", execute_replay)
-    monkeypatch.setattr(worker.celery_app, "send_task", forbidden_live_dispatch)
-    engine = cast(AsyncEngine, object())
-
-    await worker._execute_replay_kind(replay, engine)
-
-    assert calls == [(engine, replay)]
+def test_source_fetch_operations_replay_is_retired() -> None:
+    assert not hasattr(worker, "execute_source_fetch_replay")
+    assert not hasattr(worker, "_execute_replay_kind")
+    assert "srbg.operations.replay" not in worker.celery_app.tasks

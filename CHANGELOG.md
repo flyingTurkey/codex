@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+### PERS-10 旧企业治理退场与个人模式收口
+
+- 新增 `0029_legacy_governance_retirement`：在单事务中保存规范化逐行 JSON/SHA-256、分类计数与汇总 SHA-256，验证后把 52 类旧治理关系移入只读 `legacy_governance_archive`；数量或哈希不一致时拒绝退场或降级。
+- 降级在恢复任何表之前验证完整归档，并恢复原表、数据、约束、触发器、授权和 0029 前双路径调度函数；新增迁移回滚 Runbook、备份恢复说明和 `make personal-migration-test`。
+- 产品身份只保留固定本地 Owner；旧 Admin API、企业角色、企业后台任务、企业页面/组件和生成契约退出运行时，个人 AI 设置迁至 `/settings/ai`，旧路由只重定向到 `/sources` 或返回不可用。
+- 迁移仍适用的证据、PublicationService、安全、数据完整性和无障碍测试；固定评估为来源主题准确率 83.33%、健康原因/Evidence ID 100%，关键数字/日期无证据、未验证 AI 事实索引和新增人工审核任务均为 0。
+- 修复真实链路暴露的对象存储分段短读、AI 队列路由/模型配置、SQL 状态类型、Event 绑定与自动证据读取权限，以及 PublicationService 版本字段和 AI judgment 失效权限；每项均增加回归或迁移断言。
+- 真实交通运输部 PDF 完成探测、画像、个人受控调度、健康展示、57 页解析、accepted claim、Evidence ID、证据事实和 PublicationService 投影；AI 明确降级且未写事实索引，手工停用后 36 秒抓取数保持不变。
+- 使用真实官方字节经生产调度/runtime gateway 执行受控原文变化，旧 claim 立即失效，durable outbox 经 PublicationService 将 Feed/Search 投影撤销；报告明确标注为受控变化，不冒充交通运输部远端自然变化。
+
 ### PERS-09 单一个人研究工作区
 
 - `/sources` 收敛为唯一来源入口，统一添加 URL、启停意图、自动发现主题、画像覆盖、自动评分、多采集流健康、熔断自愈、运行摘要与活动历史；旧治理页面导航移除并重定向，不删除历史表。
@@ -312,3 +322,8 @@
 - 修复 Windows Make 子进程无法发现 D 盘 Node 的问题，并排除运行镜像中的仓库说明与测试材料；
 - 浏览器门禁复用健康运行栈，避免重复强制构建受外部镜像仓库短时故障影响；
 - 增加基于 Git 可交付文件清单的确定性 Trivy 扫描，避免本地 Junction、工具和缓存污染安全门禁。
+# Unreleased
+
+- PERS-10：新增 `0029_legacy_governance_retirement`，以逐行/分类 SHA-256 和数量校验归档并退出旧企业治理；降级可校验后重建旧结构、授权和数据。
+- 产品只保留固定本地 Owner；删除旧管理 API、角色分支、页面、组件及资格审批/Operations 后台任务，AI 配置迁移到个人设置。
+- 新增 `personal-migration-test`、30+30 固定样本最终评估、迁移/回滚/备份文档和真实验收记录。

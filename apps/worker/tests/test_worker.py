@@ -1,4 +1,5 @@
 import srbg_worker.app as worker
+from srbg_worker.ai_content_preparation import _INSERT_STEP_SQL, _MODEL_PROFILE_VERSION
 from srbg_worker.source_discovery import QUERY_CATALOG
 
 
@@ -17,6 +18,11 @@ def test_worker_uses_utc_and_json_serialization() -> None:
     assert worker.celery_app.conf.timezone == "UTC"
     assert worker.celery_app.conf.enable_utc is True
     assert worker.celery_app.conf.task_serializer == "json"
+    assert worker.celery_app.conf.task_routes["srbg.ai.generate_attempt"] == {
+        "queue": "ai"
+    }
+    assert _MODEL_PROFILE_VERSION == "ai01-deepseek-deepseek-v4-flash-v1"
+    assert _INSERT_STEP_SQL.count("CAST(:status AS varchar)") == 2
 
 
 def test_worker_only_schedules_the_database_source_dispatcher() -> None:
@@ -39,7 +45,7 @@ def test_worker_periodically_dispatches_fixed_code_source_discovery() -> None:
     assert worker.celery_app.conf.task_routes["srbg.sources.discovery.query"] == {
         "queue": "discovery"
     }
-    assert worker.celery_app.conf.task_routes["srbg.sources.qualify"] == {"queue": "qualification"}
+    assert "srbg.sources.qualify" not in worker.celery_app.conf.task_routes
     assert worker.celery_app.conf.task_routes["srbg.source.fetch"] == {"queue": "parser"}
 
 

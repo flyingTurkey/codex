@@ -10,7 +10,9 @@ from datetime import UTC, datetime, timedelta
 from typing import Protocol
 from uuid import UUID
 
+import pymupdf  # type: ignore[import-untyped]
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 from srbg_api.ai_pipeline.contracts import ModelResponse
 from srbg_api.identifiers import uuid7
@@ -66,8 +68,10 @@ class PostgresSourceProfileGateway:
         async with self._engine.connect() as connection:
             rows = await connection.execute(
                 text(
-                    "SELECT id FROM source_profile_run WHERE status='QUEUED' "
-                    "AND next_attempt_at<=now() ORDER BY next_attempt_at,id LIMIT :limit"
+                    "SELECT id FROM source_profile_run WHERE "
+                    "((status='QUEUED' AND next_attempt_at<=now()) OR "
+                    "(status='RUNNING' AND leased_until<=now())) "
+                    "AND attempt_count<3 ORDER BY next_attempt_at,id LIMIT :limit"
                 ),
                 {"limit": limit},
             )
@@ -83,7 +87,8 @@ class PostgresSourceProfileGateway:
                             "UPDATE source_profile_run SET status='RUNNING',"
                             "attempt_count=attempt_count+1,lease_token=:token,"
                             "leased_until=now()+interval '5 minutes',updated_at=now() "
-                            "WHERE id=:id AND status='QUEUED' AND next_attempt_at<=now() "
+                            "WHERE id=:id AND ((status='QUEUED' AND next_attempt_at<=now()) OR "
+                            "(status='RUNNING' AND leased_until<=now())) "
                             "AND attempt_count<3 RETURNING source_id,attempt_count"
                         ),
                         {"id": run_id, "token": token},
@@ -240,80 +245,90 @@ class PostgresSourceProfileGateway:
 
     async def reserve_budget(self, run_id: UUID, attempt: int) -> UUID | None:
         reservation_id = uuid7()
-        async with self._engine.begin() as connection:
-            policy = (
-                (
-                    await connection.execute(
-                        text(
-                            "SELECT id,monthly_points,document_points FROM ai_budget_policy "
-                            "WHERE provider='deepseek' AND model='deepseek-v4-flash' AND active "
-                            "FOR SHARE"
+        try:
+            async with self._engine.begin() as connection:
+                policy = (
+                    (
+                        await connection.execute(
+                            text(
+                                "SELECT id,monthly_points,document_points FROM ai_budget_policy "
+                                "WHERE provider='deepseek' AND model='deepseek-v4-flash' "
+                                "AND active FOR SHARE"
+                            )
                         )
                     )
+                    .mappings()
+                    .first()
                 )
-                .mappings()
-                .first()
-            )
-            if policy is None:
-                return None
-            month = datetime.now(UTC).date().replace(day=1)
-            await connection.execute(
-                text(
-                    "INSERT INTO ai_budget_month(policy_id,month_start) VALUES(:policy,:month) "
-                    "ON CONFLICT DO NOTHING"
-                ),
-                {"policy": policy["id"], "month": month},
-            )
-            ledger = (
-                (
-                    await connection.execute(
-                        text(
-                            "SELECT reserved_points,settled_points FROM ai_budget_month "
-                            "WHERE policy_id=:policy AND month_start=:month FOR UPDATE"
-                        ),
-                        {"policy": policy["id"], "month": month},
+                if policy is None:
+                    return None
+                month = datetime.now(UTC).date().replace(day=1)
+                await connection.execute(
+                    text(
+                        "INSERT INTO ai_budget_month(policy_id,month_start) "
+                        "VALUES(:policy,:month) ON CONFLICT DO NOTHING"
+                    ),
+                    {"policy": policy["id"], "month": month},
+                )
+                ledger = (
+                    (
+                        await connection.execute(
+                            text(
+                                "SELECT reserved_points,settled_points FROM ai_budget_month "
+                                "WHERE policy_id=:policy AND month_start=:month FOR UPDATE"
+                            ),
+                            {"policy": policy["id"], "month": month},
+                        )
                     )
+                    .mappings()
+                    .one()
                 )
-                .mappings()
-                .one()
-            )
-            points = int(policy["document_points"])
-            if int(ledger["reserved_points"]) + int(ledger["settled_points"]) + points > int(
-                policy["monthly_points"]
-            ):
+                points = int(policy["document_points"])
+                if (
+                    int(ledger["reserved_points"])
+                    + int(ledger["settled_points"])
+                    + points
+                    > int(policy["monthly_points"])
+                ):
+                    return None
+                existing = await connection.scalar(
+                    text(
+                        "SELECT id FROM source_profile_budget_reservation "
+                        "WHERE run_id=:run_id AND attempt=:attempt"
+                    ),
+                    {"run_id": run_id, "attempt": attempt},
+                )
+                if existing is not None:
+                    return UUID(str(existing))
+                await connection.execute(
+                    text(
+                        "INSERT INTO source_profile_budget_reservation(id,run_id,policy_id,"
+                        "attempt,month_start,reserved_points,created_at) "
+                        "VALUES(:id,:run_id,:policy,:attempt,:month,:points,now())"
+                    ),
+                    {
+                        "id": reservation_id,
+                        "run_id": run_id,
+                        "policy": policy["id"],
+                        "attempt": attempt,
+                        "month": month,
+                        "points": points,
+                    },
+                )
+                await connection.execute(
+                    text(
+                        "UPDATE ai_budget_month SET reserved_points=reserved_points+:points "
+                        "WHERE policy_id=:policy AND month_start=:month"
+                    ),
+                    {"points": points, "policy": policy["id"], "month": month},
+                )
+                return reservation_id
+        except DBAPIError as exc:
+            # The profile model is optional. A least-privilege deployment may deny
+            # direct ledger mutation; retain the deterministic rule profile instead.
+            if getattr(exc.orig, "sqlstate", None) == "42501":
                 return None
-            existing = await connection.scalar(
-                text(
-                    "SELECT id FROM source_profile_budget_reservation "
-                    "WHERE run_id=:run_id AND attempt=:attempt"
-                ),
-                {"run_id": run_id, "attempt": attempt},
-            )
-            if existing is not None:
-                return UUID(str(existing))
-            await connection.execute(
-                text(
-                    "INSERT INTO source_profile_budget_reservation(id,run_id,policy_id,attempt,"
-                    "month_start,reserved_points,created_at) VALUES(:id,:run_id,:policy,:attempt,"
-                    ":month,:points,now())"
-                ),
-                {
-                    "id": reservation_id,
-                    "run_id": run_id,
-                    "policy": policy["id"],
-                    "attempt": attempt,
-                    "month": month,
-                    "points": points,
-                },
-            )
-            await connection.execute(
-                text(
-                    "UPDATE ai_budget_month SET reserved_points=reserved_points+:points "
-                    "WHERE policy_id=:policy AND month_start=:month"
-                ),
-                {"points": points, "policy": policy["id"], "month": month},
-            )
-            return reservation_id
+            raise
 
     async def settle_budget(self, reservation_id: UUID, response: ModelResponse | None) -> None:
         async with self._engine.begin() as connection:
@@ -573,7 +588,12 @@ async def prepare_profile(
         url = capture.get("final_url") or capture.get("requested_url")
         if not isinstance(key, str) or not isinstance(digest, str) or not isinstance(url, str):
             continue
-        content = await object_store.get_bytes(key, max_bytes=2 * 1024 * 1024)
+        try:
+            content = await object_store.get_bytes(key, max_bytes=16 * 1024 * 1024)
+        except OSError:
+            # Large PDFs are valid direct streams. Their bounded profile falls back to
+            # origin and stream metadata instead of failing the durable run.
+            continue
         excerpt = _plain_excerpt(content)
         if not excerpt:
             continue
@@ -609,6 +629,13 @@ async def prepare_profile(
 
 
 def _plain_excerpt(content: bytes) -> str:
+    if content.startswith(b"%PDF"):
+        try:
+            with pymupdf.open(stream=content, filetype="pdf") as document:
+                pages = [document[index].get_text("text") for index in range(min(3, len(document)))]
+            return " ".join(" ".join(pages).split())[:8_000]
+        except (RuntimeError, ValueError):
+            return ""
     decoded = content[: 2 * 1024 * 1024].decode("utf-8", errors="ignore")
     without_scripts = re.sub(
         r"<(script|style)\b[^>]*>.*?</\1>", " ", decoded, flags=re.IGNORECASE | re.DOTALL

@@ -27,6 +27,17 @@ def test_prepare_scan_workspace_copies_only_declared_delivery_files(tmp_path: Pa
     assert not (destination / "stale.txt").exists()
 
 
+def test_prepare_scan_workspace_ignores_tracked_files_deleted_by_delivery(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    destination = repository / ".cache" / "scan"
+
+    assert prepare_scan_workspace(repository, destination, (Path("retired.py"),)) == 0
+    assert list(destination.iterdir()) == []
+
+
 @pytest.mark.parametrize("unsafe_path", [Path("../outside.txt"), Path("/absolute.txt")])
 def test_prepare_scan_workspace_rejects_paths_outside_repository(
     tmp_path: Path,

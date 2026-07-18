@@ -28,7 +28,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.cors import CORSMiddleware
 
 from srbg_api.ai_admin.api import AiAdminService
-from srbg_api.ai_admin.api import router as ai_admin_router
+from srbg_api.ai_admin.api import router as personal_ai_settings_router
 from srbg_api.ai_admin.service import PostgresAiAdminService
 from srbg_api.auth import Principal
 from srbg_api.config import get_settings
@@ -59,41 +59,21 @@ from srbg_api.observability import (
     configure_observability,
     render_metrics,
     set_internal_projection_metrics,
-    set_operations_metrics,
-    set_round17_metrics,
 )
-from srbg_api.operations.api import OperationsService
-from srbg_api.operations.api import router as operations_router
-from srbg_api.operations.service import OperationsRejected, PostgresOperationsService
 from srbg_api.publication.api import (
-    EventCandidateGenerationService,
     IntelligenceQueryService,
-    ReviewPublicationService,
+    PersonalPublicationService,
 )
 from srbg_api.publication.api import router as intelligence_router
 from srbg_api.publication.gate import PublicationGate
 from srbg_api.publication.repository import PostgresPublicationRepository
 from srbg_api.publication.service import PublicationDenied, PublicationService
-from srbg_api.safety_cases.candidates import (
-    PostgresEventCandidateStore,
-    SafetyEventCandidateService,
-)
 from srbg_api.safety_regulations.query import (
     IntelligenceNotFound,
     InvalidFeedCursor,
     PostgresIntelligenceQueryService,
 )
-from srbg_api.source_automation.api import SourceAutomationAdminService
-from srbg_api.source_automation.api import router as source_automation_router
-from srbg_api.source_automation.repository import (
-    SourceAutomationConflict,
-    SourceAutomationNotFound,
-)
-from srbg_api.source_automation.service import (
-    SourceAutomationServiceRejected,
-    build_default_source_automation_service,
-)
-from srbg_api.source_registry.api import AdminSourceService
+from srbg_api.source_registry.api import PersonalSourceService
 from srbg_api.source_registry.api import router as source_vault_router
 from srbg_api.source_registry.repository import RepositoryConflict, SourceNotFound
 from srbg_api.source_registry.service import SourceServiceRejected, build_default_source_service
@@ -105,14 +85,11 @@ def _utc_now() -> datetime:
 
 def create_app(
     checkers: Mapping[str, HealthChecker] | None = None,
-    source_service: AdminSourceService | None = None,
+    source_service: PersonalSourceService | None = None,
     intelligence_service: IntelligenceQueryService | None = None,
     public_intelligence_service: Any | None = None,
-    publication_service: ReviewPublicationService | None = None,
-    safety_event_candidate_service: EventCandidateGenerationService | None = None,
+    publication_service: PersonalPublicationService | None = None,
     portal_service: PortalService | None = None,
-    operations_service: OperationsService | None = None,
-    source_automation_service: SourceAutomationAdminService | None = None,
     ai_admin_service: AiAdminService | None = None,
 ) -> FastAPI:
     configure_logging()
@@ -130,10 +107,7 @@ def create_app(
             intelligence_service,
             public_intelligence_service,
             publication_service,
-            safety_event_candidate_service,
             portal_service,
-            operations_service,
-            source_automation_service,
             ai_admin_service,
         ):
             close = getattr(service, "close", None)
@@ -153,10 +127,7 @@ def create_app(
     app.state.intelligence_service = intelligence_service
     app.state.public_intelligence_service = public_intelligence_service
     app.state.publication_service = publication_service
-    app.state.safety_event_candidate_service = safety_event_candidate_service
     app.state.portal_service = portal_service
-    app.state.operations_service = operations_service
-    app.state.source_automation_service = source_automation_service
     app.state.ai_admin_service = ai_admin_service
     app.state.publication_gate_denials = Counter()
     logger = logging.getLogger("srbg.api")
@@ -177,18 +148,9 @@ def create_app(
         if (
             response.status_code < 400
             and isinstance(principal, Principal)
-            and usage_event is not None
-            and operations_service is not None
+            and (usage_event is not None)
         ):
-            try:
-                await operations_service.record_usage(
-                    event_type=usage_event,
-                )
-            except Exception:
-                logger.warning(
-                    "usage_event_recording_failed",
-                    extra={"request_id": request_id, "event_type": usage_event},
-                )
+            logger.debug("personal_usage", extra={"event_type": usage_event})
         logger.info(
             "request_completed",
             extra={
@@ -202,10 +164,7 @@ def create_app(
         return response
 
     @app.exception_handler(StarletteHTTPException)
-    async def http_exception_handler(
-        request: Request,
-        exc: StarletteHTTPException,
-    ) -> JSONResponse:
+    async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
         problem = ProblemDetails(
             title=str(exc.detail),
             status=exc.status_code,
@@ -222,8 +181,7 @@ def create_app(
 
     @app.exception_handler(RequestValidationError)
     async def request_validation_handler(
-        request: Request,
-        _: RequestValidationError,
+        request: Request, _: RequestValidationError
     ) -> JSONResponse:
         problem = ProblemDetails(
             title="Request validation failed",
@@ -254,10 +212,7 @@ def create_app(
         )
 
     @app.exception_handler(SourceServiceRejected)
-    async def source_rejected_handler(
-        request: Request,
-        exc: SourceServiceRejected,
-    ) -> JSONResponse:
+    async def source_rejected_handler(request: Request, exc: SourceServiceRejected) -> JSONResponse:
         problem = ProblemDetails(
             title="Source admission rejected",
             status=exc.status_code,
@@ -272,10 +227,7 @@ def create_app(
         )
 
     @app.exception_handler(UploadRejected)
-    async def upload_rejected_handler(
-        request: Request,
-        exc: UploadRejected,
-    ) -> JSONResponse:
+    async def upload_rejected_handler(request: Request, exc: UploadRejected) -> JSONResponse:
         problem = ProblemDetails(
             title="Fixture rejected",
             status=422,
@@ -290,10 +242,7 @@ def create_app(
         )
 
     @app.exception_handler(PublicationDenied)
-    async def publication_denied_handler(
-        request: Request,
-        exc: PublicationDenied,
-    ) -> JSONResponse:
+    async def publication_denied_handler(request: Request, exc: PublicationDenied) -> JSONResponse:
         app.state.publication_gate_denials.update(exc.reasons)
         logger.warning(
             "publication_gate_denied",
@@ -318,8 +267,7 @@ def create_app(
 
     @app.exception_handler(IntelligenceNotFound)
     async def intelligence_not_found_handler(
-        request: Request,
-        exc: IntelligenceNotFound,
+        request: Request, exc: IntelligenceNotFound
     ) -> JSONResponse:
         problem = ProblemDetails(
             title="Resource not found",
@@ -335,10 +283,7 @@ def create_app(
         )
 
     @app.exception_handler(InvalidFeedCursor)
-    async def invalid_feed_cursor_handler(
-        request: Request,
-        exc: InvalidFeedCursor,
-    ) -> JSONResponse:
+    async def invalid_feed_cursor_handler(request: Request, exc: InvalidFeedCursor) -> JSONResponse:
         problem = ProblemDetails(
             title="Invalid feed cursor",
             status=400,
@@ -403,66 +348,10 @@ def create_app(
 
     @app.exception_handler(RepositoryConflict)
     async def repository_conflict_handler(
-        request: Request,
-        exc: RepositoryConflict,
+        request: Request, exc: RepositoryConflict
     ) -> JSONResponse:
         problem = ProblemDetails(
             title="Source vault conflict",
-            status=409,
-            detail=str(exc),
-            instance=str(request.url.path),
-            request_id=request.state.request_id,
-        )
-        return JSONResponse(
-            status_code=409,
-            content=problem.model_dump(mode="json"),
-            media_type="application/problem+json",
-        )
-
-    @app.exception_handler(SourceAutomationNotFound)
-    async def source_automation_not_found_handler(
-        request: Request, exc: SourceAutomationNotFound
-    ) -> JSONResponse:
-        problem = ProblemDetails(
-            title="Source automation resource not found",
-            status=404,
-            detail=str(exc),
-            instance=str(request.url.path),
-            request_id=request.state.request_id,
-        )
-        return JSONResponse(
-            status_code=404,
-            content=problem.model_dump(mode="json"),
-            media_type="application/problem+json",
-        )
-
-    @app.exception_handler(SourceAutomationConflict)
-    @app.exception_handler(SourceAutomationServiceRejected)
-    async def source_automation_conflict_handler(
-        request: Request,
-        exc: SourceAutomationConflict | SourceAutomationServiceRejected,
-    ) -> JSONResponse:
-        status_code = exc.status_code if isinstance(exc, SourceAutomationServiceRejected) else 409
-        detail = exc.detail if isinstance(exc, SourceAutomationServiceRejected) else str(exc)
-        problem = ProblemDetails(
-            title="Source automation request rejected",
-            status=status_code,
-            detail=detail,
-            instance=str(request.url.path),
-            request_id=request.state.request_id,
-        )
-        return JSONResponse(
-            status_code=status_code,
-            content=problem.model_dump(mode="json"),
-            media_type="application/problem+json",
-        )
-
-    @app.exception_handler(OperationsRejected)
-    async def operations_rejected_handler(
-        request: Request, exc: OperationsRejected
-    ) -> JSONResponse:
-        problem = ProblemDetails(
-            title="Operational request rejected",
             status=409,
             detail=str(exc),
             instance=str(request.url.path),
@@ -516,13 +405,10 @@ def create_app(
         checks: dict[DependencyName, DependencyCheck] = dict(zip(names, results, strict=True))
         is_ready = all(result.status == "up" for result in results)
         body = ReadinessResponse(
-            status="ready" if is_ready else "not_ready",
-            timestamp=_utc_now(),
-            checks=checks,
+            status="ready" if is_ready else "not_ready", timestamp=_utc_now(), checks=checks
         )
         return JSONResponse(
-            status_code=200 if is_ready else 503,
-            content=body.model_dump(mode="json"),
+            status_code=200 if is_ready else 503, content=body.model_dump(mode="json")
         )
 
     @app.get("/api/v1/version", response_model=VersionResponse)
@@ -534,18 +420,16 @@ def create_app(
         )
 
     app.include_router(source_vault_router)
-    app.include_router(source_automation_router)
     app.include_router(intelligence_router)
     app.include_router(portal_router)
-    app.include_router(operations_router)
-    app.include_router(ai_admin_router)
+    app.include_router(personal_ai_settings_router)
 
     @app.get("/metrics", response_class=PlainTextResponse, include_in_schema=False)
     async def metrics(authorization: str | None = Header(default=None)) -> PlainTextResponse:
         configured = settings.metrics_bearer_token
         expected = configured.get_secret_value() if configured is not None else None
         supplied = authorization.removeprefix("Bearer ") if authorization else None
-        if expected is None or supplied is None or not hmac.compare_digest(expected, supplied):
+        if expected is None or supplied is None or (not hmac.compare_digest(expected, supplied)):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Metrics service authentication required",
@@ -563,12 +447,6 @@ def create_app(
             else ""
         )
         gate_metrics = _render_publication_gate_denial_metrics(app.state.publication_gate_denials)
-        operations = app.state.operations_service
-        if operations is not None:
-            overview = await operations.overview()
-            set_operations_metrics(overview.metrics)
-            if hasattr(operations, "round17_observability"):
-                set_round17_metrics(await operations.round17_observability())
         publication = app.state.publication_service
         if publication is not None and hasattr(publication, "internal_projection_metrics"):
             projection_metrics = await publication.internal_projection_metrics()
@@ -587,7 +465,7 @@ def _usage_event(method: str, path: str) -> str | None:
         return "READ_DAILY"
     if method == "POST" and path == "/api/v1/saved-items":
         return "SAVE_ITEM"
-    if method == "GET" and "/document-versions/" in path and "/pages/" in path:
+    if method == "GET" and "/document-versions/" in path and ("/pages/" in path):
         return "VIEW_EVIDENCE"
     if method == "GET" and path.endswith(("/bibtex", "/ris", "/gbt7714")):
         return "EXPORT"
@@ -624,19 +502,16 @@ def build_default_app() -> FastAPI:
     settings = get_settings()
     policy_root = Path("docs/codex-kit/assets/validation")
     publication_gate = PublicationGate.from_files(
-        policy_root / "publication_gate.json",
-        policy_root / "publication_evaluation.schema.json",
+        policy_root / "publication_gate.json", policy_root / "publication_evaluation.schema.json"
     )
     intelligence_service = PostgresIntelligenceQueryService(
-        create_database_engine(settings),
-        preview_object_reader=S3ObjectStore(settings),
+        create_database_engine(settings), preview_object_reader=S3ObjectStore(settings)
     )
     published_reader = PublishedIntelligenceQueryService(
         PublishedProjectionReader(create_projection_reader_engine(settings))
     )
     return create_app(
         source_service=build_default_source_service(settings),
-        source_automation_service=build_default_source_automation_service(settings),
         ai_admin_service=PostgresAiAdminService(
             create_database_engine(settings),
             secret_root=settings.ai_secret_dir,
@@ -648,37 +523,12 @@ def build_default_app() -> FastAPI:
             repository=PostgresPublicationRepository(create_publication_engine(settings)),
             gate=publication_gate,
         ),
-        safety_event_candidate_service=SafetyEventCandidateService(
-            PostgresEventCandidateStore(create_database_engine(settings))
-        ),
         portal_service=PortalApplicationService(
             repository=PostgresPortalRepository(create_database_engine(settings)),
             intelligence=published_reader,
             cursor_signing_key=settings.cursor_signing_key.get_secret_value().encode(),
             semantic_enabled=settings.semantic_search_enabled,
             semantic_timeout_seconds=settings.semantic_search_timeout_seconds,
-        ),
-        operations_service=PostgresOperationsService(
-            create_database_engine(settings),
-            projection_engine=create_projection_reader_engine(settings),
-            environment=settings.environment,
-            ai_enabled=False,
-            semantic_search_enabled=settings.semantic_search_enabled,
-            external_notifications_enabled=False,
-            round17_baseline_commit_attestation=(settings.round17_baseline_commit_attestation),
-            round17_config_version_attestation=(settings.round17_config_version_attestation),
-            round17_roster_source_codes=settings.round17_roster_source_codes,
-            round17_source_schedule_attestations=(settings.round17_source_schedule_attestations),
-            round17_leo_approver_actor_id=settings.round17_leo_approver_actor_id,
-            round17_authority_mode=settings.round17_authority_mode,
-            round17_leo_signing_public_key_base64=(settings.round17_leo_signing_public_key_base64),
-            round17_leo_signing_public_key_sha256=(settings.round17_leo_signing_public_key_sha256),
-            round17_eventization_trusted_public_key_base64=(
-                settings.round17_eventization_trusted_public_key_base64
-            ),
-            round17_eventization_trusted_public_key_sha256=(
-                settings.round17_eventization_trusted_public_key_sha256
-            ),
         ),
     )
 

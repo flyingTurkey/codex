@@ -29,29 +29,6 @@ def test_safety_case_profile_metadata_authorization_field_set_is_closed() -> Non
     }
 
 
-def test_event_candidate_generation_response_is_always_pending_human_review() -> None:
-    response = models.EventCandidateGenerationResponse(
-        candidate_id=CLAIM_ID,
-        status="PENDING_REVIEW",
-        requires_human_review=True,
-    )
-
-    assert response.model_dump(mode="json") == {
-        "candidate_id": str(CLAIM_ID),
-        "status": "PENDING_REVIEW",
-        "requires_human_review": True,
-    }
-
-    with pytest.raises(ValidationError):
-        models.EventCandidateGenerationResponse(
-            candidate_id=CLAIM_ID,
-            status="PENDING_REVIEW",
-            requires_human_review=False,
-        )
-    with pytest.raises(ValidationError):
-        models.EventCandidateGenerationResponse(candidate_id=CLAIM_ID)
-
-
 def test_reviewer_claim_projection_exposes_optional_field_decision_status() -> None:
     pending = models.ClaimView(
         id=CLAIM_ID,
@@ -267,42 +244,6 @@ def test_conflicting_unverified_fact_requires_conflict_id_and_never_accepts_valu
         )
 
 
-def test_claim_conflict_review_decision_is_bounded_and_auditable() -> None:
-    request = models.ClaimConflictDecisionRequest(
-        action="ACCEPT_CANDIDATE",
-        reason="正式调查报告取代初报数字",
-    )
-    response = models.ClaimConflictDecisionResponse(
-        conflict_id=CONFLICT_ID,
-        status="RESOLVED",
-        action="ACCEPT_CANDIDATE",
-        resolved_claim_id=CLAIM_ID,
-        resolved_at=datetime(2025, 1, 22, 9, tzinfo=UTC),
-    )
-
-    assert request.action == "ACCEPT_CANDIDATE"
-    assert response.status == "RESOLVED"
-
-    with pytest.raises(ValidationError):
-        models.ClaimConflictDecisionRequest(action="PUBLISH", reason="绕过人工审核")
-
-    with pytest.raises(ValidationError):
-        models.ClaimConflictDecisionResponse(
-            conflict_id=CONFLICT_ID,
-            status="RESOLVED",
-            action="ACCEPT_CANDIDATE",
-            resolved_claim_id=None,
-            resolved_at=None,
-        )
-
-    with pytest.raises(ValidationError):
-        models.ClaimConflictDecisionResponse(
-            conflict_id=CONFLICT_ID,
-            status="PENDING_REVIEW",
-            action="KEEP_CURRENT",
-            resolved_claim_id=CLAIM_ID,
-            resolved_at=datetime(2025, 1, 22, 9, tzinfo=UTC),
-        )
 
 
 def test_taxonomy_and_published_sample_use_controlled_round04_vocabulary() -> None:

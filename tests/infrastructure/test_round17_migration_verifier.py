@@ -119,12 +119,3 @@ def test_round17_verifier_covers_tables_constraints_functions_and_roles() -> Non
     assert "window completed before its immutable ends_at" in source
     assert "resumed segment accepted without a paused predecessor" in source
     assert "self-correction of yinzi operator evidence was accepted" in source
-
-
-def test_round17_make_target_uses_dynamic_isolated_migration_verifier() -> None:
-    makefile = Path("Makefile").read_text(encoding="utf-8")
-    recipe = makefile.split("phase2-round17-test:", 1)[1].split("phase2-round17-eval:", 1)[0]
-
-    assert "scripts/run_isolated_integration.py" in recipe
-    assert "--migration-verifier verify_round17_migration.py" in recipe
-    assert "python -m pytest" not in recipe

@@ -17,8 +17,6 @@ from typing import Literal, Protocol
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine
 from srbg_api.acquisition.contracts import SourceCheckpoint
 from srbg_api.acquisition.http import (
     Clock,
@@ -29,8 +27,7 @@ from srbg_api.acquisition.http import (
 )
 from srbg_api.acquisition.live import HttpxTransport, SystemClock, SystemResolver
 from srbg_api.config import Settings
-from srbg_api.identifiers import uuid7
-from srbg_api.source_automation.search import SearchBudgetExceeded, SearchQuery, SearchResult
+from srbg_api.personal_search import SearchBudgetExceeded, SearchQuery, SearchResult
 from srbg_contracts import SourceContentDomain, SourceIndustry
 
 DISCOVERY_ACTOR_ID = UUID("019b0000-0000-7000-8000-000000009001")
@@ -51,7 +48,7 @@ class DiscoveryQuerySpec:
     content_domains: tuple[str, ...]
 
     def __post_init__(self) -> None:
-        if re.fullmatch(r"[A-Z0-9_]{3,80}", self.code) is None:
+        if re.fullmatch("[A-Z0-9_]{3,80}", self.code) is None:
             raise ValueError("discovery query code is invalid")
         if not self.query.strip() or len(self.query) > 500:
             raise ValueError("discovery query text is invalid")
@@ -111,7 +108,6 @@ def _build_query_catalog() -> Mapping[str, DiscoveryQuerySpec]:
     return MappingProxyType(catalog)
 
 
-# Fixed in code: callers can schedule a code, but cannot inject arbitrary provider queries.
 QUERY_CATALOG = _build_query_catalog()
 
 
@@ -128,9 +124,9 @@ class VerifiedDiscoveryTarget:
             raise ValueError("verified candidate URL must be a canonical HTTPS institution origin")
         if urlsplit(origin).hostname != self.authorization_boundary:
             raise ValueError("verified target boundary does not match its origin")
-        if re.fullmatch(r"[0-9a-f]{64}", self.response_sha256) is None:
+        if re.fullmatch("[0-9a-f]{64}", self.response_sha256) is None:
             raise ValueError("verified target response hash is invalid")
-        if re.fullmatch(r"[0-9a-f]{64}", self.material_fingerprint) is None:
+        if re.fullmatch("[0-9a-f]{64}", self.material_fingerprint) is None:
             raise ValueError("verified target material fingerprint is invalid")
 
 
@@ -176,7 +172,6 @@ class DiscoveryOutcome:
 
     def as_task_result(self) -> dict[str, object]:
         """Return a deliberately narrow Celery-safe result without provider or target material."""
-
         return {
             "discovery_run_id": str(self.discovery_run_id),
             "query_code": self.query_code,
@@ -265,11 +260,7 @@ class DiscoveryExecutor:
         self._max_candidates_per_query = max_candidates_per_query
 
     async def run(
-        self,
-        *,
-        query_code: str,
-        discovery_run_id: UUID,
-        now: datetime,
+        self, *, query_code: str, discovery_run_id: UUID, now: datetime
     ) -> DiscoveryOutcome:
         spec = QUERY_CATALOG.get(query_code)
         if spec is None:
@@ -278,28 +269,16 @@ class DiscoveryExecutor:
             raise ValueError("automated discovery time must be timezone-aware")
         if not self._enabled:
             return DiscoveryOutcome(discovery_run_id, query_code, disabled=True)
-
         try:
             search_result = await self._provider.search(
-                SearchQuery(query=spec.query, top_k=50),
-                now=now,
+                SearchQuery(query=spec.query, top_k=50), now=now
             )
         except SearchBudgetExceeded:
-            return DiscoveryOutcome(
-                discovery_run_id,
-                query_code,
-                provider_calls=0,
-                budget_stops=1,
-            )
+            return DiscoveryOutcome(discovery_run_id, query_code, provider_calls=0, budget_stops=1)
         except Exception:
-            # Provider exceptions can contain provider-authored material. Do not log or return them.
             return DiscoveryOutcome(
-                discovery_run_id,
-                query_code,
-                provider_calls=1,
-                provider_failures=1,
+                discovery_run_id, query_code, provider_calls=1, provider_failures=1
             )
-
         seen_origins: set[str] = set()
         targets_seen = 0
         targets_probed = 0
@@ -315,9 +294,8 @@ class DiscoveryExecutor:
             seen_origins.add(origin)
             targets_seen += 1
             try:
-                if (
-                    self._occurrence_tracker is not None
-                    and not await self._occurrence_tracker.register_occurrence(
+                if self._occurrence_tracker is not None and (
+                    not await self._occurrence_tracker.register_occurrence(
                         item.url,
                         discovery_channel="BAIDU_SEARCH",
                         industries=spec.industries,
@@ -338,22 +316,18 @@ class DiscoveryExecutor:
                     industries=spec.industries,
                     content_domains=spec.content_domains,
                     evidence_ref=_target_evidence_ref(
-                        verified,
-                        industries=spec.industries,
-                        content_domains=spec.content_domains,
+                        verified, industries=spec.industries, content_domains=spec.content_domains
                     ),
                     discovery_run_id=discovery_run_id,
                     now=now,
                 )
             except Exception:
-                # URL/provider/response details are excluded from logs and task results.
                 targets_rejected += 1
                 continue
             if registration.created:
                 candidates_registered += 1
             if registration.qualification_run_id is not None:
                 qualifications_requested += 1
-
         return DiscoveryOutcome(
             discovery_run_id,
             query_code,
@@ -380,7 +354,7 @@ class PublicSeedDiscoveryExecutor:
         occurrence_tracker: DiscoveryOccurrenceTracker | None = None,
         max_candidates_per_run: int = DEFAULT_MAX_CANDIDATES_PER_QUERY,
     ) -> None:
-        if re.fullmatch(r"[A-Z0-9_]{3,80}", adapter.adapter_code) is None:
+        if re.fullmatch("[A-Z0-9_]{3,80}", adapter.adapter_code) is None:
             raise ValueError("public discovery adapter code is invalid")
         if adapter.channel not in _PUBLIC_DISCOVERY_CHANNELS:
             raise ValueError("public discovery adapter channel is invalid")
@@ -393,29 +367,17 @@ class PublicSeedDiscoveryExecutor:
         self._occurrence_tracker = occurrence_tracker
         self._limit = max_candidates_per_run
 
-    async def run(
-        self,
-        *,
-        discovery_run_id: UUID,
-        now: datetime,
-    ) -> DiscoveryOutcome:
+    async def run(self, *, discovery_run_id: UUID, now: datetime) -> DiscoveryOutcome:
         if now.tzinfo is None or now.utcoffset() is None:
             raise ValueError("public discovery time must be timezone-aware")
         if not self._enabled:
-            return DiscoveryOutcome(
-                discovery_run_id,
-                self._adapter.adapter_code,
-                disabled=True,
-            )
+            return DiscoveryOutcome(discovery_run_id, self._adapter.adapter_code, disabled=True)
         try:
             seeds = await self._adapter.discover(limit=self._limit)
         except Exception:
             return DiscoveryOutcome(
-                discovery_run_id,
-                self._adapter.adapter_code,
-                provider_failures=1,
+                discovery_run_id, self._adapter.adapter_code, provider_failures=1
             )
-
         targets_seen = 0
         targets_probed = 0
         targets_rejected = 0
@@ -429,9 +391,8 @@ class PublicSeedDiscoveryExecutor:
             seen_origins.add(origin)
             targets_seen += 1
             try:
-                if (
-                    self._occurrence_tracker is not None
-                    and not await self._occurrence_tracker.register_occurrence(
+                if self._occurrence_tracker is not None and (
+                    not await self._occurrence_tracker.register_occurrence(
                         seed.url,
                         discovery_channel=self._adapter.channel,
                         industries=seed.industries,
@@ -452,9 +413,7 @@ class PublicSeedDiscoveryExecutor:
                     industries=seed.industries,
                     content_domains=seed.content_domains,
                     evidence_ref=_target_evidence_ref(
-                        target,
-                        industries=seed.industries,
-                        content_domains=seed.content_domains,
+                        target, industries=seed.industries, content_domains=seed.content_domains
                     ),
                     discovery_run_id=discovery_run_id,
                     now=now,
@@ -513,7 +472,7 @@ class SafeDiscoveryTargetProbe:
         if origin is None:
             raise ValueError("provider target is not a safe HTTPS institution URL")
         boundary = urlsplit(origin).hostname
-        if boundary is None:  # pragma: no cover - _institution_origin already proves a host.
+        if boundary is None:
             raise ValueError("provider target has no institution boundary")
         transport = self._transport_factory()
         client = ResilientHttpClient(
@@ -529,8 +488,7 @@ class SafeDiscoveryTargetProbe:
                 max_redirects=2,
                 user_agent="SRBGSourceDiscoveryProbe/1.0",
                 max_response_bytes=min(
-                    MAX_DISCOVERY_TARGET_BYTES,
-                    self._settings.fixture_max_bytes,
+                    MAX_DISCOVERY_TARGET_BYTES, self._settings.fixture_max_bytes
                 ),
             ),
             resolver=self._resolver,
@@ -550,105 +508,13 @@ class SafeDiscoveryTargetProbe:
         final_origin = _institution_origin(result.url)
         if final_origin != origin:
             raise ValueError("direct discovery target crossed the institution boundary")
-        fingerprint = _target_material_fingerprint(
-            origin,
-            boundary,
-        )
+        fingerprint = _target_material_fingerprint(origin, boundary)
         return VerifiedDiscoveryTarget(
             canonical_url=origin,
             authorization_boundary=boundary,
             response_sha256=result.response_sha256,
             material_fingerprint=fingerprint,
         )
-
-
-class PostgresDiscoveryGateway:
-    """Persist only verified target facts and request isolated qualification."""
-
-    def __init__(
-        self,
-        engine: AsyncEngine,
-        *,
-        actor_id: UUID = DISCOVERY_ACTOR_ID,
-        rule_version: str = QUALIFICATION_RULE_VERSION,
-    ) -> None:
-        if re.fullmatch(r"[A-Za-z0-9._-]{1,80}", rule_version) is None:
-            raise ValueError("qualification rule version is invalid")
-        self._engine = engine
-        self._actor_id = actor_id
-        self._rule_version = rule_version
-
-    async def register_and_request(
-        self,
-        target: VerifiedDiscoveryTarget,
-        *,
-        discovery_channel: str,
-        industries: tuple[str, ...],
-        content_domains: tuple[str, ...],
-        evidence_ref: str,
-        discovery_run_id: UUID,
-        now: datetime,
-    ) -> RegistrationOutcome:
-        if discovery_channel not in {*_PUBLIC_DISCOVERY_CHANNELS, "BAIDU_SEARCH"}:
-            raise ValueError("automated source discovery channel is invalid")
-        if evidence_ref != _target_evidence_ref(
-            target,
-            industries=industries,
-            content_domains=content_domains,
-        ):
-            raise ValueError("target evidence reference is not derived from verified material")
-        _validate_classification(industries, content_domains)
-        canonical_url_sha256 = sha256(target.canonical_url.encode()).hexdigest()
-        candidate_id = uuid7()
-        occurrence_id = uuid7()
-        discovery_audit_id = uuid7()
-        qualification_run_id = uuid7()
-        qualification_audit_id = uuid7()
-        request_id = f"auto-discovery:{discovery_run_id}:{target.material_fingerprint[:16]}"
-        async with self._engine.begin() as connection:
-            registered_id = await connection.scalar(
-                text(_REGISTER_CANDIDATE_SQL),
-                {
-                    "candidate_id": candidate_id,
-                    "occurrence_id": occurrence_id,
-                    "canonical_url": target.canonical_url,
-                    "canonical_url_sha256": canonical_url_sha256,
-                    "authorization_boundary": target.authorization_boundary,
-                    "material_fingerprint": target.material_fingerprint,
-                    "discovery_channel": discovery_channel,
-                    "evidence_ref": evidence_ref,
-                    "industries": list(industries),
-                    "content_domains": list(content_domains),
-                    "actor_id": self._actor_id,
-                    "request_id": request_id,
-                    "audit_id": discovery_audit_id,
-                    "now": now,
-                },
-            )
-            if not isinstance(registered_id, UUID):
-                raise RuntimeError("verified candidate registration returned no identifier")
-            requested_id = await connection.scalar(
-                text(_REQUEST_QUALIFICATION_SQL),
-                {
-                    "run_id": qualification_run_id,
-                    "candidate_id": registered_id,
-                    "rule_version": self._rule_version,
-                    "actor_id": self._actor_id,
-                    "request_id": request_id,
-                    "audit_id": qualification_audit_id,
-                    "now": now,
-                },
-            )
-            if requested_id is not None and not isinstance(requested_id, UUID):
-                raise RuntimeError("automated qualification request returned no identifier")
-        return RegistrationOutcome(
-            registered_id,
-            requested_id,
-            created=registered_id == candidate_id,
-        )
-
-    async def close(self) -> None:
-        await self._engine.dispose()
 
 
 def _institution_origin(value: str) -> str | None:
@@ -662,35 +528,29 @@ def _institution_origin(value: str) -> str | None:
         parsed.scheme != "https"
         or hostname is None
         or parsed.username is not None
-        or parsed.password is not None
-        or port not in {None, 443}
-        or len(value) > 2048
+        or (parsed.password is not None)
+        or (port not in {None, 443})
+        or (len(value) > 2048)
     ):
         return None
     normalized_host = hostname.rstrip(".").lower()
     if (
         len(normalized_host) > 253
-        or re.fullmatch(
-            r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}",
-            normalized_host,
-        )
+        or re.fullmatch("(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}", normalized_host)
         is None
     ):
         return None
     return f"https://{normalized_host}/"
 
 
-def _validate_classification(
-    industries: tuple[str, ...],
-    content_domains: tuple[str, ...],
-) -> None:
+def _validate_classification(industries: tuple[str, ...], content_domains: tuple[str, ...]) -> None:
     if (
         not industries
         or not content_domains
         or len(industries) > 30
-        or len(content_domains) > 30
-        or any(re.fullmatch(r"[A-Z0-9_]{2,80}", value) is None for value in industries)
-        or any(re.fullmatch(r"[A-Z0-9_]{2,80}", value) is None for value in content_domains)
+        or (len(content_domains) > 30)
+        or any(re.fullmatch("[A-Z0-9_]{2,80}", value) is None for value in industries)
+        or any(re.fullmatch("[A-Z0-9_]{2,80}", value) is None for value in content_domains)
         or any(value not in _ALLOWED_INDUSTRIES for value in industries)
         or any(value not in _ALLOWED_CONTENT_DOMAINS for value in content_domains)
     ):
@@ -714,25 +574,5 @@ def _target_evidence_ref(
     return f"target-fetch:{sha256(material.encode()).hexdigest()}"
 
 
-def _target_material_fingerprint(
-    canonical_url: str,
-    authorization_boundary: str,
-) -> str:
+def _target_material_fingerprint(canonical_url: str, authorization_boundary: str) -> str:
     return sha256(f"{canonical_url}\n{authorization_boundary}".encode()).hexdigest()
-
-
-_REGISTER_CANDIDATE_SQL = """
-SELECT register_discovered_source_candidate(
-  :candidate_id,:occurrence_id,:canonical_url,:canonical_url_sha256,
-  :authorization_boundary,:material_fingerprint,:discovery_channel,:evidence_ref,
-  CAST(:industries AS text[]),CAST(:content_domains AS text[]),ARRAY['zh-CN']::text[],
-  :actor_id,'Automated verified target discovery',:request_id,:audit_id,:now
-)
-"""
-
-_REQUEST_QUALIFICATION_SQL = """
-SELECT request_automated_source_qualification(
-  :run_id,:candidate_id,:rule_version,:actor_id,
-  'Automated verified candidate qualification',:request_id,:audit_id,:now
-)
-"""

@@ -205,6 +205,16 @@ PostgreSQL、发现 Worker 和资格 Worker 均在运行，带健康检查的服
 Git 可交付文件定向检查覆盖1037个文件，未发现 DeepSeek/Baidu 实密钥、Cookie、真实个人信息、
 日志、dump、临时调试或补丁残留；测试假值与空配置未作为泄密处理。
 
+## 来源中心运行时查询回归（2026-07-17）
+
+- 修复 `_CANDIDATE_LIST_SQL`、`_STREAM_LIST_SQL` 与 `_ATTENTION_LIST_SQL` 中误嵌入的
+  Python `# noqa` 注释，并为 asyncpg 无法从 `NULL` 推断类型的筛选与游标参数增加显式
+  `text`、`timestamptz` 和 `uuid` 转换。
+- 仓储、API 与服务定向回归共 `15 passed`，Ruff 与 mypy strict 通过。
+- Compose 真实业务库经 Web BFF 验证：`source-candidates` 返回 200/0项，`source-streams`
+  返回 200/20项，`source-attention` 返回 200/0项；浏览器实际切换三个工作区均无错误提示，
+  控制台无错误日志，且未使用缓存或演示数据兜底。
+
 ## 已知限制与后续优先级
 
 1. 自动发现覆盖广度仍由一个商业搜索供应商决定。下一步应按同一 transient→direct-target 边界实现官方目录、既有 RSS、Sitemap 和已批准来源 outbound link 发现器，再比较新增机构率与噪声率，不能直接持久化这些渠道的摘要。

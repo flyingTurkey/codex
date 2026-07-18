@@ -1,17 +1,27 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 
-async function mockAiAdmin(page: Page): Promise<void> {
+type ProviderState = {
+  keyConfigured: boolean
+  runtimeStatus: string
+  blockingReasons: string[]
+}
+
+async function mockAiSettings(page: Page, providerState: ProviderState = {
+  keyConfigured: false,
+  runtimeStatus: 'MODEL_DISABLED',
+  blockingReasons: ['SECRET_NOT_CONFIGURED', 'CONFIGURATION_NOT_ACTIVE'],
+}): Promise<void> {
   await page.route('**/api/v1/me', route => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({
-      display_name: '平台管理员',
+      display_name: 'Owner',
       local_identity: true,
-      roles: ['platform_admin'],
+      roles: ['owner'],
       user_id: '019b0000-0000-7000-8000-000000009015',
     }),
   }))
-  await page.route('**/api/v1/admin/ai/providers', route => route.fulfill({
+  await page.route('**/api/v1/settings/ai/providers', route => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify([{
       code: 'deepseek',
@@ -19,27 +29,62 @@ async function mockAiAdmin(page: Page): Promise<void> {
       request_path: '/chat/completions',
       models: ['deepseek-v4-flash'],
       real_call_enabled: true,
-      key_configured: false,
-      runtime_status: 'MODEL_DISABLED',
-      blocking_reasons: ['SECRET_NOT_CONFIGURED', 'CONFIGURATION_NOT_ACTIVE'],
+      key_configured: providerState.keyConfigured,
+      runtime_status: providerState.runtimeStatus,
+      blocking_reasons: providerState.blockingReasons,
       token_limits: { CLASSIFY: 1200, EXTRACT: 4000 },
       budget: { monthly_points: 20000, document_points: 100 },
     }]),
   }))
 }
 
-test('R-AI01 admin shows the pinned endpoint and no arbitrary URL control', async ({ page }) => {
-  await mockAiAdmin(page)
-  await page.goto('/admin/ai')
+test('saving a Secret shows a success popup and a ready runtime status', async ({ page }) => {
+  const providerState: ProviderState = {
+    keyConfigured: false,
+    runtimeStatus: 'MODEL_DISABLED',
+    blockingReasons: ['SECRET_NOT_CONFIGURED'],
+  }
+  await mockAiSettings(page, providerState)
+  await page.route('**/api/v1/settings/ai/providers/deepseek/secret', (route) => {
+    providerState.keyConfigured = true
+    providerState.runtimeStatus = 'READY'
+    providerState.blockingReasons = []
+    return route.fulfill({ status: 204 })
+  })
+  await page.goto('/settings/ai')
+  await page.getByLabel('写入 Secret').fill('test-only-secret')
+  await page.getByRole('button', { name: '保存 Secret' }).click()
+  await expect(page.getByRole('status')).toContainText('配置成功')
+  await expect(page.getByLabel('写入 Secret')).toHaveValue('')
+  await expect(page.getByRole('definition').filter({ hasText: '就绪（READY）' })).toBeVisible()
+})
+
+test('a failed Secret save shows an error popup and keeps the value for retry', async ({ page }) => {
+  await mockAiSettings(page)
+  await page.route('**/api/v1/settings/ai/providers/deepseek/secret', route => route.fulfill({
+    status: 500,
+    contentType: 'application/problem+json',
+    body: JSON.stringify({ title: 'Secret 保存失败', detail: '私有存储暂不可写。' }),
+  }))
+  await page.goto('/settings/ai')
+  await page.getByLabel('写入 Secret').fill('test-only-secret')
+  await page.getByRole('button', { name: '保存 Secret' }).click()
+  await expect(page.getByRole('alert')).toContainText('保存失败')
+  await expect(page.getByLabel('写入 Secret')).toHaveValue('test-only-secret')
+})
+
+test('personal AI settings show the pinned endpoint and no arbitrary URL control', async ({ page }) => {
+  await mockAiSettings(page)
+  await page.goto('/settings/ai')
   await expect(page.getByRole('heading', { name: 'AI 模型配置' })).toBeVisible()
   await expect(page.getByText('https://api.deepseek.com/chat/completions')).toBeVisible()
   await expect(page.locator('input[name="base_url"]')).toHaveCount(0)
   await expect(page.getByLabel('写入 Secret')).toHaveAttribute('type', 'password')
 })
 
-test('@a11y R-AI01 model administration has no axe violations', async ({ page }) => {
-  await mockAiAdmin(page)
-  await page.goto('/admin/ai')
+test('@a11y personal AI settings have no axe violations', async ({ page }) => {
+  await mockAiSettings(page)
+  await page.goto('/settings/ai')
   await expect(page.getByRole('heading', { name: 'AI 模型配置' })).toBeVisible()
   const results = await new AxeBuilder({ page }).analyze()
   expect(results.violations).toEqual([])

@@ -1,6 +1,6 @@
 import { mount } from '@vue/test-utils'
 import type { ItemSummary } from '@srbg/contracts'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { Component } from 'vue'
 import { describe, expect, it } from 'vitest'
@@ -62,19 +62,10 @@ describe('round 09 governed AI review UI', () => {
     expect(wrapper.text()).not.toContain('仅由已接受事实生成的审核后摘要。')
   })
 
-  it('builds the workbench from the required shared evidence components', () => {
-    const workbench = readFileSync(
-      resolve(process.cwd(), 'app/components/ReviewWorkbench.vue'),
-      'utf8',
-    )
-    const reviewPage = readFileSync(
-      resolve(process.cwd(), 'app/pages/admin/review/[id].vue'),
-      'utf8',
-    )
-    for (const component of ['PdfEvidenceViewer', 'FactList', 'StatusBadge']) {
-      expect(workbench).toContain(component)
-    }
-    expect(reviewPage).toContain('ReviewWorkbench')
-    expect(reviewPage).toContain('EvidenceDrawer')
+  it('retires the enterprise workbench while preserving evidence on personal details', () => {
+    expect(existsSync(resolve(process.cwd(), 'app/components/ReviewWorkbench.vue'))).toBe(false)
+    expect(existsSync(resolve(process.cwd(), 'app/pages/admin/review/[id].vue'))).toBe(false)
+    const detail = readFileSync(resolve(process.cwd(), 'app/pages/events/[id].vue'), 'utf8')
+    expect(detail).toContain('EvidenceDrawer')
   })
 })

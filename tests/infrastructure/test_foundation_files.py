@@ -235,7 +235,7 @@ def test_security_scan_uses_only_git_delivery_files() -> None:
 
 def test_round_zero_documentation_is_present() -> None:
     required_content = {
-        "README.md": ["make setup", "make dev", "D:\\Dockerdata"],
+        "README.md": ["make setup", "make dev", "D:\\SRBGData"],
         "CHANGELOG.md": ["Round 00", "工程基线"],
         "docs/adr/0001-modular-monolith.md": ["模块化单体", "SourceAdapter"],
         "docs/acceptance/round-00-foundation.md": [

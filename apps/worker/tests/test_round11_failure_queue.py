@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from srbg_api.operations.failures import failure_record
+from srbg_api.task_failures import failure_record
 from srbg_worker.app import celery_app
 
 
@@ -49,7 +49,5 @@ def test_only_database_reconstructable_task_kinds_are_replayable() -> None:
 
 
 def test_manual_replays_are_polled_on_the_priority_publisher_queue() -> None:
-    schedule = celery_app.conf.beat_schedule["execute-priority-replays"]
-    assert schedule["task"] == "srbg.operations.replay"
-    assert schedule["options"] == {"queue": "publisher", "priority": 9}
-    assert celery_app.conf.task_routes["srbg.operations.replay"] == {"queue": "publisher"}
+    assert "execute-priority-replays" not in celery_app.conf.beat_schedule
+    assert "srbg.operations.replay" not in celery_app.conf.task_routes

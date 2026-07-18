@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -15,11 +15,7 @@ describe('PERS-08 reversible automatic relationships', () => {
   })
 
   it('removes relationship and model decisions from review workbenches', () => {
-    const review = readFileSync(resolve(process.cwd(), 'app/pages/admin/review/index.vue'), 'utf8')
-    const clusters = readFileSync(resolve(process.cwd(), 'app/pages/admin/clusters.vue'), 'utf8')
-    expect(review).not.toContain('/product-normalization-candidates/${candidateId}/decision')
-    expect(clusters).not.toContain('/decisions')
-    expect(review).toContain('PERS-08')
-    expect(clusters).toContain('只读历史')
+    expect(existsSync(resolve(process.cwd(), 'app/pages/admin/review/index.vue'))).toBe(false)
+    expect(existsSync(resolve(process.cwd(), 'app/pages/admin/clusters.vue'))).toBe(false)
   })
 })

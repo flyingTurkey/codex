@@ -2,15 +2,7 @@
   "$defs": {
     "UserRole": {
       "enum": [
-        "owner",
-        "viewer",
-        "editor",
-        "reviewer",
-        "source_admin",
-        "platform_admin",
-        "auditor",
-        "gold_annotator",
-        "gold_arbitrator"
+        "owner"
       ],
       "title": "UserRole",
       "type": "string"

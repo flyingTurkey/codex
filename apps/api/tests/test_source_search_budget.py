@@ -5,7 +5,7 @@ from typing import cast
 import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine
 from srbg_api.acquisition.http import HttpResponse
-from srbg_api.source_automation.search import (
+from srbg_api.personal_search import (
     BAIDU_SEARCH_API_URL,
     BaiduSearchProvider,
     BudgetReservation,
@@ -214,7 +214,7 @@ async def test_budget_threshold_is_emitted_before_a_failing_provider_call(
         timeout_seconds=2.0,
     )
 
-    with caplog.at_level(logging.WARNING, logger="srbg.source_automation.search"):
+    with caplog.at_level(logging.WARNING, logger="srbg.personal_search"):
         with pytest.raises(SearchProviderError):
             await provider.search(
                 SearchQuery(query="工程安全"),

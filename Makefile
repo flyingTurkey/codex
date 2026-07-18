@@ -28,13 +28,6 @@ SRBG_PROJECTION_DB_PASSWORD ?= srbg_projection_local_only
 SRBG_S3_BUCKET ?= srbg-raw
 SRBG_S3_REGION ?= us-east-1
 SRBG_EXTERNAL_IO_TIMEOUT_SECONDS ?= 5
-ROUND17_EVIDENCE ?= $(CURDIR)/docs/acceptance/assets/round17/round17-flat-evidence.json
-ROUND17_GOLD_MANIFEST ?= $(CURDIR)/tests/gold/round17/manifest.json
-ROUND17_FLAT_REFERENCE ?= $(CURDIR)/tests/gold/round17/leo-reference-manifest.json
-ROUND17_TRUSTED_PUBLIC_KEY ?=
-ROUND17_TRUSTED_PUBLIC_KEY_SHA256 ?=
-ROUND17_EVAL_TRUST_ARGS = $(if $(strip $(ROUND17_TRUSTED_PUBLIC_KEY)),--trusted-public-key "$(ROUND17_TRUSTED_PUBLIC_KEY)",) $(if $(strip $(ROUND17_TRUSTED_PUBLIC_KEY_SHA256)),--trusted-public-key-sha256 "$(ROUND17_TRUSTED_PUBLIC_KEY_SHA256)",)
-
 COMPOSE = docker compose --project-directory . -f infra/compose/compose.yaml
 TRIVY_IMAGE = aquasec/trivy:0.69.3
 UV_CACHE_DIR ?= $(CURDIR)/.cache/uv
@@ -51,9 +44,8 @@ export PLAYWRIGHT_BROWSERS_PATH
 	round08-test round08-eval round09-test round09-eval round10-test round10-eval \
 	round11-test observability-test golden-replay load-test recovery-drill runbook-test \
 	round11-evidence-test readiness-evidence slo-weekly-report \
-	phase2-round13-test phase2-round14-test phase2-round15-test phase2-round16-test \
-	phase2-round17-test phase2-round17-eval ai-content-preparation-test pers01-test personal-source-test \
-	personal-content-test
+	phase2-round13-test phase2-round14-test ai-content-preparation-test pers01-test personal-source-test \
+	personal-content-test personal-migration-test
 
 setup:
 	$(UV) sync --frozen --all-packages
@@ -124,8 +116,7 @@ fixture-replay:
 		apps/api/tests/test_publication_gate_v5.py \
 		apps/api/tests/test_publication_gate_v6.py \
 		apps/api/tests/test_publication_gate_v7.py \
-		apps/api/tests/test_safety_case_domain.py \
-		apps/api/tests/test_safety_case_candidate_service.py \
+		apps/api/tests/test_pers06_evidence_gate.py \
 		apps/api/tests/test_round04_official_fixtures.py \
 		apps/api/tests/test_digital_case_domain.py \
 		apps/api/tests/test_digital_case_source.py \
@@ -136,19 +127,17 @@ fixture-replay:
 		apps/api/tests/test_round07_fixtures.py \
 		apps/api/tests/test_technology_product_domain.py \
 		apps/api/tests/test_technology_product_source.py \
-		apps/api/tests/test_round08_resolution_domain.py \
 		apps/api/tests/test_pers08_automatic_relationships.py \
-		apps/api/tests/test_round08_evaluation.py \
 		apps/api/tests/test_ai_gateway.py \
 		apps/api/tests/test_ai_pipeline_runtime.py \
 		apps/api/tests/test_ai01_content_preparation.py \
 		apps/api/tests/test_ai01_orchestration.py \
 		apps/api/tests/test_source_profile_replay.py \
 		apps/api/tests/test_round09_feed_projection.py \
-		apps/api/tests/test_round09_projection_contract.py \
+		apps/api/tests/test_pers06_publication_boundary.py \
 		apps/api/tests/test_round10_discovery_domain.py \
 		apps/api/tests/test_round10_portal_service.py \
-		apps/api/tests/test_publication_service.py -q
+		apps/api/tests/test_pers06_evidence_gate.py -q
 	$(UV) run python scripts/evaluate_round09.py
 
 ai-content-preparation-test:
@@ -196,8 +185,7 @@ personal-source-test:
 		apps/api/tests/test_personal_source_api.py \
 		packages/contracts/tests/test_pers09_contracts.py \
 		packages/contracts/tests/test_personal_source_contracts.py \
-		apps/worker/tests/test_personal_source_probe_worker.py \
-		apps/worker/tests/test_round17_worker.py -q
+		apps/worker/tests/test_personal_source_probe_worker.py -q
 	$(PNPM) --filter @srbg/web test -- personal-sources-ui.test.ts pers09-personal-workspace-ui.test.ts
 
 personal-content-test:
@@ -217,10 +205,17 @@ personal-content-test:
 		apps/api/tests/test_pers06_evidence_gate.py \
 		apps/api/tests/test_pers06_local_evidence.py \
 		apps/api/tests/test_pers06_publication_boundary.py \
-		apps/api/tests/test_ai01_orchestration.py \
-		apps/api/tests/test_publication_service.py -q
+		apps/api/tests/test_ai01_orchestration.py -q
 	$(PNPM) --filter @srbg/web test -- ai01-content-preparation-ui.test.ts pers07-ai-signals-ui.test.ts pers08-automatic-relationships-ui.test.ts pers09-personal-workspace-ui.test.ts
 	$(UV) run python scripts/evaluate_pers07.py
+
+personal-migration-test:
+	$(COMPOSE) up --detach --wait minio redis
+	$(UV) run python scripts/run_pers10_migration_gate.py \
+		apps/api/tests/test_pers10_migration.py \
+		apps/api/tests/test_pers10_product_retirement.py \
+		tests/infrastructure/test_pers10_migration_gate.py -q
+	$(UV) run python scripts/evaluate_pers10.py
 
 quality-gate: lint typecheck test contract-test security-check
 
@@ -381,91 +376,6 @@ phase2-round14-test:
 		apps/api/tests/test_round13_projection_policy.py \
 		apps/api/tests/test_publication_rbac_integration.py -q
 	$(UV) run python scripts/audit_publication_paths.py
-
-phase2-round15-test:
-	$(COMPOSE) up --detach --wait postgres minio
-	$(UV) run python scripts/run_isolated_integration.py \
-		--migration-verifier verify_round15_migration.py -- \
-		apps/api/tests/test_round15_migration.py \
-		apps/api/tests/test_round15_source_lifecycle.py \
-		apps/api/tests/test_round15_source_api.py \
-		apps/api/tests/test_round15_source_metrics.py \
-		apps/api/tests/test_logging.py \
-		apps/api/tests/test_round15_scheduled_source_gate.py \
-		apps/api/tests/test_round15_connector_contracts.py \
-		apps/api/tests/test_round15_connector_replay.py \
-		apps/api/tests/test_round15_http_security.py \
-		apps/api/tests/test_acquisition_security.py \
-		apps/api/tests/test_upload_security.py \
-		apps/api/tests/test_pdf_security.py \
-		apps/api/tests/test_document_vault_service.py \
-		apps/api/tests/test_round15_object_store_security.py \
-		apps/api/tests/test_source_admin_api.py \
-		apps/api/tests/test_source_fixture_integration.py \
-		packages/contracts/tests \
-		tests/infrastructure/test_round15_observability.py \
-		tests/infrastructure/test_round15_delivery.py -q
-	$(PNPM) --filter @srbg/web test -- round15-source-center-ui.test.ts
-	$(COMPOSE) up --build --detach --wait web
-	$(PNPM) --filter @srbg/web exec playwright test \
-		tests/e2e/round15-source-center.spec.ts --grep-invert @a11y
-	$(PNPM) --filter @srbg/web exec playwright test \
-		 tests/e2e/round15-source-center.spec.ts --grep @a11y
-
-phase2-round16-test:
-	$(COMPOSE) up --detach --wait postgres redis minio
-	$(UV) run python scripts/run_isolated_integration.py \
-		--migration-verifier verify_round16_migration.py -- \
-		apps/api/tests/test_round16_migration.py \
-		apps/api/tests/test_round16_scheduling.py \
-		apps/api/tests/test_round16_scheduling_integration.py \
-		apps/api/tests/test_round16_failure_records.py \
-		apps/api/tests/test_round16_replay_integration.py \
-		apps/api/tests/test_round16_retention.py \
-		apps/api/tests/test_round16_operations_api.py \
-		apps/worker/tests/test_round16_worker.py \
-		tests/infrastructure/test_round16_observability.py \
-		tests/infrastructure/test_round16_delivery.py -q
-	$(PNPM) --filter @srbg/web test -- round16-operations-ui.test.ts
-
-phase2-round17-test:
-	$(COMPOSE) up --detach --wait postgres redis minio anchor-minio
-	$(COMPOSE) run --rm anchor-minio-init
-	$(UV) run python scripts/run_isolated_integration.py \
-		--migration-verifier verify_round17_migration.py -- \
-		apps/api/tests/test_round17_governance.py \
-		apps/api/tests/test_round17_governance_migration.py \
-		apps/api/tests/test_round17_flat_pilot_migration.py \
-		apps/api/tests/test_round17_keygen.py \
-		apps/api/tests/test_round17_approval_signing.py \
-		apps/api/tests/test_round17_install_approval.py \
-		apps/api/tests/test_round17_pilot_domain.py \
-		apps/api/tests/test_round17_pilot_api.py \
-		apps/api/tests/test_round17_pilot_migration.py \
-		apps/api/tests/test_round17_operations_service.py \
-		apps/api/tests/test_round17_replay_origin.py \
-		apps/api/tests/test_round16_replay_integration.py \
-		apps/api/tests/test_round15_http_security.py \
-		apps/api/tests/test_round14_event_unification.py \
-		apps/api/tests/test_round14_identity_changes.py \
-		apps/api/tests/test_round13_access_boundary.py \
-		apps/api/tests/test_round13_projection_permissions.py \
-		apps/api/tests/test_round09_publication_paths.py \
-		apps/worker/tests/test_round17_worker.py \
-		packages/contracts/tests/test_round17_contracts.py \
-		tests/infrastructure/test_round17_eval.py \
-		tests/infrastructure/test_round17_flat_eval.py \
-		tests/infrastructure/test_round17_migration_verifier.py \
-		tests/infrastructure/test_round17_observability.py \
-		tests/infrastructure/test_round17_readiness_assets.py \
-		tests/infrastructure/test_round17_delivery.py -q
-	$(PNPM) --filter @srbg/web test -- round17-pilot-ui.test.ts
-	$(UV) run python scripts/audit_publication_paths.py
-
-phase2-round17-eval:
-	$(UV) run python scripts/round17_flat_eval.py \
-		--evidence "$(ROUND17_EVIDENCE)" \
-		--reference-manifest "$(ROUND17_FLAT_REFERENCE)"
 
 observability-test:
 	$(UV) run python -m pytest tests/infrastructure/test_round11_observability.py -q

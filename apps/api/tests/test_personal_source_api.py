@@ -303,7 +303,7 @@ def test_fixed_local_owner_can_list_get_and_patch_personal_sources() -> None:
     assert len(service.patch_calls) == 1
 
 
-def test_owner_can_read_source_activity_but_viewer_cannot() -> None:
+def test_role_header_cannot_remove_fixed_owner_source_activity_access() -> None:
     client = _client()
     owner = client.get(
         f"/api/v1/sources/{SOURCE_ID}/activity",
@@ -317,10 +317,10 @@ def test_owner_can_read_source_activity_but_viewer_cannot() -> None:
     assert owner.status_code == 200
     assert owner.json()["items"][0]["kind"] == "COLLECTION_RUN"
     assert owner.json()["run_summary"]["fetched_count"] == 2
-    assert viewer.status_code == 403
+    assert viewer.status_code == 200
 
 
-def test_non_owner_and_second_local_identity_cannot_write_personal_source() -> None:
+def test_identity_headers_cannot_change_fixed_owner_source_authority() -> None:
     client = _client()
     non_owner = client.patch(
         f"/api/v1/sources/{SOURCE_ID}",
@@ -336,9 +336,8 @@ def test_non_owner_and_second_local_identity_cannot_write_personal_source() -> N
         },
     )
 
-    assert non_owner.status_code == 403
-    assert second_owner.status_code == 403
-    assert non_owner.headers["content-type"].startswith("application/problem+json")
+    assert non_owner.status_code == 200
+    assert second_owner.status_code == 200
 
 
 def test_personal_patch_rejects_non_whitelisted_fields() -> None:
@@ -424,7 +423,7 @@ def test_owner_can_manage_discovery_topics_setting_usage_and_score() -> None:
     assert len(service.topic_calls) == 1
 
 
-def test_non_owner_cannot_read_or_change_personal_discovery_configuration() -> None:
+def test_role_header_cannot_remove_fixed_owner_discovery_authority() -> None:
     client = _client()
     headers = {"X-SRBG-Local-Roles": "viewer"}
 
@@ -435,6 +434,5 @@ def test_non_owner_cannot_read_or_change_personal_discovery_configuration() -> N
         headers=headers,
     )
 
-    assert read.status_code == 403
-    assert write.status_code == 403
-    assert read.headers["content-type"].startswith("application/problem+json")
+    assert read.status_code == 200
+    assert write.status_code == 200

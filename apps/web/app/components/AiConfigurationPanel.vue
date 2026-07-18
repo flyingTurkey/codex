@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 type ProviderView = {
   code: string
@@ -10,11 +10,18 @@ type ProviderView = {
   key_configured: boolean
   runtime_status: string
   blocking_reasons: string[]
-  token_limits?: { CLASSIFY: number, EXTRACT: number }
+  token_limits?: { CLASSIFY: number, EXTRACT: number, SUMMARIZE?: number, VERIFY?: number }
   budget?: { monthly_points: number, document_points: number } | null
 }
 
-const props = defineProps<{ providers: ProviderView[] }>()
+const props = withDefaults(defineProps<{
+  providers: ProviderView[]
+  savingSecret?: boolean
+  secretSavedNonce?: number
+}>(), {
+  savingSecret: false,
+  secretSavedNonce: 0,
+})
 const emit = defineEmits<{
   activate: [provider: string, model: string]
   saveSecret: [provider: string, value: string]
@@ -26,6 +33,14 @@ const selected = computed(() =>
   props.providers.find(provider => provider.code === selectedProvider.value),
 )
 
+watch(() => props.secretSavedNonce, () => {
+  secretValue.value = ''
+})
+
+function runtimeStatusLabel(status: string): string {
+  return status === 'READY' ? '就绪（READY）' : `未就绪（${status}）`
+}
+
 function selectProvider(code: string): void {
   selectedProvider.value = code
   selectedModel.value = props.providers.find(provider => provider.code === code)?.models[0] ?? ''
@@ -33,9 +48,8 @@ function selectProvider(code: string): void {
 }
 
 function saveSecret(): void {
-  if (!secretValue.value) return
+  if (!secretValue.value || props.savingSecret) return
   emit('saveSecret', selectedProvider.value, secretValue.value)
-  secretValue.value = ''
 }
 </script>
 
@@ -57,7 +71,7 @@ function saveSecret(): void {
           @click="selectProvider(provider.code)"
         >
           <span>{{ provider.code.toUpperCase() }}</span>
-          <small>{{ provider.real_call_enabled ? provider.runtime_status : '仅 Mock' }}</small>
+          <small>{{ provider.real_call_enabled ? runtimeStatusLabel(provider.runtime_status) : '仅 Mock' }}</small>
         </button>
       </nav>
 
@@ -65,9 +79,16 @@ function saveSecret(): void {
         <dl>
           <div><dt>固定端点</dt><dd>{{ selected.base_url }}{{ selected.request_path }}</dd></div>
           <div><dt>运行能力</dt><dd>{{ selected.real_call_enabled ? '允许受控调用' : '仅 Mock' }}</dd></div>
+          <div><dt>运行状态</dt><dd class="ai-config__runtime" :data-status="selected.runtime_status">{{ runtimeStatusLabel(selected.runtime_status) }}</dd></div>
           <div><dt>Secret</dt><dd>{{ selected.key_configured ? '已配置' : '未配置' }}</dd></div>
           <div><dt>阻断原因</dt><dd>{{ selected.blocking_reasons.join('、') || '无' }}</dd></div>
-          <div v-if="selected.token_limits"><dt>Token 上限</dt><dd>分类 {{ selected.token_limits.CLASSIFY }} / 抽取 {{ selected.token_limits.EXTRACT }}</dd></div>
+          <div v-if="selected.token_limits">
+            <dt>Token 上限</dt>
+            <dd>
+              分类 {{ selected.token_limits.CLASSIFY }} / 抽取 {{ selected.token_limits.EXTRACT }} /
+              判断 {{ selected.token_limits.SUMMARIZE ?? 1500 }} / 核验 {{ selected.token_limits.VERIFY ?? 1500 }}
+            </dd>
+          </div>
           <div v-if="selected.budget"><dt>预算</dt><dd>月度 {{ selected.budget.monthly_points }} 分 / 单文档 {{ selected.budget.document_points }} 分</dd></div>
         </dl>
         <label>
@@ -79,9 +100,11 @@ function saveSecret(): void {
         <button type="button" @click="emit('activate', selected.code, selectedModel)">激活配置版本</button>
         <label>
           写入 Secret
-          <input v-model="secretValue" type="password" autocomplete="new-password" maxlength="4096">
+          <input v-model="secretValue" type="password" autocomplete="new-password" maxlength="4096" :disabled="savingSecret">
         </label>
-        <button type="button" :disabled="!secretValue" @click="saveSecret">保存 Secret</button>
+        <button data-testid="save-secret" type="button" :disabled="!secretValue || savingSecret" @click="saveSecret">
+          {{ savingSecret ? '正在保存…' : '保存 Secret' }}
+        </button>
       </form>
     </div>
   </section>
@@ -100,5 +123,6 @@ function saveSecret(): void {
 .ai-config__form dl div, .ai-config__form label { display: grid; gap: var(--spacing-1); }
 .ai-config__form dt, .ai-config__form label { color: var(--color-ink-600); font-size: var(--text-sm); }
 .ai-config__form dd { margin: 0; overflow-wrap: anywhere; color: var(--color-ink-900); }
+.ai-config__runtime[data-status='READY'] { color: var(--color-brand-700); }
 @media (max-width: 47.999rem) { .ai-config__layout { grid-template-columns: 1fr; } }
 </style>

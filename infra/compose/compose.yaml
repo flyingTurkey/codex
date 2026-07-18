@@ -15,7 +15,6 @@ x-python-environment: &python-environment
   SRBG_SEMANTIC_SEARCH_ENABLED: ${SRBG_SEMANTIC_SEARCH_ENABLED:-false}
   SRBG_SEMANTIC_SEARCH_TIMEOUT_SECONDS: ${SRBG_SEMANTIC_SEARCH_TIMEOUT_SECONDS:-0.3}
   SRBG_SOURCE_DISCOVERY_ENABLED: ${SRBG_SOURCE_DISCOVERY_ENABLED:-true}
-  SRBG_SOURCE_QUALIFICATION_ENABLED: ${SRBG_SOURCE_QUALIFICATION_ENABLED:-true}
   SRBG_BAIDU_SEARCH_ENABLED: ${SRBG_BAIDU_SEARCH_ENABLED:-false}
   SRBG_BAIDU_SEARCH_API_URL: ${SRBG_BAIDU_SEARCH_API_URL:-https://qianfan.baidubce.com/v2/ai_search}
   SRBG_BAIDU_SEARCH_API_KEY: ${SRBG_BAIDU_SEARCH_API_KEY:-}
@@ -328,15 +327,15 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  source-qualification:
+  personal-source-worker:
     build:
       context: .
       dockerfile: infra/compose/Dockerfile.python
-    hostname: source-qualification
+    hostname: personal-source-worker
     environment:
       <<: *python-environment
       SRBG_DATABASE_URL: postgresql+asyncpg://srbg_worker_login:${SRBG_WORKER_DB_PASSWORD:-srbg_worker_local_only}@postgres:5432/${POSTGRES_DB:-srbg}
-    command: ["celery", "-A", "srbg_worker.app:celery_app", "worker", "--loglevel=INFO", "--queues=qualification", "--concurrency=1", "--max-tasks-per-child=10"]
+    command: ["celery", "-A", "srbg_worker.app:celery_app", "worker", "--loglevel=INFO", "--queues=personal-source", "--concurrency=1", "--max-tasks-per-child=10"]
     read_only: true
     tmpfs:
       - /tmp:size=512m,mode=1777
@@ -425,7 +424,7 @@ services:
       dockerfile: infra/compose/Dockerfile.web
     environment:
       NUXT_INTERNAL_API_BASE: http://api:8000
-      NUXT_LOCAL_APP_ROLES: ${NUXT_LOCAL_APP_ROLES:-viewer,source_admin,reviewer}
+      NUXT_LOCAL_APP_ROLES: owner
       SRBG_ENVIRONMENT: ${SRBG_ENVIRONMENT:-demo}
       NITRO_HOST: 0.0.0.0
       NITRO_PORT: 3000

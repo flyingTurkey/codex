@@ -85,32 +85,6 @@ def test_score_override_requires_a_reason_and_preserves_raw_score() -> None:
         )
 
 
-def test_cluster_and_score_write_contracts_reject_smuggled_state() -> None:
-    request = models.ClusterDecisionRequest(
-        action="MERGE",
-        member_ids=[ITEM_ID, UUID("019b0000-0000-7000-8000-000000008003")],
-        reason="两项指向同一项目同一阶段且证据一致",
-    )
-    assert request.action == "MERGE"
-
-    with pytest.raises(ValidationError):
-        models.ClusterDecisionRequest.model_validate(
-            request.model_dump() | {"publication_status": "PUBLISHED"}
-        )
-
-    relation_candidate = models.ClusterCandidateView(
-        id=UUID("019b0000-0000-7000-8000-000000008004"),
-        kind="RELATION",
-        status="PENDING_REVIEW",
-        member_ids=[ITEM_ID, UUID("019b0000-0000-7000-8000-000000008003")],
-        relation_type="FOLLOW_UP",
-        feature_explanations=["关系类型: FOLLOW_UP"],
-        hard_conflicts=[],
-        created_at=NOW,
-    )
-    assert relation_candidate.relation_type == "FOLLOW_UP"
-
-
 def test_event_detail_supports_all_domain_event_types_with_explicit_type() -> None:
     fields = models.EventDetail.model_fields
     assert set(models.EventType) == {

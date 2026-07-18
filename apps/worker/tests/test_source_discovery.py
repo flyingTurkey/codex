@@ -2,18 +2,15 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from hashlib import sha256
-from typing import cast
 from uuid import UUID
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncEngine
 from srbg_api.acquisition.http import HttpResponse
 from srbg_api.config import Settings
-from srbg_api.source_automation.search import SearchItem, SearchQuery, SearchResult
+from srbg_api.personal_search import SearchItem, SearchQuery, SearchResult
 from srbg_worker.source_discovery import (
     QUERY_CATALOG,
     DiscoveryExecutor,
-    PostgresDiscoveryGateway,
     PublicDiscoverySeed,
     PublicSeedDiscoveryExecutor,
     RegistrationOutcome,
@@ -44,19 +41,11 @@ def _expected_evidence_ref(
 
 
 def test_target_material_fingerprint_tracks_governance_boundary_not_page_content() -> None:
-    first = _target_material_fingerprint(
-        "https://jtt.sc.gov.cn/",
-        "jtt.sc.gov.cn",
-    )
+    first = _target_material_fingerprint("https://jtt.sc.gov.cn/", "jtt.sc.gov.cn")
     repeated_after_content_change = _target_material_fingerprint(
-        "https://jtt.sc.gov.cn/",
-        "jtt.sc.gov.cn",
+        "https://jtt.sc.gov.cn/", "jtt.sc.gov.cn"
     )
-    changed_boundary = _target_material_fingerprint(
-        "https://jt.sc.gov.cn/",
-        "jt.sc.gov.cn",
-    )
-
+    changed_boundary = _target_material_fingerprint("https://jt.sc.gov.cn/", "jt.sc.gov.cn")
     assert first == repeated_after_content_change
     assert first != changed_boundary
     assert len(first) == 64
@@ -124,14 +113,11 @@ async def test_safe_probe_separates_response_evidence_from_governance_fingerprin
         transport_factory=_ProbeTransport,
         clock=_ProbeClock(),
     )
-
     target = await probe.probe("https://jtt.sc.gov.cn/notices/1")
-
     assert target.canonical_url == "https://jtt.sc.gov.cn/"
     assert len(target.response_sha256) == 64
     assert target.material_fingerprint == _target_material_fingerprint(
-        target.canonical_url,
-        target.authorization_boundary,
+        target.canonical_url, target.authorization_boundary
     )
     assert _ProbeTransport.calls == 1
 
@@ -172,13 +158,7 @@ class _Probe:
 class _Gateway:
     def __init__(self) -> None:
         self.calls: list[
-            tuple[
-                VerifiedDiscoveryTarget,
-                str,
-                tuple[str, ...],
-                tuple[str, ...],
-                str,
-            ]
+            tuple[VerifiedDiscoveryTarget, str, tuple[str, ...], tuple[str, ...], str]
         ] = []
 
     async def register_and_request(
@@ -194,9 +174,7 @@ class _Gateway:
     ) -> RegistrationOutcome:
         assert discovery_run_id == RUN_ID
         assert now == NOW
-        self.calls.append(
-            (target, discovery_channel, industries, content_domains, evidence_ref)
-        )
+        self.calls.append((target, discovery_channel, industries, content_domains, evidence_ref))
         return RegistrationOutcome(CANDIDATE_ID, QUALIFICATION_ID, created=True)
 
     async def close(self) -> None:
@@ -208,14 +186,9 @@ async def test_disabled_discovery_performs_zero_provider_probe_or_database_io() 
     provider = _Provider((SearchItem("https://jtt.sc.gov.cn/a", None),))
     probe = _Probe()
     gateway = _Gateway()
-
     outcome = await DiscoveryExecutor(
-        enabled=False,
-        provider=provider,
-        probe=probe,
-        gateway=gateway,
+        enabled=False, provider=provider, probe=probe, gateway=gateway
     ).run(query_code="HIGHWAY_SAFETY", discovery_run_id=RUN_ID, now=NOW)
-
     assert outcome.disabled is True
     assert outcome.as_task_result() == {
         "discovery_run_id": str(RUN_ID),
@@ -237,8 +210,9 @@ async def test_disabled_discovery_performs_zero_provider_probe_or_database_io() 
 
 
 @pytest.mark.asyncio
-async def test_target_is_probed_before_registration_and_classification_comes_from_query_code(
-) -> None:
+async def test_target_is_probed_before_registration_and_classification_comes_from_query_code() -> (
+    None
+):
     events: list[str] = []
 
     class OrderedProbe(_Probe):
@@ -277,16 +251,11 @@ async def test_target_is_probed_before_registration_and_classification_comes_fro
     )
     probe = OrderedProbe()
     gateway = OrderedGateway()
-
     outcome = await DiscoveryExecutor(
-        enabled=True,
-        provider=provider,
-        probe=probe,
-        gateway=gateway,
+        enabled=True, provider=provider, probe=probe, gateway=gateway
     ).run(query_code="HIGHWAY_SAFETY", discovery_run_id=RUN_ID, now=NOW)
-
     assert events == ["probe", "register"]
-    assert len(probe.calls) == 1  # institution-host deduplication happens before direct probing
+    assert len(probe.calls) == 1
     assert gateway.calls[0][1] == "BAIDU_SEARCH"
     assert gateway.calls[0][2] == ("HIGHWAY",)
     assert gateway.calls[0][3] == QUERY_CATALOG["HIGHWAY_SAFETY"].content_domains
@@ -305,12 +274,8 @@ async def test_provider_material_never_reaches_persistence_or_task_result() -> N
     provider = _Provider((SearchItem("https://jtt.sc.gov.cn/secret-path", None),))
     gateway = _Gateway()
     outcome = await DiscoveryExecutor(
-        enabled=True,
-        provider=provider,
-        probe=_Probe(),
-        gateway=gateway,
+        enabled=True, provider=provider, probe=_Probe(), gateway=gateway
     ).run(query_code="HIGHWAY_SAFETY", discovery_run_id=RUN_ID, now=NOW)
-
     result_text = repr(outcome.as_task_result())
     persisted_text = repr(gateway.calls)
     assert QUERY_CATALOG["HIGHWAY_SAFETY"].query not in result_text
@@ -345,123 +310,12 @@ async def test_per_target_failures_are_isolated_and_round_limit_is_bounded() -> 
     probe = _Probe(fail_hosts=frozenset({"bad.example.com"}))
     gateway = _Gateway()
     outcome = await DiscoveryExecutor(
-        enabled=True,
-        provider=provider,
-        probe=probe,
-        gateway=gateway,
-        max_candidates_per_query=2,
+        enabled=True, provider=provider, probe=probe, gateway=gateway, max_candidates_per_query=2
     ).run(query_code="BRIDGE_DIGITAL", discovery_run_id=RUN_ID, now=NOW)
-
     assert probe.calls == ["https://bad.example.com/a", "https://good.example.com/b"]
     assert len(gateway.calls) == 1
     assert outcome.targets_rejected == 1
     assert outcome.candidates_registered == 1
-
-
-class _ScalarResult:
-    def __init__(self, value: UUID | None) -> None:
-        self.value = value
-
-    def scalar_one_or_none(self) -> UUID | None:
-        return self.value
-
-
-class _Connection:
-    def __init__(self) -> None:
-        self.statements: list[str] = []
-        self.parameters: list[dict[str, object]] = []
-        self._results = iter(
-            (CANDIDATE_ID, QUALIFICATION_ID, CANDIDATE_ID, REQUALIFICATION_ID)
-        )
-
-    async def scalar(self, statement: object, parameters: dict[str, object]) -> UUID | None:
-        self.statements.append(str(statement))
-        self.parameters.append(parameters)
-        return next(self._results)
-
-
-class _Context:
-    def __init__(self, connection: _Connection) -> None:
-        self.connection = connection
-
-    async def __aenter__(self) -> _Connection:
-        return self.connection
-
-    async def __aexit__(self, *args: object) -> None:
-        del args
-
-
-class _Engine:
-    def __init__(self, connection: _Connection) -> None:
-        self.connection = connection
-
-    def begin(self) -> _Context:
-        return _Context(self.connection)
-
-    async def dispose(self) -> None:
-        return None
-
-
-@pytest.mark.asyncio
-async def test_postgres_gateway_is_idempotent_and_requests_qualification_after_registration(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    generated_ids = iter(
-        UUID(f"019b0000-0000-7000-8000-{value:012d}")
-        for value in range(9102, 9112)
-    )
-    monkeypatch.setattr(
-        "srbg_worker.source_discovery.uuid7",
-        lambda: next(generated_ids),
-    )
-    connection = _Connection()
-    gateway = PostgresDiscoveryGateway(cast(AsyncEngine, _Engine(connection)))
-    target = VerifiedDiscoveryTarget(
-        canonical_url="https://jtt.sc.gov.cn/",
-        authorization_boundary="jtt.sc.gov.cn",
-        response_sha256="a" * 64,
-        material_fingerprint="c" * 64,
-    )
-    evidence_ref = _expected_evidence_ref(
-        canonical_url=target.canonical_url,
-        response_sha256=target.response_sha256,
-        industries=("HIGHWAY",),
-        content_domains=("SAFETY_REGULATION",),
-    )
-
-    first = await gateway.register_and_request(
-        target,
-        discovery_channel="BAIDU_SEARCH",
-        industries=("HIGHWAY",),
-        content_domains=("SAFETY_REGULATION",),
-        evidence_ref=evidence_ref,
-        discovery_run_id=RUN_ID,
-        now=NOW,
-    )
-    second = await gateway.register_and_request(
-        target,
-        discovery_channel="BAIDU_SEARCH",
-        industries=("HIGHWAY",),
-        content_domains=("SAFETY_REGULATION",),
-        evidence_ref=evidence_ref,
-        discovery_run_id=RUN_ID,
-        now=NOW,
-    )
-
-    assert first == RegistrationOutcome(CANDIDATE_ID, QUALIFICATION_ID, created=True)
-    assert second == RegistrationOutcome(
-        CANDIDATE_ID,
-        REQUALIFICATION_ID,
-        created=False,
-    )
-    assert "register_discovered_source_candidate" in connection.statements[0]
-    assert "request_automated_source_qualification" in connection.statements[1]
-    assert "register_discovered_source_candidate" in connection.statements[2]
-    assert "request_automated_source_qualification" in connection.statements[3]
-    assert all("FROM source_candidate" not in statement for statement in connection.statements)
-    serialized_parameters = repr(connection.parameters)
-    assert "secret-path" not in serialized_parameters
-    assert QUERY_CATALOG["HIGHWAY_SAFETY"].query not in serialized_parameters
 
 
 class _SitemapAdapter:
@@ -483,19 +337,13 @@ class _SitemapAdapter:
 
 
 @pytest.mark.asyncio
-async def test_public_directory_rss_sitemap_outbound_adapter_seam_uses_same_target_gate(
-) -> None:
+async def test_public_directory_rss_sitemap_outbound_adapter_seam_uses_same_target_gate() -> None:
     adapter = _SitemapAdapter()
     probe = _Probe()
     gateway = _Gateway()
-
     outcome = await PublicSeedDiscoveryExecutor(
-        enabled=True,
-        adapter=adapter,
-        probe=probe,
-        gateway=gateway,
+        enabled=True, adapter=adapter, probe=probe, gateway=gateway
     ).run(discovery_run_id=RUN_ID, now=NOW)
-
     assert adapter.calls == [20]
     assert probe.calls == ["https://jtt.sc.gov.cn/sitemap-item"]
     assert gateway.calls[0][1] == "SITEMAP"

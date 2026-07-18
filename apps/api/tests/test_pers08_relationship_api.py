@@ -54,7 +54,7 @@ def test_fixed_local_owner_can_withdraw_an_automatic_relationship() -> None:
     assert service.call is not None and service.call[2] == LOCAL_USER_ID
 
 
-def test_non_owner_cannot_submit_relationship_corrections() -> None:
+def test_role_header_cannot_change_fixed_owner_authority() -> None:
     service = StubPublicationService()
     response = _client(service).post(
         f"/api/v1/events/{EVENT_ID}/relationship-corrections",
@@ -66,9 +66,8 @@ def test_non_owner_cannot_submit_relationship_corrections() -> None:
             "reason": "different incidents",
         },
     )
-    assert response.status_code == 403
-    assert response.headers["content-type"].startswith("application/problem+json")
-    assert service.call is None
+    assert response.status_code == 200
+    assert service.call is not None and service.call[2] == LOCAL_USER_ID
 
 
 def test_owner_correction_rejects_unknown_fields() -> None:

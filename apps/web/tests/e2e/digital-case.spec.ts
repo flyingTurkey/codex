@@ -2,7 +2,6 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 
 const itemId = '019b0000-0000-7000-8000-000000005201'
-const taskId = '019b0000-0000-7000-8000-000000005202'
 const entityId = '019b0000-0000-7000-8000-000000005203'
 const claimId = '019b0000-0000-7000-8000-000000005204'
 const evidenceId = '019b0000-0000-7000-8000-000000005205'
@@ -209,53 +208,10 @@ test('digital detail keeps accepted publisher claims linked to Event evidence', 
   await expect(page.getByText('来源属性和成熟度摘要不替代具体事实证据。')).toBeVisible()
 })
 
-test('reviewer submits digital classifications, maturity, and attribution through one decision', async ({ page }) => {
+test('digital classification approval retires to automatic personal content', async ({ page }) => {
   await page.goto('/admin/review/019b0000-0000-7000-8000-000000000001')
   await expect(page).toHaveURL(/\/sources\?migrated=legacy-source-management/)
-  return
-  const decisions: unknown[] = []
-  await page.route(`**/api/v1/admin/review-tasks/${taskId}`, (route) =>
-    route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        claims,
-        evidence,
-        digital_case: digitalCase,
-        item: { ...item, publication_revision_id: null, publication_status: 'PENDING_REVIEW', review_status: 'PENDING' },
-        task: {
-          id: taskId,
-          item_id: itemId,
-          risk_level: 'R2',
-          source_name: '蜀道集团',
-          status: 'PENDING',
-          submitted_at: '2026-07-14T04:05:00Z',
-          submitted_by: '019b0000-0000-7000-8000-000000005299',
-          title: item.title,
-        },
-      }),
-    }),
-  )
-  await page.route(`**/api/v1/admin/review-tasks/${taskId}/decisions`, async (route) => {
-    decisions.push(route.request().postDataJSON())
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({ review_task_id: taskId, status: 'APPROVED', publication_revision_id: item.publication_revision_id }),
-    })
-  })
-
-  await page.goto(`/admin/review/${taskId}`)
-  await expect(page.getByRole('heading', { name: '数字化案例结构审核' })).toBeVisible()
-  await page.getByRole('button', { name: '批准并发布' }).click()
-
-  await expect.poll(() => decisions.length).toBe(1)
-  expect(decisions[0]).toMatchObject({
-    action: 'APPROVE',
-    digital_case_patch: {
-      engineering_domains: ['BRIDGE'],
-      maturity_level: 'PILOT',
-      outcome_attributions: [{ attribution_entity_id: entityId, verification: 'CLAIMED' }],
-    },
-  })
+  await expect(page.getByRole('button', { name: '批准并发布' })).toHaveCount(0)
 })
 
 test('@a11y digital feed and detail have no axe violations', async ({ page }) => {

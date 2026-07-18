@@ -1,6 +1,7 @@
 """Private SHA-256 addressed S3-compatible object storage."""
 
 import asyncio
+import hmac
 from typing import Any
 
 import aioboto3
@@ -52,6 +53,13 @@ class S3ObjectStore:
                     error = exc.response.get("Error", {})
                     if str(error.get("Code")) in {"PreconditionFailed", "412"}:
                         head = await client.head_object(Bucket=self._bucket, Key=key)
+                        content_length = head.get("ContentLength")
+                        if content_length != len(content):
+                            raise RuntimeError("RAW_OBJECT_HASH_MISMATCH") from None
+                        existing_result = await client.get_object(Bucket=self._bucket, Key=key)
+                        existing = bytes(await existing_result["Body"].read(len(content) + 1))
+                        if not hmac.compare_digest(existing, content):
+                            raise RuntimeError("RAW_OBJECT_HASH_MISMATCH") from None
                         return str(head.get("ETag", "")).strip('"')
                     raise
 
@@ -67,12 +75,15 @@ class S3ObjectStore:
                 ):
                     raise OSError("object exceeds bounded read limit")
                 body = result["Body"]
-                content = bytes(
-                    await body.read() if max_bytes is None else await body.read(max_bytes + 1)
-                )
-                if max_bytes is not None and len(content) > max_bytes:
-                    raise OSError("object exceeds bounded read limit")
-                return content
+                if max_bytes is None:
+                    return bytes(await body.read())
+                content = bytearray()
+                while len(content) <= max_bytes:
+                    chunk = bytes(await body.read(max_bytes + 1 - len(content)))
+                    if not chunk:
+                        return bytes(content)
+                    content.extend(chunk)
+                raise OSError("object exceeds bounded read limit")
 
     async def erase(self, object_key: str) -> None:
         """Delete one content-addressed object under the bounded S3 policy."""

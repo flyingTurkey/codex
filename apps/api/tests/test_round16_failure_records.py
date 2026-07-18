@@ -4,7 +4,7 @@ import sys
 from uuid import UUID
 
 from srbg_api.logging import JsonFormatter
-from srbg_api.operations.failures import failure_record
+from srbg_api.task_failures import failure_record
 
 RUN_ID = UUID("019b1600-0000-7000-8000-000000000010")
 

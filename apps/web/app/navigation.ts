@@ -14,22 +14,13 @@ export function handleAppNavigation(
     || event.metaKey
     || event.shiftKey
     || event.altKey
-  ) {
-    return
-  }
-
+  ) return
   event.preventDefault()
   void navigate(item.to)
 }
 
 export const primaryNavigation = [
-  {
-    id: 'selected',
-    label: '今日精选',
-    to: '/',
-    icon: 'Star',
-    activePaths: ['/selected'],
-  },
+  { id: 'selected', label: '今日精选', to: '/', icon: 'Star', activePaths: ['/selected'] },
   { id: 'all', label: '全部动态', to: '/all', icon: 'List' },
   { id: 'search', label: '搜索', to: '/search', icon: 'Search' },
   { id: 'digital', label: '数字化', to: '/digital', icon: 'GraphUp' },
@@ -39,35 +30,7 @@ export const primaryNavigation = [
   { id: 'saved', label: '收藏', to: '/saved', icon: 'Bookmark' },
 ] as const satisfies readonly AppNavigationItem[]
 
-export const adminNavigation = [
-  { id: 'operations', label: '运行中心', to: '/admin/operations', icon: 'RefreshDouble' },
-  { id: 'ai', label: 'AI 模型配置', to: '/admin/ai', icon: 'Settings' },
-  { id: 'quality', label: '质量看板', to: '/admin/quality', icon: 'Reports' },
+export const personalNavigation = [
   { id: 'sources', label: '我的来源', to: '/sources', icon: 'Settings' },
-  { id: 'gold', label: '金标工作台', to: '/admin/gold', icon: 'ShieldCheck' },
+  { id: 'ai', label: 'AI 模型配置', to: '/settings/ai', icon: 'Settings' },
 ] as const satisfies readonly AppNavigationItem[]
-
-type NavigationRole
-  = | 'auditor'
-    | 'editor'
-    | 'gold_annotator'
-    | 'gold_arbitrator'
-    | 'platform_admin'
-    | 'reviewer'
-    | 'source_admin'
-    | 'viewer'
-
-const adminNavigationRoles: Readonly<Record<(typeof adminNavigation)[number]['id'], readonly NavigationRole[]>> = {
-  ai: ['platform_admin', 'auditor'],
-  operations: ['platform_admin', 'auditor'],
-  quality: ['platform_admin', 'auditor'],
-  sources: ['source_admin', 'platform_admin', 'auditor'],
-  gold: ['gold_annotator', 'gold_arbitrator', 'auditor'],
-}
-
-export function adminNavigationForRoles(roles: readonly string[]): readonly AppNavigationItem[] {
-  const roleSet = new Set(roles)
-  return adminNavigation.filter(item =>
-    adminNavigationRoles[item.id].some(role => roleSet.has(role)),
-  )
-}

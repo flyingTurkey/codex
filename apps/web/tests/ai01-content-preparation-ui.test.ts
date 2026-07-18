@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { Component } from 'vue'
 import { describe, expect, it } from 'vitest'
@@ -37,19 +37,34 @@ describe('R-AI01 model configuration and claim review UI', () => {
     if (!Panel) return
     const wrapper = mount(Panel, { props: { providers } })
     expect(wrapper.text()).toContain('https://api.deepseek.com/chat/completions')
+    expect(wrapper.text()).toContain('未就绪（MODEL_DISABLED）')
     expect(wrapper.text()).toContain('仅 Mock')
     expect(wrapper.find('input[name="base_url"]').exists()).toBe(false)
     expect(wrapper.find('input[type="password"]').attributes('autocomplete')).toBe('new-password')
   })
 
-  it('adds an admin route and hides whole-task publication for CLAIM_REVIEW', () => {
-    const navigation = readFileSync(resolve(process.cwd(), 'app/navigation.ts'), 'utf8')
-    const page = readFileSync(resolve(process.cwd(), 'app/pages/admin/ai.vue'), 'utf8')
-    const review = readFileSync(resolve(process.cwd(), 'app/pages/admin/review/[id].vue'), 'utf8')
-    expect(navigation).toContain("to: '/admin/ai'")
-    expect(page).toContain('/api/v1/admin/ai/providers')
-    expect(review).toContain("task_type === 'CLAIM_REVIEW'")
-    expect(review).toContain('v-if="!isClaimReview')
+  it('keeps a failed Secret value and clears it only after a successful save', async () => {
+    const Panel = components['../app/components/AiConfigurationPanel.vue']?.default
+    expect(Panel).toBeDefined()
+    if (!Panel) return
+    const wrapper = mount(Panel, {
+      props: { providers, secretSavedNonce: 0, savingSecret: false },
+    })
+    const input = wrapper.get('input[type="password"]')
+    await input.setValue('temporary-secret')
+    await wrapper.get('[data-testid="save-secret"]').trigger('click')
+    expect(wrapper.emitted('saveSecret')?.[0]).toEqual(['deepseek', 'temporary-secret'])
+    expect(input.element.value).toBe('temporary-secret')
+
+    await wrapper.setProps({ secretSavedNonce: 1 })
+    expect(input.element.value).toBe('')
+  })
+
+  it('moves AI configuration to personal settings and retires claim review', () => {
+    const settings = readFileSync(resolve(process.cwd(), 'app/pages/settings/ai.vue'), 'utf8')
+    expect(settings).toContain('/api/v1/settings/ai/providers')
+    expect(existsSync(resolve(process.cwd(), 'app/pages/admin/ai.vue'))).toBe(false)
+    expect(existsSync(resolve(process.cwd(), 'app/pages/admin/review/[id].vue'))).toBe(false)
   })
 
   it('uses only shared design tokens', () => {

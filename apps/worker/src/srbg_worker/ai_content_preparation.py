@@ -14,10 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncEngine
 from srbg_api.ai_pipeline.ai_judgments import EvidenceFactInput, EvidenceSnippet
-from srbg_api.ai_pipeline.content_preparation import (
-    AiContentPreparationService,
-    PreparationDocument,
-)
+from srbg_api.ai_pipeline.content_preparation import PreparationDocument
 from srbg_api.ai_pipeline.contracts import AiStep, ModelResponse
 from srbg_api.ai_pipeline.evidence_gate import (
     AiJudgment,
@@ -57,12 +54,8 @@ class PostgresAiPreparationRepository:
     async def begin(self, run_id: UUID) -> PreparationDocument:
         async with self._engine.begin() as connection:
             promoted = await connection.scalar(
-                text(_PROMOTE_PILOT_SQL),
-                {
-                    "run_id": run_id,
-                    "pilot_source": AiContentPreparationService.PILOT_SOURCE,
-                    "pilot_url": AiContentPreparationService.PILOT_URL,
-                },
+                text(_AUTHORIZE_PERSONAL_SQL),
+                {"run_id": run_id},
             )
             if promoted != run_id:
                 raise RuntimeError("AI01_SHADOW_AUTHORITY_INVALID")
@@ -264,7 +257,7 @@ class PostgresAiPreparationRepository:
                                 if step in {AiStep.SUMMARIZE, AiStep.VERIFY}
                                 else f"{step.value.lower()}-output-v1"
                             ),
-                            "model_version": "pers07-deepseek-v4-flash-v1",
+                            "model_version": _MODEL_PROFILE_VERSION,
                         },
                     )
                 )
@@ -1077,16 +1070,17 @@ async def _load_blocks(connection: Any, version_id: UUID) -> list[DocumentBlock]
 
 
 _SYSTEM_ACTOR = UUID("019b0000-0000-7000-8000-000000009002")
+_MODEL_PROFILE_VERSION = "ai01-deepseek-deepseek-v4-flash-v1"
 
-_PROMOTE_PILOT_SQL = """
+_AUTHORIZE_PERSONAL_SQL = """
 WITH candidate AS (
   SELECT run.id,run.mode,run.status
     FROM ai_pipeline_run run
     JOIN document_version version ON version.id=run.document_version_id
     JOIN document doc ON doc.id=version.document_id
     JOIN source src ON src.id=doc.source_id
-   WHERE run.id=:run_id AND src.registry_code=:pilot_source
-     AND doc.canonical_url=:pilot_url
+   WHERE run.id=:run_id
+     AND src.desired_enabled=true AND src.manual_disabled_at IS NULL
      AND (
        (run.mode='SHADOW' AND run.status IN (
          'QUEUED','PREPARING','CLASSIFYING','EXTRACTING','WAITING_CLAIM_REVIEW'
@@ -1147,11 +1141,12 @@ INSERT INTO ai_step_run(
  latency_ms,provider_request_id,error_code,created_at,cache_hit_tokens,cache_miss_tokens,
  finish_reason,attempt_kind,pricing_version,provider_cost_microusd,billing_status
 ) VALUES(
- :id,:run_id,:step,:attempt,:prompt_id,:schema_id,:model_id,:input_hash,:raw_output,
- CAST(:validated_output AS jsonb),:status,:input_tokens,:output_tokens,:cost,:latency,
+ :id,:run_id,:step,:attempt,:prompt_id,:schema_id,:model_id,:input_hash,
+ :raw_output,CAST(:validated_output AS jsonb),CAST(:status AS varchar),
+ :input_tokens,:output_tokens,:cost,:latency,
  :request_id,:error_code,now(),:cache_hit,:cache_miss,:finish_reason,:kind,
  'deepseek-v4-flash-2026-07-17',:cost,
- CASE WHEN :status='SUCCEEDED' THEN 'SETTLED' ELSE 'UNKNOWN' END
+ CASE WHEN CAST(:status AS varchar)='SUCCEEDED' THEN 'SETTLED' ELSE 'UNKNOWN' END
 )
 """
 

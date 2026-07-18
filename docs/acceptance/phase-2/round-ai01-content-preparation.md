@@ -76,3 +76,10 @@ make ai-content-preparation-test
 ## 无发布副作用
 
 代码路径和定向断言要求 Publication、Feed、检索投影、日报、publication revision 均无新增；候选的 `verification_status` 保持 `CANDIDATE`，直到不同审核人逐条作出决定。
+
+## 2026-07-17 AI 配置交互复核
+
+- `/admin/ai` 现在独立显示服务端权威 `runtime_status`；当前真实页面显示 DeepSeek 为“就绪（READY）”、Secret“已配置”、阻断原因“无”。页面不会读取或回显 Secret 内容。
+- Secret 保存成功后显示可关闭的“配置成功”提示并在刷新权威状态后清空输入；保存失败时显示错误提示并保留输入，避免无反馈和重复填写。配置版本激活同样提供成功或失败反馈。
+- 定向 Vitest 110 项通过；AI 管理页 Playwright 4 项通过，覆盖成功、失败、固定端点和 axe。真实浏览器桌面与 390×844 移动视口均确认“运行状态”可见，提供方切换后状态正确恢复，控制台无 error/warn。
+- 此交互修复不调用 DeepSeek、不生成 Claim/摘要、不改变来源审批或 Publication 边界，也不改变本记录中真实 `WAITING_CLAIM_REVIEW` 资格结论。

@@ -25,7 +25,6 @@ export default defineNuxtConfig({
   },
   runtimeConfig: {
     internalApiBase: 'http://api:8000',
-    localAppRoles: 'viewer,source_admin,reviewer',
   },
   typescript: {
     strict: true,

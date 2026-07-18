@@ -17,7 +17,6 @@ from srbg_contracts import (
     FingerprintResponse,
     ItemDetail,
     SearchContext,
-    UserRole,
 )
 
 from srbg_api.auth import Principal
@@ -298,9 +297,7 @@ class PortalApplicationService:
 
     @staticmethod
     def _include_draft(principal: Principal) -> bool:
-        return not principal.roles.isdisjoint(
-            {UserRole.REVIEWER, UserRole.PLATFORM_ADMIN, UserRole.AUDITOR}
-        )
+        return principal.local_identity
 
     async def get_daily(self, *, report_date: date | None, principal: Principal) -> DailyReport:
         projection_daily = getattr(self._intelligence, "get_daily_report", None)

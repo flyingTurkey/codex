@@ -9,7 +9,6 @@ from uuid import UUID
 from celery import Celery
 from celery.signals import task_failure
 from redis.asyncio import Redis, from_url
-from sqlalchemy.ext.asyncio import AsyncEngine
 from srbg_api.ai_pipeline.ai_judgments import (
     AiJudgmentResultType,
     SummarizeOutput,
@@ -27,7 +26,7 @@ from srbg_api.ai_pipeline.gateway import ModelOutputRejected, validate_step_outp
 from srbg_api.ai_pipeline.preparation import PreparedDocumentInput, prepare_document_input
 from srbg_api.ai_pipeline.runtime import AttemptKind
 from srbg_api.ai_pipeline.security import PromptInjectionScanner
-from srbg_api.config import Settings, get_settings
+from srbg_api.config import get_settings
 from srbg_api.database import create_database_engine, create_publication_engine
 from srbg_api.discovery.projections import PostgresDiscoveryProjectionWriter
 from srbg_api.document_vault.storage import S3ObjectStore
@@ -38,33 +37,24 @@ from srbg_api.observability import (
     PERSONAL_AUTO_ENABLE_RESULTS,
     PERSONAL_DISCOVERY_RESULTS,
     PERSONAL_SOURCE_PROBE_QUEUE,
-    REPLAY_RESULTS,
     SOURCE_PROFILE_MODEL_ATTEMPTS,
     SOURCE_PROFILE_QUEUE,
     SOURCE_PROFILE_RUNS,
 )
-from srbg_api.operations.failures import FailureRecord, failure_record, persist_failure
-from srbg_api.operations.replays import (
-    ClaimedReplay,
-    claim_replay,
-    execute_source_fetch_replay,
-    finish_replay,
-    prepare_task_redelivery,
-)
 from srbg_api.pdf_processing.ocr import TesseractOcrAdapter
 from srbg_api.pdf_processing.parser import PdfDocumentParser
+from srbg_api.personal_search import (
+    BAIDU_SEARCH_API_URL,
+    BaiduSearchProvider,
+    PinnedBaiduJsonTransport,
+    PostgresMonthlyBudgetLedger,
+)
 from srbg_api.publication.gate import PublicationGate
 from srbg_api.publication.repository import PostgresPublicationRepository
 from srbg_api.publication.service import PublicationService
 from srbg_api.safety_regulations.runner import run_scheduled_mem_discovery
 from srbg_api.scheduling.domain import build_fetch_message
 from srbg_api.scheduling.service import PostgresSchedulingService
-from srbg_api.source_automation.search import (
-    BAIDU_SEARCH_API_URL,
-    BaiduSearchProvider,
-    PinnedBaiduJsonTransport,
-    PostgresMonthlyBudgetLedger,
-)
 from srbg_api.source_profile_ai import build_profile_request
 from srbg_api.source_profiles import (
     ProfileEvidence,
@@ -105,15 +95,6 @@ from srbg_worker.source_profile import (
     ProfileBinding,
     prepare_profile,
 )
-from srbg_worker.source_qualification import (
-    ActivationOutboxExecutor,
-    CanonicalTargetProvider,
-    DisabledTargetProbe,
-    PostgresActivationOutboxGateway,
-    PostgresQualificationGateway,
-    QualificationExecutor,
-    ResilientTargetProbe,
-)
 from srbg_worker.source_runtime import (
     LiveRuntimeTransport,
     PostgresRuntimeGateway,
@@ -140,12 +121,12 @@ celery_app.conf.update(
         "dispatch-personal-source-probes": {
             "task": "srbg.personal_source.probe",
             "schedule": 5.0,
-            "options": {"queue": "qualification"},
+            "options": {"queue": "personal-source"},
         },
         "dispatch-source-profiles": {
             "task": "srbg.source_profile.run",
             "schedule": 10.0,
-            "options": {"queue": "qualification"},
+            "options": {"queue": "personal-source"},
         },
         "dispatch-due-source-schedules": {
             "task": "srbg.schedules.dispatch",
@@ -161,25 +142,10 @@ celery_app.conf.update(
             "schedule": 5.0,
             "options": {"queue": "publisher"},
         },
-        "execute-priority-replays": {
-            "task": "srbg.operations.replay",
-            "schedule": 5.0,
-            "options": {"queue": "publisher", "priority": 9},
-        },
         "anchor-audit-chain": {
             "task": "srbg.audit.anchor",
             "schedule": 86400.0,
             "options": {"queue": "publisher"},
-        },
-        "dispatch-source-activation-outbox": {
-            "task": "srbg.sources.activation_outbox",
-            "schedule": 5.0,
-            "options": {"queue": "celery"},
-        },
-        "dispatch-pending-source-qualifications": {
-            "task": "srbg.sources.qualify",
-            "schedule": 5.0,
-            "options": {"queue": "qualification"},
         },
         "dispatch-automated-source-discovery": {
             "task": "srbg.sources.discovery.dispatch",
@@ -196,20 +162,19 @@ celery_app.conf.update(
         "srbg.safety_regulations.discover": {"queue": "parser"},
         "srbg.schedules.dispatch": {"queue": "celery"},
         "srbg.source.fetch": {"queue": "parser"},
-        "srbg.sources.qualify": {"queue": "qualification"},
-        "srbg.personal_source.probe": {"queue": "qualification"},
-        "srbg.source_profile.run": {"queue": "qualification"},
-        "srbg.source_profile.result": {"queue": "qualification"},
-        "srbg.sources.activation_outbox": {"queue": "celery"},
+        "srbg.personal_source.probe": {"queue": "personal-source"},
+        "srbg.source_profile.run": {"queue": "personal-source"},
+        "srbg.source_profile.result": {"queue": "personal-source"},
         "srbg.sources.discovery.dispatch": {"queue": "celery"},
         "srbg.sources.discovery.query": {"queue": "discovery"},
         "srbg.sources.discovery.personal_cycle": {"queue": "discovery"},
         "srbg.source_content.outbox": {"queue": "parser"},
         "srbg.ai_content.start": {"queue": "parser"},
         "srbg.ai_content.result": {"queue": "parser"},
+        "srbg.ai.generate": {"queue": "ai"},
+        "srbg.ai.generate_attempt": {"queue": "ai"},
         "srbg.publication.outbox": {"queue": "publisher"},
         "srbg.publication.projections": {"queue": "publisher"},
-        "srbg.operations.replay": {"queue": "publisher"},
         "srbg.audit.anchor": {"queue": "publisher"},
     },
 )
@@ -227,26 +192,11 @@ def record_task_failure(
     if task_id is None or exception is None:
         return
     name = str(getattr(sender, "name", "unknown"))
-    record = failure_record(
-        task_name=name,
-        task_id=task_id,
-        args=args or (),
-        kwargs=kwargs or {},
-        exception=exception,
+    logger.error(
+        "personal_task_failed",
+        extra={"task_name": name[:120], "task_id": task_id[:80]},
+        exc_info=exception,
     )
-    try:
-        asyncio.run(_persist_task_failure(record))
-    except Exception:
-        logger.warning("failed_task_recording_failed", extra={"task_kind": record.task_kind})
-        return
-
-
-async def _persist_task_failure(record: FailureRecord) -> None:
-    engine = create_database_engine(settings)
-    try:
-        await persist_failure(engine, record)
-    finally:
-        await engine.dispose()
 
 
 @celery_app.task(name="srbg.system.health")  # type: ignore[untyped-decorator]
@@ -308,16 +258,6 @@ def handle_ai_content_result(
     )
 
 
-@celery_app.task(name="srbg.sources.qualify")  # type: ignore[untyped-decorator]
-def execute_source_qualification(
-    *,
-    qualification_run_id: str | None = None,
-) -> dict[str, object]:
-    if qualification_run_id is None:
-        return asyncio.run(_dispatch_pending_source_qualifications())
-    return asyncio.run(_execute_source_qualification(UUID(qualification_run_id)))
-
-
 @celery_app.task(name="srbg.personal_source.probe")  # type: ignore[untyped-decorator]
 def execute_personal_source_probe(*, probe_run_id: str | None = None) -> dict[str, object]:
     return asyncio.run(
@@ -354,18 +294,6 @@ def handle_source_profile_result(
             network_retries=network_retries,
             repair_used=repair_used,
             reservation_id=UUID(reservation_id),
-        )
-    )
-
-
-@celery_app.task(name="srbg.sources.activation_outbox")  # type: ignore[untyped-decorator]
-def process_source_activation_outbox(
-    *,
-    outbox_id: str | None = None,
-) -> dict[str, object]:
-    return asyncio.run(
-        _drain_source_activation_outbox(
-            None if outbox_id is None else UUID(outbox_id),
         )
     )
 
@@ -887,10 +815,6 @@ async def _prepare_ai_inputs(
     run_id: UUID,
 ) -> tuple[PreparationDocument, PreparedDocumentInput, PreparedDocumentInput]:
     document = await repository.begin(run_id)
-    if not AiContentPreparationService.is_pilot_document(
-        document.source_code, document.canonical_url
-    ):
-        raise PermissionError("AI01_PILOT_SCOPE_DENIED")
     return (
         document,
         prepare_document_input(
@@ -992,40 +916,6 @@ def _safe_ai_error_code(error: Exception) -> str:
     return type(error).__name__.upper()[:80]
 
 
-async def _execute_source_qualification(
-    qualification_run_id: UUID,
-) -> dict[str, object]:
-    if not settings.source_qualification_enabled:
-        return {
-            "qualification_run_id": str(qualification_run_id),
-            "status": "DISABLED",
-            "acquired": False,
-            "target_evidence_count": 0,
-            "disabled": True,
-        }
-    result = await QualificationExecutor(
-        gateway=PostgresQualificationGateway(settings),
-        provider=CanonicalTargetProvider(),
-        target_probe=_build_qualification_target_probe(settings),
-    ).run(
-        qualification_run_id=qualification_run_id,
-    )
-    return {
-        "qualification_run_id": str(result.qualification_run_id),
-        "status": result.status,
-        "acquired": result.acquired,
-        "target_evidence_count": result.target_evidence_count,
-    }
-
-
-def _build_qualification_target_probe(
-    config: Settings,
-) -> DisabledTargetProbe | ResilientTargetProbe:
-    if not config.source_qualification_enabled:
-        return DisabledTargetProbe()
-    return ResilientTargetProbe(config)
-
-
 async def _dispatch_or_execute_personal_source_probe(
     probe_run_id: UUID | None,
 ) -> dict[str, object]:
@@ -1039,7 +929,7 @@ async def _dispatch_or_execute_personal_source_probe(
                 celery_app.send_task(
                     "srbg.personal_source.probe",
                     kwargs={"probe_run_id": str(pending_id)},
-                    queue="qualification",
+                    queue="personal-source",
                 )
             return {"dispatched": len(pending_ids)}
         outcome = await PersonalProbeExecutor(
@@ -1064,7 +954,7 @@ async def _dispatch_or_start_source_profile(
                 celery_app.send_task(
                     "srbg.source_profile.run",
                     kwargs={"profile_run_id": str(pending_id)},
-                    queue="qualification",
+                    queue="personal-source",
                 )
             return {"dispatched": len(pending)}
         binding = await gateway.acquire(profile_run_id)
@@ -1317,58 +1207,6 @@ def _deserialize_prepared_profile(payload: dict[str, object]) -> PreparedProfile
     return PreparedProfile(binding, rule_input, str(payload["input_sha256"]))
 
 
-async def _dispatch_pending_source_qualifications() -> dict[str, object]:
-    if not settings.source_qualification_enabled:
-        return {"disabled": True, "dispatched": 0}
-    gateway = PostgresQualificationGateway(settings)
-    try:
-        pending_ids = await gateway.pending_ids(limit=50)
-        for pending_id in pending_ids:
-            celery_app.send_task(
-                "srbg.sources.qualify",
-                kwargs={"qualification_run_id": str(pending_id)},
-                queue="qualification",
-            )
-        return {"dispatched": len(pending_ids)}
-    finally:
-        await gateway.close()
-
-
-async def _drain_source_activation_outbox(
-    outbox_id: UUID | None,
-) -> dict[str, object]:
-    gateway = PostgresActivationOutboxGateway(settings)
-    try:
-        if outbox_id is None:
-            pending_ids = await gateway.pending_ids(limit=50)
-            for pending_id in pending_ids:
-                celery_app.send_task(
-                    "srbg.sources.activation_outbox",
-                    kwargs={"outbox_id": str(pending_id)},
-                )
-            return {"dispatched": len(pending_ids)}
-
-        async def dispatch_source_fetch(source_id: UUID, run_id: UUID) -> None:
-            celery_app.send_task(
-                "srbg.source.fetch",
-                kwargs={"source_id": str(source_id), "run_id": str(run_id)},
-            )
-
-        outcome = await ActivationOutboxExecutor(
-            gateway=gateway,
-            dispatch_source_fetch=dispatch_source_fetch,
-        ).run(outbox_id)
-        return {
-            "outbox_id": str(outcome.outbox_id),
-            "source_id": None if outcome.source_id is None else str(outcome.source_id),
-            "fetch_run_id": (None if outcome.fetch_run_id is None else str(outcome.fetch_run_id)),
-            "status": outcome.status,
-            "dispatched": outcome.dispatched,
-        }
-    finally:
-        await gateway.close()
-
-
 @celery_app.task(name="srbg.publication.outbox")  # type: ignore[untyped-decorator]
 def publish_version_lifecycle_events() -> dict[str, int]:
     return asyncio.run(_drain_publication_outbox())
@@ -1377,11 +1215,6 @@ def publish_version_lifecycle_events() -> dict[str, int]:
 @celery_app.task(name="srbg.publication.projections")  # type: ignore[untyped-decorator]
 def apply_publication_projections() -> dict[str, int]:
     return asyncio.run(_drain_publication_projections())
-
-
-@celery_app.task(name="srbg.operations.replay")  # type: ignore[untyped-decorator]
-def execute_priority_replay() -> dict[str, object]:
-    return asyncio.run(_execute_priority_replay())
 
 
 @celery_app.task(name="srbg.audit.anchor")  # type: ignore[untyped-decorator]
@@ -1401,82 +1234,6 @@ async def _anchor_audit_chain() -> dict[str, object]:
         await engine.dispose()
 
 
-async def _execute_priority_replay() -> dict[str, object]:
-    engine = create_database_engine(settings)
-    replay = await claim_replay(engine)
-    if replay is None:
-        await engine.dispose()
-        return {"processed": 0}
-    succeeded = False
-    outcome_reason: str | None = None
-    try:
-        await _execute_replay_kind(replay, engine)
-        succeeded = True
-        return {"processed": 1, "status": "SUCCEEDED", "kind": replay.task_kind}
-    except Exception as error:
-        outcome_reason = type(error).__name__.upper()[:80]
-        raise
-    finally:
-        await finish_replay(
-            engine,
-            replay,
-            succeeded=succeeded,
-            outcome_reason=outcome_reason,
-        )
-        metric_kind = (
-            replay.task_kind
-            if replay.task_kind
-            in {
-                "SOURCE_FETCH",
-                "SOURCE_QUALIFICATION",
-                "SOURCE_ACTIVATION_OUTBOX",
-                "SOURCE_CONTENT_OUTBOX",
-                "PARSER",
-                "AI",
-                "PUBLICATION_OUTBOX",
-                "PROJECTION",
-            }
-            else "UNKNOWN"
-        )
-        REPLAY_RESULTS.labels(
-            kind=metric_kind,
-            outcome="SUCCEEDED" if succeeded else "FAILED",
-        ).inc()
-        await engine.dispose()
-
-
-async def _execute_replay_kind(replay: ClaimedReplay, engine: AsyncEngine) -> None:
-    if replay.task_kind in {
-        "SOURCE_QUALIFICATION",
-        "SOURCE_ACTIVATION_OUTBOX",
-        "SOURCE_CONTENT_OUTBOX",
-    }:
-        redelivery = await prepare_task_redelivery(engine, replay)
-        if redelivery is not None:
-            celery_app.send_task(
-                redelivery.task_name,
-                kwargs=redelivery.task_kwargs(),
-            )
-        return
-    if replay.task_kind == "SOURCE_FETCH":
-        await execute_source_fetch_replay(
-            engine,
-            replay,
-            S3ObjectStore(settings),
-            max_bytes=settings.fixture_max_bytes,
-        )
-        return
-    if replay.task_kind == "PUBLICATION_OUTBOX":
-        await _drain_publication_outbox()
-        return
-    if replay.task_kind == "PROJECTION":
-        await _drain_publication_projections()
-        return
-    raise RuntimeError(
-        f"replay kind requires a dedicated reconstruction adapter: {replay.task_kind}"
-    )
-
-
 async def _drain_publication_outbox() -> dict[str, int]:
     policy_root = Path("docs/codex-kit/assets/validation")
     service = PublicationService(
@@ -1490,9 +1247,6 @@ async def _drain_publication_outbox() -> dict[str, int]:
     try:
         while processed < 50:
             if await service.process_personal_content_once():
-                processed += 1
-                continue
-            if await service.process_outbox_once():
                 processed += 1
                 continue
             break

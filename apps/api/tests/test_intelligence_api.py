@@ -6,15 +6,11 @@ from fastapi.testclient import TestClient
 from srbg_api.main import create_app
 from srbg_api.safety_regulations.query import InvalidFeedCursor, _decode_cursor, _encode_cursor
 from srbg_contracts import (
-    ClusterCandidateView,
     EventSummary,
     FeedNotice,
     FeedPage,
     HotTopicPage,
     ItemDetail,
-    ReviewDecisionResponse,
-    ReviewTaskDetail,
-    ReviewTaskSummary,
     SourceComparison,
 )
 
@@ -22,6 +18,9 @@ ITEM_ID = UUID("019b0000-0000-7000-8000-000000006001")
 TASK_ID = UUID("019b0000-0000-7000-8000-000000006002")
 REVIEWER_ID = UUID("019b0000-0000-7000-8000-000000006003")
 NOW = datetime(2026, 7, 14, 2, 0, tzinfo=UTC)
+ClusterCandidateView = dict
+ReviewTaskSummary = dict
+ReviewDecisionResponse = dict
 
 
 def test_malformed_base64_cursor_is_rejected_as_an_invalid_feed_cursor() -> None:
@@ -111,7 +110,7 @@ class StubQueryService:
 
     async def list_cluster_candidates(
         self, *, kind: str, status: str
-    ) -> list[ClusterCandidateView]:
+    ) -> list[object]:
         assert kind == "DUPLICATE"
         assert status == "PENDING_REVIEW"
         return [
@@ -127,7 +126,7 @@ class StubQueryService:
             )
         ]
 
-    async def list_review_tasks(self) -> list[ReviewTaskSummary]:
+    async def list_review_tasks(self) -> list[object]:
         return [
             ReviewTaskSummary(
                 id=TASK_ID,
@@ -141,7 +140,7 @@ class StubQueryService:
             )
         ]
 
-    async def get_review_task(self, task_id: UUID) -> ReviewTaskDetail:
+    async def get_review_task(self, task_id: UUID) -> object:
         assert task_id == TASK_ID
         raise NotImplementedError
 
@@ -161,7 +160,7 @@ class StubPublicationService:
         reason: str,
         reviewer_id: UUID,
         digital_case_patch: object | None = None,
-    ) -> ReviewDecisionResponse:
+    ) -> object:
         assert review_task_id == TASK_ID
         assert action == "APPROVE"
         assert reason
@@ -244,7 +243,7 @@ def test_viewer_feed_and_detail_receive_only_r3_whitelist() -> None:
     assert "evidence" not in detail.json()
 
 
-def test_viewer_cannot_approve_and_request_cannot_smuggle_publication_state() -> None:
+def test_legacy_review_decision_api_is_unavailable() -> None:
     client, _ = _client()
     payload = {"action": "APPROVE", "reason": "looks good"}
 
@@ -259,11 +258,11 @@ def test_viewer_cannot_approve_and_request_cannot_smuggle_publication_state() ->
         json=payload | {"publication_status": "PUBLISHED"},
     )
 
-    assert denied.status_code == 403
-    assert smuggled.status_code == 422
+    assert denied.status_code == 404
+    assert smuggled.status_code == 404
 
 
-def test_hot_topics_are_readable_but_cluster_and_score_writes_are_reviewer_only() -> None:
+def test_hot_topics_remain_readable_but_legacy_governance_writes_are_unavailable() -> None:
     client, publication = _client()
     viewer = {"X-SRBG-Local-Roles": "viewer"}
     reviewer = {
@@ -313,16 +312,16 @@ def test_hot_topics_are_readable_but_cluster_and_score_writes_are_reviewer_only(
 
     assert hot.status_code == 200
     assert hot.json()["auto_merge_enabled"] is False
-    assert denied.status_code == 403
-    assert queue.status_code == 200
-    assert decided.status_code == 409
-    assert overridden.status_code == 204
-    assert smuggled.status_code == 422
+    assert denied.status_code == 404
+    assert queue.status_code == 404
+    assert decided.status_code == 404
+    assert overridden.status_code == 404
+    assert smuggled.status_code == 404
     assert publication.cluster_action is None
-    assert publication.score_override == ("IMPACT", 70)
+    assert publication.score_override is None
 
 
-def test_reviewer_identity_is_server_parsed_and_passed_to_publication_service() -> None:
+def test_legacy_reviewer_identity_endpoint_is_unavailable() -> None:
     client, publication = _client()
 
     response = client.post(
@@ -334,8 +333,8 @@ def test_reviewer_identity_is_server_parsed_and_passed_to_publication_service() 
         json={"action": "APPROVE", "reason": "evidence matches"},
     )
 
-    assert response.status_code == 200
-    assert publication.reviewer_id == REVIEWER_ID
+    assert response.status_code == 404
+    assert publication.reviewer_id is None
 
 
 def test_digital_feed_filters_are_forwarded_to_the_shared_query_service() -> None:
@@ -421,7 +420,7 @@ def test_product_filters_are_forwarded_to_the_unified_feed_service() -> None:
     assert query.feed_arguments["deployment_mode"] == "EDGE"
 
 
-def test_reviewer_can_submit_a_structured_digital_case_patch() -> None:
+def test_legacy_digital_case_review_patch_is_unavailable() -> None:
     client, publication = _client()
     patch = {
         "engineering_domains": ["BRIDGE"],
@@ -439,12 +438,11 @@ def test_reviewer_can_submit_a_structured_digital_case_patch() -> None:
         json={"action": "APPROVE", "reason": "evidence matches", "digital_case_patch": patch},
     )
 
-    assert response.status_code == 200
-    assert publication.digital_case_patch is not None
-    assert publication.digital_case_patch.maturity_level == "SINGLE_PROJECT_PRODUCTION"
+    assert response.status_code == 404
+    assert publication.digital_case_patch is None
 
 
-def test_product_normalization_entry_is_reviewer_only_and_frozen_by_pers08() -> None:
+def test_product_normalization_review_api_is_retired() -> None:
     client, publication = _client()
     payload = {"action": "KEEP_DISTINCT", "reason": "型号不同，保持独立产品记录"}  # noqa: RUF001
     denied = client.post(
@@ -461,6 +459,6 @@ def test_product_normalization_entry_is_reviewer_only_and_frozen_by_pers08() -> 
         json=payload,
     )
 
-    assert denied.status_code == 403
-    assert accepted.status_code == 409
+    assert denied.status_code == 404
+    assert accepted.status_code == 404
     assert publication.product_normalization_action is None

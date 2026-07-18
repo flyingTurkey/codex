@@ -134,6 +134,7 @@ function handleMobileNavigation(item: AppNavigationItem, event: MouseEvent): voi
   position: sticky;
   top: 0;
   height: 100dvh;
+  overflow-y: auto;
 }
 
 .srbg-app-shell__main {

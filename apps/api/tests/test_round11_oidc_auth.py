@@ -1,107 +1,25 @@
-from datetime import UTC, datetime, timedelta
-from uuid import UUID
-
-import jwt
-import pytest
-from cryptography.hazmat.primitives.asymmetric import rsa
-from jwt.algorithms import RSAAlgorithm
-from srbg_api.auth import decode_oidc_token
-from srbg_api.config import Settings
-from srbg_contracts import UserRole
+from fastapi.testclient import TestClient
+from srbg_api.auth import LOCAL_USER_ID
+from srbg_api.main import create_app
 
 
-def test_oidc_token_requires_approved_audience_issuer_roles_and_uuid7() -> None:
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    public_jwk = RSAAlgorithm.to_jwk(key.public_key(), as_dict=True)
-    public_jwk.update({'kid': 'round11-key', 'use': 'sig', 'alg': 'RS256'})
-    now = datetime.now(UTC)
-    user_id = UUID('019b0000-0000-7000-8000-000000000011')
-    token = jwt.encode(
-        {
-            'iss': 'https://id.example.test',
-            'aud': 'srbg-platform',
-            'exp': now + timedelta(minutes=5),
-            'nbf': now - timedelta(seconds=1),
-            'iat': now,
-            'sub': 'leo-subject',
-            'srbg_user_id': str(user_id),
-            'name': '内测用户',
-            'roles': ['viewer', 'platform_admin'],
+def test_personal_identity_ignores_forged_remote_and_role_headers() -> None:
+    client = TestClient(create_app(checkers={}))
+    response = client.get(
+        "/api/v1/me",
+        headers={
+            "Authorization": "Bearer attacker-controlled-token",
+            "X-SRBG-Local-Roles": "platform_admin,reviewer",
+            "X-SRBG-Local-User-ID": "019b0000-0000-7000-8000-000000000011",
         },
-        key,
-        algorithm='RS256',
-        headers={'kid': 'round11-key'},
     )
-    settings = Settings(
-        environment='test',
-        oidc_issuer='https://id.example.test',
-        oidc_audience='srbg-platform',
-        oidc_jwks_url='https://id.example.test/.well-known/jwks.json',
-    )
-    principal = decode_oidc_token(token, {'keys': [public_jwk]}, settings)
-    assert principal.user_id == user_id
-    assert principal.roles == frozenset({UserRole.VIEWER, UserRole.PLATFORM_ADMIN})
-    assert principal.local_identity is False
-    assert principal.oidc_issuer == 'https://id.example.test'
-    assert principal.oidc_subject == 'leo-subject'
+
+    assert response.status_code == 200
+    assert response.json()["user_id"] == str(LOCAL_USER_ID)
+    assert response.json()["roles"] == ["owner"]
 
 
-@pytest.mark.parametrize(
-    ("claim", "value"),
-    [
-        ("iss", "https://wrong.example.test"),
-        ("aud", "wrong-audience"),
-        ("srbg_user_id", "019b0000-0000-6000-8000-000000000011"),
-        ("roles", ["unknown-role"]),
-    ],
-)
-def test_oidc_rejects_unapproved_identity_claims(claim: str, value: object) -> None:
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    public_jwk = RSAAlgorithm.to_jwk(key.public_key(), as_dict=True)
-    public_jwk.update({"kid": "round11-key", "use": "sig", "alg": "RS256"})
-    now = datetime.now(UTC)
-    claims: dict[str, object] = {
-        "iss": "https://id.example.test",
-        "aud": "srbg-platform",
-        "exp": now + timedelta(minutes=5),
-        "iat": now,
-        "srbg_user_id": "019b0000-0000-7000-8000-000000000011",
-        "roles": ["viewer"],
-    }
-    claims[claim] = value
-    token = jwt.encode(
-        claims,
-        key,
-        algorithm="RS256",
-        headers={"kid": "round11-key"},
-    )
-    settings = Settings(
-        environment="test",
-        oidc_issuer="https://id.example.test",
-        oidc_audience="srbg-platform",
-        oidc_jwks_url="https://id.example.test/.well-known/jwks.json",
-    )
-    with pytest.raises((ValueError, jwt.PyJWTError)):
-        decode_oidc_token(token, {"keys": [public_jwk]}, settings)
-
-
-def test_oidc_rejects_unknown_key_and_non_rs256_algorithm() -> None:
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    now = datetime.now(UTC)
-    claims = {
-        "iss": "https://id.example.test",
-        "aud": "srbg-platform",
-        "exp": now + timedelta(minutes=5),
-        "iat": now,
-        "srbg_user_id": "019b0000-0000-7000-8000-000000000011",
-        "roles": ["viewer"],
-    }
-    token = jwt.encode(claims, key, algorithm="RS256", headers={"kid": "missing"})
-    settings = Settings(
-        environment="test",
-        oidc_issuer="https://id.example.test",
-        oidc_audience="srbg-platform",
-        oidc_jwks_url="https://id.example.test/.well-known/jwks.json",
-    )
-    with pytest.raises(ValueError, match="no approved signing key"):
-        decode_oidc_token(token, {"keys": []}, settings)
+def test_personal_openapi_has_no_enterprise_authentication_surface() -> None:
+    document = create_app(checkers={}).openapi()
+    assert document.get("components", {}).get("securitySchemes", {}) == {}
+    assert not any(path.startswith("/api/v1/admin") for path in document["paths"])

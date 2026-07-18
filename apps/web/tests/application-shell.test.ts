@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 
 const appRoot = resolve(process.cwd(), 'app')
 const navigationModules = import.meta.glob<{
-  adminNavigation: readonly { label: string }[]
+  personalNavigation: readonly { label: string; to: string }[]
   handleAppNavigation: (
     item: { to: string },
     event: MouseEvent,
@@ -50,7 +50,8 @@ describe('application shell contract', () => {
     expect(navigation, 'navigation.ts should be importable').toBeDefined()
     if (!navigation) return
 
-    const { adminNavigation, primaryNavigation } = navigation
+    const { personalNavigation, primaryNavigation } = navigation
+    expect(personalNavigation.map(item => item.to)).toEqual(['/sources', '/settings/ai'])
     expect(primaryNavigation.map((item) => [item.label, item.to])).toEqual([
       ['今日精选', '/'],
       ['全部动态', '/all'],
@@ -62,21 +63,11 @@ describe('application shell contract', () => {
       ['收藏', '/saved'],
     ])
     expect(primaryNavigation[0]?.activePaths).toEqual(['/selected'])
-    expect(adminNavigation.map((item) => item.label)).toEqual([
-      '运行中心',
-      'AI 模型配置',
-      '质量看板',
-      '我的来源',
-      '金标工作台',
-    ])
-    expect(adminNavigation.find(item => item.id === 'sources')?.to).toBe('/sources')
-
-    const layoutSource = readAppFile('layouts/default.vue')
-    expect(layoutSource.match(/<AppShell(?:\s|>)/g)).toHaveLength(1)
-    expect(layoutSource).toContain('adminNavigationForRoles')
-    expect(layoutSource).toContain('visibleAdminNavigation')
-    expect(layoutSource).toContain(':show-admin="showAdmin"')
-    expect(layoutSource).toContain('@navigate="handleNavigation"')
+    const personalLayout = readAppFile('layouts/default.vue')
+    expect(personalLayout).toContain('personalNavigation')
+    expect(personalLayout).toContain(':show-admin="true"')
+    expect(personalLayout.match(/<AppShell(?:\s|>)/g)).toHaveLength(1)
+    expect(personalLayout).toContain('@navigate="handleNavigation"')
   })
 
   it('uses client routing for an unmodified primary-button navigation event', () => {

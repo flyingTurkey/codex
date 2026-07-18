@@ -99,7 +99,6 @@ def test_round10_contracts_are_in_deterministic_schema_export() -> None:
         "collection-create-request.schema.json",
         "collection-patch-request.schema.json",
         "collection-summary.schema.json",
-        "daily-draft-request.schema.json",
         "daily-report.schema.json",
         "fingerprint-response.schema.json",
         "save-item-request.schema.json",

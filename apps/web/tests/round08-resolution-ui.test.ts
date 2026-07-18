@@ -1,6 +1,6 @@
 import { mount } from '@vue/test-utils'
 import type { ItemSummary } from '@srbg/contracts'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { Component } from 'vue'
 import { describe, expect, it } from 'vitest'
@@ -59,20 +59,16 @@ describe('round 08 explainable resolution UI', () => {
     expect(wrapper.get('[data-testid="score-breakdown"]').text()).toContain('scoring-v1.0.0')
   })
 
-  it('adds hot topics, source comparison and a governed cluster workbench in the shared shell', () => {
+  it('keeps hot topics and source comparison while retiring the cluster workbench', () => {
+    expect(existsSync(resolve(process.cwd(), 'app/pages/admin/clusters.vue'))).toBe(false)
     const navigation = readFileSync(resolve(process.cwd(), 'app/navigation.ts'), 'utf8')
     const hotPage = readFileSync(resolve(process.cwd(), 'app/pages/hot.vue'), 'utf8')
     const eventPage = readFileSync(resolve(process.cwd(), 'app/pages/events/[id].vue'), 'utf8')
-    const workbench = readFileSync(resolve(process.cwd(), 'app/pages/admin/clusters.vue'), 'utf8')
 
     expect(navigation).toContain("to: '/hot'")
     expect(navigation).not.toContain("to: '/admin/clusters'")
     expect(navigation).toContain("to: '/sources'")
     expect(hotPage).toContain('/api/v1/hot-topics')
     expect(eventPage).toContain('SourceComparison')
-    expect(workbench).toContain('/api/v1/admin/clustering-workbench')
-    expect(workbench).toContain('只读历史')
-    expect(workbench).toContain('PERS-08')
-    expect(workbench).not.toContain('/decisions')
   })
 })

@@ -116,14 +116,3 @@ def test_version_timeline_diff_and_page_contracts_are_bounded_and_typed() -> Non
     assert timeline.versions[0].processing_state == "READY"
     assert diff.pages[0].category == "HEADER_FOOTER"
     assert page.preview_url.endswith("/pages/1/preview")
-
-
-def test_review_candidate_decision_only_accepts_staged_actions() -> None:
-    request = models.ReviewCandidateDecisionRequest(
-        action="CONFIRM_UNRESOLVED",
-        reason="官方原文明确提及、但目标文件尚未唯一匹配",
-    )
-    assert request.action == "CONFIRM_UNRESOLVED"
-
-    with pytest.raises(ValidationError):
-        models.ReviewCandidateDecisionRequest(action="PUBLISH", reason="绕过发布门禁")

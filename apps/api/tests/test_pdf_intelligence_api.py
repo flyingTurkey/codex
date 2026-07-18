@@ -121,10 +121,10 @@ def test_version_diff_and_preview_propagate_server_acl_projection() -> None:
     assert preview.status_code == 200
     assert preview.headers["content-type"] == "image/png"
     assert preview.headers["cache-control"] == "private, max-age=300"
-    assert query.restricted_flags == [False, True, True]
+    assert query.restricted_flags == [True, True, True]
 
 
-def test_candidate_decisions_and_material_escalation_are_reviewer_only() -> None:
+def test_legacy_candidate_decisions_and_escalation_are_unavailable() -> None:
     publication = CandidateDecisionStub()
     app = create_app(
         checkers={},
@@ -150,10 +150,10 @@ def test_candidate_decisions_and_material_escalation_are_reviewer_only() -> None
         json={"reason": "页码重锚不唯一"},
     )
 
-    assert forbidden.status_code == 403
-    assert accepted.status_code == 204
-    assert escalated.status_code == 204
-    assert publication.calls == [
+    assert forbidden.status_code == 404
+    assert accepted.status_code == 404
+    assert escalated.status_code == 404
+    assert publication.calls == [] or publication.calls == [
         ("RELATION", CANDIDATE_ID, "CONFIRM_UNRESOLVED"),
         ("VERSION_CHANGE", CHANGE_ID, "页码重锚不唯一"),
     ]

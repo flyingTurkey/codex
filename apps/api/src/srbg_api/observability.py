@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 from sentry_sdk import init as init_sentry
 from srbg_contracts import MetricSample
@@ -245,24 +243,6 @@ SOURCE_SLO_VIOLATIONS = Counter(
     "Source SLO violations by bounded dimension.",
     ("dimension",),
 )
-ROUND17_WINDOW_STATE = Gauge(
-    "srbg_round17_pilot_windows",
-    "Round 17 pilot windows by bounded authoritative state.",
-    ("state",),
-)
-ROUND17_SOURCE_SEGMENT_STATE = Gauge(
-    "srbg_round17_source_segments",
-    "Round 17 source observation segments by bounded authoritative state.",
-    ("state",),
-)
-ROUND17_CONTAMINATED_RUNS = Gauge(
-    "srbg_round17_contaminated_runs",
-    "Runs linked to a Round 17 segment without SCHEDULED/PRODUCTION provenance.",
-)
-ROUND17_STALE_WORK_TIMERS = Gauge(
-    "srbg_round17_stale_work_timers",
-    "Open Round 17 work timers without a heartbeat for fifteen minutes.",
-)
 
 
 def configure_observability(settings: Settings) -> None:
@@ -294,16 +274,3 @@ def set_internal_projection_metrics(metrics: dict[str, float]) -> None:
     INTERNAL_PROJECTION_RECONCILIATION_DIFFERENCES.set(metrics["reconciliation_differences"])
     INTERNAL_PROJECTION_LAST_SUCCESS.set(metrics["last_projection_success_timestamp"])
     AUDIT_CHAIN_ANCHOR_LAST_SUCCESS.set(metrics["last_anchor_success_timestamp"])
-
-
-def set_round17_metrics(metrics: dict[str, Any]) -> None:
-    window_states = metrics.get("window_states", {})
-    source_states = metrics.get("source_states", {})
-    for state in ("PREPARING", "READY", "RUNNING", "COMPLETED", "BLOCKED"):
-        value = window_states.get(state, 0) if isinstance(window_states, dict) else 0
-        ROUND17_WINDOW_STATE.labels(state).set(float(value))
-    for state in ("PREPARING", "RUNNING", "COMPLETED", "PAUSED", "FAILED"):
-        value = source_states.get(state, 0) if isinstance(source_states, dict) else 0
-        ROUND17_SOURCE_SEGMENT_STATE.labels(state).set(float(value))
-    ROUND17_CONTAMINATED_RUNS.set(float(metrics.get("contaminated_runs", 0)))
-    ROUND17_STALE_WORK_TIMERS.set(float(metrics.get("stale_work_timers", 0)))

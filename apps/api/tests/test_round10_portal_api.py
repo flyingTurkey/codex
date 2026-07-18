@@ -193,23 +193,23 @@ def test_collection_patch_requires_if_match() -> None:
     assert updated.json()["version"] == 2
 
 
-def test_daily_draft_and_publish_are_reviewer_only_and_delegate_to_publication_service() -> None:
+def test_legacy_daily_review_and_publish_api_is_retired() -> None:
     client, _, publication = _client()
     payload = {"report_date": "2026-07-15"}
     headers = {"Idempotency-Key": "daily-draft-0001"}
     forbidden = client.post("/api/v1/admin/daily/drafts", json=payload, headers=headers)
-    assert forbidden.status_code == 403
+    assert forbidden.status_code == 404
 
     reviewer_headers = {**headers, "X-SRBG-Local-Roles": "reviewer"}
     draft = client.post("/api/v1/admin/daily/drafts", json=payload, headers=reviewer_headers)
-    assert draft.status_code == 201
+    assert draft.status_code == 404
     published = client.post(
         f"/api/v1/admin/daily/{REPORT_ID}/publish",
         headers={"Idempotency-Key": "daily-publish-0001", "X-SRBG-Local-Roles": "reviewer"},
     )
-    assert published.status_code == 200
-    assert publication.draft_calls == [(date(2026, 7, 15), USER_ID, "daily-draft-0001")]
-    assert publication.publish_calls == [(REPORT_ID, USER_ID, "daily-publish-0001")]
+    assert published.status_code == 404
+    assert publication.draft_calls == []
+    assert publication.publish_calls == []
 
 
 def test_markdown_export_is_private_and_attachment_safe() -> None:

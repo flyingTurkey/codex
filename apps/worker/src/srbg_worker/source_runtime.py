@@ -102,7 +102,7 @@ class RuntimeBinding:
     checkpoint: SourceCheckpoint
     freshness_slo_seconds: int
     fetch_policy: FetchPolicy | None = None
-    authority_mode: str = "LEGACY_GOVERNED"
+    authority_mode: str = "PERSONAL_STREAM"
     source_stream_id: UUID | None = None
     stream_config_version_id: UUID | None = None
 
@@ -539,7 +539,7 @@ class RuntimeFetchExecutor:
             return result
         except Exception as error:
             failure_kind = _unexpected_failure_kind(error)
-            logger.warning(
+            logger.exception(
                 "scheduled_source_execution_failed",
                 extra={
                     "event_name": "scheduled_source_execution_failed",
@@ -798,7 +798,7 @@ class PostgresRuntimeGateway:
             row = (
                 (
                     await connection.execute(
-                        text(_BINDING_SQL),
+                        text(_PERSONAL_BINDING_SQL),
                         {"source_id": source_id, "run_id": run_id, "now": now},
                     )
                 )
@@ -812,25 +812,14 @@ class PostgresRuntimeGateway:
         except (TypeError, ValueError):
             return None
         config = row["config_document"]
-        policy = row["policy_document"]
         if not isinstance(config, dict):
             return None
         config_hosts = _string_tuple(row["config_allowed_hosts"])
-        authority_mode = str(row.get("authority_mode", "LEGACY_GOVERNED"))
-        if authority_mode == "PERSONAL_STREAM":
-            fetch: dict[str, object] = {}
-            allowed_hosts = config_hosts
-        else:
-            if not isinstance(policy, dict):
-                return None
-            policy_fetch = policy.get("fetch")
-            if not isinstance(policy_fetch, dict):
-                return None
-            fetch = policy_fetch
-            policy_hosts = _string_tuple(fetch.get("allowed_domains"))
-            allowed_hosts = tuple(host for host in config_hosts if host in set(policy_hosts))
-            if set(config_hosts) - set(policy_hosts):
-                return None
+        authority_mode = str(row.get("authority_mode", "PERSONAL_STREAM"))
+        if authority_mode != "PERSONAL_STREAM":
+            return None
+        fetch: dict[str, object] = {}
+        allowed_hosts = config_hosts
         if not allowed_hosts:
             return None
         validated = validate_connector_config(
@@ -1841,75 +1830,7 @@ def _positive_int(value: object, *, default: int) -> int:
     return result if result > 0 else default
 
 
-_BINDING_SQL = """
-SELECT r.run_origin,r.execution_domain,r.policy_version_id,
-       r.connector_config_version_id,d.connector_type,c.config_document,
-       c.allowed_hosts AS config_allowed_hosts,p.document AS policy_document,
-       fs.authority_mode,NULL::uuid AS source_stream_id,
-       NULL::uuid AS stream_config_version_id,
-       fs.max_attempts,fs.backoff_base_seconds,fs.backoff_cap_seconds,
-       fs.freshness_slo_seconds,
-       checkpoint.cursor AS checkpoint_cursor,
-       checkpoint.etag AS checkpoint_etag,
-       checkpoint.last_modified AS checkpoint_last_modified,
-       checkpoint.consecutive_failures AS checkpoint_consecutive_failures,
-       checkpoint.circuit_open_until AS checkpoint_circuit_open_until
-  FROM fetch_run r
-  JOIN source s ON s.id=r.source_id
-  JOIN source_policy_version p ON p.id=s.current_policy_version_id
-  JOIN connector_config_version c ON c.id=s.current_connector_config_version_id
-  JOIN connector_definition d ON d.id=c.connector_definition_id
-  JOIN fetch_schedule fs ON fs.id=r.schedule_id
-  LEFT JOIN source_checkpoint checkpoint
-    ON checkpoint.source_connector_id=r.source_connector_id
- WHERE r.id=:run_id AND r.source_id=:source_id AND r.status='RUNNING'
-   AND s.lifecycle_state='ACTIVE' AND fs.status='ACTIVE'
-   AND p.id=r.policy_version_id
-   AND source_policy_compliance_current(s.id,p.id,:now)
-   AND source_private_evidence_capture_allowed(p.document)
-   AND c.id=r.connector_config_version_id AND c.validation_status='VALID'
-   AND fs.interval_seconds=s.poll_interval_minutes * 60
-   AND fs.freshness_slo_seconds=(p.document #>> '{slo,target_minutes}')::int * 60
-   AND fs.circuit_state IN ('CLOSED','HALF_OPEN')
-   AND (
-     (
-       r.pilot_window_source_id IS NULL
-       AND NOT EXISTS (
-         SELECT 1
-           FROM round17_pilot_window_source cohort
-           JOIN round17_pilot_window cohort_window
-             ON cohort_window.id=cohort.window_id
-          WHERE cohort.source_id=r.source_id
-            AND cohort_window.state='RUNNING'
-       )
-     ) OR EXISTS (
-       SELECT 1
-         FROM round17_pilot_window_source segment
-         JOIN round17_pilot_window window_row ON window_row.id=segment.window_id
-        WHERE segment.id=r.pilot_window_source_id
-          AND segment.source_id=r.source_id
-          AND segment.schedule_id=r.schedule_id
-          AND segment.policy_version_id=r.policy_version_id
-          AND segment.connector_config_version_id=r.connector_config_version_id
-          AND segment.status='RUNNING' AND window_row.state='RUNNING'
-          AND :now>=segment.segment_started_at AND :now<segment.segment_ends_at
-          AND :now>=window_row.started_at AND :now<window_row.ends_at
-          AND fs.version=segment.schedule_version
-          AND fs.interval_seconds=segment.interval_seconds
-          AND fs.freshness_slo_seconds=segment.freshness_slo_seconds
-     )
-   )
-   AND EXISTS (
-     SELECT 1 FROM source_governance_decision decision
-      WHERE decision.source_id=s.id
-        AND decision.policy_version_id=p.id
-        AND decision.connector_config_version_id=c.id
-        AND decision.trial_run_id=s.current_trial_run_id
-        AND decision.decision_type='PRODUCTION_APPROVAL'
-        AND decision.outcome='APPROVED'
-        AND (decision.valid_until IS NULL OR decision.valid_until > :now)
-   )
-UNION ALL
+_PERSONAL_BINDING_SQL = """
 SELECT r.run_origin,r.execution_domain,NULL::uuid AS policy_version_id,
        NULL::uuid AS connector_config_version_id,
        stream_config.connector_type,stream_config.config AS config_document,

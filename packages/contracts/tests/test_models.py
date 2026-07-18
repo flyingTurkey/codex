@@ -32,20 +32,10 @@ def test_version_response_contains_only_public_versions() -> None:
     }
 
 
-def test_user_roles_include_auditor_and_required_operational_roles() -> None:
+def test_personal_product_exposes_only_owner_role() -> None:
     assert hasattr(models, "UserRole")
 
-    assert {role.value for role in models.UserRole} == {
-        "owner",
-        "viewer",
-        "editor",
-        "reviewer",
-        "source_admin",
-        "platform_admin",
-        "auditor",
-        "gold_annotator",
-        "gold_arbitrator",
-    }
+    assert {role.value for role in models.UserRole} == {"owner"}
 
 
 def test_cursor_page_exposes_cursor_without_total_count() -> None:

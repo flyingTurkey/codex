@@ -70,15 +70,3 @@ def test_paper_summary_and_detail_keep_access_and_research_maturity_explicit() -
     assert detail.paper.abstract is None
     assert detail.paper.abstract_availability is models.AbstractAvailability.LICENCE_UNCLEAR
     assert detail.item.type_summary.kind == "JOURNAL_PAPER"
-
-
-def test_paper_relation_candidate_is_not_a_public_retraction_assertion() -> None:
-    candidate = models.PaperRelationCandidate(
-        id=UUID("019b0000-0000-7000-8000-000000006110"),
-        source_doi="10.1000/new",
-        target_doi="10.1000/old",
-        relation_type="RETRACTS",
-        status="PENDING_REVIEW",
-        evidence_ids=[UUID("019b0000-0000-7000-8000-000000006111")],
-    )
-    assert candidate.status is models.RelationCandidateStatus.PENDING_REVIEW

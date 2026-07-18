@@ -34,7 +34,7 @@ def test_restricted_item_detail_omits_claims_and_evidence() -> None:
     assert "evidence" not in payload
 
 
-def test_review_contract_exposes_bidirectional_claim_evidence_and_decision_shape() -> None:
+def test_claim_and_evidence_contracts_preserve_bidirectional_references() -> None:
     evidence_id = UUID("019b0000-0000-7000-8000-000000004011")
     claim = models.ClaimView(
         id=UUID("019b0000-0000-7000-8000-000000004010"),
@@ -53,12 +53,5 @@ def test_review_contract_exposes_bidirectional_claim_evidence_and_decision_shape
         excerpt_sha256="a" * 64,
         original_url="https://www.mem.gov.cn/example.shtml",
     )
-    request = models.ReviewDecisionRequest(action="APPROVE", reason="字段与证据一致")
-
     assert claim.evidence_ids == [evidence.id]
     assert evidence.claim_ids == [claim.id]
-    assert request.model_dump() == {
-        "action": "APPROVE",
-        "reason": "字段与证据一致",
-        "digital_case_patch": None,
-    }

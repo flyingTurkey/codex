@@ -15,7 +15,7 @@ from srbg_api.identifiers import uuid7
 from srbg_worker.app import celery_app
 
 
-def test_beat_wakes_only_governed_source_dispatchers() -> None:
+def test_beat_wakes_only_personal_source_dispatchers() -> None:
     source_entries = {
         name: value
         for name, value in celery_app.conf.beat_schedule.items()
@@ -25,16 +25,6 @@ def test_beat_wakes_only_governed_source_dispatchers() -> None:
         "dispatch-due-source-schedules": {
             "task": "srbg.schedules.dispatch",
             "schedule": 30.0,
-        },
-        "dispatch-source-activation-outbox": {
-            "task": "srbg.sources.activation_outbox",
-            "schedule": 5.0,
-            "options": {"queue": "celery"},
-        },
-        "dispatch-pending-source-qualifications": {
-            "task": "srbg.sources.qualify",
-            "schedule": 5.0,
-            "options": {"queue": "qualification"},
         },
         "dispatch-automated-source-discovery": {
             "task": "srbg.sources.discovery.dispatch",
@@ -49,12 +39,12 @@ def test_beat_wakes_only_governed_source_dispatchers() -> None:
         "dispatch-personal-source-probes": {
             "task": "srbg.personal_source.probe",
             "schedule": 5.0,
-            "options": {"queue": "qualification"},
+            "options": {"queue": "personal-source"},
         },
         "dispatch-source-profiles": {
             "task": "srbg.source_profile.run",
             "schedule": 10.0,
-            "options": {"queue": "qualification"},
+            "options": {"queue": "personal-source"},
         },
     }
     assert celery_app.conf.task_routes["srbg.source.fetch"] == {"queue": "parser"}

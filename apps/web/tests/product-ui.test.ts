@@ -1,6 +1,6 @@
 import { mount } from '@vue/test-utils'
 import type { ItemSummary } from '@srbg/contracts'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { Component } from 'vue'
 import { describe, expect, it } from 'vitest'
@@ -84,13 +84,7 @@ describe('round 07 technology product UI', () => {
     expect(page).not.toContain('适用于四川路桥采购')
   })
 
-  it('keeps legacy normalization candidates read-only after PERS-08', () => {
-    const review = readFileSync(resolve(process.cwd(), 'app/pages/admin/review/index.vue'), 'utf8')
-
-    expect(review).toContain('/api/v1/admin/product-normalization-candidates')
-    expect(review).toContain('PERS-08')
-    expect(review).toContain('旧候选只读')
-    expect(review).not.toContain('MERGE_ALIAS')
-    expect(review).not.toContain('/product-normalization-candidates/${candidate.id}/decision')
+  it('removes legacy normalization candidate review', () => {
+    expect(existsSync(resolve(process.cwd(), 'app/pages/admin/review/index.vue'))).toBe(false)
   })
 })

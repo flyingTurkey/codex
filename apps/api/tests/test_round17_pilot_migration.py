@@ -140,19 +140,6 @@ def test_eventization_readiness_is_immutable_profile_pinned_and_never_seeded() -
     assert "INSERT INTO round17_eventization_readiness" not in source
 
 
-def test_t0_start_atomically_aligns_authoritative_schedules_to_window_start() -> None:
-    service = Path("apps/api/src/srbg_api/operations/service.py").read_text(
-        encoding="utf-8"
-    )
-    start = service.split("async def start_pilot_window", 1)[1].split(
-        "async def resume_pilot_source", 1
-    )[0]
-
-    assert "FOR UPDATE" in start
-    assert "SET next_run_at=:started,updated_at=:started" in start
-    assert "schedule_alignment.rowcount != 20" in start
-
-
 def test_round17_window_has_one_running_instance_and_immutable_state_machine() -> None:
     source = MIGRATION.read_text(encoding="utf-8")
 

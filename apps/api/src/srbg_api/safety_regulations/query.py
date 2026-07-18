@@ -1,5 +1,5 @@
-# ruff: noqa: RUF001
-"""Server-side R3 projections for feeds, details, evidence, and review work."""
+# ruff: noqa: E501, RUF001
+"""Server-side personal projections for feeds, details, and evidence."""
 
 import json
 from collections.abc import Mapping
@@ -18,11 +18,9 @@ from srbg_contracts import (
     AiEquipmentTypeSummary,
     AiJudgmentEvidencePreview,
     AiJudgmentPreview,
-    AiReviewTrace,
     AutomaticRelationshipView,
     Channel,
     ClaimView,
-    ClusterCandidateView,
     ConfirmedFact,
     CriticalFieldDiff,
     CriticalSafetyField,
@@ -71,7 +69,6 @@ from srbg_contracts import (
     ProductEngineeringCase,
     ProductEntity,
     ProductEvidenceLevel,
-    ProductNormalizationCandidateView,
     ProductPermitStatus,
     PublicationRevisionState,
     PublicationStatus,
@@ -82,8 +79,6 @@ from srbg_contracts import (
     RelevanceSummary,
     ResearchInterpretation,
     ReviewStatus,
-    ReviewTaskDetail,
-    ReviewTaskSummary,
     SafetyCaseFactField,
     SafetyCaseTypeSummary,
     SafetyRegulationTypeSummary,
@@ -127,43 +122,20 @@ class PreviewObjectReader(Protocol):
     async def get_bytes(self, key: str) -> bytes: ...
 
 
-_SCORE_QUERY_SUFFIX = """
-JOIN score_dimension dimension ON dimension.score_set_id = score_set.id
-LEFT JOIN LATERAL (
-  SELECT candidate.score, candidate.reason
-  FROM score_override candidate
-  WHERE candidate.score_dimension_id = dimension.id
-  ORDER BY candidate.reviewed_at DESC, candidate.id DESC
-  LIMIT 1
-) override ON true
-WHERE {identity_expression} = ANY(CAST(:item_ids AS uuid[]))
-  AND score_set.is_current
-ORDER BY score_set.calculated_at DESC, score_set.id DESC
-"""
-_SCORE_SELECT = """
-SELECT {identity_expression} AS identity_id,
-       score_set.rule_version, score_set.calculated_at, dimension.dimension,
-       dimension.raw_score, dimension.features,
-       override.score AS override_score, override.reason AS override_reason
-FROM score_set
-{alias_join}
-"""
+_SCORE_QUERY_SUFFIX = "\nJOIN score_dimension dimension ON dimension.score_set_id = score_set.id\nLEFT JOIN LATERAL (\n  SELECT candidate.score, candidate.reason\n  FROM score_override candidate\n  WHERE candidate.score_dimension_id = dimension.id\n  ORDER BY candidate.reviewed_at DESC, candidate.id DESC\n  LIMIT 1\n) override ON true\nWHERE {identity_expression} = ANY(CAST(:item_ids AS uuid[]))\n  AND score_set.is_current\nORDER BY score_set.calculated_at DESC, score_set.id DESC\n"
+_SCORE_SELECT = "\nSELECT {identity_expression} AS identity_id,\n       score_set.rule_version, score_set.calculated_at, dimension.dimension,\n       dimension.raw_score, dimension.features,\n       override.score AS override_score, override.reason AS override_reason\nFROM score_set\n{alias_join}\n"
 _EVENT_SCORE_QUERY = (_SCORE_SELECT + _SCORE_QUERY_SUFFIX).format(
     identity_expression="COALESCE(binding.event_id, score_set.item_id)",
-    alias_join=("LEFT JOIN event_identity_binding binding ON binding.item_id = score_set.item_id"),
+    alias_join="LEFT JOIN event_identity_binding binding ON binding.item_id = score_set.item_id",
 )
 _LEGACY_SCORE_QUERY = (_SCORE_SELECT + _SCORE_QUERY_SUFFIX).format(
-    identity_expression="score_set.item_id",
-    alias_join="",
+    identity_expression="score_set.item_id", alias_join=""
 )
 
 
 class PostgresIntelligenceQueryService:
     def __init__(
-        self,
-        engine: AsyncEngine,
-        *,
-        preview_object_reader: PreviewObjectReader | None = None,
+        self, engine: AsyncEngine, *, preview_object_reader: PreviewObjectReader | None = None
     ) -> None:
         self._engine = engine
         self._preview_object_reader = preview_object_reader
@@ -183,19 +155,13 @@ class PostgresIntelligenceQueryService:
             alias_readable = bool(
                 await connection.scalar(
                     text(
-                        "SELECT has_table_privilege(current_user, "
-                        "'event_identity_binding', 'SELECT')"
+                        "SELECT has_table_privilege(current_user, 'event_identity_binding', 'SELECT')"
                     )
                 )
             )
             score_query = _EVENT_SCORE_QUERY if alias_readable else _LEGACY_SCORE_QUERY
             rows = list(
-                (
-                    await connection.execute(
-                        text(score_query),
-                        {"item_ids": visible_ids},
-                    )
-                ).mappings()
+                (await connection.execute(text(score_query), {"item_ids": visible_ids})).mappings()
             )
         grouped: dict[UUID, dict[str, ScoreDimensionSummary]] = {}
         for row in rows:
@@ -241,86 +207,7 @@ class PostgresIntelligenceQueryService:
                 (
                     await connection.execute(
                         text(
-                            """
-                            SELECT item.id, binding.event_id, event.event_type,
-                                   COALESCE(to_jsonb(event)->>'status', 'ACTIVE')
-                                     AS event_status,
-                                   COALESCE(
-                                     (to_jsonb(event)->>'canonical_event_id')::uuid,
-                                     event.id
-                                   ) AS canonical_event_id,
-                                   COALESCE(
-                                     (to_jsonb(event)->>'version')::integer, 1
-                                   ) AS event_version,
-                                   current_revision.revision_number,
-                                   current_revision.action AS revision_action,
-                                   current_revision.created_at AS revision_created_at,
-                                   CASE WHEN current_revision.action = 'WITHDRAW'
-                                        THEN current_revision.created_at
-                                        ELSE NULL END AS revision_withdrawn_at,
-                                   ai.run_id AS ai_pipeline_run_id,
-                                   ai.prompt_version AS ai_prompt_version,
-                                   ai.schema_version AS ai_schema_version,
-                                   ai.model_profile AS ai_model_profile,
-                                   ai.generated_at AS ai_generated_at,
-                                   ai.one_sentence_fact,
-                                   COALESCE(ai.accepted_claims_only, false)
-                                     AS ai_accepted_claims_only
-                            FROM intelligence_item item
-                            LEFT JOIN event_identity_binding binding
-                              ON binding.item_id = item.id
-                            LEFT JOIN event ON event.id = binding.event_id
-                            LEFT JOIN publication
-                              ON publication.item_id = item.id
-                            LEFT JOIN publication_revision current_revision
-                              ON current_revision.id = publication.current_revision_id
-                            LEFT JOIN LATERAL (
-                                SELECT run.id AS run_id,
-                                       prompt.version AS prompt_version,
-                                       schema.version AS schema_version,
-                                       model.version AS model_profile,
-                                       run.completed_at AS generated_at,
-                                       summary.validated_output ->> 'one_sentence'
-                                         AS one_sentence_fact,
-                                       NOT EXISTS (
-                                         SELECT 1
-                                         FROM jsonb_array_elements_text(
-                                           summary.validated_output -> 'used_claim_ids'
-                                         ) used(claim_id)
-                                         WHERE NOT EXISTS (
-                                           SELECT 1 FROM claim accepted
-                                           WHERE accepted.id::text = used.claim_id
-                                             AND accepted.item_id = item.id
-                                             AND accepted.verification_status = 'ACCEPTED'
-                                         )
-                                       ) AS accepted_claims_only
-                                FROM ai_pipeline_run run
-                                JOIN LATERAL (
-                                  SELECT step.* FROM ai_step_run step
-                                  WHERE step.pipeline_run_id = run.id
-                                    AND step.step = 'SUMMARIZE'
-                                    AND step.status = 'SUCCEEDED'
-                                  ORDER BY step.attempt DESC LIMIT 1
-                                ) summary ON true
-                                JOIN ai_prompt_version prompt
-                                  ON prompt.id = summary.prompt_version_id
-                                JOIN ai_schema_version schema
-                                  ON schema.id = summary.schema_version_id
-                                JOIN ai_model_profile model
-                                  ON model.id = summary.model_profile_id
-                                WHERE run.document_version_id = item.current_document_version_id
-                                  AND run.mode = 'LIVE' AND run.status = 'SUCCEEDED'
-                                  AND (
-                                    SELECT count(DISTINCT step.step)
-                                    FROM ai_step_run step
-                                    WHERE step.pipeline_run_id = run.id
-                                      AND step.status = 'SUCCEEDED'
-                                  ) = 4
-                                ORDER BY run.completed_at DESC NULLS LAST,
-                                         run.id DESC LIMIT 1
-                            ) ai ON true
-                            WHERE item.id = ANY(CAST(:item_ids AS uuid[]))
-                            """
+                            "\n                            SELECT item.id, binding.event_id, event.event_type,\n                                   COALESCE(to_jsonb(event)->>'status', 'ACTIVE')\n                                     AS event_status,\n                                   COALESCE(\n                                     (to_jsonb(event)->>'canonical_event_id')::uuid,\n                                     event.id\n                                   ) AS canonical_event_id,\n                                   COALESCE(\n                                     (to_jsonb(event)->>'version')::integer, 1\n                                   ) AS event_version,\n                                   current_revision.revision_number,\n                                   current_revision.action AS revision_action,\n                                   current_revision.created_at AS revision_created_at,\n                                   CASE WHEN current_revision.action = 'WITHDRAW'\n                                        THEN current_revision.created_at\n                                        ELSE NULL END AS revision_withdrawn_at,\n                                   ai.run_id AS ai_pipeline_run_id,\n                                   ai.prompt_version AS ai_prompt_version,\n                                   ai.schema_version AS ai_schema_version,\n                                   ai.model_profile AS ai_model_profile,\n                                   ai.generated_at AS ai_generated_at,\n                                   ai.one_sentence_fact,\n                                   COALESCE(ai.accepted_claims_only, false)\n                                     AS ai_accepted_claims_only\n                            FROM intelligence_item item\n                            LEFT JOIN event_identity_binding binding\n                              ON binding.item_id = item.id\n                            LEFT JOIN event ON event.id = binding.event_id\n                            LEFT JOIN publication\n                              ON publication.item_id = item.id\n                            LEFT JOIN publication_revision current_revision\n                              ON current_revision.id = publication.current_revision_id\n                            LEFT JOIN LATERAL (\n                                SELECT run.id AS run_id,\n                                       prompt.version AS prompt_version,\n                                       schema.version AS schema_version,\n                                       model.version AS model_profile,\n                                       run.completed_at AS generated_at,\n                                       summary.validated_output ->> 'one_sentence'\n                                         AS one_sentence_fact,\n                                       NOT EXISTS (\n                                         SELECT 1\n                                         FROM jsonb_array_elements_text(\n                                           summary.validated_output -> 'used_claim_ids'\n                                         ) used(claim_id)\n                                         WHERE NOT EXISTS (\n                                           SELECT 1 FROM claim accepted\n                                           WHERE accepted.id::text = used.claim_id\n                                             AND accepted.item_id = item.id\n                                             AND accepted.verification_status = 'ACCEPTED'\n                                         )\n                                       ) AS accepted_claims_only\n                                FROM ai_pipeline_run run\n                                JOIN LATERAL (\n                                  SELECT step.* FROM ai_step_run step\n                                  WHERE step.pipeline_run_id = run.id\n                                    AND step.step = 'SUMMARIZE'\n                                    AND step.status = 'SUCCEEDED'\n                                  ORDER BY step.attempt DESC LIMIT 1\n                                ) summary ON true\n                                JOIN ai_prompt_version prompt\n                                  ON prompt.id = summary.prompt_version_id\n                                JOIN ai_schema_version schema\n                                  ON schema.id = summary.schema_version_id\n                                JOIN ai_model_profile model\n                                  ON model.id = summary.model_profile_id\n                                WHERE run.document_version_id = item.current_document_version_id\n                                  AND run.mode = 'LIVE' AND run.status = 'SUCCEEDED'\n                                  AND (\n                                    SELECT count(DISTINCT step.step)\n                                    FROM ai_step_run step\n                                    WHERE step.pipeline_run_id = run.id\n                                      AND step.status = 'SUCCEEDED'\n                                  ) = 4\n                                ORDER BY run.completed_at DESC NULLS LAST,\n                                         run.id DESC LIMIT 1\n                            ) ai ON true\n                            WHERE item.id = ANY(CAST(:item_ids AS uuid[]))\n                            "
                         ),
                         {"item_ids": item_ids},
                     )
@@ -338,20 +225,7 @@ class PostgresIntelligenceQueryService:
                 (
                     await connection.execute(
                         text(
-                            """
-                            SELECT
-                              count(*) FILTER (WHERE parser_name = 'safety_regulation_pdf')
-                                AS pdf_total,
-                              count(*) FILTER (
-                                WHERE parser_name = 'safety_regulation_pdf'
-                                  AND status = 'SUCCEEDED'
-                              ) AS pdf_success,
-                              COALESCE(sum(ocr_page_count), 0) AS ocr_pages,
-                              COALESCE(sum(ocr_usable_page_count), 0) AS ocr_usable_pages,
-                              COALESCE(sum(low_confidence_critical_count), 0)
-                                AS low_confidence_critical
-                            FROM processing_run
-                            """
+                            "\n                            SELECT\n                              count(*) FILTER (WHERE parser_name = 'safety_regulation_pdf')\n                                AS pdf_total,\n                              count(*) FILTER (\n                                WHERE parser_name = 'safety_regulation_pdf'\n                                  AND status = 'SUCCEEDED'\n                              ) AS pdf_success,\n                              COALESCE(sum(ocr_page_count), 0) AS ocr_pages,\n                              COALESCE(sum(ocr_usable_page_count), 0) AS ocr_usable_pages,\n                              COALESCE(sum(low_confidence_critical_count), 0)\n                                AS low_confidence_critical\n                            FROM processing_run\n                            "
                         )
                     )
                 )
@@ -362,12 +236,7 @@ class PostgresIntelligenceQueryService:
                 (
                     await connection.execute(
                         text(
-                            """
-                            SELECT change_type, material, count(*) AS count
-                            FROM version_change
-                            GROUP BY change_type, material
-                            ORDER BY change_type, material
-                            """
+                            "\n                            SELECT change_type, material, count(*) AS count\n                            FROM version_change\n                            GROUP BY change_type, material\n                            ORDER BY change_type, material\n                            "
                         )
                     )
                 ).mappings()
@@ -376,34 +245,57 @@ class PostgresIntelligenceQueryService:
                 (
                     await connection.execute(
                         text(
-                            """
-                            SELECT count(*) FILTER (
-                                     WHERE status IN ('PENDING','FAILED')
-                                   ) AS depth,
-                                   COALESCE(extract(epoch FROM (
-                                     now() - min(created_at) FILTER (
-                                       WHERE status IN ('PENDING','FAILED')
-                                     )
-                                   )), 0) AS oldest_seconds,
-                                   COALESCE(sum(attempt_count), 0) AS retries
-                            FROM outbox_event
-                            """
+                            "\n                            SELECT count(*) FILTER (\n                                     WHERE status IN ('PENDING','FAILED')\n                                   ) AS depth,\n                                   COALESCE(extract(epoch FROM (\n                                     now() - min(created_at) FILTER (\n                                       WHERE status IN ('PENDING','FAILED')\n                                     )\n                                   )), 0) AS oldest_seconds,\n                                   COALESCE(sum(attempt_count), 0) AS retries\n                            FROM outbox_event\n                            "
                         )
                     )
                 )
                 .mappings()
                 .one()
             )
+            # Enterprise queue and reviewer metrics were retired by PERS-10. Keep
+            # only processing, immutable-version, and personal projection health.
+            personal_projection_count = int(
+                await connection.scalar(
+                    text("SELECT count(*) FROM personal_content_projection WHERE visible")
+                )
+                or 0
+            )
+            pdf_total = int(row["pdf_total"])
+            ocr_pages = int(row["ocr_pages"])
+            values = [
+                ("srbg_pdf_parse_total", pdf_total),
+                ("srbg_pdf_parse_success_total", int(row["pdf_success"])),
+                (
+                    "srbg_pdf_parse_success_ratio",
+                    int(row["pdf_success"]) / pdf_total if pdf_total else 0,
+                ),
+                ("srbg_ocr_pages_total", ocr_pages),
+                ("srbg_ocr_usable_pages_total", int(row["ocr_usable_pages"])),
+                (
+                    "srbg_ocr_usable_ratio",
+                    int(row["ocr_usable_pages"]) / ocr_pages if ocr_pages else 0,
+                ),
+                ("srbg_ocr_low_confidence_critical_fields", int(row["low_confidence_critical"])),
+                ("srbg_publisher_outbox_depth", int(outbox["depth"])),
+                ("srbg_publisher_outbox_oldest_seconds", float(outbox["oldest_seconds"])),
+                ("srbg_publisher_outbox_retries_total", int(outbox["retries"])),
+                ("srbg_personal_content_projection_visible", personal_projection_count),
+            ]
+            rendered = "".join(
+                f"# TYPE {name} gauge\n{name} {value}\n" for name, value in values
+            )
+            for change in changes:
+                rendered += (
+                    "# TYPE srbg_version_changes_total counter\n"
+                    f'srbg_version_changes_total{{change_type="{change["change_type"]}",'
+                    f'material="{str(change["material"]).lower()}"}} {change["count"]}\n'
+                )
+            return rendered
             safety_profiles = list(
                 (
                     await connection.execute(
                         text(
-                            """
-                            SELECT report_stage, incident_status, count(*) AS count
-                            FROM safety_case_profile
-                            GROUP BY report_stage, incident_status
-                            ORDER BY report_stage, incident_status
-                            """
+                            "\n                            SELECT report_stage, incident_status, count(*) AS count\n                            FROM safety_case_profile\n                            GROUP BY report_stage, incident_status\n                            ORDER BY report_stage, incident_status\n                            "
                         )
                     )
                 ).mappings()
@@ -412,13 +304,7 @@ class PostgresIntelligenceQueryService:
                 (
                     await connection.execute(
                         text(
-                            """
-                            SELECT field_name, count(*) AS count
-                            FROM claim_conflict
-                            WHERE status = 'PENDING_REVIEW'
-                            GROUP BY field_name
-                            ORDER BY field_name
-                            """
+                            "\n                            SELECT field_name, count(*) AS count\n                            FROM claim_conflict\n                            WHERE status = 'PENDING_REVIEW'\n                            GROUP BY field_name\n                            ORDER BY field_name\n                            "
                         )
                     )
                 ).mappings()
@@ -427,36 +313,7 @@ class PostgresIntelligenceQueryService:
                 (
                     await connection.execute(
                         text(
-                            """
-                            SELECT
-                              (SELECT count(*)
-                               FROM event_item_candidate candidate
-                               WHERE NOT EXISTS (
-                                 SELECT 1 FROM event_item_decision decision
-                                 WHERE decision.candidate_id = candidate.id
-                               )) AS pending_event_candidates,
-                              (SELECT count(*)
-                               FROM claim protected_claim
-                               JOIN intelligence_item item
-                                 ON item.id = protected_claim.item_id
-                               LEFT JOIN LATERAL (
-                                 SELECT decision.action
-                                 FROM claim_field_decision decision
-                                 WHERE decision.claim_id = protected_claim.id
-                                 ORDER BY decision.created_at DESC, decision.id DESC
-                                 LIMIT 1
-                               ) latest_decision ON true
-                               WHERE item.item_type = 'SAFETY_CASE'
-                                 AND protected_claim.critical = true
-                                 AND protected_claim.claim_type IN (
-                                   'deaths','injuries','loss_amount_minor',
-                                   'official_direct_causes','responsibility_findings'
-                                 )
-                                 AND (
-                                   latest_decision.action IS NULL
-                                   OR latest_decision.action = 'REVOKE'
-                                 )) AS pending_critical_claims
-                            """
+                            "\n                            SELECT 0::bigint AS pending_event_candidates,\n                                   0::bigint AS pending_critical_claims\n                            "
                         )
                     )
                 )
@@ -467,12 +324,7 @@ class PostgresIntelligenceQueryService:
                 (
                     await connection.execute(
                         text(
-                            """
-                            SELECT source_nature, maturity_level, count(*) AS count
-                            FROM digital_case_profile
-                            GROUP BY source_nature, maturity_level
-                            ORDER BY source_nature, maturity_level
-                            """
+                            "\n                            SELECT source_nature, maturity_level, count(*) AS count\n                            FROM digital_case_profile\n                            GROUP BY source_nature, maturity_level\n                            ORDER BY source_nature, maturity_level\n                            "
                         )
                     )
                 ).mappings()
@@ -480,11 +332,7 @@ class PostgresIntelligenceQueryService:
             digital_outcome_rows = (
                 await connection.execute(
                     text(
-                        """
-                        SELECT outcome_kind, count(*) AS count
-                        FROM digital_case_outcome
-                        GROUP BY outcome_kind
-                        """
+                        "\n                        SELECT outcome_kind, count(*) AS count\n                        FROM digital_case_outcome\n                        GROUP BY outcome_kind\n                        "
                     )
                 )
             ).mappings()
@@ -495,13 +343,7 @@ class PostgresIntelligenceQueryService:
             pending_enterprise_review = int(
                 await connection.scalar(
                     text(
-                        """
-                        SELECT count(*)
-                        FROM digital_case_profile profile
-                        JOIN intelligence_item item ON item.id = profile.item_id
-                        WHERE profile.source_nature = 'ENTERPRISE_SELF_REPORT'
-                          AND item.review_status = 'PENDING'
-                        """
+                        "\n                        SELECT count(*)\n                        FROM digital_case_profile profile\n                        JOIN intelligence_item item ON item.id = profile.item_id\n                        WHERE profile.source_nature = 'ENTERPRISE_SELF_REPORT'\n                          AND item.review_status = 'PENDING'\n                        "
                     )
                 )
                 or 0
@@ -510,12 +352,7 @@ class PostgresIntelligenceQueryService:
                 (
                     await connection.execute(
                         text(
-                            """
-                            SELECT access_level, relation_status, count(*) AS count
-                            FROM paper_profile
-                            GROUP BY access_level, relation_status
-                            ORDER BY access_level, relation_status
-                            """
+                            "\n                            SELECT access_level, relation_status, count(*) AS count\n                            FROM paper_profile\n                            GROUP BY access_level, relation_status\n                            ORDER BY access_level, relation_status\n                            "
                         )
                     )
                 ).mappings()
@@ -524,16 +361,7 @@ class PostgresIntelligenceQueryService:
                 (
                     await connection.execute(
                         text(
-                            """
-                            SELECT
-                              count(*) FILTER (WHERE status = 'PENDING_REVIEW')
-                                AS pending_duplicates,
-                              (SELECT count(*) FROM item_relation_candidate
-                               WHERE status = 'PENDING_REVIEW'
-                                 AND relation_type IN ('CORRECTS','SUPERSEDES','RETRACTS'))
-                                AS pending_updates
-                            FROM paper_duplicate_candidate
-                            """
+                            "\n                            SELECT\n                              count(*) FILTER (WHERE status = 'PENDING_REVIEW')\n                                AS pending_duplicates,\n                              (SELECT count(*) FROM item_relation_candidate\n                               WHERE status = 'PENDING_REVIEW'\n                                 AND relation_type IN ('CORRECTS','SUPERSEDES','RETRACTS'))\n                                AS pending_updates\n                            FROM paper_duplicate_candidate\n                            "
                         )
                     )
                 )
@@ -544,12 +372,7 @@ class PostgresIntelligenceQueryService:
                 (
                     await connection.execute(
                         text(
-                            """
-                            SELECT item_type, evidence_level, permit_status, count(*) AS count
-                            FROM technology_product_profile
-                            GROUP BY item_type, evidence_level, permit_status
-                            ORDER BY item_type, evidence_level, permit_status
-                            """
+                            "\n                            SELECT item_type, evidence_level, permit_status, count(*) AS count\n                            FROM technology_product_profile\n                            GROUP BY item_type, evidence_level, permit_status\n                            ORDER BY item_type, evidence_level, permit_status\n                            "
                         )
                     )
                 ).mappings()
@@ -557,11 +380,7 @@ class PostgresIntelligenceQueryService:
             product_capability_rows = (
                 await connection.execute(
                     text(
-                        """
-                        SELECT kind, count(*) AS count
-                        FROM technology_product_capability
-                        GROUP BY kind
-                        """
+                        "\n                        SELECT kind, count(*) AS count\n                        FROM technology_product_capability\n                        GROUP BY kind\n                        "
                     )
                 )
             ).mappings()
@@ -572,10 +391,7 @@ class PostgresIntelligenceQueryService:
             pending_product_normalization = int(
                 await connection.scalar(
                     text(
-                        """
-                        SELECT count(*) FROM product_normalization_candidate
-                        WHERE status = 'PENDING_REVIEW'
-                        """
+                        "\n                        SELECT count(*) FROM product_normalization_candidate\n                        WHERE status = 'PENDING_REVIEW'\n                        "
                     )
                 )
                 or 0
@@ -584,24 +400,7 @@ class PostgresIntelligenceQueryService:
                 (
                     await connection.execute(
                         text(
-                            """
-                            SELECT
-                              (SELECT count(*) FROM duplicate_candidate
-                               WHERE status = 'PENDING_REVIEW') AS duplicate_pending,
-                              (SELECT count(*) FROM duplicate_candidate
-                               WHERE cardinality(hard_conflicts) > 0) AS hard_constraint_blocks,
-                              (SELECT count(*) FROM duplicate_candidate
-                               WHERE 'PGVECTOR' = ANY(recall_methods)) AS vector_recall_candidates,
-                              (SELECT count(*) FROM topic_cluster
-                               WHERE status = 'PENDING_REVIEW') AS topic_pending,
-                              (SELECT count(*) FROM score_set
-                               WHERE is_current) AS scored_items,
-                              (SELECT count(*) FROM score_override) AS score_overrides,
-                              (SELECT count(*) FROM cluster_decision
-                               WHERE action = 'SPLIT') AS cluster_splits,
-                              (SELECT count(*) FROM cluster_decision
-                               WHERE action = 'MERGE') AS cluster_merges
-                            """
+                            "\n                            SELECT\n                              (SELECT count(*) FROM duplicate_candidate\n                               WHERE status = 'PENDING_REVIEW') AS duplicate_pending,\n                              (SELECT count(*) FROM duplicate_candidate\n                               WHERE cardinality(hard_conflicts) > 0) AS hard_constraint_blocks,\n                              (SELECT count(*) FROM duplicate_candidate\n                               WHERE 'PGVECTOR' = ANY(recall_methods)) AS vector_recall_candidates,\n                              (SELECT count(*) FROM topic_cluster\n                               WHERE status = 'PENDING_REVIEW') AS topic_pending,\n                              (SELECT count(*) FROM score_set\n                               WHERE is_current) AS scored_items,\n                              (SELECT count(*) FROM score_override) AS score_overrides,\n                              (SELECT count(*) FROM cluster_decision\n                               WHERE action = 'SPLIT') AS cluster_splits,\n                              (SELECT count(*) FROM cluster_decision\n                               WHERE action = 'MERGE') AS cluster_merges\n                            "
                         )
                     )
                 )
@@ -619,27 +418,15 @@ class PostgresIntelligenceQueryService:
             ),
             ("srbg_ocr_pages_total", ocr_pages),
             ("srbg_ocr_usable_pages_total", int(row["ocr_usable_pages"])),
-            (
-                "srbg_ocr_usable_ratio",
-                int(row["ocr_usable_pages"]) / ocr_pages if ocr_pages else 0,
-            ),
-            (
-                "srbg_ocr_low_confidence_critical_fields",
-                int(row["low_confidence_critical"]),
-            ),
+            ("srbg_ocr_usable_ratio", int(row["ocr_usable_pages"]) / ocr_pages if ocr_pages else 0),
+            ("srbg_ocr_low_confidence_critical_fields", int(row["low_confidence_critical"])),
             ("srbg_publisher_outbox_depth", int(outbox["depth"])),
             ("srbg_publisher_outbox_oldest_seconds", float(outbox["oldest_seconds"])),
             ("srbg_publisher_outbox_retries_total", int(outbox["retries"])),
         ]
-        rendered = "".join(f"# TYPE {name} gauge\n{name} {value}\n" for name, value in values)
+        rendered = "".join((f"# TYPE {name} gauge\n{name} {value}\n" for name, value in values))
         for change in changes:
-            rendered += (
-                "# TYPE srbg_version_changes_total counter\n"
-                "srbg_version_changes_total{"
-                f'change_type="{change["change_type"]}",'
-                f'material="{str(change["material"]).lower()}"'
-                f"}} {change['count']}\n"
-            )
+            rendered += f'''# TYPE srbg_version_changes_total counter\nsrbg_version_changes_total{{change_type="{change["change_type"]}",material="{str(change["material"]).lower()}"}} {change["count"]}\n'''
         rendered += _render_safety_case_metrics(
             profiles=[dict(profile) for profile in safety_profiles],
             conflicts=[dict(conflict) for conflict in safety_conflicts],
@@ -750,147 +537,15 @@ class PostgresIntelligenceQueryService:
                 source_nature=source_nature,
             )
             return await finish(page)
-        if content_type is not None and content_type not in {
-            "SAFETY_REGULATION",
-            "SAFETY_CASE",
-        }:
+        if content_type is not None and content_type not in {"SAFETY_REGULATION", "SAFETY_CASE"}:
             return await finish(_feed_page([], now=now, mode=mode, domain=domain, next_cursor=None))
-
         cursor_time, cursor_id = _decode_cursor(cursor)
         async with self._engine.connect() as connection:
             rows = list(
                 (
                     await connection.execute(
                         text(
-                            """
-                            SELECT i.id, i.item_type, i.title, i.original_url,
-                                   i.source_published_at,
-                                   i.first_discovered_at, i.activity_at, i.updated_at,
-                                   i.review_status, s.name AS source_name,
-                                   p.status AS publication_status,
-                                   p.current_revision_id AS publication_revision_id,
-                                   r.classification, r.document_number,
-                                   r.issuing_authority, r.regulation_status,
-                                   case_profile.report_stage,
-                                   case_profile.accident_type,
-                                   case_profile.engineering_type,
-                                   case_profile.occurred_at,
-                                   case_profile.region_name,
-                                   case_profile.deaths,
-                                   case_profile.injuries,
-                                   case_profile.loss_amount_minor,
-                                   case_profile.loss_currency,
-                                   case_profile.incident_status,
-                                   case_profile.official_direct_causes,
-                                   case_profile.responsibility_findings,
-                                   case_profile.rectification_has_open_issues,
-                                   case_profile.similar_scenario_tags,
-                                   case_profile.prevention_measure_tags,
-                                   event_link.event_id,
-                                   COALESCE(conflicts.fields, ARRAY[]::text[])
-                                       AS conflicted_fields,
-                                   (SELECT count(*) FROM document_version version
-                                    WHERE version.document_id = i.primary_document_id)
-                                       AS version_count,
-                                   latest_change.change_type AS latest_change_type,
-                                   latest_change.review_state AS latest_change_review_state,
-                                   (
-                                     (SELECT url_check.outcome FROM source_url_check url_check
-                                      WHERE url_check.document_id = i.primary_document_id
-                                      ORDER BY url_check.checked_at DESC, url_check.id DESC LIMIT 1)
-                                       IN ('NOT_FOUND','GONE')
-                                     AND
-                                     (SELECT url_check.outcome FROM source_url_check url_check
-                                      WHERE url_check.document_id = i.primary_document_id
-                                      ORDER BY url_check.checked_at DESC, url_check.id DESC
-                                      LIMIT 1 OFFSET 1)
-                                       IN ('NOT_FOUND','GONE')
-                                   ) OR (
-                                     (SELECT count(*) FROM (
-                                        SELECT url_check.outcome FROM source_url_check url_check
-                                        WHERE url_check.document_id = i.primary_document_id
-                                        ORDER BY url_check.checked_at DESC, url_check.id DESC
-                                        LIMIT 3
-                                     ) recent
-                                     WHERE recent.outcome IN ('TIMEOUT','SERVER_ERROR')) = 3
-                                   ) AS source_unavailable,
-                                   (SELECT count(*) FROM claim_evidence e
-                                    JOIN claim c ON c.id = e.claim_id
-                                    WHERE c.item_id = i.id
-                                      AND (
-                                        c.verification_status = 'ACCEPTED'
-                                        OR 'ACCEPT' = (
-                                          SELECT decision.action
-                                          FROM claim_field_decision decision
-                                          WHERE decision.claim_id = c.id
-                                          ORDER BY decision.created_at DESC, decision.id DESC
-                                          LIMIT 1
-                                        )
-                                      )
-                                      AND (
-                                        i.item_type <> 'SAFETY_CASE'
-                                        OR (
-                                          c.verification_status = 'ACCEPTED'
-                                          AND c.critical = false
-                                        )
-                                        OR e.id = (
-                                          SELECT decision.evidence_id
-                                          FROM claim_field_decision decision
-                                          WHERE decision.claim_id = c.id
-                                          ORDER BY decision.created_at DESC, decision.id DESC
-                                          LIMIT 1
-                                        )
-                                      )) AS evidence_count
-                            FROM intelligence_item i
-                            JOIN source s ON s.id = i.source_id
-                            LEFT JOIN safety_regulation_profile r ON r.item_id = i.id
-                            LEFT JOIN safety_case_profile case_profile
-                              ON case_profile.item_id = i.id
-                            LEFT JOIN event_item event_link ON event_link.item_id = i.id
-                            LEFT JOIN publication p ON p.item_id = i.id
-                            LEFT JOIN LATERAL (
-                                SELECT array_agg(DISTINCT conflict.field_name)
-                                    AS fields
-                                FROM public_safety_case_conflict conflict
-                                WHERE conflict.source_item_id = i.id
-                            ) conflicts ON true
-                            LEFT JOIN LATERAL (
-                                SELECT change.change_type, change.review_state
-                                FROM version_change change
-                                WHERE change.document_id = i.primary_document_id
-                                ORDER BY change.created_at DESC, change.id DESC LIMIT 1
-                            ) latest_change ON true
-                            WHERE (
-                                i.review_status = 'PENDING'
-                                OR p.status IN ('PUBLISHED', 'WITHDRAWN')
-                            )
-                              AND i.risk_level = 'R3'
-                              AND (:mode <> 'selected' OR (
-                                p.status = 'PUBLISHED'
-                                AND EXISTS (
-                                  SELECT 1 FROM score_set selected_score
-                                  WHERE selected_score.item_id = i.id
-                                    AND selected_score.is_current
-                                )
-                              ))
-                              AND (
-                                CAST(:content_type AS text) IS NULL
-                                OR i.item_type = CAST(:content_type AS text)
-                              )
-                              AND (
-                                (i.item_type = 'SAFETY_REGULATION' AND r.item_id IS NOT NULL)
-                                OR
-                                (i.item_type = 'SAFETY_CASE'
-                                  AND case_profile.item_id IS NOT NULL)
-                              )
-                              AND (
-                                CAST(:cursor_time AS timestamptz) IS NULL
-                                OR (i.activity_at, i.id) <
-                                   (CAST(:cursor_time AS timestamptz), CAST(:cursor_id AS uuid))
-                              )
-                            ORDER BY i.activity_at DESC, i.id DESC
-                            LIMIT :row_limit
-                            """
+                            "\n                            SELECT i.id, i.item_type, i.title, i.original_url,\n                                   i.source_published_at,\n                                   i.first_discovered_at, i.activity_at, i.updated_at,\n                                   i.review_status, s.name AS source_name,\n                                   p.status AS publication_status,\n                                   p.current_revision_id AS publication_revision_id,\n                                   r.classification, r.document_number,\n                                   r.issuing_authority, r.regulation_status,\n                                   case_profile.report_stage,\n                                   case_profile.accident_type,\n                                   case_profile.engineering_type,\n                                   case_profile.occurred_at,\n                                   case_profile.region_name,\n                                   case_profile.deaths,\n                                   case_profile.injuries,\n                                   case_profile.loss_amount_minor,\n                                   case_profile.loss_currency,\n                                   case_profile.incident_status,\n                                   case_profile.official_direct_causes,\n                                   case_profile.responsibility_findings,\n                                   case_profile.rectification_has_open_issues,\n                                   case_profile.similar_scenario_tags,\n                                   case_profile.prevention_measure_tags,\n                                   event_link.event_id,\n                                   COALESCE(conflicts.fields, ARRAY[]::text[])\n                                       AS conflicted_fields,\n                                   (SELECT count(*) FROM document_version version\n                                    WHERE version.document_id = i.primary_document_id)\n                                       AS version_count,\n                                   latest_change.change_type AS latest_change_type,\n                                   latest_change.review_state AS latest_change_review_state,\n                                   (\n                                     (SELECT url_check.outcome FROM source_url_check url_check\n                                      WHERE url_check.document_id = i.primary_document_id\n                                      ORDER BY url_check.checked_at DESC, url_check.id DESC LIMIT 1)\n                                       IN ('NOT_FOUND','GONE')\n                                     AND\n                                     (SELECT url_check.outcome FROM source_url_check url_check\n                                      WHERE url_check.document_id = i.primary_document_id\n                                      ORDER BY url_check.checked_at DESC, url_check.id DESC\n                                      LIMIT 1 OFFSET 1)\n                                       IN ('NOT_FOUND','GONE')\n                                   ) OR (\n                                     (SELECT count(*) FROM (\n                                        SELECT url_check.outcome FROM source_url_check url_check\n                                        WHERE url_check.document_id = i.primary_document_id\n                                        ORDER BY url_check.checked_at DESC, url_check.id DESC\n                                        LIMIT 3\n                                     ) recent\n                                     WHERE recent.outcome IN ('TIMEOUT','SERVER_ERROR')) = 3\n                                   ) AS source_unavailable,\n                                   (SELECT count(*) FROM claim_evidence e\n                                    JOIN claim c ON c.id = e.claim_id\n                                    WHERE c.item_id = i.id\n                                      AND (\n                                        c.verification_status = 'ACCEPTED'\n                                        OR 'ACCEPT' = (\n                                          SELECT decision.action\n                                          FROM claim_field_decision decision\n                                          WHERE decision.claim_id = c.id\n                                          ORDER BY decision.created_at DESC, decision.id DESC\n                                          LIMIT 1\n                                        )\n                                      )\n                                      AND (\n                                        i.item_type <> 'SAFETY_CASE'\n                                        OR (\n                                          c.verification_status = 'ACCEPTED'\n                                          AND c.critical = false\n                                        )\n                                        OR e.id = (\n                                          SELECT decision.evidence_id\n                                          FROM claim_field_decision decision\n                                          WHERE decision.claim_id = c.id\n                                          ORDER BY decision.created_at DESC, decision.id DESC\n                                          LIMIT 1\n                                        )\n                                      )) AS evidence_count\n                            FROM intelligence_item i\n                            JOIN source s ON s.id = i.source_id\n                            LEFT JOIN safety_regulation_profile r ON r.item_id = i.id\n                            LEFT JOIN safety_case_profile case_profile\n                              ON case_profile.item_id = i.id\n                            LEFT JOIN event_item event_link ON event_link.item_id = i.id\n                            LEFT JOIN publication p ON p.item_id = i.id\n                            LEFT JOIN LATERAL (\n                                SELECT array_agg(DISTINCT conflict.field_name)\n                                    AS fields\n                                FROM public_safety_case_conflict conflict\n                                WHERE conflict.source_item_id = i.id\n                            ) conflicts ON true\n                            LEFT JOIN LATERAL (\n                                SELECT change.change_type, change.review_state\n                                FROM version_change change\n                                WHERE change.document_id = i.primary_document_id\n                                ORDER BY change.created_at DESC, change.id DESC LIMIT 1\n                            ) latest_change ON true\n                            WHERE (\n                                i.review_status = 'PENDING'\n                                OR p.status IN ('PUBLISHED', 'WITHDRAWN')\n                            )\n                              AND i.risk_level = 'R3'\n                              AND (:mode <> 'selected' OR (\n                                p.status = 'PUBLISHED'\n                                AND EXISTS (\n                                  SELECT 1 FROM score_set selected_score\n                                  WHERE selected_score.item_id = i.id\n                                    AND selected_score.is_current\n                                )\n                              ))\n                              AND (\n                                CAST(:content_type AS text) IS NULL\n                                OR i.item_type = CAST(:content_type AS text)\n                              )\n                              AND (\n                                (i.item_type = 'SAFETY_REGULATION' AND r.item_id IS NOT NULL)\n                                OR\n                                (i.item_type = 'SAFETY_CASE'\n                                  AND case_profile.item_id IS NOT NULL)\n                              )\n                              AND (\n                                CAST(:cursor_time AS timestamptz) IS NULL\n                                OR (i.activity_at, i.id) <\n                                   (CAST(:cursor_time AS timestamptz), CAST(:cursor_id AS uuid))\n                              )\n                            ORDER BY i.activity_at DESC, i.id DESC\n                            LIMIT :row_limit\n                            "
                         ),
                         {
                             "cursor_time": cursor_time,
@@ -947,27 +602,7 @@ class PostgresIntelligenceQueryService:
                     (
                         await connection.execute(
                             text(
-                                """
-                                SELECT i.id FROM intelligence_item i
-                                JOIN source s ON s.id = i.source_id
-                                LEFT JOIN safety_case_profile scp ON scp.item_id = i.id
-                                LEFT JOIN publication p ON p.item_id = i.id
-                                LEFT JOIN publication_revision pr ON pr.id = p.current_revision_id
-                                WHERE i.id = ANY(CAST(:item_ids AS uuid[]))
-                                  AND (CAST(:source_id AS uuid) IS NULL OR
-                                    i.source_id = CAST(:source_id AS uuid))
-                                  AND (CAST(:source_authority AS text) IS NULL OR
-                                    s.authority_level = CAST(:source_authority AS text))
-                                  AND (CAST(:published_from AS date) IS NULL
-                                    OR i.source_published_at::date >= CAST(:published_from AS date))
-                                  AND (CAST(:published_to AS date) IS NULL
-                                    OR i.source_published_at::date <= CAST(:published_to AS date))
-                                  AND (CAST(:region AS text) IS NULL OR COALESCE(
-                                    scp.region_name,
-                                    pr.snapshot->>'region_name',
-                                    pr.snapshot->>'region'
-                                  ) = CAST(:region AS text))
-                                """
+                                "\n                                SELECT i.id FROM intelligence_item i\n                                JOIN source s ON s.id = i.source_id\n                                LEFT JOIN safety_case_profile scp ON scp.item_id = i.id\n                                LEFT JOIN publication p ON p.item_id = i.id\n                                LEFT JOIN publication_revision pr ON pr.id = p.current_revision_id\n                                WHERE i.id = ANY(CAST(:item_ids AS uuid[]))\n                                  AND (CAST(:source_id AS uuid) IS NULL OR\n                                    i.source_id = CAST(:source_id AS uuid))\n                                  AND (CAST(:source_authority AS text) IS NULL OR\n                                    s.authority_level = CAST(:source_authority AS text))\n                                  AND (CAST(:published_from AS date) IS NULL\n                                    OR i.source_published_at::date >= CAST(:published_from AS date))\n                                  AND (CAST(:published_to AS date) IS NULL\n                                    OR i.source_published_at::date <= CAST(:published_to AS date))\n                                  AND (CAST(:region AS text) IS NULL OR COALESCE(\n                                    scp.region_name,\n                                    pr.snapshot->>'region_name',\n                                    pr.snapshot->>'region'\n                                  ) = CAST(:region AS text))\n                                "
                             ),
                             {
                                 "item_ids": [item.id for item in items],
@@ -984,7 +619,7 @@ class PostgresIntelligenceQueryService:
         if items == page.items:
             return page
         fingerprint = sha256(
-            (page.fingerprint + "|" + "|".join(str(item.id) for item in items)).encode()
+            (page.fingerprint + "|" + "|".join((str(item.id) for item in items))).encode()
         ).hexdigest()
         return page.model_copy(update={"items": items, "fingerprint": f"sha256:{fingerprint}"})
 
@@ -994,16 +629,7 @@ class PostgresIntelligenceQueryService:
                 (
                     await connection.execute(
                         text(
-                            """
-                            SELECT source.name, source.channel, source.priority,
-                              checkpoint.last_success_at, checkpoint.consecutive_failures
-                            FROM source
-                            JOIN source_connector connector ON connector.source_id = source.id
-                              AND connector.enabled
-                            LEFT JOIN source_checkpoint checkpoint
-                              ON checkpoint.source_connector_id = connector.id
-                            WHERE source.state = 'ACTIVE' AND source.enabled
-                            """
+                            "\n                            SELECT source.name, source.channel, source.priority,\n                              checkpoint.last_success_at, checkpoint.consecutive_failures\n                            FROM source\n                            JOIN source_connector connector ON connector.source_id = source.id\n                              AND connector.enabled\n                            LEFT JOIN source_checkpoint checkpoint\n                              ON checkpoint.source_connector_id = connector.id\n                            WHERE source.state = 'ACTIVE' AND source.enabled\n                            "
                         )
                     )
                 )
@@ -1057,99 +683,7 @@ class PostgresIntelligenceQueryService:
                 (
                     await connection.execute(
                         text(
-                            """
-                            SELECT i.id, i.item_type, i.title, i.original_url,
-                                   i.source_published_at, i.first_discovered_at,
-                                   i.activity_at, i.updated_at, i.review_status,
-                                   source.name AS source_name,
-                                   publication.status AS publication_status,
-                                   publication.current_revision_id AS publication_revision_id,
-                                   profile.source_nature, profile.maturity_level,
-                                   profile.deployment_scale, profile.srbg_relationship,
-                                   relevance.score AS relevance_score,
-                                   relevance.rule_version AS relevance_rule_version,
-                                   relevance.engineering_points,
-                                   relevance.sichuan_points,
-                                   relevance.srbg_direct_points,
-                                   taxonomy.engineering_domains,
-                                   taxonomy.lifecycle_stages,
-                                   taxonomy.technology_tags,
-                                   taxonomy.application_scenarios,
-                                   (SELECT count(*) FROM document_version version
-                                    WHERE version.document_id = i.primary_document_id)
-                                     AS version_count,
-                                   NULL::text AS latest_change_type,
-                                   NULL::text AS latest_change_review_state,
-                                   false AS source_unavailable,
-                                   (SELECT count(*) FROM claim_evidence evidence
-                                    JOIN claim ON claim.id = evidence.claim_id
-                                    WHERE claim.item_id = i.id
-                                      AND claim.verification_status = 'ACCEPTED')
-                                     AS evidence_count
-                            FROM intelligence_item i
-                            JOIN source ON source.id = i.source_id
-                            JOIN digital_case_profile profile ON profile.item_id = i.id
-                            JOIN digital_case_relevance relevance ON relevance.item_id = i.id
-                            LEFT JOIN publication ON publication.item_id = i.id
-                            JOIN LATERAL (
-                              SELECT
-                                COALESCE(array_agg(code ORDER BY code)
-                                  FILTER (WHERE facet = 'ENGINEERING_DOMAIN'), ARRAY[]::text[])
-                                  AS engineering_domains,
-                                COALESCE(array_agg(code ORDER BY code)
-                                  FILTER (WHERE facet = 'LIFECYCLE_STAGE'), ARRAY[]::text[])
-                                  AS lifecycle_stages,
-                                COALESCE(array_agg(code ORDER BY code)
-                                  FILTER (WHERE facet = 'TECHNOLOGY_TAG'), ARRAY[]::text[])
-                                  AS technology_tags,
-                                COALESCE(array_agg(code ORDER BY code)
-                                  FILTER (WHERE facet = 'APPLICATION_SCENARIO'), ARRAY[]::text[])
-                                  AS application_scenarios
-                              FROM digital_case_taxonomy
-                              WHERE item_id = i.id
-                            ) taxonomy ON true
-                            WHERE i.item_type = 'DIGITAL_CASE'
-                              AND i.channel = 'DIGITAL'
-                              AND i.risk_level <> 'R4'
-                              AND i.review_status <> 'REJECTED'
-                              AND (
-                                :mode <> 'selected'
-                                OR (
-                                  i.review_status = 'APPROVED'
-                                  AND publication.status = 'PUBLISHED'
-                                  AND EXISTS (
-                                    SELECT 1 FROM score_set selected_score
-                                    WHERE selected_score.item_id = i.id
-                                      AND selected_score.is_current
-                                  )
-                                )
-                              )
-                              AND (
-                                CAST(:engineering_domain AS text) IS NULL
-                                OR :engineering_domain = ANY(taxonomy.engineering_domains)
-                              )
-                              AND (
-                                CAST(:scenario AS text) IS NULL
-                                OR :scenario = ANY(taxonomy.application_scenarios)
-                              )
-                              AND (
-                                CAST(:maturity AS text) IS NULL
-                                OR profile.maturity_level = CAST(:maturity AS text)
-                              )
-                              AND (
-                                CAST(:source_nature AS text) IS NULL
-                                OR profile.source_nature = CAST(:source_nature AS text)
-                              )
-                              AND (
-                                CAST(:cursor_time AS timestamptz) IS NULL
-                                OR (i.activity_at, i.id) <
-                                   (CAST(:cursor_time AS timestamptz), CAST(:cursor_id AS uuid))
-                              )
-                            ORDER BY
-                              CASE WHEN :sort = 'relevance' THEN relevance.score END DESC,
-                              i.activity_at DESC, i.id DESC
-                            LIMIT :row_limit
-                            """
+                            "\n                            SELECT i.id, i.item_type, i.title, i.original_url,\n                                   i.source_published_at, i.first_discovered_at,\n                                   i.activity_at, i.updated_at, i.review_status,\n                                   source.name AS source_name,\n                                   publication.status AS publication_status,\n                                   publication.current_revision_id AS publication_revision_id,\n                                   profile.source_nature, profile.maturity_level,\n                                   profile.deployment_scale, profile.srbg_relationship,\n                                   relevance.score AS relevance_score,\n                                   relevance.rule_version AS relevance_rule_version,\n                                   relevance.engineering_points,\n                                   relevance.sichuan_points,\n                                   relevance.srbg_direct_points,\n                                   taxonomy.engineering_domains,\n                                   taxonomy.lifecycle_stages,\n                                   taxonomy.technology_tags,\n                                   taxonomy.application_scenarios,\n                                   (SELECT count(*) FROM document_version version\n                                    WHERE version.document_id = i.primary_document_id)\n                                     AS version_count,\n                                   NULL::text AS latest_change_type,\n                                   NULL::text AS latest_change_review_state,\n                                   false AS source_unavailable,\n                                   (SELECT count(*) FROM claim_evidence evidence\n                                    JOIN claim ON claim.id = evidence.claim_id\n                                    WHERE claim.item_id = i.id\n                                      AND claim.verification_status = 'ACCEPTED')\n                                     AS evidence_count\n                            FROM intelligence_item i\n                            JOIN source ON source.id = i.source_id\n                            JOIN digital_case_profile profile ON profile.item_id = i.id\n                            JOIN digital_case_relevance relevance ON relevance.item_id = i.id\n                            LEFT JOIN publication ON publication.item_id = i.id\n                            JOIN LATERAL (\n                              SELECT\n                                COALESCE(array_agg(code ORDER BY code)\n                                  FILTER (WHERE facet = 'ENGINEERING_DOMAIN'), ARRAY[]::text[])\n                                  AS engineering_domains,\n                                COALESCE(array_agg(code ORDER BY code)\n                                  FILTER (WHERE facet = 'LIFECYCLE_STAGE'), ARRAY[]::text[])\n                                  AS lifecycle_stages,\n                                COALESCE(array_agg(code ORDER BY code)\n                                  FILTER (WHERE facet = 'TECHNOLOGY_TAG'), ARRAY[]::text[])\n                                  AS technology_tags,\n                                COALESCE(array_agg(code ORDER BY code)\n                                  FILTER (WHERE facet = 'APPLICATION_SCENARIO'), ARRAY[]::text[])\n                                  AS application_scenarios\n                              FROM digital_case_taxonomy\n                              WHERE item_id = i.id\n                            ) taxonomy ON true\n                            WHERE i.item_type = 'DIGITAL_CASE'\n                              AND i.channel = 'DIGITAL'\n                              AND i.risk_level <> 'R4'\n                              AND i.review_status <> 'REJECTED'\n                              AND (\n                                :mode <> 'selected'\n                                OR (\n                                  i.review_status = 'APPROVED'\n                                  AND publication.status = 'PUBLISHED'\n                                  AND EXISTS (\n                                    SELECT 1 FROM score_set selected_score\n                                    WHERE selected_score.item_id = i.id\n                                      AND selected_score.is_current\n                                  )\n                                )\n                              )\n                              AND (\n                                CAST(:engineering_domain AS text) IS NULL\n                                OR :engineering_domain = ANY(taxonomy.engineering_domains)\n                              )\n                              AND (\n                                CAST(:scenario AS text) IS NULL\n                                OR :scenario = ANY(taxonomy.application_scenarios)\n                              )\n                              AND (\n                                CAST(:maturity AS text) IS NULL\n                                OR profile.maturity_level = CAST(:maturity AS text)\n                              )\n                              AND (\n                                CAST(:source_nature AS text) IS NULL\n                                OR profile.source_nature = CAST(:source_nature AS text)\n                              )\n                              AND (\n                                CAST(:cursor_time AS timestamptz) IS NULL\n                                OR (i.activity_at, i.id) <\n                                   (CAST(:cursor_time AS timestamptz), CAST(:cursor_id AS uuid))\n                              )\n                            ORDER BY\n                              CASE WHEN :sort = 'relevance' THEN relevance.score END DESC,\n                              i.activity_at DESC, i.id DESC\n                            LIMIT :row_limit\n                            "
                         ),
                         {
                             "mode": mode,
@@ -1170,14 +704,10 @@ class PostgresIntelligenceQueryService:
         projected = await self._with_round09_projection(visible)
         items = await self._with_scores([_item_summary(row) for row in projected])
         next_cursor = None
-        if has_more and visible and sort == "latest":
+        if has_more and visible and (sort == "latest"):
             next_cursor = _encode_cursor(visible[-1]["activity_at"], visible[-1]["id"])
         return _feed_page(
-            items,
-            now=datetime.now(UTC),
-            mode=mode,
-            domain="digital",
-            next_cursor=next_cursor,
+            items, now=datetime.now(UTC), mode=mode, domain="digital", next_cursor=next_cursor
         )
 
     async def _get_paper_feed(
@@ -1199,74 +729,7 @@ class PostgresIntelligenceQueryService:
                 (
                     await connection.execute(
                         text(
-                            """
-                            SELECT i.id, i.item_type, i.title, i.original_url,
-                                   i.source_published_at, i.first_discovered_at,
-                                   i.activity_at, i.updated_at, i.review_status,
-                                   source.name AS source_name,
-                                   publication.status AS publication_status,
-                                   publication.current_revision_id AS publication_revision_id,
-                                   profile.normalized_doi, profile.journal,
-                                   profile.publication_year, profile.paper_type,
-                                   profile.access_level, profile.open_status,
-                                   profile.maturity_level, profile.relation_status,
-                                   taxonomy.engineering_domains, taxonomy.technology_tags,
-                                   (SELECT count(*) FROM document_version version
-                                    WHERE version.document_id = i.primary_document_id)
-                                      AS version_count,
-                                   NULL::text AS latest_change_type,
-                                   NULL::text AS latest_change_review_state,
-                                   false AS source_unavailable,
-                                   (SELECT count(*) FROM claim_evidence evidence
-                                    JOIN claim ON claim.id = evidence.claim_id
-                                    WHERE claim.item_id = i.id
-                                      AND claim.verification_status = 'ACCEPTED')
-                                      AS evidence_count
-                            FROM intelligence_item i
-                            JOIN source ON source.id = i.source_id
-                            JOIN paper_profile profile ON profile.item_id = i.id
-                            LEFT JOIN publication ON publication.item_id = i.id
-                            JOIN LATERAL (
-                              SELECT
-                                COALESCE(array_agg(code ORDER BY code)
-                                  FILTER (WHERE dimension = 'ENGINEERING_DOMAIN'), ARRAY[]::text[])
-                                  AS engineering_domains,
-                                COALESCE(array_agg(code ORDER BY code)
-                                  FILTER (WHERE dimension = 'TECHNOLOGY_TAG'), ARRAY[]::text[])
-                                  AS technology_tags
-                              FROM paper_taxonomy WHERE item_id = i.id
-                            ) taxonomy ON true
-                            WHERE i.item_type = 'JOURNAL_PAPER'
-                              AND i.channel = 'DIGITAL'
-                              AND i.risk_level <> 'R4'
-                              AND i.review_status <> 'REJECTED'
-                              AND (:mode <> 'selected' OR (
-                                i.review_status = 'APPROVED'
-                                AND publication.status = 'PUBLISHED'
-                                AND EXISTS (
-                                  SELECT 1 FROM score_set selected_score
-                                  WHERE selected_score.item_id = i.id
-                                    AND selected_score.is_current
-                                )
-                              ))
-                              AND (CAST(:engineering_domain AS text) IS NULL
-                                OR :engineering_domain = ANY(taxonomy.engineering_domains))
-                              AND (CAST(:technology_tag AS text) IS NULL
-                                OR :technology_tag = ANY(taxonomy.technology_tags))
-                              AND (CAST(:maturity AS text) IS NULL
-                                OR profile.maturity_level = CAST(:maturity AS text))
-                              AND (CAST(:paper_type AS text) IS NULL
-                                OR profile.paper_type = CAST(:paper_type AS text))
-                              AND (CAST(:access_level AS text) IS NULL
-                                OR profile.access_level = CAST(:access_level AS text))
-                              AND (CAST(:year AS smallint) IS NULL
-                                OR profile.publication_year = CAST(:year AS smallint))
-                              AND (CAST(:cursor_time AS timestamptz) IS NULL
-                                OR (i.activity_at, i.id) <
-                                  (CAST(:cursor_time AS timestamptz), CAST(:cursor_id AS uuid)))
-                            ORDER BY i.activity_at DESC, i.id DESC
-                            LIMIT :row_limit
-                            """
+                            "\n                            SELECT i.id, i.item_type, i.title, i.original_url,\n                                   i.source_published_at, i.first_discovered_at,\n                                   i.activity_at, i.updated_at, i.review_status,\n                                   source.name AS source_name,\n                                   publication.status AS publication_status,\n                                   publication.current_revision_id AS publication_revision_id,\n                                   profile.normalized_doi, profile.journal,\n                                   profile.publication_year, profile.paper_type,\n                                   profile.access_level, profile.open_status,\n                                   profile.maturity_level, profile.relation_status,\n                                   taxonomy.engineering_domains, taxonomy.technology_tags,\n                                   (SELECT count(*) FROM document_version version\n                                    WHERE version.document_id = i.primary_document_id)\n                                      AS version_count,\n                                   NULL::text AS latest_change_type,\n                                   NULL::text AS latest_change_review_state,\n                                   false AS source_unavailable,\n                                   (SELECT count(*) FROM claim_evidence evidence\n                                    JOIN claim ON claim.id = evidence.claim_id\n                                    WHERE claim.item_id = i.id\n                                      AND claim.verification_status = 'ACCEPTED')\n                                      AS evidence_count\n                            FROM intelligence_item i\n                            JOIN source ON source.id = i.source_id\n                            JOIN paper_profile profile ON profile.item_id = i.id\n                            LEFT JOIN publication ON publication.item_id = i.id\n                            JOIN LATERAL (\n                              SELECT\n                                COALESCE(array_agg(code ORDER BY code)\n                                  FILTER (WHERE dimension = 'ENGINEERING_DOMAIN'), ARRAY[]::text[])\n                                  AS engineering_domains,\n                                COALESCE(array_agg(code ORDER BY code)\n                                  FILTER (WHERE dimension = 'TECHNOLOGY_TAG'), ARRAY[]::text[])\n                                  AS technology_tags\n                              FROM paper_taxonomy WHERE item_id = i.id\n                            ) taxonomy ON true\n                            WHERE i.item_type = 'JOURNAL_PAPER'\n                              AND i.channel = 'DIGITAL'\n                              AND i.risk_level <> 'R4'\n                              AND i.review_status <> 'REJECTED'\n                              AND (:mode <> 'selected' OR (\n                                i.review_status = 'APPROVED'\n                                AND publication.status = 'PUBLISHED'\n                                AND EXISTS (\n                                  SELECT 1 FROM score_set selected_score\n                                  WHERE selected_score.item_id = i.id\n                                    AND selected_score.is_current\n                                )\n                              ))\n                              AND (CAST(:engineering_domain AS text) IS NULL\n                                OR :engineering_domain = ANY(taxonomy.engineering_domains))\n                              AND (CAST(:technology_tag AS text) IS NULL\n                                OR :technology_tag = ANY(taxonomy.technology_tags))\n                              AND (CAST(:maturity AS text) IS NULL\n                                OR profile.maturity_level = CAST(:maturity AS text))\n                              AND (CAST(:paper_type AS text) IS NULL\n                                OR profile.paper_type = CAST(:paper_type AS text))\n                              AND (CAST(:access_level AS text) IS NULL\n                                OR profile.access_level = CAST(:access_level AS text))\n                              AND (CAST(:year AS smallint) IS NULL\n                                OR profile.publication_year = CAST(:year AS smallint))\n                              AND (CAST(:cursor_time AS timestamptz) IS NULL\n                                OR (i.activity_at, i.id) <\n                                  (CAST(:cursor_time AS timestamptz), CAST(:cursor_id AS uuid)))\n                            ORDER BY i.activity_at DESC, i.id DESC\n                            LIMIT :row_limit\n                            "
                         ),
                         {
                             "mode": mode,
@@ -1292,11 +755,7 @@ class PostgresIntelligenceQueryService:
         )
         items = await self._with_scores([_item_summary(row) for row in projected])
         return _feed_page(
-            items,
-            now=datetime.now(UTC),
-            mode=mode,
-            domain="digital",
-            next_cursor=next_cursor,
+            items, now=datetime.now(UTC), mode=mode, domain="digital", next_cursor=next_cursor
         )
 
     async def _get_product_feed(
@@ -1318,90 +777,7 @@ class PostgresIntelligenceQueryService:
                 (
                     await connection.execute(
                         text(
-                            """
-                            SELECT item.id, item.item_type, item.title, item.original_url,
-                                   item.source_published_at, item.first_discovered_at,
-                                   item.activity_at, item.updated_at, item.review_status,
-                                   source.name AS source_name,
-                                   publication.status AS publication_status,
-                                   publication.current_revision_id AS publication_revision_id,
-                                   vendor.id AS vendor_id, vendor.name AS vendor_name,
-                                   product.id AS product_id, product.name AS product_name,
-                                   product.product_kind,
-                                   model.id AS model_id, model.model_no,
-                                   version.version, profile.evidence_level,
-                                   profile.permit_status, profile.maturity_level,
-                                   profile.platform_type, profile.equipment_form,
-                                   profile.interfaces, profile.deployment_modes,
-                                   profile.connectivity, profile.payload_types,
-                                   profile.ai_tasks, profile.limitations,
-                                   profile.production_validation,
-                                   taxonomy.application_scenarios,
-                                   capabilities.promotional_claim_count,
-                                   capabilities.verified_capability_count,
-                                   (SELECT count(*) FROM document_version document_version
-                                    WHERE document_version.document_id = item.primary_document_id)
-                                      AS version_count,
-                                   NULL::text AS latest_change_type,
-                                   NULL::text AS latest_change_review_state,
-                                   false AS source_unavailable,
-                                   (SELECT count(*) FROM claim_evidence evidence
-                                    JOIN claim ON claim.id = evidence.claim_id
-                                    WHERE claim.item_id = item.id
-                                      AND claim.verification_status = 'ACCEPTED') AS evidence_count
-                            FROM intelligence_item item
-                            JOIN source ON source.id = item.source_id
-                            JOIN technology_product_profile profile ON profile.item_id = item.id
-                            JOIN technology_product_version version
-                              ON version.id = profile.version_id
-                            JOIN technology_product_model model ON model.id = version.model_id
-                            JOIN technology_product product ON product.id = model.product_id
-                            JOIN technology_vendor vendor ON vendor.id = product.vendor_id
-                            LEFT JOIN publication ON publication.item_id = item.id
-                            LEFT JOIN LATERAL (
-                              SELECT
-                                count(*) FILTER (WHERE kind = 'PROMOTIONAL_CLAIM')
-                                  AS promotional_claim_count,
-                                count(*) FILTER (WHERE kind = 'VERIFIED_CAPABILITY')
-                                  AS verified_capability_count
-                              FROM technology_product_capability
-                              WHERE item_id = item.id
-                            ) capabilities ON true
-                            LEFT JOIN LATERAL (
-                              SELECT COALESCE(array_agg(code ORDER BY code)
-                                FILTER (WHERE dimension = 'APPLICATION_SCENARIO'), ARRAY[]::text[])
-                                  AS application_scenarios
-                              FROM technology_product_taxonomy WHERE item_id = item.id
-                            ) taxonomy ON true
-                            WHERE item.item_type = :content_type
-                              AND item.channel = 'DIGITAL'
-                              AND item.risk_level = 'R2'
-                              AND item.review_status <> 'REJECTED'
-                              AND (:mode <> 'selected' OR (
-                                item.review_status = 'APPROVED'
-                                AND publication.status = 'PUBLISHED'
-                                AND EXISTS (
-                                  SELECT 1 FROM score_set selected_score
-                                  WHERE selected_score.item_id = item.id
-                                    AND selected_score.is_current
-                                )
-                              ))
-                              AND (CAST(:product_kind AS text) IS NULL
-                                OR product.product_kind = CAST(:product_kind AS text))
-                              AND (CAST(:evidence_level AS text) IS NULL
-                                OR profile.evidence_level = CAST(:evidence_level AS text))
-                              AND (CAST(:deployment_mode AS text) IS NULL
-                                OR :deployment_mode = ANY(profile.deployment_modes))
-                              AND (CAST(:scenario AS text) IS NULL
-                                OR :scenario = ANY(taxonomy.application_scenarios))
-                              AND (CAST(:maturity AS text) IS NULL
-                                OR profile.maturity_level = CAST(:maturity AS text))
-                              AND (CAST(:cursor_time AS timestamptz) IS NULL
-                                OR (item.activity_at, item.id) <
-                                   (CAST(:cursor_time AS timestamptz), CAST(:cursor_id AS uuid)))
-                            ORDER BY item.activity_at DESC, item.id DESC
-                            LIMIT :row_limit
-                            """
+                            "\n                            SELECT item.id, item.item_type, item.title, item.original_url,\n                                   item.source_published_at, item.first_discovered_at,\n                                   item.activity_at, item.updated_at, item.review_status,\n                                   source.name AS source_name,\n                                   publication.status AS publication_status,\n                                   publication.current_revision_id AS publication_revision_id,\n                                   vendor.id AS vendor_id, vendor.name AS vendor_name,\n                                   product.id AS product_id, product.name AS product_name,\n                                   product.product_kind,\n                                   model.id AS model_id, model.model_no,\n                                   version.version, profile.evidence_level,\n                                   profile.permit_status, profile.maturity_level,\n                                   profile.platform_type, profile.equipment_form,\n                                   profile.interfaces, profile.deployment_modes,\n                                   profile.connectivity, profile.payload_types,\n                                   profile.ai_tasks, profile.limitations,\n                                   profile.production_validation,\n                                   taxonomy.application_scenarios,\n                                   capabilities.promotional_claim_count,\n                                   capabilities.verified_capability_count,\n                                   (SELECT count(*) FROM document_version document_version\n                                    WHERE document_version.document_id = item.primary_document_id)\n                                      AS version_count,\n                                   NULL::text AS latest_change_type,\n                                   NULL::text AS latest_change_review_state,\n                                   false AS source_unavailable,\n                                   (SELECT count(*) FROM claim_evidence evidence\n                                    JOIN claim ON claim.id = evidence.claim_id\n                                    WHERE claim.item_id = item.id\n                                      AND claim.verification_status = 'ACCEPTED') AS evidence_count\n                            FROM intelligence_item item\n                            JOIN source ON source.id = item.source_id\n                            JOIN technology_product_profile profile ON profile.item_id = item.id\n                            JOIN technology_product_version version\n                              ON version.id = profile.version_id\n                            JOIN technology_product_model model ON model.id = version.model_id\n                            JOIN technology_product product ON product.id = model.product_id\n                            JOIN technology_vendor vendor ON vendor.id = product.vendor_id\n                            LEFT JOIN publication ON publication.item_id = item.id\n                            LEFT JOIN LATERAL (\n                              SELECT\n                                count(*) FILTER (WHERE kind = 'PROMOTIONAL_CLAIM')\n                                  AS promotional_claim_count,\n                                count(*) FILTER (WHERE kind = 'VERIFIED_CAPABILITY')\n                                  AS verified_capability_count\n                              FROM technology_product_capability\n                              WHERE item_id = item.id\n                            ) capabilities ON true\n                            LEFT JOIN LATERAL (\n                              SELECT COALESCE(array_agg(code ORDER BY code)\n                                FILTER (WHERE dimension = 'APPLICATION_SCENARIO'), ARRAY[]::text[])\n                                  AS application_scenarios\n                              FROM technology_product_taxonomy WHERE item_id = item.id\n                            ) taxonomy ON true\n                            WHERE item.item_type = :content_type\n                              AND item.channel = 'DIGITAL'\n                              AND item.risk_level = 'R2'\n                              AND item.review_status <> 'REJECTED'\n                              AND (:mode <> 'selected' OR (\n                                item.review_status = 'APPROVED'\n                                AND publication.status = 'PUBLISHED'\n                                AND EXISTS (\n                                  SELECT 1 FROM score_set selected_score\n                                  WHERE selected_score.item_id = item.id\n                                    AND selected_score.is_current\n                                )\n                              ))\n                              AND (CAST(:product_kind AS text) IS NULL\n                                OR product.product_kind = CAST(:product_kind AS text))\n                              AND (CAST(:evidence_level AS text) IS NULL\n                                OR profile.evidence_level = CAST(:evidence_level AS text))\n                              AND (CAST(:deployment_mode AS text) IS NULL\n                                OR :deployment_mode = ANY(profile.deployment_modes))\n                              AND (CAST(:scenario AS text) IS NULL\n                                OR :scenario = ANY(taxonomy.application_scenarios))\n                              AND (CAST(:maturity AS text) IS NULL\n                                OR profile.maturity_level = CAST(:maturity AS text))\n                              AND (CAST(:cursor_time AS timestamptz) IS NULL\n                                OR (item.activity_at, item.id) <\n                                   (CAST(:cursor_time AS timestamptz), CAST(:cursor_id AS uuid)))\n                            ORDER BY item.activity_at DESC, item.id DESC\n                            LIMIT :row_limit\n                            "
                         ),
                         {
                             "content_type": content_type,
@@ -1427,11 +803,7 @@ class PostgresIntelligenceQueryService:
         )
         items = await self._with_scores([_item_summary(row) for row in projected])
         return _feed_page(
-            items,
-            now=datetime.now(UTC),
-            mode=mode,
-            domain="digital",
-            next_cursor=next_cursor,
+            items, now=datetime.now(UTC), mode=mode, domain="digital", next_cursor=next_cursor
         )
 
     async def get_item(self, item_id: UUID) -> ItemDetail:
@@ -1454,10 +826,7 @@ class PostgresIntelligenceQueryService:
             if row["item_type"] == "DIGITAL_CASE":
                 digital_case = await _digital_case_detail(connection, row)
                 return ItemDetail(
-                    item=item,
-                    claims=claims,
-                    evidence=evidence,
-                    digital_case=digital_case,
+                    item=item, claims=claims, evidence=evidence, digital_case=digital_case
                 )
             if row["item_type"] == "JOURNAL_PAPER":
                 return ItemDetail(
@@ -1477,23 +846,10 @@ class PostgresIntelligenceQueryService:
 
     async def resolve_item_event(self, item_id: UUID) -> UUID:
         """Resolve the immutable Item alias, with reviewed split allocation overlay."""
-
         async with self._engine.connect() as connection:
             event_id = await connection.scalar(
                 text(
-                    """
-                    SELECT COALESCE(split.child_event_id, binding.event_id)
-                      FROM event_identity_binding binding
-                      LEFT JOIN LATERAL (
-                        SELECT allocation.child_event_id
-                          FROM event_split_allocation allocation
-                          JOIN event_identity_change_request request
-                            ON request.id=allocation.request_id AND request.status='APPLIED'
-                         WHERE allocation.item_id=binding.item_id
-                         ORDER BY request.created_at DESC, request.id DESC LIMIT 1
-                      ) split ON true
-                     WHERE binding.item_id=:item_id
-                    """
+                    "\n                    SELECT COALESCE(split.child_event_id, binding.event_id)\n                      FROM event_identity_binding binding\n                      LEFT JOIN LATERAL (\n                        SELECT allocation.child_event_id\n                          FROM event_split_allocation allocation\n                          JOIN event_identity_change_request request\n                            ON request.id=allocation.request_id AND request.status='APPLIED'\n                         WHERE allocation.item_id=binding.item_id\n                         ORDER BY request.created_at DESC, request.id DESC LIMIT 1\n                      ) split ON true\n                     WHERE binding.item_id=:item_id\n                    "
                 ),
                 {"item_id": item_id},
             )
@@ -1507,9 +863,7 @@ class PostgresIntelligenceQueryService:
                 (
                     await connection.execute(
                         text(
-                            "SELECT COALESCE(to_jsonb(event)->>'status','ACTIVE') AS status, "
-                            "COALESCE((to_jsonb(event)->>'canonical_event_id')::uuid,id) "
-                            "AS canonical_event_id FROM event WHERE id=:event_id"
+                            "SELECT COALESCE(to_jsonb(event)->>'status','ACTIVE') AS status, COALESCE((to_jsonb(event)->>'canonical_event_id')::uuid,id) AS canonical_event_id FROM event WHERE id=:event_id"
                         ),
                         {"event_id": event_id},
                     )
@@ -1525,19 +879,10 @@ class PostgresIntelligenceQueryService:
 
     async def get_event_item_projection(self, event_id: UUID) -> ItemDetail:
         """Return type-specific content inside the Event detail, never as a second identity."""
-
         async with self._engine.connect() as connection:
             item_id = await connection.scalar(
                 text(
-                    """
-                    SELECT binding.item_id
-                      FROM event_identity_binding binding
-                      JOIN publication ON publication.item_id=binding.item_id
-                     WHERE binding.event_id=:event_id
-                       AND publication.status='PUBLISHED'
-                     ORDER BY publication.updated_at DESC, binding.item_id DESC
-                     LIMIT 1
-                    """
+                    "\n                    SELECT binding.item_id\n                      FROM event_identity_binding binding\n                      JOIN publication ON publication.item_id=binding.item_id\n                     WHERE binding.event_id=:event_id\n                       AND publication.status='PUBLISHED'\n                     ORDER BY publication.updated_at DESC, binding.item_id DESC\n                     LIMIT 1\n                    "
                 ),
                 {"event_id": event_id},
             )
@@ -1552,20 +897,7 @@ class PostgresIntelligenceQueryService:
                 (
                     await connection.execute(
                         text(
-                            """
-                        SELECT event.id,event.event_type,
-                               COALESCE(to_jsonb(event)->>'status','ACTIVE') AS status,
-                               COALESCE(
-                                 (to_jsonb(event)->>'canonical_event_id')::uuid,
-                                 event.id
-                               ) AS canonical_event_id,
-                               COALESCE(
-                                 (to_jsonb(event)->>'version')::integer, 1
-                               ) AS version
-                          FROM event_identity_binding binding
-                          JOIN event ON event.id=binding.event_id
-                         WHERE binding.item_id=:item_id
-                        """
+                            "\n                        SELECT event.id,event.event_type,\n                               COALESCE(to_jsonb(event)->>'status','ACTIVE') AS status,\n                               COALESCE(\n                                 (to_jsonb(event)->>'canonical_event_id')::uuid,\n                                 event.id\n                               ) AS canonical_event_id,\n                               COALESCE(\n                                 (to_jsonb(event)->>'version')::integer, 1\n                               ) AS version\n                          FROM event_identity_binding binding\n                          JOIN event ON event.id=binding.event_id\n                         WHERE binding.item_id=:item_id\n                        "
                         ),
                         {"item_id": item_id},
                     )
@@ -1586,82 +918,13 @@ class PostgresIntelligenceQueryService:
             }
         )
 
-    async def list_product_normalization_candidates(
-        self, *, status: str
-    ) -> list[ProductNormalizationCandidateView]:
-        async with self._engine.connect() as connection:
-            rows = list(
-                (
-                    await connection.execute(
-                        text(
-                            """
-                            SELECT candidate.id, candidate.incoming_version_id,
-                                   candidate.candidate_version_id,
-                                   candidate.candidate_type, candidate.status,
-                                   candidate.created_at,
-                                   concat(incoming_vendor.name, ' / ', incoming_product.name,
-                                          ' / ', COALESCE(incoming_model.model_no, '型号未知'),
-                                          ' / ', COALESCE(incoming_version.version, '版本未知'))
-                                     AS incoming_label,
-                                   concat(existing_vendor.name, ' / ', existing_product.name,
-                                          ' / ', COALESCE(existing_model.model_no, '型号未知'),
-                                          ' / ', COALESCE(existing_version.version, '版本未知'))
-                                     AS candidate_label
-                            FROM product_normalization_candidate candidate
-                            JOIN technology_product_version incoming_version
-                              ON incoming_version.id = candidate.incoming_version_id
-                            JOIN technology_product_model incoming_model
-                              ON incoming_model.id = incoming_version.model_id
-                            JOIN technology_product incoming_product
-                              ON incoming_product.id = incoming_model.product_id
-                            JOIN technology_vendor incoming_vendor
-                              ON incoming_vendor.id = incoming_product.vendor_id
-                            JOIN technology_product_version existing_version
-                              ON existing_version.id = candidate.candidate_version_id
-                            JOIN technology_product_model existing_model
-                              ON existing_model.id = existing_version.model_id
-                            JOIN technology_product existing_product
-                              ON existing_product.id = existing_model.product_id
-                            JOIN technology_vendor existing_vendor
-                              ON existing_vendor.id = existing_product.vendor_id
-                            WHERE candidate.status = :status
-                            ORDER BY candidate.created_at, candidate.id
-                            """
-                        ),
-                        {"status": status},
-                    )
-                ).mappings()
-            )
-        return [ProductNormalizationCandidateView.model_validate(row) for row in rows]
-
     async def get_citation(self, item_id: UUID, citation_format: str) -> tuple[str, str]:
         async with self._engine.connect() as connection:
             row = (
                 (
                     await connection.execute(
                         text(
-                            """
-                            SELECT item.title, profile.normalized_doi AS doi,
-                                   profile.journal, profile.publication_year AS year,
-                                   profile.volume, profile.issue, profile.pages,
-                                   COALESCE(
-                                     array_agg(author.name ORDER BY authorship.author_order)
-                                       FILTER (WHERE author.id IS NOT NULL),
-                                     ARRAY[]::text[]
-                                   ) AS authors
-                            FROM intelligence_item item
-                            JOIN paper_profile profile ON profile.item_id = item.id
-                            JOIN publication ON publication.item_id = item.id
-                              AND publication.status = 'PUBLISHED'
-                            LEFT JOIN paper_authorship authorship ON authorship.item_id = item.id
-                            LEFT JOIN paper_author author ON author.id = authorship.author_id
-                            WHERE item.id = :item_id
-                              AND item.item_type = 'JOURNAL_PAPER'
-                              AND item.review_status = 'APPROVED'
-                            GROUP BY item.id, item.title, profile.normalized_doi,
-                                     profile.journal, profile.publication_year,
-                                     profile.volume, profile.issue, profile.pages
-                            """
+                            "\n                            SELECT item.title, profile.normalized_doi AS doi,\n                                   profile.journal, profile.publication_year AS year,\n                                   profile.volume, profile.issue, profile.pages,\n                                   COALESCE(\n                                     array_agg(author.name ORDER BY authorship.author_order)\n                                       FILTER (WHERE author.id IS NOT NULL),\n                                     ARRAY[]::text[]\n                                   ) AS authors\n                            FROM intelligence_item item\n                            JOIN paper_profile profile ON profile.item_id = item.id\n                            JOIN publication ON publication.item_id = item.id\n                              AND publication.status = 'PUBLISHED'\n                            LEFT JOIN paper_authorship authorship ON authorship.item_id = item.id\n                            LEFT JOIN paper_author author ON author.id = authorship.author_id\n                            WHERE item.id = :item_id\n                              AND item.item_type = 'JOURNAL_PAPER'\n                              AND item.review_status = 'APPROVED'\n                            GROUP BY item.id, item.title, profile.normalized_doi,\n                                     profile.journal, profile.publication_year,\n                                     profile.volume, profile.issue, profile.pages\n                            "
                         ),
                         {"item_id": item_id},
                     )
@@ -1672,11 +935,9 @@ class PostgresIntelligenceQueryService:
         if row is None:
             raise IntelligenceNotFound("published journal paper does not exist")
         metadata = dict(row)
-        formatter = {
-            "ris": format_ris,
-            "bibtex": format_bibtex,
-            "gb-t-7714": format_gbt7714,
-        }.get(citation_format)
+        formatter = {"ris": format_ris, "bibtex": format_bibtex, "gb-t-7714": format_gbt7714}.get(
+            citation_format
+        )
         if formatter is None:
             raise ValueError("unsupported citation format")
         media_type = {
@@ -1684,7 +945,7 @@ class PostgresIntelligenceQueryService:
             "bibtex": "application/x-bibtex; charset=utf-8",
             "gb-t-7714": "text/plain; charset=utf-8",
         }[citation_format]
-        return formatter(metadata), media_type
+        return (formatter(metadata), media_type)
 
     async def list_automatic_relationships(self, event_id: UUID) -> list[AutomaticRelationshipView]:
         async with self._engine.connect() as connection:
@@ -1692,23 +953,7 @@ class PostgresIntelligenceQueryService:
                 (
                     await connection.execute(
                         text(
-                            """
-                            WITH members AS (
-                              SELECT item_id FROM event_identity_binding WHERE event_id=:event_id
-                              UNION SELECT item_id FROM event_item WHERE event_id=:event_id
-                            )
-                            SELECT decision.id,decision.relationship_key,
-                              decision.relationship_kind,decision.source_item_id,
-                              decision.target_item_id,decision.status,decision.score_bps,
-                              decision.reason_codes,decision.algorithm_version,
-                              decision.model_version,decision.input_fingerprint_sha256,
-                              decision.created_at
-                            FROM automatic_relationship_decision_version decision
-                            WHERE decision.source_item_id IN (SELECT item_id FROM members)
-                               OR decision.target_item_id IN (SELECT item_id FROM members)
-                            ORDER BY (decision.status='ACTIVE') DESC,
-                              decision.created_at DESC,decision.id DESC
-                            """
+                            "\n                            WITH members AS (\n                              SELECT item_id FROM event_identity_binding WHERE event_id=:event_id\n                              UNION SELECT item_id FROM event_item WHERE event_id=:event_id\n                            )\n                            SELECT decision.id,decision.relationship_key,\n                              decision.relationship_kind,decision.source_item_id,\n                              decision.target_item_id,decision.status,decision.score_bps,\n                              decision.reason_codes,decision.algorithm_version,\n                              decision.model_version,decision.input_fingerprint_sha256,\n                              decision.created_at\n                            FROM automatic_relationship_decision_version decision\n                            WHERE decision.source_item_id IN (SELECT item_id FROM members)\n                               OR decision.target_item_id IN (SELECT item_id FROM members)\n                            ORDER BY (decision.status='ACTIVE') DESC,\n                              decision.created_at DESC,decision.id DESC\n                            "
                         ),
                         {"event_id": event_id},
                     )
@@ -1738,12 +983,7 @@ class PostgresIntelligenceQueryService:
                 (
                     await connection.execute(
                         text(
-                            "SELECT id,event_type,title, "
-                            "COALESCE(to_jsonb(event)->>'status','ACTIVE') AS status, "
-                            "COALESCE((to_jsonb(event)->>'canonical_event_id')::uuid,id) "
-                            "AS canonical_event_id, "
-                            "COALESCE((to_jsonb(event)->>'version')::integer,1) AS version "
-                            "FROM event WHERE id = :event_id"
+                            "SELECT id,event_type,title, COALESCE(to_jsonb(event)->>'status','ACTIVE') AS status, COALESCE((to_jsonb(event)->>'canonical_event_id')::uuid,id) AS canonical_event_id, COALESCE((to_jsonb(event)->>'version')::integer,1) AS version FROM event WHERE id = :event_id"
                         ),
                         {"event_id": event_id},
                     )
@@ -1755,28 +995,7 @@ class PostgresIntelligenceQueryService:
                 child_ids = list(
                     await connection.scalars(
                         text(
-                            """
-                            SELECT DISTINCT child.event_id
-                              FROM event_identity_change_target source
-                              JOIN event_identity_change_request request
-                                ON request.id=source.request_id
-                               AND request.operation='SPLIT'
-                               AND request.status='APPLIED'
-                              JOIN event_identity_change_target child
-                                ON child.request_id=source.request_id
-                               AND child.target_role='CHILD'
-                             WHERE source.event_id=:event_id
-                               AND source.target_role='SOURCE'
-                            UNION
-                            SELECT DISTINCT (allocation->>'child_event_id')::uuid
-                              FROM owner_relationship_correction correction
-                              CROSS JOIN LATERAL jsonb_array_elements(
-                                correction.payload->'allocations'
-                              ) allocation
-                             WHERE correction.event_id=:event_id
-                               AND correction.action='SPLIT_EVENT'
-                             ORDER BY 1
-                            """
+                            "\n                            SELECT DISTINCT child.event_id\n                              FROM event_identity_change_target source\n                              JOIN event_identity_change_request request\n                                ON request.id=source.request_id\n                               AND request.operation='SPLIT'\n                               AND request.status='APPLIED'\n                              JOIN event_identity_change_target child\n                                ON child.request_id=source.request_id\n                               AND child.target_role='CHILD'\n                             WHERE source.event_id=:event_id\n                               AND source.target_role='SOURCE'\n                            UNION\n                            SELECT DISTINCT (allocation->>'child_event_id')::uuid\n                              FROM owner_relationship_correction correction\n                              CROSS JOIN LATERAL jsonb_array_elements(\n                                correction.payload->'allocations'\n                              ) allocation\n                             WHERE correction.event_id=:event_id\n                               AND correction.action='SPLIT_EVENT'\n                             ORDER BY 1\n                            "
                         ),
                         {"event_id": event_id},
                     )
@@ -1804,86 +1023,7 @@ class PostgresIntelligenceQueryService:
                 (
                     await connection.execute(
                         text(
-                            """
-                            WITH safe_members AS (
-                              SELECT membership.event_id AS id,
-                                     header_item.id AS item_id,
-                                     header_item.title,
-                                     header_item.source_published_at,
-                                     membership.confirmed_at,
-                                     header_profile.occurred_at,
-                                     header_profile.region_name,
-                                     header_profile.project_name,
-                                     header_profile.accident_type,
-                                     header_profile.engineering_type,
-                                     header_profile.incident_status,
-                                     header_profile.rectification_has_open_issues,
-                                     header_profile.similar_scenario_tags,
-                                     header_profile.prevention_measure_tags
-                              FROM event_item membership
-                              JOIN event confirmed_event
-                                ON confirmed_event.id = membership.event_id
-                               AND confirmed_event.confirmation_status = 'CONFIRMED'
-                              JOIN intelligence_item header_item
-                                ON header_item.id = membership.item_id
-                              JOIN publication header_publication
-                                ON header_publication.item_id = header_item.id
-                               AND header_publication.status = 'PUBLISHED'
-                              JOIN safety_case_profile header_profile
-                                ON header_profile.item_id = header_item.id
-                              WHERE membership.event_id = :event_id
-                                AND header_item.risk_level = 'R3'
-                                AND header_item.review_status = 'APPROVED'
-                            ),
-                            latest_member AS (
-                              SELECT *
-                              FROM safe_members latest
-                              ORDER BY latest.source_published_at DESC NULLS LAST,
-                                       latest.confirmed_at DESC, latest.item_id DESC
-                              LIMIT 1
-                            )
-                            SELECT latest.id,
-                                   (SELECT earliest.title
-                                    FROM safe_members earliest
-                                    ORDER BY earliest.source_published_at ASC NULLS LAST,
-                                             earliest.confirmed_at, earliest.item_id
-                                    LIMIT 1) AS title,
-                                   (SELECT identity.occurred_at
-                                    FROM safe_members identity
-                                    WHERE identity.occurred_at IS NOT NULL
-                                    ORDER BY identity.source_published_at DESC NULLS LAST,
-                                             identity.confirmed_at DESC, identity.item_id DESC
-                                    LIMIT 1) AS occurred_at,
-                                   (SELECT identity.region_name
-                                    FROM safe_members identity
-                                    WHERE identity.region_name IS NOT NULL
-                                    ORDER BY identity.source_published_at DESC NULLS LAST,
-                                             identity.confirmed_at DESC, identity.item_id DESC
-                                    LIMIT 1) AS region_name,
-                                   (SELECT identity.project_name
-                                    FROM safe_members identity
-                                    WHERE identity.project_name IS NOT NULL
-                                    ORDER BY identity.source_published_at DESC NULLS LAST,
-                                             identity.confirmed_at DESC, identity.item_id DESC
-                                    LIMIT 1) AS project_name,
-                                   (SELECT identity.accident_type
-                                    FROM safe_members identity
-                                    WHERE identity.accident_type IS NOT NULL
-                                    ORDER BY identity.source_published_at DESC NULLS LAST,
-                                             identity.confirmed_at DESC, identity.item_id DESC
-                                    LIMIT 1) AS accident_type,
-                                   (SELECT identity.engineering_type
-                                    FROM safe_members identity
-                                    WHERE identity.engineering_type IS NOT NULL
-                                    ORDER BY identity.source_published_at DESC NULLS LAST,
-                                             identity.confirmed_at DESC, identity.item_id DESC
-                                    LIMIT 1) AS engineering_type,
-                                   latest.incident_status,
-                                   latest.rectification_has_open_issues,
-                                   latest.similar_scenario_tags,
-                                   latest.prevention_measure_tags
-                            FROM latest_member latest
-                            """
+                            "\n                            WITH safe_members AS (\n                              SELECT membership.event_id AS id,\n                                     header_item.id AS item_id,\n                                     header_item.title,\n                                     header_item.source_published_at,\n                                     membership.confirmed_at,\n                                     header_profile.occurred_at,\n                                     header_profile.region_name,\n                                     header_profile.project_name,\n                                     header_profile.accident_type,\n                                     header_profile.engineering_type,\n                                     header_profile.incident_status,\n                                     header_profile.rectification_has_open_issues,\n                                     header_profile.similar_scenario_tags,\n                                     header_profile.prevention_measure_tags\n                              FROM event_item membership\n                              JOIN event confirmed_event\n                                ON confirmed_event.id = membership.event_id\n                               AND confirmed_event.confirmation_status = 'CONFIRMED'\n                              JOIN intelligence_item header_item\n                                ON header_item.id = membership.item_id\n                              JOIN publication header_publication\n                                ON header_publication.item_id = header_item.id\n                               AND header_publication.status = 'PUBLISHED'\n                              JOIN safety_case_profile header_profile\n                                ON header_profile.item_id = header_item.id\n                              WHERE membership.event_id = :event_id\n                                AND header_item.risk_level = 'R3'\n                                AND header_item.review_status = 'APPROVED'\n                            ),\n                            latest_member AS (\n                              SELECT *\n                              FROM safe_members latest\n                              ORDER BY latest.source_published_at DESC NULLS LAST,\n                                       latest.confirmed_at DESC, latest.item_id DESC\n                              LIMIT 1\n                            )\n                            SELECT latest.id,\n                                   (SELECT earliest.title\n                                    FROM safe_members earliest\n                                    ORDER BY earliest.source_published_at ASC NULLS LAST,\n                                             earliest.confirmed_at, earliest.item_id\n                                    LIMIT 1) AS title,\n                                   (SELECT identity.occurred_at\n                                    FROM safe_members identity\n                                    WHERE identity.occurred_at IS NOT NULL\n                                    ORDER BY identity.source_published_at DESC NULLS LAST,\n                                             identity.confirmed_at DESC, identity.item_id DESC\n                                    LIMIT 1) AS occurred_at,\n                                   (SELECT identity.region_name\n                                    FROM safe_members identity\n                                    WHERE identity.region_name IS NOT NULL\n                                    ORDER BY identity.source_published_at DESC NULLS LAST,\n                                             identity.confirmed_at DESC, identity.item_id DESC\n                                    LIMIT 1) AS region_name,\n                                   (SELECT identity.project_name\n                                    FROM safe_members identity\n                                    WHERE identity.project_name IS NOT NULL\n                                    ORDER BY identity.source_published_at DESC NULLS LAST,\n                                             identity.confirmed_at DESC, identity.item_id DESC\n                                    LIMIT 1) AS project_name,\n                                   (SELECT identity.accident_type\n                                    FROM safe_members identity\n                                    WHERE identity.accident_type IS NOT NULL\n                                    ORDER BY identity.source_published_at DESC NULLS LAST,\n                                             identity.confirmed_at DESC, identity.item_id DESC\n                                    LIMIT 1) AS accident_type,\n                                   (SELECT identity.engineering_type\n                                    FROM safe_members identity\n                                    WHERE identity.engineering_type IS NOT NULL\n                                    ORDER BY identity.source_published_at DESC NULLS LAST,\n                                             identity.confirmed_at DESC, identity.item_id DESC\n                                    LIMIT 1) AS engineering_type,\n                                   latest.incident_status,\n                                   latest.rectification_has_open_issues,\n                                   latest.similar_scenario_tags,\n                                   latest.prevention_measure_tags\n                            FROM latest_member latest\n                            "
                         ),
                         {"event_id": event_id},
                     )
@@ -1893,68 +1033,11 @@ class PostgresIntelligenceQueryService:
             )
             if event is None:
                 raise IntelligenceNotFound("safety event does not exist")
-
             timeline_rows = list(
                 (
                     await connection.execute(
                         text(
-                            """
-                            SELECT i.id AS item_id, i.title, profile.report_stage,
-                                   profile.incident_status, source.name AS source_name,
-                                   i.source_published_at, i.original_url, i.review_status,
-                                   publication.current_revision_id AS publication_revision_id,
-                                   publication.status AS publication_status,
-                                   relation.relation_type,
-                                   (SELECT count(*) FROM claim_evidence evidence
-                                    JOIN claim ON claim.id = evidence.claim_id
-                                    WHERE claim.item_id = i.id
-                                       AND (
-                                         (claim.verification_status = 'ACCEPTED'
-                                          AND claim.critical = false)
-                                         OR (
-                                           'ACCEPT' = (
-                                             SELECT decision.action
-                                             FROM claim_field_decision decision
-                                             WHERE decision.claim_id = claim.id
-                                             ORDER BY decision.created_at DESC, decision.id DESC
-                                             LIMIT 1
-                                           )
-                                           AND evidence.id = (
-                                             SELECT decision.evidence_id
-                                             FROM claim_field_decision decision
-                                             WHERE decision.claim_id = claim.id
-                                             ORDER BY decision.created_at DESC, decision.id DESC
-                                             LIMIT 1
-                                           )
-                                         )
-                                       )
-                                       AND NOT EXISTS (
-                                        SELECT 1 FROM public_safety_case_conflict conflict
-                                        WHERE conflict.event_id = membership.event_id
-                                          AND conflict.field_name = claim.claim_type
-                                      )) AS evidence_count
-                            FROM event_item membership
-                            JOIN intelligence_item i ON i.id = membership.item_id
-                            JOIN safety_case_profile profile ON profile.item_id = i.id
-                            JOIN source ON source.id = i.source_id
-                            JOIN publication ON publication.item_id = i.id
-                              AND publication.status IN ('PUBLISHED','WITHDRAWN')
-                            LEFT JOIN LATERAL (
-                                SELECT confirmed.relation_type
-                                FROM event_relation confirmed
-                                WHERE confirmed.event_id = membership.event_id
-                                  AND confirmed.source_item_id = i.id
-                                ORDER BY
-                                  (confirmed.relation_type = 'CORRECTS') ASC,
-                                  confirmed.confirmed_at DESC, confirmed.id DESC
-                                LIMIT 1
-                            ) relation ON true
-                            WHERE membership.event_id = :event_id
-                              AND i.risk_level = 'R3'
-                              AND i.review_status = 'APPROVED'
-                            ORDER BY i.source_published_at NULLS LAST,
-                                     membership.confirmed_at, i.id
-                            """
+                            "\n                            SELECT i.id AS item_id, i.title, profile.report_stage,\n                                   profile.incident_status, source.name AS source_name,\n                                   i.source_published_at, i.original_url, i.review_status,\n                                   publication.current_revision_id AS publication_revision_id,\n                                   publication.status AS publication_status,\n                                   relation.relation_type,\n                                   (SELECT count(*) FROM claim_evidence evidence\n                                    JOIN claim ON claim.id = evidence.claim_id\n                                    WHERE claim.item_id = i.id\n                                       AND (\n                                         (claim.verification_status = 'ACCEPTED'\n                                          AND claim.critical = false)\n                                         OR (\n                                           'ACCEPT' = (\n                                             SELECT decision.action\n                                             FROM claim_field_decision decision\n                                             WHERE decision.claim_id = claim.id\n                                             ORDER BY decision.created_at DESC, decision.id DESC\n                                             LIMIT 1\n                                           )\n                                           AND evidence.id = (\n                                             SELECT decision.evidence_id\n                                             FROM claim_field_decision decision\n                                             WHERE decision.claim_id = claim.id\n                                             ORDER BY decision.created_at DESC, decision.id DESC\n                                             LIMIT 1\n                                           )\n                                         )\n                                       )\n                                       AND NOT EXISTS (\n                                        SELECT 1 FROM public_safety_case_conflict conflict\n                                        WHERE conflict.event_id = membership.event_id\n                                          AND conflict.field_name = claim.claim_type\n                                      )) AS evidence_count\n                            FROM event_item membership\n                            JOIN intelligence_item i ON i.id = membership.item_id\n                            JOIN safety_case_profile profile ON profile.item_id = i.id\n                            JOIN source ON source.id = i.source_id\n                            JOIN publication ON publication.item_id = i.id\n                              AND publication.status IN ('PUBLISHED','WITHDRAWN')\n                            LEFT JOIN LATERAL (\n                                SELECT confirmed.relation_type\n                                FROM event_relation confirmed\n                                WHERE confirmed.event_id = membership.event_id\n                                  AND confirmed.source_item_id = i.id\n                                ORDER BY\n                                  (confirmed.relation_type = 'CORRECTS') ASC,\n                                  confirmed.confirmed_at DESC, confirmed.id DESC\n                                LIMIT 1\n                            ) relation ON true\n                            WHERE membership.event_id = :event_id\n                              AND i.risk_level = 'R3'\n                              AND i.review_status = 'APPROVED'\n                            ORDER BY i.source_published_at NULLS LAST,\n                                     membership.confirmed_at, i.id\n                            "
                         ),
                         {"event_id": event_id},
                     )
@@ -1964,14 +1047,7 @@ class PostgresIntelligenceQueryService:
                 (
                     await connection.execute(
                         text(
-                            """
-                            SELECT source_item_id, claim_id, field_name,
-                                   literal_value, evidence_id, reviewed_at,
-                                   loss_currency
-                            FROM public_safety_case_accepted_claim
-                            WHERE event_id = :event_id
-                            ORDER BY reviewed_at, claim_id
-                            """
+                            "\n                            SELECT source_item_id, claim_id, field_name,\n                                   literal_value, evidence_id, reviewed_at,\n                                   loss_currency\n                            FROM public_safety_case_accepted_claim\n                            WHERE event_id = :event_id\n                            ORDER BY reviewed_at, claim_id\n                            "
                         ),
                         {"event_id": event_id},
                     )
@@ -1981,20 +1057,7 @@ class PostgresIntelligenceQueryService:
                 (
                     await connection.execute(
                         text(
-                            """
-                            SELECT conflict.source_item_id,
-                                   NULL::uuid AS claim_id,
-                                   conflict.conflict_id,
-                                   conflict.field_name,
-                                   ARRAY[]::uuid[] AS evidence_ids
-                            FROM public_safety_case_conflict conflict
-                            WHERE conflict.event_id = :event_id
-                              AND conflict.field_name IN (
-                                'deaths','injuries','loss_amount_minor',
-                                'official_direct_causes','responsibility_findings'
-                              )
-                            ORDER BY conflict.detected_at, conflict.conflict_id
-                            """
+                            "\n                            SELECT conflict.source_item_id,\n                                   NULL::uuid AS claim_id,\n                                   conflict.conflict_id,\n                                   conflict.field_name,\n                                   ARRAY[]::uuid[] AS evidence_ids\n                            FROM public_safety_case_conflict conflict\n                            WHERE conflict.event_id = :event_id\n                              AND conflict.field_name IN (\n                                'deaths','injuries','loss_amount_minor',\n                                'official_direct_causes','responsibility_findings'\n                              )\n                            ORDER BY conflict.detected_at, conflict.conflict_id\n                            "
                         ),
                         {"event_id": event_id},
                     )
@@ -2004,38 +1067,7 @@ class PostgresIntelligenceQueryService:
                 (
                     await connection.execute(
                         text(
-                            """
-                            SELECT claim.item_id AS source_item_id, claim.id AS claim_id,
-                                   claim.claim_type AS field_name,
-                                   array_remove(array_agg(evidence.id), NULL) AS evidence_ids
-                            FROM claim
-                            JOIN event_item membership ON membership.item_id = claim.item_id
-                            JOIN intelligence_item item ON item.id = claim.item_id
-                            JOIN publication ON publication.item_id = item.id
-                              AND publication.status = 'PUBLISHED'
-                            LEFT JOIN LATERAL (
-                              SELECT decision.action
-                              FROM claim_field_decision decision
-                              WHERE decision.claim_id = claim.id
-                              ORDER BY decision.created_at DESC, decision.id DESC
-                              LIMIT 1
-                            ) latest_decision ON true
-                            LEFT JOIN claim_evidence evidence ON evidence.claim_id = claim.id
-                            WHERE membership.event_id = :event_id
-                              AND item.risk_level = 'R3'
-                              AND item.review_status = 'APPROVED'
-                              AND claim.critical = true
-                              AND claim.claim_type IN (
-                                'deaths','injuries','loss_amount_minor',
-                                'official_direct_causes','responsibility_findings'
-                              )
-                              AND (
-                                latest_decision.action IS NULL
-                                OR latest_decision.action = 'REVOKE'
-                              )
-                            GROUP BY claim.item_id, claim.id, claim.claim_type, claim.created_at
-                            ORDER BY claim.created_at, claim.id
-                            """
+                            "\n                            SELECT claim.item_id AS source_item_id, claim.id AS claim_id,\n                                   claim.claim_type AS field_name,\n                                   array_remove(array_agg(evidence.id), NULL) AS evidence_ids\n                            FROM claim\n                            JOIN event_item membership ON membership.item_id = claim.item_id\n                            JOIN intelligence_item item ON item.id = claim.item_id\n                            JOIN publication ON publication.item_id = item.id\n                              AND publication.status = 'PUBLISHED'\n                            LEFT JOIN LATERAL (\n                              SELECT decision.action\n                              FROM claim_field_decision decision\n                              WHERE decision.claim_id = claim.id\n                              ORDER BY decision.created_at DESC, decision.id DESC\n                              LIMIT 1\n                            ) latest_decision ON true\n                            LEFT JOIN claim_evidence evidence ON evidence.claim_id = claim.id\n                            WHERE membership.event_id = :event_id\n                              AND item.risk_level = 'R3'\n                              AND item.review_status = 'APPROVED'\n                              AND claim.critical = true\n                              AND claim.claim_type IN (\n                                'deaths','injuries','loss_amount_minor',\n                                'official_direct_causes','responsibility_findings'\n                              )\n                              AND (\n                                latest_decision.action IS NULL\n                                OR latest_decision.action = 'REVOKE'\n                              )\n                            GROUP BY claim.item_id, claim.id, claim.claim_type, claim.created_at\n                            ORDER BY claim.created_at, claim.id\n                            "
                         ),
                         {"event_id": event_id},
                     )
@@ -2045,35 +1077,12 @@ class PostgresIntelligenceQueryService:
                 (
                     await connection.execute(
                         text(
-                            """
-                            SELECT relation.id, relation.event_id,
-                                   relation.source_item_id, relation.target_item_id,
-                                   relation.relation_type, relation.confirmed_by,
-                                   relation.confirmed_at
-                            FROM event_relation relation
-                            JOIN intelligence_item source_item
-                              ON source_item.id = relation.source_item_id
-                            JOIN publication source_publication
-                              ON source_publication.item_id = source_item.id
-                             AND source_publication.status IN ('PUBLISHED','WITHDRAWN')
-                            JOIN intelligence_item target_item
-                              ON target_item.id = relation.target_item_id
-                            JOIN publication target_publication
-                              ON target_publication.item_id = target_item.id
-                             AND target_publication.status IN ('PUBLISHED','WITHDRAWN')
-                            WHERE relation.event_id = :event_id
-                              AND source_item.risk_level = 'R3'
-                              AND source_item.review_status = 'APPROVED'
-                              AND target_item.risk_level = 'R3'
-                              AND target_item.review_status = 'APPROVED'
-                            ORDER BY relation.confirmed_at, relation.id
-                            """
+                            "\n                            SELECT relation.id, relation.event_id,\n                                   relation.source_item_id, relation.target_item_id,\n                                   relation.relation_type, relation.confirmed_by,\n                                   relation.confirmed_at\n                            FROM event_relation relation\n                            JOIN intelligence_item source_item\n                              ON source_item.id = relation.source_item_id\n                            JOIN publication source_publication\n                              ON source_publication.item_id = source_item.id\n                             AND source_publication.status IN ('PUBLISHED','WITHDRAWN')\n                            JOIN intelligence_item target_item\n                              ON target_item.id = relation.target_item_id\n                            JOIN publication target_publication\n                              ON target_publication.item_id = target_item.id\n                             AND target_publication.status IN ('PUBLISHED','WITHDRAWN')\n                            WHERE relation.event_id = :event_id\n                              AND source_item.risk_level = 'R3'\n                              AND source_item.review_status = 'APPROVED'\n                              AND target_item.risk_level = 'R3'\n                              AND target_item.review_status = 'APPROVED'\n                            ORDER BY relation.confirmed_at, relation.id\n                            "
                         ),
                         {"event_id": event_id},
                     )
                 ).mappings()
             )
-
         confirmed_facts = [_confirmed_fact(row) for row in confirmed_rows]
         unverified_facts = [_conflicting_fact(row) for row in conflict_rows]
         unverified_facts.extend(_pending_fact(row) for row in pending_rows)
@@ -2090,9 +1099,9 @@ class PostgresIntelligenceQueryService:
                 publication_revision_id=row["publication_revision_id"],
                 relation_type=row["relation_type"],
                 evidence_count=row["evidence_count"],
-                document_states=(
-                    [DocumentState.WITHDRAWN] if row["publication_status"] == "WITHDRAWN" else None
-                ),
+                document_states=[DocumentState.WITHDRAWN]
+                if row["publication_status"] == "WITHDRAWN"
+                else None,
             )
             for row in timeline_rows
         ]
@@ -2133,19 +1142,7 @@ class PostgresIntelligenceQueryService:
                 (
                     await connection.execute(
                         text(
-                            """
-                            SELECT event.id,event.event_type,event.title,event.occurred_at,
-                              event.region_name,event.project_name,projection.item_id,
-                              projection.evidence_facts,item.original_url,item.review_status,
-                              item.source_published_at,source.name AS source_name
-                            FROM event
-                            JOIN event_identity_binding binding ON binding.event_id=event.id
-                            JOIN personal_content_projection projection
-                              ON projection.item_id=binding.item_id AND projection.visible
-                            JOIN intelligence_item item ON item.id=projection.item_id
-                            JOIN source ON source.id=item.source_id
-                            WHERE event.id=:event_id AND event.confirmation_status='CONFIRMED'
-                            """
+                            "\n                            SELECT event.id,event.event_type,event.title,event.occurred_at,\n                              event.region_name,event.project_name,projection.item_id,\n                              projection.evidence_facts,item.original_url,item.review_status,\n                              item.source_published_at,source.name AS source_name\n                            FROM event\n                            JOIN event_identity_binding binding ON binding.event_id=event.id\n                            JOIN personal_content_projection projection\n                              ON projection.item_id=binding.item_id AND projection.visible\n                            JOIN intelligence_item item ON item.id=projection.item_id\n                            JOIN source ON source.id=item.source_id\n                            WHERE event.id=:event_id AND event.confirmation_status='CONFIRMED'\n                            "
                         ),
                         {"event_id": event_id},
                     )
@@ -2158,19 +1155,7 @@ class PostgresIntelligenceQueryService:
                     (
                         await connection.execute(
                             text(
-                                """
-                                SELECT judgment.id,judgment.document_version_id,
-                                  judgment.field_name,judgment.candidate_value,
-                                  judgment.confidence_bps,judgment.attribution,
-                                  judgment.reason_codes,judgment.rule_version,
-                                  evidence.id AS evidence_id,evidence.excerpt,
-                                  evidence.excerpt_sha256,evidence.locator
-                                FROM ai_judgment judgment
-                                LEFT JOIN ai_judgment_evidence evidence
-                                  ON evidence.judgment_id=judgment.id
-                                WHERE judgment.item_id=:item_id AND judgment.status='CURRENT'
-                                ORDER BY judgment.created_at,judgment.id,evidence.id
-                                """
+                                "\n                                SELECT judgment.id,judgment.document_version_id,\n                                  judgment.field_name,judgment.candidate_value,\n                                  judgment.confidence_bps,judgment.attribution,\n                                  judgment.reason_codes,judgment.rule_version,\n                                  evidence.id AS evidence_id,evidence.excerpt,\n                                  evidence.excerpt_sha256,evidence.locator\n                                FROM ai_judgment judgment\n                                LEFT JOIN ai_judgment_evidence evidence\n                                  ON evidence.judgment_id=judgment.id\n                                WHERE judgment.item_id=:item_id AND judgment.status='CURRENT'\n                                ORDER BY judgment.created_at,judgment.id,evidence.id\n                                "
                             ),
                             {"item_id": personal["item_id"]},
                         )
@@ -2181,11 +1166,7 @@ class PostgresIntelligenceQueryService:
                 (
                     await connection.execute(
                         text(
-                            """
-                            SELECT id, event_type, title, occurred_at, region_name, project_name
-                            FROM event
-                            WHERE id = :event_id AND confirmation_status = 'CONFIRMED'
-                            """
+                            "\n                            SELECT id, event_type, title, occurred_at, region_name, project_name\n                            FROM event\n                            WHERE id = :event_id AND confirmation_status = 'CONFIRMED'\n                            "
                         ),
                         {"event_id": event_id},
                     )
@@ -2199,24 +1180,7 @@ class PostgresIntelligenceQueryService:
                 (
                     await connection.execute(
                         text(
-                            """
-                            SELECT item.id AS item_id, item.title,
-                                   source.name AS source_name, item.source_published_at,
-                                   item.original_url, item.review_status,
-                                   publication.current_revision_id AS publication_revision_id,
-                                   (SELECT count(*) FROM claim_evidence evidence
-                                    JOIN claim ON claim.id = evidence.claim_id
-                                    WHERE claim.item_id = item.id
-                                      AND claim.verification_status = 'ACCEPTED') AS evidence_count
-                            FROM event_item membership
-                            JOIN intelligence_item item ON item.id = membership.item_id
-                            JOIN source ON source.id = item.source_id
-                            JOIN publication ON publication.item_id = item.id
-                              AND publication.status = 'PUBLISHED'
-                            WHERE membership.event_id = :event_id
-                              AND item.review_status = 'APPROVED'
-                            ORDER BY item.source_published_at, item.id
-                            """
+                            "\n                            SELECT item.id AS item_id, item.title,\n                                   source.name AS source_name, item.source_published_at,\n                                   item.original_url, item.review_status,\n                                   publication.current_revision_id AS publication_revision_id,\n                                   (SELECT count(*) FROM claim_evidence evidence\n                                    JOIN claim ON claim.id = evidence.claim_id\n                                    WHERE claim.item_id = item.id\n                                      AND claim.verification_status = 'ACCEPTED') AS evidence_count\n                            FROM event_item membership\n                            JOIN intelligence_item item ON item.id = membership.item_id\n                            JOIN source ON source.id = item.source_id\n                            JOIN publication ON publication.item_id = item.id\n                              AND publication.status = 'PUBLISHED'\n                            WHERE membership.event_id = :event_id\n                              AND item.review_status = 'APPROVED'\n                            ORDER BY item.source_published_at, item.id\n                            "
                         ),
                         {"event_id": event_id},
                     )
@@ -2267,12 +1231,7 @@ class PostgresIntelligenceQueryService:
         )
 
     async def list_hot_topics(
-        self,
-        *,
-        domain: str | None,
-        window_days: int,
-        cursor: str | None,
-        limit: int,
+        self, *, domain: str | None, window_days: int, cursor: str | None, limit: int
     ) -> HotTopicPage:
         cursor_heat, cursor_time, cursor_id = _decode_hot_cursor(
             cursor, domain=domain, window_days=window_days
@@ -2282,61 +1241,7 @@ class PostgresIntelligenceQueryService:
                 (
                     await connection.execute(
                         text(
-                            """
-                            WITH topics AS (
-                            SELECT topic.id, topic.title, topic.domain,
-                                   count(DISTINCT membership.event_id) AS event_count,
-                                   count(DISTINCT (
-                                     COALESCE(lineage.lineage_root, item.source_id::text),
-                                     COALESCE(affiliation.organization_key, item.source_id::text)
-                                   )) FILTER (
-                                     WHERE lineage.role IS NULL
-                                        OR lineage.role IN (
-                                          'ORIGINAL','INDEPENDENT_REPORT','INDEPENDENT_VERIFICATION'
-                                        )
-                                   ) AS independent_source_count,
-                                   max(item.activity_at) AS latest_activity_at,
-                                   COALESCE(max(CASE WHEN dimension.dimension = 'HEAT'
-                                     THEN COALESCE(override.score, dimension.raw_score) END), 0)
-                                     AS heat_score
-                            FROM topic_cluster topic
-                            JOIN topic_cluster_event membership ON membership.topic_id = topic.id
-                            JOIN event_item event_member
-                              ON event_member.event_id = membership.event_id
-                            JOIN intelligence_item item ON item.id = event_member.item_id
-                            JOIN publication ON publication.item_id = item.id
-                              AND publication.status = 'PUBLISHED'
-                            LEFT JOIN source_lineage lineage ON lineage.item_id = item.id
-                            LEFT JOIN source_affiliation affiliation
-                              ON affiliation.source_id = item.source_id
-                            LEFT JOIN score_set score_set
-                              ON score_set.item_id = item.id AND score_set.is_current
-                            LEFT JOIN score_dimension dimension
-                              ON dimension.score_set_id = score_set.id
-                            LEFT JOIN LATERAL (
-                              SELECT candidate.score FROM score_override candidate
-                              WHERE candidate.score_dimension_id = dimension.id
-                              ORDER BY candidate.reviewed_at DESC, candidate.id DESC LIMIT 1
-                            ) override ON true
-                            WHERE topic.status = 'CONFIRMED'
-                              AND (
-                                CAST(:domain AS text) IS NULL
-                                OR topic.domain = CAST(:domain AS text)
-                              )
-                              AND item.activity_at >= now() - make_interval(days => :window_days)
-                            GROUP BY topic.id, topic.title, topic.domain
-                            )
-                            SELECT * FROM topics
-                            WHERE CAST(:cursor_heat AS integer) IS NULL
-                               OR heat_score < CAST(:cursor_heat AS integer)
-                               OR (heat_score = CAST(:cursor_heat AS integer)
-                                   AND latest_activity_at < CAST(:cursor_time AS timestamptz))
-                               OR (heat_score = CAST(:cursor_heat AS integer)
-                                   AND latest_activity_at = CAST(:cursor_time AS timestamptz)
-                                   AND id > CAST(:cursor_id AS uuid))
-                            ORDER BY heat_score DESC, latest_activity_at DESC, id
-                            LIMIT :limit
-                            """
+                            "\n                            WITH topics AS (\n                            SELECT topic.id, topic.title, topic.domain,\n                                   count(DISTINCT membership.event_id) AS event_count,\n                                   count(DISTINCT (\n                                     COALESCE(lineage.lineage_root, item.source_id::text),\n                                     COALESCE(affiliation.organization_key, item.source_id::text)\n                                   )) FILTER (\n                                     WHERE lineage.role IS NULL\n                                        OR lineage.role IN (\n                                          'ORIGINAL','INDEPENDENT_REPORT','INDEPENDENT_VERIFICATION'\n                                        )\n                                   ) AS independent_source_count,\n                                   max(item.activity_at) AS latest_activity_at,\n                                   COALESCE(max(CASE WHEN dimension.dimension = 'HEAT'\n                                     THEN COALESCE(override.score, dimension.raw_score) END), 0)\n                                     AS heat_score\n                            FROM topic_cluster topic\n                            JOIN topic_cluster_event membership ON membership.topic_id = topic.id\n                            JOIN event_item event_member\n                              ON event_member.event_id = membership.event_id\n                            JOIN intelligence_item item ON item.id = event_member.item_id\n                            JOIN publication ON publication.item_id = item.id\n                              AND publication.status = 'PUBLISHED'\n                            LEFT JOIN source_lineage lineage ON lineage.item_id = item.id\n                            LEFT JOIN source_affiliation affiliation\n                              ON affiliation.source_id = item.source_id\n                            LEFT JOIN score_set score_set\n                              ON score_set.item_id = item.id AND score_set.is_current\n                            LEFT JOIN score_dimension dimension\n                              ON dimension.score_set_id = score_set.id\n                            LEFT JOIN LATERAL (\n                              SELECT candidate.score FROM score_override candidate\n                              WHERE candidate.score_dimension_id = dimension.id\n                              ORDER BY candidate.reviewed_at DESC, candidate.id DESC LIMIT 1\n                            ) override ON true\n                            WHERE topic.status = 'CONFIRMED'\n                              AND (\n                                CAST(:domain AS text) IS NULL\n                                OR topic.domain = CAST(:domain AS text)\n                              )\n                              AND item.activity_at >= now() - make_interval(days => :window_days)\n                            GROUP BY topic.id, topic.title, topic.domain\n                            )\n                            SELECT * FROM topics\n                            WHERE CAST(:cursor_heat AS integer) IS NULL\n                               OR heat_score < CAST(:cursor_heat AS integer)\n                               OR (heat_score = CAST(:cursor_heat AS integer)\n                                   AND latest_activity_at < CAST(:cursor_time AS timestamptz))\n                               OR (heat_score = CAST(:cursor_heat AS integer)\n                                   AND latest_activity_at = CAST(:cursor_time AS timestamptz)\n                                   AND id > CAST(:cursor_id AS uuid))\n                            ORDER BY heat_score DESC, latest_activity_at DESC, id\n                            LIMIT :limit\n                            "
                         ),
                         {
                             "domain": domain,
@@ -2386,35 +1291,7 @@ class PostgresIntelligenceQueryService:
                 (
                     await connection.execute(
                         text(
-                            """
-                            SELECT item.id AS item_id, source.name AS source_name,
-                                   COALESCE(affiliation.organization_key, source.id::text)
-                                     AS organization_key,
-                                   COALESCE(lineage.lineage_root, source.id::text)
-                                     AS lineage_root,
-                                   COALESCE(lineage.role, 'INDEPENDENT_REPORT') AS role,
-                                   item.source_published_at, item.original_url,
-                                   (SELECT count(*) FROM claim
-                                    WHERE claim.item_id = item.id
-                                      AND claim.verification_status = 'ACCEPTED')
-                                     AS accepted_claim_count,
-                                   (SELECT count(*) FROM claim_evidence evidence
-                                    JOIN claim ON claim.id = evidence.claim_id
-                                    WHERE claim.item_id = item.id
-                                      AND claim.verification_status = 'ACCEPTED')
-                                     AS evidence_count
-                            FROM event_item membership
-                            JOIN intelligence_item item ON item.id = membership.item_id
-                            JOIN source ON source.id = item.source_id
-                            JOIN publication ON publication.item_id = item.id
-                              AND publication.status = 'PUBLISHED'
-                            LEFT JOIN source_affiliation affiliation
-                              ON affiliation.source_id = source.id
-                            LEFT JOIN source_lineage lineage ON lineage.item_id = item.id
-                            WHERE membership.event_id = :event_id
-                              AND item.review_status = 'APPROVED'
-                            ORDER BY lineage_root, item.source_published_at, item.id
-                            """
+                            "\n                            SELECT item.id AS item_id, source.name AS source_name,\n                                   COALESCE(affiliation.organization_key, source.id::text)\n                                     AS organization_key,\n                                   COALESCE(lineage.lineage_root, source.id::text)\n                                     AS lineage_root,\n                                   COALESCE(lineage.role, 'INDEPENDENT_REPORT') AS role,\n                                   item.source_published_at, item.original_url,\n                                   (SELECT count(*) FROM claim\n                                    WHERE claim.item_id = item.id\n                                      AND claim.verification_status = 'ACCEPTED')\n                                     AS accepted_claim_count,\n                                   (SELECT count(*) FROM claim_evidence evidence\n                                    JOIN claim ON claim.id = evidence.claim_id\n                                    WHERE claim.item_id = item.id\n                                      AND claim.verification_status = 'ACCEPTED')\n                                     AS evidence_count\n                            FROM event_item membership\n                            JOIN intelligence_item item ON item.id = membership.item_id\n                            JOIN source ON source.id = item.source_id\n                            JOIN publication ON publication.item_id = item.id\n                              AND publication.status = 'PUBLISHED'\n                            LEFT JOIN source_affiliation affiliation\n                              ON affiliation.source_id = source.id\n                            LEFT JOIN source_lineage lineage ON lineage.item_id = item.id\n                            WHERE membership.event_id = :event_id\n                              AND item.review_status = 'APPROVED'\n                            ORDER BY lineage_root, item.source_published_at, item.id\n                            "
                         ),
                         {"event_id": event_id},
                     )
@@ -2427,236 +1304,21 @@ class PostgresIntelligenceQueryService:
             if entry.role.value in {"ORIGINAL", "INDEPENDENT_REPORT"}
         }
         return SourceComparison(
-            event_id=event_id,
-            independent_source_count=len(independent),
-            sources=sources,
+            event_id=event_id, independent_source_count=len(independent), sources=sources
         )
 
-    async def list_cluster_candidates(
-        self, *, kind: str, status: str
-    ) -> list[ClusterCandidateView]:
-        async with self._engine.connect() as connection:
-            if kind == "DUPLICATE":
-                statement = """
-                    SELECT id, 'DUPLICATE' AS kind, status,
-                           ARRAY[left_item_id, right_item_id] AS member_ids,
-                           score_bps, NULL::text AS relation_type,
-                           features, hard_conflicts, created_at
-                    FROM duplicate_candidate WHERE status = :status
-                    ORDER BY score_bps DESC, created_at, id LIMIT 200
-                """
-            elif kind == "EVENT":
-                statement = """
-                    SELECT candidate.id, 'EVENT' AS kind,
-                           CASE WHEN decision.id IS NULL THEN 'PENDING_REVIEW'
-                                WHEN decision.action = 'ACCEPT' THEN 'ACCEPTED'
-                                ELSE 'REJECTED' END AS status,
-                           ARRAY[candidate.event_id, candidate.item_id] AS member_ids,
-                           candidate.score * 100 AS score_bps,
-                           NULL::text AS relation_type,
-                           candidate.matched_dimensions AS features,
-                           ARRAY[]::text[] AS hard_conflicts, candidate.created_at
-                    FROM event_item_candidate candidate
-                    LEFT JOIN event_item_decision decision
-                      ON decision.candidate_id = candidate.id
-                    WHERE (CASE WHEN decision.id IS NULL THEN 'PENDING_REVIEW'
-                                WHEN decision.action = 'ACCEPT' THEN 'ACCEPTED'
-                                ELSE 'REJECTED' END) = :status
-                    ORDER BY candidate.score DESC, candidate.created_at LIMIT 200
-                """
-            elif kind == "RELATION":
-                statement = """
-                    SELECT candidate.id, 'RELATION' AS kind,
-                           CASE WHEN decision.id IS NULL THEN 'PENDING_REVIEW'
-                                WHEN decision.action = 'ACCEPT' THEN 'ACCEPTED'
-                                ELSE 'REJECTED' END AS status,
-                           ARRAY[candidate.source_item_id, candidate.target_item_id] AS member_ids,
-                           NULL::integer AS score_bps,
-                           candidate.relation_type::text AS relation_type,
-                           jsonb_build_object('relation_type', candidate.relation_type) AS features,
-                           ARRAY[]::text[] AS hard_conflicts, candidate.created_at
-                    FROM event_relation_candidate candidate
-                    LEFT JOIN event_relation_decision decision
-                      ON decision.candidate_id = candidate.id
-                    WHERE (CASE WHEN decision.id IS NULL THEN 'PENDING_REVIEW'
-                                WHEN decision.action = 'ACCEPT' THEN 'ACCEPTED'
-                                ELSE 'REJECTED' END) = :status
-                    ORDER BY candidate.created_at LIMIT 200
-                """
-            else:
-                statement = """
-                    SELECT topic.id, 'TOPIC' AS kind,
-                           CASE topic.status WHEN 'CONFIRMED' THEN 'ACCEPTED'
-                                WHEN 'REJECTED' THEN 'REJECTED'
-                                ELSE 'PENDING_REVIEW' END AS status,
-                           array_agg(member.event_id ORDER BY member.event_id) AS member_ids,
-                           NULL::integer AS score_bps,
-                           NULL::text AS relation_type,
-                           jsonb_build_object('title', topic.title) AS features,
-                           ARRAY[]::text[] AS hard_conflicts, topic.created_at
-                    FROM topic_cluster topic
-                    JOIN topic_cluster_event member ON member.topic_id = topic.id
-                    WHERE (CASE topic.status WHEN 'CONFIRMED' THEN 'ACCEPTED'
-                                WHEN 'REJECTED' THEN 'REJECTED'
-                                ELSE 'PENDING_REVIEW' END) = :status
-                    GROUP BY topic.id HAVING count(*) >= 2
-                    ORDER BY topic.created_at LIMIT 200
-                """
-            rows = list((await connection.execute(text(statement), {"status": status})).mappings())
-        return [
-            ClusterCandidateView(
-                id=row["id"],
-                kind=row["kind"],
-                status=row["status"],
-                member_ids=row["member_ids"],
-                score_bps=row["score_bps"],
-                relation_type=row["relation_type"],
-                feature_explanations=_feature_explanations(row["features"]),
-                hard_conflicts=row["hard_conflicts"] or [],
-                created_at=row["created_at"],
-            )
-            for row in rows
-        ]
-
-    async def list_review_tasks(self) -> list[ReviewTaskSummary]:
-        async with self._engine.connect() as connection:
-            rows = (
-                await connection.execute(
-                    text(
-                        """
-                        SELECT r.id, r.item_id, r.status, r.risk_level, r.task_type, i.title,
-                               s.name AS source_name, r.submitted_by, r.submitted_at,
-                               r.assigned_to
-                        FROM review_task r
-                        JOIN intelligence_item i ON i.id = r.item_id
-                        JOIN source s ON s.id = i.source_id
-                        ORDER BY (r.status = 'PENDING') DESC, r.submitted_at, r.id
-                        """
-                    )
-                )
-            ).mappings()
-            return [_review_summary(row) for row in rows]
-
-    async def get_review_task(self, task_id: UUID) -> ReviewTaskDetail:
-        async with self._engine.connect() as connection:
-            task_row = (
-                (
-                    await connection.execute(
-                        text(
-                            """
-                            SELECT r.id, r.item_id, r.status, r.risk_level, r.task_type, i.title,
-                                   s.name AS source_name, r.submitted_by, r.submitted_at,
-                                   r.assigned_to
-                            FROM review_task r
-                            JOIN intelligence_item i ON i.id = r.item_id
-                            JOIN source s ON s.id = i.source_id
-                            WHERE r.id = :task_id
-                            """
-                        ),
-                        {"task_id": task_id},
-                    )
-                )
-                .mappings()
-                .first()
-            )
-            if task_row is None:
-                raise IntelligenceNotFound("review task does not exist")
-            item_row = await _item_row(connection, task_row["item_id"], include_unpublished=True)
-            if item_row is None:
-                raise IntelligenceNotFound("review item does not exist")
-            claims, evidence = await _claims_and_evidence(
-                connection,
-                task_row["item_id"],
-                include_candidates=True,
-            )
-            trace_row = (
-                (
-                    await connection.execute(
-                        text(
-                            """
-                            SELECT model.version AS model_profile,
-                                   prompt.version AS prompt_version,
-                                   schema.version AS schema_version,
-                                   step.pricing_version,step.provider_request_id,
-                                   step.error_code AS rejection_reason
-                            FROM ai_candidate_claim_origin origin
-                            JOIN claim ON claim.id=origin.claim_id
-                            JOIN ai_step_run step ON step.id=origin.step_run_id
-                            JOIN ai_model_profile model ON model.id=step.model_profile_id
-                            JOIN ai_prompt_version prompt ON prompt.id=step.prompt_version_id
-                            JOIN ai_schema_version schema ON schema.id=step.schema_version_id
-                            WHERE claim.item_id=:item_id
-                            ORDER BY step.created_at DESC,step.id DESC LIMIT 1
-                            """
-                        ),
-                        {"item_id": task_row["item_id"]},
-                    )
-                )
-                .mappings()
-                .first()
-            )
-            return ReviewTaskDetail(
-                task=_review_summary(task_row),
-                item=_item_summary(item_row, reviewer_projection=True),
-                claims=claims,
-                evidence=evidence,
-                digital_case=(
-                    await _digital_case_detail(connection, item_row)
-                    if item_row["item_type"] == "DIGITAL_CASE"
-                    else None
-                ),
-                ai_trace=AiReviewTrace.model_validate(trace_row) if trace_row else None,
-            )
-
     async def get_versions(
-        self,
-        item_id: UUID,
-        *,
-        include_restricted: bool,
+        self, item_id: UUID, *, include_restricted: bool
     ) -> VersionTimelineResponse:
         async with self._engine.connect() as connection:
             await _assert_item_projection_allowed(
-                connection,
-                item_id=item_id,
-                include_restricted=include_restricted,
+                connection, item_id=item_id, include_restricted=include_restricted
             )
             rows = list(
                 (
                     await connection.execute(
                         text(
-                            """
-                            SELECT v.id, v.version_number, v.acquired_at,
-                                   i.current_document_version_id = v.id AS is_current,
-                                   COALESCE(state.state, 'READY') AS processing_state,
-                                   COALESCE(change_state.change_type, change.change_type, 'INITIAL')
-                                       AS change_type,
-                                   COALESCE(change_state.material, change.material, true)
-                                       AS material,
-                                   COALESCE(
-                                       change_state.state,
-                                       change.review_state,
-                                       'RE_REVIEW_PENDING'
-                                   )
-                                       AS review_state
-                            FROM intelligence_item i
-                            JOIN document_version v ON v.document_id = i.primary_document_id
-                            LEFT JOIN LATERAL (
-                                SELECT event.state
-                                FROM document_version_state_event event
-                                WHERE event.document_version_id = v.id
-                                ORDER BY event.created_at DESC, event.id DESC LIMIT 1
-                            ) state ON true
-                            LEFT JOIN version_change change
-                              ON change.to_document_version_id = v.id
-                            LEFT JOIN LATERAL (
-                                SELECT event.state, event.change_type, event.material
-                                FROM version_change_state_event event
-                                WHERE event.version_change_id = change.id
-                                ORDER BY event.created_at DESC, event.id DESC LIMIT 1
-                            ) change_state ON true
-                            WHERE i.id = :item_id
-                            ORDER BY v.version_number, v.id
-                            """
+                            "\n                            SELECT v.id, v.version_number, v.acquired_at,\n                                   i.current_document_version_id = v.id AS is_current,\n                                   COALESCE(state.state, 'READY') AS processing_state,\n                                   COALESCE(change_state.change_type, change.change_type, 'INITIAL')\n                                       AS change_type,\n                                   COALESCE(change_state.material, change.material, true)\n                                       AS material,\n                                   COALESCE(\n                                       change_state.state,\n                                       change.review_state,\n                                       'RE_REVIEW_PENDING'\n                                   )\n                                       AS review_state\n                            FROM intelligence_item i\n                            JOIN document_version v ON v.document_id = i.primary_document_id\n                            LEFT JOIN LATERAL (\n                                SELECT event.state\n                                FROM document_version_state_event event\n                                WHERE event.document_version_id = v.id\n                                ORDER BY event.created_at DESC, event.id DESC LIMIT 1\n                            ) state ON true\n                            LEFT JOIN version_change change\n                              ON change.to_document_version_id = v.id\n                            LEFT JOIN LATERAL (\n                                SELECT event.state, event.change_type, event.material\n                                FROM version_change_state_event event\n                                WHERE event.version_change_id = change.id\n                                ORDER BY event.created_at DESC, event.id DESC LIMIT 1\n                            ) change_state ON true\n                            WHERE i.id = :item_id\n                            ORDER BY v.version_number, v.id\n                            "
                         ),
                         {"item_id": item_id},
                     )
@@ -2680,41 +1342,17 @@ class PostgresIntelligenceQueryService:
         )
 
     async def get_diff(
-        self,
-        item_id: UUID,
-        *,
-        from_version_id: UUID,
-        to_version_id: UUID,
-        include_restricted: bool,
+        self, item_id: UUID, *, from_version_id: UUID, to_version_id: UUID, include_restricted: bool
     ) -> VersionDiffResponse:
         async with self._engine.connect() as connection:
             await _assert_item_projection_allowed(
-                connection,
-                item_id=item_id,
-                include_restricted=include_restricted,
+                connection, item_id=item_id, include_restricted=include_restricted
             )
             change = (
                 (
                     await connection.execute(
                         text(
-                            """
-                            SELECT COALESCE(state.change_type, change.change_type) AS change_type,
-                                   COALESCE(state.material, change.material) AS material,
-                                   changed_token_count,
-                                   changed_token_ratio_bps, critical_field_diffs
-                            FROM version_change change
-                            JOIN intelligence_item item
-                              ON item.primary_document_id = change.document_id
-                            LEFT JOIN LATERAL (
-                                SELECT event.change_type, event.material
-                                FROM version_change_state_event event
-                                WHERE event.version_change_id = change.id
-                                ORDER BY event.created_at DESC, event.id DESC LIMIT 1
-                            ) state ON true
-                            WHERE item.id = :item_id
-                              AND change.from_document_version_id = :from_version_id
-                              AND change.to_document_version_id = :to_version_id
-                            """
+                            "\n                            SELECT COALESCE(state.change_type, change.change_type) AS change_type,\n                                   COALESCE(state.material, change.material) AS material,\n                                   changed_token_count,\n                                   changed_token_ratio_bps, critical_field_diffs\n                            FROM version_change change\n                            JOIN intelligence_item item\n                              ON item.primary_document_id = change.document_id\n                            LEFT JOIN LATERAL (\n                                SELECT event.change_type, event.material\n                                FROM version_change_state_event event\n                                WHERE event.version_change_id = change.id\n                                ORDER BY event.created_at DESC, event.id DESC LIMIT 1\n                            ) state ON true\n                            WHERE item.id = :item_id\n                              AND change.from_document_version_id = :from_version_id\n                              AND change.to_document_version_id = :to_version_id\n                            "
                         ),
                         {
                             "item_id": item_id,
@@ -2742,9 +1380,7 @@ class PostgresIntelligenceQueryService:
             pages=_page_diffs(before, after),
             critical_fields=[
                 CriticalFieldDiff(
-                    field=value["field"],
-                    before=value.get("before"),
-                    after=value.get("after"),
+                    field=value["field"], before=value.get("before"), after=value.get("after")
                 )
                 for value in critical
                 if isinstance(value, Mapping) and "field" in value
@@ -2752,11 +1388,7 @@ class PostgresIntelligenceQueryService:
         )
 
     async def get_document_page(
-        self,
-        document_version_id: UUID,
-        page_number: int,
-        *,
-        include_restricted: bool,
+        self, document_version_id: UUID, page_number: int, *, include_restricted: bool
     ) -> DocumentPageView:
         async with self._engine.connect() as connection:
             row = await _document_page_row(
@@ -2773,17 +1405,11 @@ class PostgresIntelligenceQueryService:
             height_mpt=row["height_mpt"],
             rotation=row["rotation"],
             text_source=row["text_source"],
-            preview_url=(
-                f"/api/v1/document-versions/{document_version_id}/pages/{page_number}/preview"
-            ),
+            preview_url=f"/api/v1/document-versions/{document_version_id}/pages/{page_number}/preview",
         )
 
     async def get_page_preview(
-        self,
-        document_version_id: UUID,
-        page_number: int,
-        *,
-        include_restricted: bool,
+        self, document_version_id: UUID, page_number: int, *, include_restricted: bool
     ) -> tuple[bytes, str]:
         if self._preview_object_reader is None:
             raise IntelligenceNotFound("page preview is unavailable")
@@ -2797,25 +1423,17 @@ class PostgresIntelligenceQueryService:
         content = await self._preview_object_reader.get_bytes(row["preview_object_key"])
         if sha256(content).hexdigest() != row["preview_sha256"]:
             raise RuntimeError("page preview hash mismatch")
-        return content, row["preview_sha256"]
+        return (content, row["preview_sha256"])
 
 
 async def _assert_item_projection_allowed(
-    connection: AsyncConnection,
-    *,
-    item_id: UUID,
-    include_restricted: bool,
+    connection: AsyncConnection, *, item_id: UUID, include_restricted: bool
 ) -> None:
     row = (
         (
             await connection.execute(
                 text(
-                    """
-                    SELECT i.review_status, p.status AS publication_status
-                    FROM intelligence_item i
-                    LEFT JOIN publication p ON p.item_id = i.id
-                    WHERE i.id = :item_id
-                    """
+                    "\n                    SELECT i.review_status, p.status AS publication_status\n                    FROM intelligence_item i\n                    LEFT JOIN publication p ON p.item_id = i.id\n                    WHERE i.id = :item_id\n                    "
                 ),
                 {"item_id": item_id},
             )
@@ -2825,9 +1443,11 @@ async def _assert_item_projection_allowed(
     )
     if row is None:
         raise IntelligenceNotFound("intelligence item does not exist")
-    if not include_restricted and not (
-        row["review_status"] == "APPROVED"
-        and row["publication_status"] in {"PUBLISHED", "WITHDRAWN"}
+    if not include_restricted and (
+        not (
+            row["review_status"] == "APPROVED"
+            and row["publication_status"] in {"PUBLISHED", "WITHDRAWN"}
+        )
     ):
         raise IntelligenceNotFound("version evidence is not available in this projection")
 
@@ -2843,26 +1463,7 @@ async def _document_page_row(
         (
             await connection.execute(
                 text(
-                    """
-                    SELECT page.page_number, page.width_mpt, page.height_mpt,
-                           page.rotation, page.text_source, page.preview_object_key,
-                           page.preview_sha256,
-                           (
-                               SELECT count(*)
-                               FROM document_page all_pages
-                               WHERE all_pages.document_version_id = page.document_version_id
-                           ) AS page_count,
-                           item.review_status, publication.status AS publication_status
-                    FROM document_page page
-                    JOIN intelligence_item item
-                      ON item.primary_document_id = (
-                          SELECT version.document_id FROM document_version version
-                          WHERE version.id = page.document_version_id
-                      )
-                    LEFT JOIN publication ON publication.item_id = item.id
-                    WHERE page.document_version_id = :version_id
-                      AND page.page_number = :page_number
-                    """
+                    "\n                    SELECT page.page_number, page.width_mpt, page.height_mpt,\n                           page.rotation, page.text_source, page.preview_object_key,\n                           page.preview_sha256,\n                           (\n                               SELECT count(*)\n                               FROM document_page all_pages\n                               WHERE all_pages.document_version_id = page.document_version_id\n                           ) AS page_count,\n                           item.review_status, publication.status AS publication_status\n                    FROM document_page page\n                    JOIN intelligence_item item\n                      ON item.primary_document_id = (\n                          SELECT version.document_id FROM document_version version\n                          WHERE version.id = page.document_version_id\n                      )\n                    LEFT JOIN publication ON publication.item_id = item.id\n                    WHERE page.document_version_id = :version_id\n                      AND page.page_number = :page_number\n                    "
                 ),
                 {"version_id": document_version_id, "page_number": page_number},
             )
@@ -2872,29 +1473,24 @@ async def _document_page_row(
     )
     if row is None:
         raise IntelligenceNotFound("document page does not exist")
-    if not include_restricted and not (
-        row["review_status"] == "APPROVED"
-        and row["publication_status"] in {"PUBLISHED", "WITHDRAWN"}
+    if not include_restricted and (
+        not (
+            row["review_status"] == "APPROVED"
+            and row["publication_status"] in {"PUBLISHED", "WITHDRAWN"}
+        )
     ):
         raise IntelligenceNotFound("document page is not available in this projection")
     return row
 
 
 async def _version_page_text(
-    connection: AsyncConnection,
-    document_version_id: UUID,
+    connection: AsyncConnection, document_version_id: UUID
 ) -> dict[int, dict[str, str]]:
     rows = list(
         (
             await connection.execute(
                 text(
-                    """
-                    SELECT page.page_number, block.block_kind, block.normalized_text
-                    FROM document_page page
-                    JOIN document_text_block block ON block.document_page_id = page.id
-                    WHERE page.document_version_id = :version_id
-                    ORDER BY page.page_number, block.block_index
-                    """
+                    "\n                    SELECT page.page_number, block.block_kind, block.normalized_text\n                    FROM document_page page\n                    JOIN document_text_block block ON block.document_page_id = page.id\n                    WHERE page.document_version_id = :version_id\n                    ORDER BY page.page_number, block.block_index\n                    "
                 ),
                 {"version_id": document_version_id},
             )
@@ -2906,17 +1502,13 @@ async def _version_page_text(
         bucket = "margin" if row["block_kind"] in {"HEADER", "FOOTER"} else "body"
         page[bucket].append(row["normalized_text"])
     return {
-        page_number: {
-            "margin": "\n".join(value["margin"]),
-            "body": "\n".join(value["body"]),
-        }
+        page_number: {"margin": "\n".join(value["margin"]), "body": "\n".join(value["body"])}
         for page_number, value in pages.items()
     }
 
 
 def _page_diffs(
-    before: dict[int, dict[str, str]],
-    after: dict[int, dict[str, str]],
+    before: dict[int, dict[str, str]], after: dict[int, dict[str, str]]
 ) -> list[PageDiff]:
     result: list[PageDiff] = []
     for page_number in sorted(set(before) | set(after)):
@@ -2954,298 +1546,19 @@ def _diff_hunks(before: str, after: str) -> list[DiffHunk]:
         result.append(
             DiffHunk(
                 operation=operations[operation],
-                before=(" ".join(before_words[old_start:old_end]) or None),
-                after=(" ".join(after_words[new_start:new_end]) or None),
+                before=" ".join(before_words[old_start:old_end]) or None,
+                after=" ".join(after_words[new_start:new_end]) or None,
             )
         )
     return result
 
 
 async def _item_row(
-    connection: AsyncConnection,
-    item_id: UUID,
-    *,
-    include_unpublished: bool,
+    connection: AsyncConnection, item_id: UUID, *, include_unpublished: bool
 ) -> RowMapping | None:
     result = await connection.execute(
         text(
-            """
-            SELECT i.id, i.item_type, i.title, i.original_url, i.source_published_at,
-                   i.first_discovered_at, i.activity_at, i.updated_at,
-                   i.review_status, s.name AS source_name,
-                   p.status AS publication_status,
-                   p.current_revision_id AS publication_revision_id,
-                   current_revision.revision_number,
-                   current_revision.action AS revision_action,
-                   current_revision.created_at AS revision_created_at,
-                   CASE WHEN current_revision.action = 'WITHDRAW'
-                        THEN current_revision.created_at ELSE NULL END AS revision_withdrawn_at,
-                   ai.run_id AS ai_pipeline_run_id,
-                   ai.prompt_version AS ai_prompt_version,
-                   ai.schema_version AS ai_schema_version,
-                   ai.model_profile AS ai_model_profile,
-                   ai.generated_at AS ai_generated_at,
-                   ai.one_sentence_fact,
-                   COALESCE(ai.accepted_claims_only, false) AS ai_accepted_claims_only,
-                   r.classification, r.document_number, r.issuing_authority,
-                   r.regulation_status,
-                   case_profile.report_stage,
-                   case_profile.accident_type,
-                   case_profile.engineering_type,
-                   case_profile.occurred_at,
-                   case_profile.region_name,
-                   case_profile.deaths,
-                   case_profile.injuries,
-                   case_profile.loss_amount_minor,
-                   case_profile.loss_currency,
-                   case_profile.incident_status,
-                   case_profile.official_direct_causes,
-                   case_profile.responsibility_findings,
-                   case_profile.rectification_has_open_issues,
-                   case_profile.similar_scenario_tags,
-                   case_profile.prevention_measure_tags,
-                   digital_profile.source_nature,
-                   digital_profile.maturity_level,
-                   digital_profile.deployment_scale,
-                   digital_profile.applicability,
-                   digital_profile.replication_conditions,
-                   digital_profile.limitations,
-                   digital_profile.risks,
-                   digital_profile.srbg_relationship,
-                   digital_relevance.score AS relevance_score,
-                   digital_relevance.rule_version AS relevance_rule_version,
-                   digital_relevance.engineering_points,
-                   digital_relevance.sichuan_points,
-                   digital_relevance.srbg_direct_points,
-                   digital_taxonomy.engineering_domains,
-                   digital_taxonomy.lifecycle_stages,
-                   digital_taxonomy.technology_tags,
-                   digital_taxonomy.application_scenarios,
-                   paper_profile.normalized_doi,
-                   paper_profile.journal,
-                   paper_profile.issns,
-                   paper_profile.volume,
-                   paper_profile.issue,
-                   paper_profile.pages,
-                   paper_profile.publication_year,
-                   paper_profile.paper_type,
-                   paper_profile.access_level,
-                   paper_profile.open_status,
-                   paper_profile.open_fulltext_url,
-                   paper_profile.abstract,
-                   paper_profile.abstract_availability,
-                   paper_profile.keywords,
-                   paper_profile.maturity_level AS paper_maturity_level,
-                   paper_profile.research_interpretation,
-                   paper_profile.relation_status,
-                   paper_taxonomy.engineering_domains AS paper_engineering_domains,
-                   paper_taxonomy.technology_tags AS paper_technology_tags,
-                   product_profile.item_type AS product_item_type,
-                   product_profile.evidence_level,
-                   product_profile.permit_status,
-                   product_profile.maturity_level AS product_maturity_level,
-                   product_profile.platform_type,
-                   product_profile.equipment_form,
-                   product_profile.interfaces,
-                   product_profile.deployment_modes,
-                   product_profile.connectivity,
-                   product_profile.payload_types,
-                   product_profile.ai_tasks,
-                   product_profile.limitations AS product_limitations,
-                   product_profile.production_validation,
-                   product_vendor.id AS vendor_id,
-                   product_vendor.name AS vendor_name,
-                   product.id AS product_id,
-                   product.name AS product_name,
-                   product.product_kind,
-                   product_model.id AS model_id,
-                   product_model.model_no,
-                   product_version.version,
-                   product_taxonomy.application_scenarios AS product_application_scenarios,
-                   product_capabilities.promotional_claim_count,
-                   product_capabilities.verified_capability_count,
-                   event_link.event_id,
-                   COALESCE(conflicts.fields, ARRAY[]::text[]) AS conflicted_fields,
-                   (SELECT count(*) FROM document_version version
-                    WHERE version.document_id = i.primary_document_id) AS version_count,
-                   latest_change.change_type AS latest_change_type,
-                   latest_change.review_state AS latest_change_review_state,
-                   (
-                     (SELECT url_check.outcome FROM source_url_check url_check
-                      WHERE url_check.document_id = i.primary_document_id
-                      ORDER BY url_check.checked_at DESC, url_check.id DESC LIMIT 1)
-                       IN ('NOT_FOUND','GONE')
-                     AND
-                     (SELECT url_check.outcome FROM source_url_check url_check
-                      WHERE url_check.document_id = i.primary_document_id
-                      ORDER BY url_check.checked_at DESC, url_check.id DESC LIMIT 1 OFFSET 1)
-                       IN ('NOT_FOUND','GONE')
-                   ) OR (
-                     (SELECT count(*) FROM (
-                        SELECT url_check.outcome FROM source_url_check url_check
-                        WHERE url_check.document_id = i.primary_document_id
-                        ORDER BY url_check.checked_at DESC, url_check.id DESC LIMIT 3
-                     ) recent WHERE recent.outcome IN ('TIMEOUT','SERVER_ERROR')) = 3
-                   ) AS source_unavailable,
-                   (SELECT count(*) FROM claim_evidence e
-                    JOIN claim c ON c.id = e.claim_id
-                    WHERE c.item_id = i.id
-                      AND (
-                        c.verification_status = 'ACCEPTED'
-                        OR 'ACCEPT' = (
-                          SELECT decision.action
-                          FROM claim_field_decision decision
-                          WHERE decision.claim_id = c.id
-                          ORDER BY decision.created_at DESC, decision.id DESC
-                          LIMIT 1
-                        )
-                      )
-                       AND (
-                         i.item_type <> 'SAFETY_CASE'
-                         OR (
-                           c.verification_status = 'ACCEPTED'
-                           AND c.critical = false
-                         )
-                         OR e.id = (
-                          SELECT decision.evidence_id
-                          FROM claim_field_decision decision
-                          WHERE decision.claim_id = c.id
-                          ORDER BY decision.created_at DESC, decision.id DESC
-                          LIMIT 1
-                        )
-                      )) AS evidence_count
-            FROM intelligence_item i
-            JOIN source s ON s.id = i.source_id
-            LEFT JOIN safety_regulation_profile r ON r.item_id = i.id
-            LEFT JOIN safety_case_profile case_profile ON case_profile.item_id = i.id
-            LEFT JOIN digital_case_profile digital_profile ON digital_profile.item_id = i.id
-            LEFT JOIN digital_case_relevance digital_relevance
-              ON digital_relevance.item_id = i.id
-            LEFT JOIN paper_profile ON paper_profile.item_id = i.id
-            LEFT JOIN technology_product_profile product_profile ON product_profile.item_id = i.id
-            LEFT JOIN technology_product_version product_version
-              ON product_version.id = product_profile.version_id
-            LEFT JOIN technology_product_model product_model
-              ON product_model.id = product_version.model_id
-            LEFT JOIN technology_product product ON product.id = product_model.product_id
-            LEFT JOIN technology_vendor product_vendor ON product_vendor.id = product.vendor_id
-            LEFT JOIN LATERAL (
-              SELECT
-                COALESCE(array_agg(code ORDER BY code)
-                  FILTER (WHERE facet = 'ENGINEERING_DOMAIN'), ARRAY[]::text[])
-                  AS engineering_domains,
-                COALESCE(array_agg(code ORDER BY code)
-                  FILTER (WHERE facet = 'LIFECYCLE_STAGE'), ARRAY[]::text[])
-                  AS lifecycle_stages,
-                COALESCE(array_agg(code ORDER BY code)
-                  FILTER (WHERE facet = 'TECHNOLOGY_TAG'), ARRAY[]::text[])
-                  AS technology_tags,
-                COALESCE(array_agg(code ORDER BY code)
-                  FILTER (WHERE facet = 'APPLICATION_SCENARIO'), ARRAY[]::text[])
-                  AS application_scenarios
-              FROM digital_case_taxonomy
-              WHERE item_id = i.id
-            ) digital_taxonomy ON true
-            LEFT JOIN LATERAL (
-              SELECT
-                COALESCE(array_agg(code ORDER BY code)
-                  FILTER (WHERE dimension = 'ENGINEERING_DOMAIN'), ARRAY[]::text[])
-                  AS engineering_domains,
-                COALESCE(array_agg(code ORDER BY code)
-                  FILTER (WHERE dimension = 'TECHNOLOGY_TAG'), ARRAY[]::text[])
-                  AS technology_tags
-              FROM paper_taxonomy WHERE item_id = i.id
-            ) paper_taxonomy ON true
-            LEFT JOIN LATERAL (
-              SELECT COALESCE(array_agg(code ORDER BY code)
-                FILTER (WHERE dimension = 'APPLICATION_SCENARIO'), ARRAY[]::text[])
-                  AS application_scenarios
-              FROM technology_product_taxonomy WHERE item_id = i.id
-            ) product_taxonomy ON true
-            LEFT JOIN LATERAL (
-              SELECT count(*) FILTER (WHERE kind = 'PROMOTIONAL_CLAIM')
-                       AS promotional_claim_count,
-                     count(*) FILTER (WHERE kind = 'VERIFIED_CAPABILITY')
-                       AS verified_capability_count
-              FROM technology_product_capability WHERE item_id = i.id
-            ) product_capabilities ON true
-            LEFT JOIN event_item event_link ON event_link.item_id = i.id
-            LEFT JOIN publication p ON p.item_id = i.id
-            LEFT JOIN publication_revision current_revision
-              ON current_revision.id = p.current_revision_id
-            LEFT JOIN LATERAL (
-                SELECT run.id AS run_id,
-                       prompt.version AS prompt_version,
-                       schema.version AS schema_version,
-                       model.version AS model_profile,
-                       run.completed_at AS generated_at,
-                       summary.validated_output ->> 'one_sentence' AS one_sentence_fact,
-                       NOT EXISTS (
-                         SELECT 1
-                         FROM jsonb_array_elements_text(
-                           summary.validated_output -> 'used_claim_ids'
-                         ) used(claim_id)
-                         WHERE NOT EXISTS (
-                           SELECT 1 FROM claim accepted
-                           WHERE accepted.id::text = used.claim_id
-                             AND accepted.item_id = i.id
-                             AND accepted.verification_status = 'ACCEPTED'
-                         )
-                       ) AS accepted_claims_only
-                FROM ai_pipeline_run run
-                JOIN LATERAL (
-                  SELECT step.* FROM ai_step_run step
-                  WHERE step.pipeline_run_id = run.id AND step.step = 'SUMMARIZE'
-                    AND step.status = 'SUCCEEDED'
-                  ORDER BY step.attempt DESC LIMIT 1
-                ) summary ON true
-                JOIN ai_prompt_version prompt ON prompt.id = summary.prompt_version_id
-                JOIN ai_schema_version schema ON schema.id = summary.schema_version_id
-                JOIN ai_model_profile model ON model.id = summary.model_profile_id
-                WHERE run.document_version_id = i.current_document_version_id
-                  AND run.mode = 'LIVE' AND run.status = 'SUCCEEDED'
-                  AND (SELECT count(DISTINCT step.step) FROM ai_step_run step
-                       WHERE step.pipeline_run_id = run.id
-                         AND step.status = 'SUCCEEDED') = 4
-                ORDER BY run.completed_at DESC NULLS LAST, run.id DESC LIMIT 1
-            ) ai ON true
-            LEFT JOIN LATERAL (
-                SELECT array_agg(DISTINCT conflict.field_name) AS fields
-                FROM public_safety_case_conflict conflict
-                WHERE conflict.source_item_id = i.id
-            ) conflicts ON true
-            LEFT JOIN LATERAL (
-                SELECT COALESCE(state.change_type, change.change_type) AS change_type,
-                       COALESCE(state.state, change.review_state) AS review_state
-                FROM version_change change
-                LEFT JOIN LATERAL (
-                    SELECT event.change_type, event.state
-                    FROM version_change_state_event event
-                    WHERE event.version_change_id = change.id
-                    ORDER BY event.created_at DESC, event.id DESC LIMIT 1
-                ) state ON true
-                WHERE change.document_id = i.primary_document_id
-                ORDER BY change.created_at DESC, change.id DESC LIMIT 1
-            ) latest_change ON true
-            WHERE i.id = :item_id
-              AND (:include_unpublished OR i.risk_level <> 'R4')
-              AND (
-                (i.item_type = 'SAFETY_REGULATION' AND r.item_id IS NOT NULL)
-                OR
-                (i.item_type = 'SAFETY_CASE' AND case_profile.item_id IS NOT NULL)
-                OR
-                (i.item_type = 'DIGITAL_CASE' AND digital_profile.item_id IS NOT NULL
-                  AND digital_relevance.item_id IS NOT NULL)
-                OR
-                (i.item_type = 'JOURNAL_PAPER' AND paper_profile.item_id IS NOT NULL)
-                OR
-                (i.item_type IN ('SOFTWARE_PRODUCT','IOT_PRODUCT',
-                                 'LOW_ALTITUDE_EQUIPMENT','AI_EQUIPMENT')
-                 AND product_profile.item_id IS NOT NULL)
-              )
-              AND (:include_unpublished OR i.review_status = 'PENDING'
-                   OR p.status IN ('PUBLISHED', 'WITHDRAWN'))
-            """
+            "\n            SELECT i.id, i.item_type, i.title, i.original_url, i.source_published_at,\n                   i.first_discovered_at, i.activity_at, i.updated_at,\n                   i.review_status, s.name AS source_name,\n                   p.status AS publication_status,\n                   p.current_revision_id AS publication_revision_id,\n                   current_revision.revision_number,\n                   current_revision.action AS revision_action,\n                   current_revision.created_at AS revision_created_at,\n                   CASE WHEN current_revision.action = 'WITHDRAW'\n                        THEN current_revision.created_at ELSE NULL END AS revision_withdrawn_at,\n                   ai.run_id AS ai_pipeline_run_id,\n                   ai.prompt_version AS ai_prompt_version,\n                   ai.schema_version AS ai_schema_version,\n                   ai.model_profile AS ai_model_profile,\n                   ai.generated_at AS ai_generated_at,\n                   ai.one_sentence_fact,\n                   COALESCE(ai.accepted_claims_only, false) AS ai_accepted_claims_only,\n                   r.classification, r.document_number, r.issuing_authority,\n                   r.regulation_status,\n                   case_profile.report_stage,\n                   case_profile.accident_type,\n                   case_profile.engineering_type,\n                   case_profile.occurred_at,\n                   case_profile.region_name,\n                   case_profile.deaths,\n                   case_profile.injuries,\n                   case_profile.loss_amount_minor,\n                   case_profile.loss_currency,\n                   case_profile.incident_status,\n                   case_profile.official_direct_causes,\n                   case_profile.responsibility_findings,\n                   case_profile.rectification_has_open_issues,\n                   case_profile.similar_scenario_tags,\n                   case_profile.prevention_measure_tags,\n                   digital_profile.source_nature,\n                   digital_profile.maturity_level,\n                   digital_profile.deployment_scale,\n                   digital_profile.applicability,\n                   digital_profile.replication_conditions,\n                   digital_profile.limitations,\n                   digital_profile.risks,\n                   digital_profile.srbg_relationship,\n                   digital_relevance.score AS relevance_score,\n                   digital_relevance.rule_version AS relevance_rule_version,\n                   digital_relevance.engineering_points,\n                   digital_relevance.sichuan_points,\n                   digital_relevance.srbg_direct_points,\n                   digital_taxonomy.engineering_domains,\n                   digital_taxonomy.lifecycle_stages,\n                   digital_taxonomy.technology_tags,\n                   digital_taxonomy.application_scenarios,\n                   paper_profile.normalized_doi,\n                   paper_profile.journal,\n                   paper_profile.issns,\n                   paper_profile.volume,\n                   paper_profile.issue,\n                   paper_profile.pages,\n                   paper_profile.publication_year,\n                   paper_profile.paper_type,\n                   paper_profile.access_level,\n                   paper_profile.open_status,\n                   paper_profile.open_fulltext_url,\n                   paper_profile.abstract,\n                   paper_profile.abstract_availability,\n                   paper_profile.keywords,\n                   paper_profile.maturity_level AS paper_maturity_level,\n                   paper_profile.research_interpretation,\n                   paper_profile.relation_status,\n                   paper_taxonomy.engineering_domains AS paper_engineering_domains,\n                   paper_taxonomy.technology_tags AS paper_technology_tags,\n                   product_profile.item_type AS product_item_type,\n                   product_profile.evidence_level,\n                   product_profile.permit_status,\n                   product_profile.maturity_level AS product_maturity_level,\n                   product_profile.platform_type,\n                   product_profile.equipment_form,\n                   product_profile.interfaces,\n                   product_profile.deployment_modes,\n                   product_profile.connectivity,\n                   product_profile.payload_types,\n                   product_profile.ai_tasks,\n                   product_profile.limitations AS product_limitations,\n                   product_profile.production_validation,\n                   product_vendor.id AS vendor_id,\n                   product_vendor.name AS vendor_name,\n                   product.id AS product_id,\n                   product.name AS product_name,\n                   product.product_kind,\n                   product_model.id AS model_id,\n                   product_model.model_no,\n                   product_version.version,\n                   product_taxonomy.application_scenarios AS product_application_scenarios,\n                   product_capabilities.promotional_claim_count,\n                   product_capabilities.verified_capability_count,\n                   event_link.event_id,\n                   COALESCE(conflicts.fields, ARRAY[]::text[]) AS conflicted_fields,\n                   (SELECT count(*) FROM document_version version\n                    WHERE version.document_id = i.primary_document_id) AS version_count,\n                   latest_change.change_type AS latest_change_type,\n                   latest_change.review_state AS latest_change_review_state,\n                   (\n                     (SELECT url_check.outcome FROM source_url_check url_check\n                      WHERE url_check.document_id = i.primary_document_id\n                      ORDER BY url_check.checked_at DESC, url_check.id DESC LIMIT 1)\n                       IN ('NOT_FOUND','GONE')\n                     AND\n                     (SELECT url_check.outcome FROM source_url_check url_check\n                      WHERE url_check.document_id = i.primary_document_id\n                      ORDER BY url_check.checked_at DESC, url_check.id DESC LIMIT 1 OFFSET 1)\n                       IN ('NOT_FOUND','GONE')\n                   ) OR (\n                     (SELECT count(*) FROM (\n                        SELECT url_check.outcome FROM source_url_check url_check\n                        WHERE url_check.document_id = i.primary_document_id\n                        ORDER BY url_check.checked_at DESC, url_check.id DESC LIMIT 3\n                     ) recent WHERE recent.outcome IN ('TIMEOUT','SERVER_ERROR')) = 3\n                   ) AS source_unavailable,\n                   (SELECT count(*) FROM claim_evidence e\n                    JOIN claim c ON c.id = e.claim_id\n                    WHERE c.item_id = i.id\n                      AND (\n                        c.verification_status = 'ACCEPTED'\n                        OR 'ACCEPT' = (\n                          SELECT decision.action\n                          FROM claim_field_decision decision\n                          WHERE decision.claim_id = c.id\n                          ORDER BY decision.created_at DESC, decision.id DESC\n                          LIMIT 1\n                        )\n                      )\n                       AND (\n                         i.item_type <> 'SAFETY_CASE'\n                         OR (\n                           c.verification_status = 'ACCEPTED'\n                           AND c.critical = false\n                         )\n                         OR e.id = (\n                          SELECT decision.evidence_id\n                          FROM claim_field_decision decision\n                          WHERE decision.claim_id = c.id\n                          ORDER BY decision.created_at DESC, decision.id DESC\n                          LIMIT 1\n                        )\n                      )) AS evidence_count\n            FROM intelligence_item i\n            JOIN source s ON s.id = i.source_id\n            LEFT JOIN safety_regulation_profile r ON r.item_id = i.id\n            LEFT JOIN safety_case_profile case_profile ON case_profile.item_id = i.id\n            LEFT JOIN digital_case_profile digital_profile ON digital_profile.item_id = i.id\n            LEFT JOIN digital_case_relevance digital_relevance\n              ON digital_relevance.item_id = i.id\n            LEFT JOIN paper_profile ON paper_profile.item_id = i.id\n            LEFT JOIN technology_product_profile product_profile ON product_profile.item_id = i.id\n            LEFT JOIN technology_product_version product_version\n              ON product_version.id = product_profile.version_id\n            LEFT JOIN technology_product_model product_model\n              ON product_model.id = product_version.model_id\n            LEFT JOIN technology_product product ON product.id = product_model.product_id\n            LEFT JOIN technology_vendor product_vendor ON product_vendor.id = product.vendor_id\n            LEFT JOIN LATERAL (\n              SELECT\n                COALESCE(array_agg(code ORDER BY code)\n                  FILTER (WHERE facet = 'ENGINEERING_DOMAIN'), ARRAY[]::text[])\n                  AS engineering_domains,\n                COALESCE(array_agg(code ORDER BY code)\n                  FILTER (WHERE facet = 'LIFECYCLE_STAGE'), ARRAY[]::text[])\n                  AS lifecycle_stages,\n                COALESCE(array_agg(code ORDER BY code)\n                  FILTER (WHERE facet = 'TECHNOLOGY_TAG'), ARRAY[]::text[])\n                  AS technology_tags,\n                COALESCE(array_agg(code ORDER BY code)\n                  FILTER (WHERE facet = 'APPLICATION_SCENARIO'), ARRAY[]::text[])\n                  AS application_scenarios\n              FROM digital_case_taxonomy\n              WHERE item_id = i.id\n            ) digital_taxonomy ON true\n            LEFT JOIN LATERAL (\n              SELECT\n                COALESCE(array_agg(code ORDER BY code)\n                  FILTER (WHERE dimension = 'ENGINEERING_DOMAIN'), ARRAY[]::text[])\n                  AS engineering_domains,\n                COALESCE(array_agg(code ORDER BY code)\n                  FILTER (WHERE dimension = 'TECHNOLOGY_TAG'), ARRAY[]::text[])\n                  AS technology_tags\n              FROM paper_taxonomy WHERE item_id = i.id\n            ) paper_taxonomy ON true\n            LEFT JOIN LATERAL (\n              SELECT COALESCE(array_agg(code ORDER BY code)\n                FILTER (WHERE dimension = 'APPLICATION_SCENARIO'), ARRAY[]::text[])\n                  AS application_scenarios\n              FROM technology_product_taxonomy WHERE item_id = i.id\n            ) product_taxonomy ON true\n            LEFT JOIN LATERAL (\n              SELECT count(*) FILTER (WHERE kind = 'PROMOTIONAL_CLAIM')\n                       AS promotional_claim_count,\n                     count(*) FILTER (WHERE kind = 'VERIFIED_CAPABILITY')\n                       AS verified_capability_count\n              FROM technology_product_capability WHERE item_id = i.id\n            ) product_capabilities ON true\n            LEFT JOIN event_item event_link ON event_link.item_id = i.id\n            LEFT JOIN publication p ON p.item_id = i.id\n            LEFT JOIN publication_revision current_revision\n              ON current_revision.id = p.current_revision_id\n            LEFT JOIN LATERAL (\n                SELECT run.id AS run_id,\n                       prompt.version AS prompt_version,\n                       schema.version AS schema_version,\n                       model.version AS model_profile,\n                       run.completed_at AS generated_at,\n                       summary.validated_output ->> 'one_sentence' AS one_sentence_fact,\n                       NOT EXISTS (\n                         SELECT 1\n                         FROM jsonb_array_elements_text(\n                           summary.validated_output -> 'used_claim_ids'\n                         ) used(claim_id)\n                         WHERE NOT EXISTS (\n                           SELECT 1 FROM claim accepted\n                           WHERE accepted.id::text = used.claim_id\n                             AND accepted.item_id = i.id\n                             AND accepted.verification_status = 'ACCEPTED'\n                         )\n                       ) AS accepted_claims_only\n                FROM ai_pipeline_run run\n                JOIN LATERAL (\n                  SELECT step.* FROM ai_step_run step\n                  WHERE step.pipeline_run_id = run.id AND step.step = 'SUMMARIZE'\n                    AND step.status = 'SUCCEEDED'\n                  ORDER BY step.attempt DESC LIMIT 1\n                ) summary ON true\n                JOIN ai_prompt_version prompt ON prompt.id = summary.prompt_version_id\n                JOIN ai_schema_version schema ON schema.id = summary.schema_version_id\n                JOIN ai_model_profile model ON model.id = summary.model_profile_id\n                WHERE run.document_version_id = i.current_document_version_id\n                  AND run.mode = 'LIVE' AND run.status = 'SUCCEEDED'\n                  AND (SELECT count(DISTINCT step.step) FROM ai_step_run step\n                       WHERE step.pipeline_run_id = run.id\n                         AND step.status = 'SUCCEEDED') = 4\n                ORDER BY run.completed_at DESC NULLS LAST, run.id DESC LIMIT 1\n            ) ai ON true\n            LEFT JOIN LATERAL (\n                SELECT array_agg(DISTINCT conflict.field_name) AS fields\n                FROM public_safety_case_conflict conflict\n                WHERE conflict.source_item_id = i.id\n            ) conflicts ON true\n            LEFT JOIN LATERAL (\n                SELECT COALESCE(state.change_type, change.change_type) AS change_type,\n                       COALESCE(state.state, change.review_state) AS review_state\n                FROM version_change change\n                LEFT JOIN LATERAL (\n                    SELECT event.change_type, event.state\n                    FROM version_change_state_event event\n                    WHERE event.version_change_id = change.id\n                    ORDER BY event.created_at DESC, event.id DESC LIMIT 1\n                ) state ON true\n                WHERE change.document_id = i.primary_document_id\n                ORDER BY change.created_at DESC, change.id DESC LIMIT 1\n            ) latest_change ON true\n            WHERE i.id = :item_id\n              AND (:include_unpublished OR i.risk_level <> 'R4')\n              AND (\n                (i.item_type = 'SAFETY_REGULATION' AND r.item_id IS NOT NULL)\n                OR\n                (i.item_type = 'SAFETY_CASE' AND case_profile.item_id IS NOT NULL)\n                OR\n                (i.item_type = 'DIGITAL_CASE' AND digital_profile.item_id IS NOT NULL\n                  AND digital_relevance.item_id IS NOT NULL)\n                OR\n                (i.item_type = 'JOURNAL_PAPER' AND paper_profile.item_id IS NOT NULL)\n                OR\n                (i.item_type IN ('SOFTWARE_PRODUCT','IOT_PRODUCT',\n                                 'LOW_ALTITUDE_EQUIPMENT','AI_EQUIPMENT')\n                 AND product_profile.item_id IS NOT NULL)\n              )\n              AND (:include_unpublished OR i.review_status = 'PENDING'\n                   OR p.status IN ('PUBLISHED', 'WITHDRAWN'))\n            "
         ),
         {"item_id": item_id, "include_unpublished": include_unpublished},
     )
@@ -3259,16 +1572,7 @@ async def _technology_product_detail(
         (
             await connection.execute(
                 text(
-                    """
-                    SELECT capability.kind, capability.statement, capability.attribution,
-                           capability.claim_id, capability.evidence_ids,
-                           capability.independent_evidence_ids
-                    FROM technology_product_capability capability
-                    JOIN claim ON claim.id = capability.claim_id
-                    WHERE capability.item_id = :item_id
-                      AND claim.verification_status = 'ACCEPTED'
-                    ORDER BY capability.kind, capability.created_at, capability.id
-                    """
+                    "\n                    SELECT capability.kind, capability.statement, capability.attribution,\n                           capability.claim_id, capability.evidence_ids,\n                           capability.independent_evidence_ids\n                    FROM technology_product_capability capability\n                    JOIN claim ON claim.id = capability.claim_id\n                    WHERE capability.item_id = :item_id\n                      AND claim.verification_status = 'ACCEPTED'\n                    ORDER BY capability.kind, capability.created_at, capability.id\n                    "
                 ),
                 {"item_id": row["id"]},
             )
@@ -3278,13 +1582,7 @@ async def _technology_product_detail(
         (
             await connection.execute(
                 text(
-                    """
-                    SELECT version.version
-                    FROM technology_product_version version
-                    WHERE version.model_id = :model_id
-                    ORDER BY version.released_at DESC NULLS LAST,
-                             version.created_at DESC, version.id DESC
-                    """
+                    "\n                    SELECT version.version\n                    FROM technology_product_version version\n                    WHERE version.model_id = :model_id\n                    ORDER BY version.released_at DESC NULLS LAST,\n                             version.created_at DESC, version.id DESC\n                    "
                 ),
                 {"model_id": row["model_id"]},
             )
@@ -3294,20 +1592,7 @@ async def _technology_product_detail(
         (
             await connection.execute(
                 text(
-                    """
-                    SELECT target.id AS item_id, target.title,
-                           candidate.evidence_ids
-                    FROM item_relation relation
-                    JOIN item_relation_candidate candidate ON candidate.id = relation.candidate_id
-                    JOIN intelligence_item target ON target.id = relation.target_item_id
-                    JOIN publication ON publication.item_id = target.id
-                      AND publication.status = 'PUBLISHED'
-                    WHERE relation.source_item_id = :item_id
-                      AND relation.relation_type = 'APPLIED_IN'
-                      AND target.item_type = 'DIGITAL_CASE'
-                      AND target.review_status = 'APPROVED'
-                    ORDER BY target.activity_at DESC, target.id DESC
-                    """
+                    "\n                    SELECT target.id AS item_id, target.title,\n                           candidate.evidence_ids\n                    FROM item_relation relation\n                    JOIN item_relation_candidate candidate ON candidate.id = relation.candidate_id\n                    JOIN intelligence_item target ON target.id = relation.target_item_id\n                    JOIN publication ON publication.item_id = target.id\n                      AND publication.status = 'PUBLISHED'\n                    WHERE relation.source_item_id = :item_id\n                      AND relation.relation_type = 'APPLIED_IN'\n                      AND target.item_type = 'DIGITAL_CASE'\n                      AND target.review_status = 'APPROVED'\n                    ORDER BY target.activity_at DESC, target.id DESC\n                    "
                 ),
                 {"item_id": row["id"]},
             )
@@ -3335,11 +1620,9 @@ async def _technology_product_detail(
     return TechnologyProductDetail(
         vendor=ProductEntity(id=row["vendor_id"], name=row["vendor_name"]),
         product=ProductEntity(id=row["product_id"], name=row["product_name"]),
-        model=(
-            ProductEntity(id=row["model_id"], name=row["model_no"] or "型号未知")
-            if row.get("model_id")
-            else None
-        ),
+        model=ProductEntity(id=row["model_id"], name=row["model_no"] or "型号未知")
+        if row.get("model_id")
+        else None,
         current_version=row.get("version"),
         version_history=[str(version) for version in version_history if version],
         product_kind=str(row["product_kind"]),
@@ -3360,9 +1643,9 @@ async def _technology_product_detail(
         permit_status=ProductPermitStatus(str(row.get("permit_status", "UNKNOWN"))),
         limitations=list(row.get("product_limitations") or []),
         procurement_notice="仅供技术调研，不构成采购建议",
-        low_altitude_notice=(
-            "产品发布不代表空域、适航、飞手和项目许可。" if is_low_altitude else None
-        ),
+        low_altitude_notice="产品发布不代表空域、适航、飞手和项目许可。"
+        if is_low_altitude
+        else None,
     )
 
 
@@ -3392,7 +1675,7 @@ def _item_summary(
     if (
         (not published or withdrawn)
         and item_type not in {ItemType.DIGITAL_CASE, ItemType.JOURNAL_PAPER, *product_types}
-        and not reviewer_projection
+        and (not reviewer_projection)
     ):
         hints: dict[str, Any] = {}
         if states:
@@ -3431,11 +1714,9 @@ def _item_summary(
             application_scenarios=list(row.get("application_scenarios") or []),
             source_nature=DigitalCaseSourceNature(str(row["source_nature"])),
             deployment_scale=row.get("deployment_scale"),
-            publisher_claim_label=(
-                "厂商声明，未经独立验证"
-                if row["source_nature"] == "ENTERPRISE_SELF_REPORT"
-                else "政府/行业案例汇编"
-            ),
+            publisher_claim_label="厂商声明，未经独立验证"
+            if row["source_nature"] == "ENTERPRISE_SELF_REPORT"
+            else "政府/行业案例汇编",
             srbg_relationship=str(row["srbg_relationship"]),
             relevance=RelevanceSummary(
                 score=int(row["relevance_score"]),
@@ -3447,9 +1728,7 @@ def _item_summary(
                         points=int(row["engineering_points"]),
                     ),
                     RelevanceFactor(
-                        code="SICHUAN",
-                        label="四川实施",
-                        points=int(row["sichuan_points"]),
+                        code="SICHUAN", label="四川实施", points=int(row["sichuan_points"])
                     ),
                     RelevanceFactor(
                         code="SRBG_DIRECT",
@@ -3561,23 +1840,19 @@ def _item_summary(
             region=row.get("region_name"),
             deaths=None if "deaths" in hidden_fields else row.get("deaths"),
             injuries=None if "injuries" in hidden_fields else row.get("injuries"),
-            loss_amount_minor=(
-                None if "loss_amount_minor" in hidden_fields else row.get("loss_amount_minor")
-            ),
-            loss_currency=(
-                None if "loss_amount_minor" in hidden_fields else row.get("loss_currency")
-            ),
+            loss_amount_minor=None
+            if "loss_amount_minor" in hidden_fields
+            else row.get("loss_amount_minor"),
+            loss_currency=None
+            if "loss_amount_minor" in hidden_fields
+            else row.get("loss_currency"),
             conflicted_fields=conflicted_fields or None,
-            official_direct_causes=(
-                None
-                if "official_direct_causes" in hidden_fields
-                else row.get("official_direct_causes")
-            ),
-            responsibility_findings=(
-                None
-                if "responsibility_findings" in hidden_fields
-                else row.get("responsibility_findings")
-            ),
+            official_direct_causes=None
+            if "official_direct_causes" in hidden_fields
+            else row.get("official_direct_causes"),
+            responsibility_findings=None
+            if "responsibility_findings" in hidden_fields
+            else row.get("responsibility_findings"),
             rectification_has_open_issues=row.get("rectification_has_open_issues"),
             similar_scenario_tags=row.get("similar_scenario_tags") or None,
             prevention_measure_tags=row.get("prevention_measure_tags") or None,
@@ -3592,15 +1867,12 @@ def _item_summary(
             classification=row["classification"],
         )
         tags = ["安全规定", "部门规章"]
-
     return summary_model(
         id=event_id or row["id"],
         publication_revision_id=row["publication_revision_id"] if published else None,
-        domain=(
-            Channel.DIGITAL
-            if item_type in {ItemType.DIGITAL_CASE, ItemType.JOURNAL_PAPER, *product_types}
-            else Channel.SAFETY
-        ),
+        domain=Channel.DIGITAL
+        if item_type in {ItemType.DIGITAL_CASE, ItemType.JOURNAL_PAPER, *product_types}
+        else Channel.SAFETY,
         content_type=item_type,
         title=row["title"],
         source_name=row["source_name"],
@@ -3609,64 +1881,53 @@ def _item_summary(
         activity_at=row["activity_at"],
         original_url=row["original_url"],
         review_status=ReviewStatus(row["review_status"]),
-        one_sentence_fact=(
-            str(row["one_sentence_fact"])
-            if row.get("one_sentence_fact") and row.get("ai_accepted_claims_only") is True
-            else None
-        ),
-        source_role=(
-            "企业自述"
-            if item_type is ItemType.DIGITAL_CASE
-            and row.get("source_nature") == "ENTERPRISE_SELF_REPORT"
-            else "政府/行业案例源"
-            if item_type is ItemType.DIGITAL_CASE
-            else "开放学术元数据"
-            if item_type is ItemType.JOURNAL_PAPER
-            else "厂商一手来源"
-            if item_type in product_types
-            else "官方一手来源"
-        ),
+        one_sentence_fact=str(row["one_sentence_fact"])
+        if row.get("one_sentence_fact") and row.get("ai_accepted_claims_only") is True
+        else None,
+        source_role="企业自述"
+        if item_type is ItemType.DIGITAL_CASE
+        and row.get("source_nature") == "ENTERPRISE_SELF_REPORT"
+        else "政府/行业案例源"
+        if item_type is ItemType.DIGITAL_CASE
+        else "开放学术元数据"
+        if item_type is ItemType.JOURNAL_PAPER
+        else "厂商一手来源"
+        if item_type in product_types
+        else "官方一手来源",
         last_updated_at=row["updated_at"],
-        publication_status=(
-            PublicationStatus.WITHDRAWN
-            if withdrawn
-            else PublicationStatus.PUBLISHED
-            if published
-            else PublicationStatus.PENDING_REVIEW
-        ),
-        evidence_status=(EvidenceStatus.VERIFIED if published else EvidenceStatus.WITHHELD),
+        publication_status=PublicationStatus.WITHDRAWN
+        if withdrawn
+        else PublicationStatus.PUBLISHED
+        if published
+        else PublicationStatus.PENDING_REVIEW,
+        evidence_status=EvidenceStatus.VERIFIED if published else EvidenceStatus.WITHHELD,
         evidence_count=row["evidence_count"],
         tags=tags,
         type_summary=type_summary,
         detail_available=True,
         document_states=states or None,
-        has_version_history=(row["version_count"] > 1) or None,
-        ai_assistance=(
-            AiAssistance(
-                status="ASSISTED" if row.get("ai_pipeline_run_id") else "DEGRADED",
-                pipeline_run_id=row.get("ai_pipeline_run_id"),
-                prompt_version=row.get("ai_prompt_version"),
-                schema_version=row.get("ai_schema_version"),
-                model_profile=row.get("ai_model_profile"),
-                generated_at=row.get("ai_generated_at"),
-                accepted_claims_only=row.get("ai_accepted_claims_only") is True,
-            )
-            if "ai_pipeline_run_id" in row
-            else None
-        ),
-        revision_state=(
-            PublicationRevisionState(
-                revision_number=int(row["revision_number"]),
-                action=cast(
-                    Literal["PUBLISH", "REVISE", "WITHDRAW", "REPUBLISH"],
-                    str(row["revision_action"]),
-                ),
-                created_at=row["revision_created_at"],
-                withdrawn_at=row.get("revision_withdrawn_at"),
-            )
-            if row.get("revision_number") is not None
-            else None
-        ),
+        has_version_history=row["version_count"] > 1 or None,
+        ai_assistance=AiAssistance(
+            status="ASSISTED" if row.get("ai_pipeline_run_id") else "DEGRADED",
+            pipeline_run_id=row.get("ai_pipeline_run_id"),
+            prompt_version=row.get("ai_prompt_version"),
+            schema_version=row.get("ai_schema_version"),
+            model_profile=row.get("ai_model_profile"),
+            generated_at=row.get("ai_generated_at"),
+            accepted_claims_only=row.get("ai_accepted_claims_only") is True,
+        )
+        if "ai_pipeline_run_id" in row
+        else None,
+        revision_state=PublicationRevisionState(
+            revision_number=int(row["revision_number"]),
+            action=cast(
+                Literal["PUBLISH", "REVISE", "WITHDRAW", "REPUBLISH"], str(row["revision_action"])
+            ),
+            created_at=row["revision_created_at"],
+            withdrawn_at=row.get("revision_withdrawn_at"),
+        )
+        if row.get("revision_number") is not None
+        else None,
         **identity,
     )
 
@@ -3696,22 +1957,12 @@ def _document_states(row: RowMapping | Mapping[str, Any]) -> list[DocumentState]
     return states
 
 
-async def _digital_case_detail(
-    connection: AsyncConnection,
-    row: RowMapping,
-) -> DigitalCaseDetail:
+async def _digital_case_detail(connection: AsyncConnection, row: RowMapping) -> DigitalCaseDetail:
     entity_rows = list(
         (
             await connection.execute(
                 text(
-                    """
-                    SELECT entity.id, entity.entity_type, entity.name,
-                           relation.relation_type, relation.claim_id
-                    FROM digital_case_entity_relation relation
-                    JOIN digital_case_entity entity ON entity.id = relation.entity_id
-                    WHERE relation.item_id = :item_id
-                    ORDER BY entity.entity_type, entity.name, entity.id
-                    """
+                    "\n                    SELECT entity.id, entity.entity_type, entity.name,\n                           relation.relation_type, relation.claim_id\n                    FROM digital_case_entity_relation relation\n                    JOIN digital_case_entity entity ON entity.id = relation.entity_id\n                    WHERE relation.item_id = :item_id\n                    ORDER BY entity.entity_type, entity.name, entity.id\n                    "
                 ),
                 {"item_id": row["id"]},
             )
@@ -3721,17 +1972,7 @@ async def _digital_case_detail(
         (
             await connection.execute(
                 text(
-                    """
-                    SELECT outcome.id, outcome.statement, outcome.metric_name,
-                           outcome.numeric_value, outcome.unit, outcome.outcome_kind,
-                           outcome.evidence_ids, outcome.independent_evidence_ids,
-                           entity.name AS attribution
-                    FROM digital_case_outcome outcome
-                    JOIN digital_case_entity entity
-                      ON entity.id = outcome.attribution_entity_id
-                    WHERE outcome.item_id = :item_id
-                    ORDER BY outcome.created_at, outcome.id
-                    """
+                    "\n                    SELECT outcome.id, outcome.statement, outcome.metric_name,\n                           outcome.numeric_value, outcome.unit, outcome.outcome_kind,\n                           outcome.evidence_ids, outcome.independent_evidence_ids,\n                           entity.name AS attribution\n                    FROM digital_case_outcome outcome\n                    JOIN digital_case_entity entity\n                      ON entity.id = outcome.attribution_entity_id\n                    WHERE outcome.item_id = :item_id\n                    ORDER BY outcome.created_at, outcome.id\n                    "
                 ),
                 {"item_id": row["id"]},
             )
@@ -3746,11 +1987,9 @@ async def _digital_case_detail(
             evidence_ids=list(outcome["evidence_ids"]),
             independent_evidence_ids=list(outcome["independent_evidence_ids"]),
             metric_name=outcome["metric_name"],
-            numeric_value=(
-                format(outcome["numeric_value"], "f")
-                if outcome["numeric_value"] is not None
-                else None
-            ),
+            numeric_value=format(outcome["numeric_value"], "f")
+            if outcome["numeric_value"] is not None
+            else None,
             unit=outcome["unit"],
         )
         for outcome in outcome_rows
@@ -3796,22 +2035,7 @@ async def _paper_detail(connection: AsyncConnection, row: RowMapping) -> PaperDe
         (
             await connection.execute(
                 text(
-                    """
-                    SELECT author.name, author.orcid,
-                           COALESCE(array_agg(DISTINCT institution.name ORDER BY institution.name)
-                             FILTER (WHERE institution.id IS NOT NULL), ARRAY[]::text[])
-                             AS institutions
-                    FROM paper_authorship authorship
-                    JOIN paper_author author ON author.id = authorship.author_id
-                    LEFT JOIN paper_author_affiliation affiliation
-                      ON affiliation.item_id = authorship.item_id
-                     AND affiliation.author_id = authorship.author_id
-                    LEFT JOIN paper_institution institution
-                      ON institution.id = affiliation.institution_id
-                    WHERE authorship.item_id = :item_id
-                    GROUP BY author.id, author.name, author.orcid, authorship.author_order
-                    ORDER BY authorship.author_order
-                    """
+                    "\n                    SELECT author.name, author.orcid,\n                           COALESCE(array_agg(DISTINCT institution.name ORDER BY institution.name)\n                             FILTER (WHERE institution.id IS NOT NULL), ARRAY[]::text[])\n                             AS institutions\n                    FROM paper_authorship authorship\n                    JOIN paper_author author ON author.id = authorship.author_id\n                    LEFT JOIN paper_author_affiliation affiliation\n                      ON affiliation.item_id = authorship.item_id\n                     AND affiliation.author_id = authorship.author_id\n                    LEFT JOIN paper_institution institution\n                      ON institution.id = affiliation.institution_id\n                    WHERE authorship.item_id = :item_id\n                    GROUP BY author.id, author.name, author.orcid, authorship.author_order\n                    ORDER BY authorship.author_order\n                    "
                 ),
                 {"item_id": row["id"]},
             )
@@ -3821,43 +2045,7 @@ async def _paper_detail(connection: AsyncConnection, row: RowMapping) -> PaperDe
         (
             await connection.execute(
                 text(
-                    """
-                    SELECT item.id, item.title, profile.journal, profile.publication_year,
-                           taxonomy.engineering_domains, taxonomy.technology_tags
-                    FROM intelligence_item item
-                    JOIN paper_profile profile ON profile.item_id = item.id
-                    JOIN publication ON publication.item_id = item.id
-                      AND publication.status = 'PUBLISHED'
-                    JOIN LATERAL (
-                      SELECT
-                        COALESCE(array_agg(code ORDER BY code)
-                          FILTER (WHERE dimension = 'ENGINEERING_DOMAIN'), ARRAY[]::text[])
-                          AS engineering_domains,
-                        COALESCE(array_agg(code ORDER BY code)
-                          FILTER (WHERE dimension = 'TECHNOLOGY_TAG'), ARRAY[]::text[])
-                          AS technology_tags
-                      FROM paper_taxonomy WHERE item_id = item.id
-                    ) taxonomy ON true
-                    WHERE item.id <> :item_id
-                      AND item.item_type = 'JOURNAL_PAPER'
-                      AND item.risk_level <> 'R4'
-                      AND item.review_status = 'APPROVED'
-                      AND (
-                        taxonomy.engineering_domains && CAST(:engineering_domains AS text[])
-                        OR taxonomy.technology_tags && CAST(:technology_tags AS text[])
-                      )
-                    ORDER BY
-                      cardinality(ARRAY(
-                        SELECT unnest(taxonomy.engineering_domains)
-                        INTERSECT SELECT unnest(CAST(:engineering_domains AS text[]))
-                      )) DESC,
-                      cardinality(ARRAY(
-                        SELECT unnest(taxonomy.technology_tags)
-                        INTERSECT SELECT unnest(CAST(:technology_tags AS text[]))
-                      )) DESC,
-                      item.activity_at DESC, item.id
-                    LIMIT 5
-                    """
+                    "\n                    SELECT item.id, item.title, profile.journal, profile.publication_year,\n                           taxonomy.engineering_domains, taxonomy.technology_tags\n                    FROM intelligence_item item\n                    JOIN paper_profile profile ON profile.item_id = item.id\n                    JOIN publication ON publication.item_id = item.id\n                      AND publication.status = 'PUBLISHED'\n                    JOIN LATERAL (\n                      SELECT\n                        COALESCE(array_agg(code ORDER BY code)\n                          FILTER (WHERE dimension = 'ENGINEERING_DOMAIN'), ARRAY[]::text[])\n                          AS engineering_domains,\n                        COALESCE(array_agg(code ORDER BY code)\n                          FILTER (WHERE dimension = 'TECHNOLOGY_TAG'), ARRAY[]::text[])\n                          AS technology_tags\n                      FROM paper_taxonomy WHERE item_id = item.id\n                    ) taxonomy ON true\n                    WHERE item.id <> :item_id\n                      AND item.item_type = 'JOURNAL_PAPER'\n                      AND item.risk_level <> 'R4'\n                      AND item.review_status = 'APPROVED'\n                      AND (\n                        taxonomy.engineering_domains && CAST(:engineering_domains AS text[])\n                        OR taxonomy.technology_tags && CAST(:technology_tags AS text[])\n                      )\n                    ORDER BY\n                      cardinality(ARRAY(\n                        SELECT unnest(taxonomy.engineering_domains)\n                        INTERSECT SELECT unnest(CAST(:engineering_domains AS text[]))\n                      )) DESC,\n                      cardinality(ARRAY(\n                        SELECT unnest(taxonomy.technology_tags)\n                        INTERSECT SELECT unnest(CAST(:technology_tags AS text[]))\n                      )) DESC,\n                      item.activity_at DESC, item.id\n                    LIMIT 5\n                    "
                 ),
                 {
                     "item_id": row["id"],
@@ -3911,9 +2099,9 @@ async def _paper_detail(connection: AsyncConnection, row: RowMapping) -> PaperDe
         maturity_level=MaturityLevel(str(row["paper_maturity_level"])),
         engineering_domains=list(row.get("paper_engineering_domains") or []),
         technology_tags=list(row.get("paper_technology_tags") or []),
-        research_interpretation=(
-            ResearchInterpretation.model_validate(interpretation) if interpretation else None
-        ),
+        research_interpretation=ResearchInterpretation.model_validate(interpretation)
+        if interpretation
+        else None,
         similar_papers=similar,
         relation_status=PaperRelationStatus(str(row["relation_status"])),
     )
@@ -3923,10 +2111,7 @@ def _none_for_all(value: str | None) -> str | None:
     return None if value in {None, "", "all"} else value
 
 
-def _personal_event_projection(
-    row: RowMapping,
-    judgment_rows: list[RowMapping],
-) -> EventDetail:
+def _personal_event_projection(row: RowMapping, judgment_rows: list[RowMapping]) -> EventDetail:
     facts = list(row["evidence_facts"] or [])
     claims: list[PublishedClaimV1] = []
     evidence: list[PublishedEvidenceReferenceV1] = []
@@ -3938,11 +2123,9 @@ def _personal_event_projection(
             PublishedClaimV1(
                 claim_id=UUID(str(fact["claim_id"])),
                 field_name=str(fact["field_name"]),
-                value=(
-                    fact["value"]
-                    if isinstance(fact["value"], str)
-                    else json.dumps(fact["value"], ensure_ascii=False)
-                ),
+                value=fact["value"]
+                if isinstance(fact["value"], str)
+                else json.dumps(fact["value"], ensure_ascii=False),
                 evidence_ids=ids,
                 fact_kind="EVIDENCE_FACT",
             )
@@ -3961,13 +2144,7 @@ def _personal_event_projection(
     grouped: dict[UUID, dict[str, Any]] = {}
     for judgment in judgment_rows:
         judgment_id = cast(UUID, judgment["id"])
-        value = grouped.setdefault(
-            judgment_id,
-            {
-                "row": judgment,
-                "evidence": [],
-            },
-        )
+        value = grouped.setdefault(judgment_id, {"row": judgment, "evidence": []})
         if judgment["evidence_id"] is not None:
             value["evidence"].append(
                 AiJudgmentEvidencePreview(
@@ -3982,11 +2159,9 @@ def _personal_event_projection(
             id=judgment_id,
             document_version_id=value["row"]["document_version_id"],
             field_name=value["row"]["field_name"],
-            value=(
-                value["row"]["candidate_value"]
-                if isinstance(value["row"]["candidate_value"], str)
-                else json.dumps(value["row"]["candidate_value"], ensure_ascii=False)
-            ),
+            value=value["row"]["candidate_value"]
+            if isinstance(value["row"]["candidate_value"], str)
+            else json.dumps(value["row"]["candidate_value"], ensure_ascii=False),
             confidence_bps=value["row"]["confidence_bps"],
             attribution=value["row"]["attribution"],
             reason_codes=list(value["row"]["reason_codes"]),
@@ -4029,89 +2204,13 @@ def _personal_event_projection(
 
 
 async def _claims_and_evidence(
-    connection: AsyncConnection,
-    item_id: UUID,
-    *,
-    include_candidates: bool = False,
+    connection: AsyncConnection, item_id: UUID, *, include_candidates: bool = False
 ) -> tuple[list[ClaimView], list[EvidenceView]]:
     rows = list(
         (
             await connection.execute(
                 text(
-                    """
-                    SELECT c.id AS claim_id, c.claim_type, c.literal_value,
-                           c.document_version_id, c.verification_status, c.critical,
-                           e.id AS evidence_id, e.paragraph_id, e.char_start,
-                           e.char_end, e.excerpt, e.excerpt_sha256, e.original_url,
-                           e.locator_type, e.page_number, e.document_text_block_id,
-                           e.document_table_cell_id, e.x0_mpt, e.y0_mpt,
-                           e.x1_mpt, e.y1_mpt, e.confidence_bps,
-                           cell.row_index, cell.column_index,
-                           latest_decision.action AS field_decision_action,
-                           ai_decision.action AS ai_decision_action,
-                           latest_decision.evidence_id AS field_decision_evidence_id
-                    FROM claim c
-                    JOIN claim_evidence e ON e.claim_id = c.id
-                    JOIN intelligence_item i ON i.id = c.item_id
-                    LEFT JOIN document_table_cell cell
-                      ON cell.id = e.document_table_cell_id
-                    LEFT JOIN LATERAL (
-                        SELECT decision.action, decision.evidence_id
-                        FROM claim_field_decision decision
-                        WHERE decision.claim_id = c.id
-                        ORDER BY decision.created_at DESC, decision.id DESC
-                        LIMIT 1
-                    ) latest_decision ON true
-                    LEFT JOIN ai_claim_review_decision ai_decision
-                      ON ai_decision.claim_id = c.id
-                    WHERE c.item_id = :item_id
-                      AND c.document_version_id = i.current_document_version_id
-                      AND (
-                        (
-                          :include_candidates
-                          AND (
-                            (
-                              i.item_type = 'SAFETY_CASE'
-                              AND c.claim_type IN (
-                                'deaths','injuries','loss_amount_minor',
-                                'official_direct_causes','responsibility_findings'
-                              )
-                            )
-                            OR EXISTS(
-                              SELECT 1 FROM ai_candidate_claim_origin origin
-                              WHERE origin.claim_id=c.id
-                            )
-                          )
-                        )
-                        OR c.verification_status = 'ACCEPTED'
-                        OR latest_decision.action = 'ACCEPT'
-                        OR ai_decision.action = 'ACCEPT'
-                      )
-                      AND (
-                        i.item_type <> 'SAFETY_CASE'
-                        OR :include_candidates
-                        OR (
-                          c.verification_status = 'ACCEPTED'
-                          AND c.critical = false
-                        )
-                        OR e.id = latest_decision.evidence_id
-                      )
-                      AND (
-                        i.item_type <> 'SAFETY_CASE'
-                        OR :include_candidates
-                        OR (
-                          c.verification_status = 'ACCEPTED'
-                          AND c.critical = false
-                        )
-                        OR EXISTS (
-                          SELECT 1
-                          FROM public_safety_case_accepted_claim effective
-                          WHERE effective.claim_id = c.id
-                            AND effective.evidence_id = e.id
-                        )
-                      )
-                    ORDER BY c.created_at, c.id, e.created_at, e.id
-                    """
+                    "\n                    SELECT c.id AS claim_id, c.claim_type, c.literal_value,\n                           c.document_version_id, c.verification_status, c.critical,\n                           e.id AS evidence_id, e.paragraph_id, e.char_start,\n                           e.char_end, e.excerpt, e.excerpt_sha256, e.original_url,\n                           e.locator_type, e.page_number, e.document_text_block_id,\n                           e.document_table_cell_id, e.x0_mpt, e.y0_mpt,\n                           e.x1_mpt, e.y1_mpt, e.confidence_bps,\n                           cell.row_index, cell.column_index,\n                           latest_decision.action AS field_decision_action,\n                           ai_decision.action AS ai_decision_action,\n                           latest_decision.evidence_id AS field_decision_evidence_id\n                    FROM claim c\n                    JOIN claim_evidence e ON e.claim_id = c.id\n                    JOIN intelligence_item i ON i.id = c.item_id\n                    LEFT JOIN document_table_cell cell\n                      ON cell.id = e.document_table_cell_id\n                    LEFT JOIN LATERAL (\n                        SELECT decision.action, decision.evidence_id\n                        FROM claim_field_decision decision\n                        WHERE decision.claim_id = c.id\n                        ORDER BY decision.created_at DESC, decision.id DESC\n                        LIMIT 1\n                    ) latest_decision ON true\n                    LEFT JOIN ai_claim_review_decision ai_decision\n                      ON ai_decision.claim_id = c.id\n                    WHERE c.item_id = :item_id\n                      AND c.document_version_id = i.current_document_version_id\n                      AND (\n                        (\n                          :include_candidates\n                          AND (\n                            (\n                              i.item_type = 'SAFETY_CASE'\n                              AND c.claim_type IN (\n                                'deaths','injuries','loss_amount_minor',\n                                'official_direct_causes','responsibility_findings'\n                              )\n                            )\n                            OR EXISTS(\n                              SELECT 1 FROM ai_candidate_claim_origin origin\n                              WHERE origin.claim_id=c.id\n                            )\n                          )\n                        )\n                        OR c.verification_status = 'ACCEPTED'\n                        OR latest_decision.action = 'ACCEPT'\n                        OR ai_decision.action = 'ACCEPT'\n                      )\n                      AND (\n                        i.item_type <> 'SAFETY_CASE'\n                        OR :include_candidates\n                        OR (\n                          c.verification_status = 'ACCEPTED'\n                          AND c.critical = false\n                        )\n                        OR e.id = latest_decision.evidence_id\n                      )\n                      AND (\n                        i.item_type <> 'SAFETY_CASE'\n                        OR :include_candidates\n                        OR (\n                          c.verification_status = 'ACCEPTED'\n                          AND c.critical = false\n                        )\n                        OR EXISTS (\n                          SELECT 1\n                          FROM public_safety_case_accepted_claim effective\n                          WHERE effective.claim_id = c.id\n                            AND effective.evidence_id = e.id\n                        )\n                      )\n                    ORDER BY c.created_at, c.id, e.created_at, e.id\n                    "
                 ),
                 {"item_id": item_id, "include_candidates": include_candidates},
             )
@@ -4145,15 +2244,13 @@ async def _claims_and_evidence(
                 label=labels.get(row["claim_type"], row["claim_type"]),
                 value=str(row["literal_value"]),
                 evidence_ids=evidence_by_claim[claim_id],
-                decision_status=(
-                    _claim_decision_status(
-                        row["ai_decision_action"] or row["field_decision_action"],
-                        verification_status=row["verification_status"],
-                        critical=row["critical"],
-                    )
-                    if include_candidates
-                    else None
-                ),
+                decision_status=_claim_decision_status(
+                    row["ai_decision_action"] or row["field_decision_action"],
+                    verification_status=row["verification_status"],
+                    critical=row["critical"],
+                )
+                if include_candidates
+                else None,
             )
         )
     evidence = [
@@ -4171,14 +2268,11 @@ async def _claims_and_evidence(
         )
         for row in rows
     ]
-    return claims, evidence
+    return (claims, evidence)
 
 
 def _claim_decision_status(
-    action: object,
-    *,
-    verification_status: object,
-    critical: object,
+    action: object, *, verification_status: object, critical: object
 ) -> Literal["PENDING", "ACCEPTED", "REJECTED"]:
     if action == "ACCEPT":
         return "ACCEPTED"
@@ -4196,7 +2290,6 @@ _SAFETY_FACT_FIELDS = {
     "official_direct_causes": SafetyCaseFactField.OFFICIAL_DIRECT_CAUSES,
     "responsibility_findings": SafetyCaseFactField.RESPONSIBILITY_FINDINGS,
 }
-
 _SAFETY_FACT_LABELS = {
     "deaths": "死亡人数",
     "injuries": "受伤人数",
@@ -4214,9 +2307,7 @@ def _confirmed_fact(row: RowMapping) -> ConfirmedFact:
         field=_SAFETY_FACT_FIELDS[field_name],
         label=_SAFETY_FACT_LABELS[field_name],
         value=_safety_fact_value(
-            field_name,
-            row["literal_value"],
-            loss_currency=row["loss_currency"],
+            field_name, row["literal_value"], loss_currency=row["loss_currency"]
         ),
         unit="人" if field_name in {"deaths", "injuries"} else None,
         evidence_ids=[row["evidence_id"]],
@@ -4252,10 +2343,7 @@ def _pending_fact(row: RowMapping) -> UnverifiedFact:
 
 
 def _safety_fact_value(
-    field_name: str,
-    value: object,
-    *,
-    loss_currency: object = None,
+    field_name: str, value: object, *, loss_currency: object = None
 ) -> str | int | list[str]:
     if isinstance(value, list) and all(isinstance(item, str) for item in value):
         return list(value)
@@ -4284,27 +2372,12 @@ def _render_safety_case_metrics(
     pending_event_candidates: int,
     pending_critical_claims: int,
 ) -> str:
-    rendered = (
-        "# TYPE srbg_safety_event_candidates_pending gauge\n"
-        f"srbg_safety_event_candidates_pending {pending_event_candidates}\n"
-        "# TYPE srbg_safety_critical_claims_pending gauge\n"
-        f"srbg_safety_critical_claims_pending {pending_critical_claims}\n"
-        "# TYPE srbg_safety_case_items gauge\n"
-    )
+    rendered = f"# TYPE srbg_safety_event_candidates_pending gauge\nsrbg_safety_event_candidates_pending {pending_event_candidates}\n# TYPE srbg_safety_critical_claims_pending gauge\nsrbg_safety_critical_claims_pending {pending_critical_claims}\n# TYPE srbg_safety_case_items gauge\n"
     for profile in profiles:
-        rendered += (
-            "srbg_safety_case_items{"
-            f'report_stage="{profile["report_stage"]}",'
-            f'incident_status="{profile["incident_status"]}"'
-            f"}} {profile['count']}\n"
-        )
+        rendered += f'''srbg_safety_case_items{{report_stage="{profile["report_stage"]}",incident_status="{profile["incident_status"]}"}} {profile["count"]}\n'''
     rendered += "# TYPE srbg_safety_claim_conflicts_pending gauge\n"
     for conflict in conflicts:
-        rendered += (
-            "srbg_safety_claim_conflicts_pending{"
-            f'field_name="{conflict["field_name"]}"'
-            f"}} {conflict['count']}\n"
-        )
+        rendered += f'''srbg_safety_claim_conflicts_pending{{field_name="{conflict["field_name"]}"}} {conflict["count"]}\n'''
     return rendered
 
 
@@ -4316,46 +2389,21 @@ def _render_digital_case_metrics(
 ) -> str:
     rendered = "# TYPE srbg_digital_case_items gauge\n"
     for profile in profiles:
-        rendered += (
-            "srbg_digital_case_items{"
-            f'source_nature="{profile["source_nature"]}",'
-            f'maturity_level="{profile["maturity_level"]}"'
-            f"}} {profile['count']}\n"
-        )
+        rendered += f'''srbg_digital_case_items{{source_nature="{profile["source_nature"]}",maturity_level="{profile["maturity_level"]}"}} {profile["count"]}\n'''
     rendered += "# TYPE srbg_digital_case_outcomes gauge\n"
     for verification in ("CLAIMED", "VERIFIED"):
-        rendered += (
-            "srbg_digital_case_outcomes{"
-            f'verification="{verification}"'
-            f"}} {int(outcomes.get(verification, 0))}\n"
-        )
-    rendered += (
-        "# TYPE srbg_digital_enterprise_review_pending gauge\n"
-        f"srbg_digital_enterprise_review_pending {pending_enterprise_review}\n"
-    )
+        rendered += f'srbg_digital_case_outcomes{{verification="{verification}"}} {int(outcomes.get(verification, 0))}\n'
+    rendered += f"# TYPE srbg_digital_enterprise_review_pending gauge\nsrbg_digital_enterprise_review_pending {pending_enterprise_review}\n"
     return rendered
 
 
 def _render_paper_metrics(
-    *,
-    profiles: list[dict[str, object]],
-    pending_duplicates: int,
-    pending_updates: int,
+    *, profiles: list[dict[str, object]], pending_duplicates: int, pending_updates: int
 ) -> str:
     rendered = "# TYPE srbg_papers_total gauge\n"
     for profile in profiles:
-        rendered += (
-            "srbg_papers_total{"
-            f'access_level="{profile["access_level"]}",'
-            f'relation_status="{profile["relation_status"]}"'
-            f"}} {profile['count']}\n"
-        )
-    rendered += (
-        "# TYPE srbg_paper_duplicate_candidates gauge\n"
-        f"srbg_paper_duplicate_candidates {pending_duplicates}\n"
-        "# TYPE srbg_paper_update_candidates gauge\n"
-        f"srbg_paper_update_candidates {pending_updates}\n"
-    )
+        rendered += f'''srbg_papers_total{{access_level="{profile["access_level"]}",relation_status="{profile["relation_status"]}"}} {profile["count"]}\n'''
+    rendered += f"# TYPE srbg_paper_duplicate_candidates gauge\nsrbg_paper_duplicate_candidates {pending_duplicates}\n# TYPE srbg_paper_update_candidates gauge\nsrbg_paper_update_candidates {pending_updates}\n"
     return rendered
 
 
@@ -4367,20 +2415,11 @@ def _render_technology_product_metrics(
 ) -> str:
     rendered = "# TYPE srbg_technology_products gauge\n"
     for profile in profiles:
-        rendered += (
-            "srbg_technology_products{"
-            f'item_type="{profile["item_type"]}",'
-            f'evidence_level="{profile["evidence_level"]}",'
-            f'permit_status="{profile["permit_status"]}"'
-            f"}} {profile['count']}\n"
-        )
+        rendered += f'''srbg_technology_products{{item_type="{profile["item_type"]}",evidence_level="{profile["evidence_level"]}",permit_status="{profile["permit_status"]}"}} {profile["count"]}\n'''
     rendered += "# TYPE srbg_product_capabilities gauge\n"
     for kind in ("PROMOTIONAL_CLAIM", "VERIFIED_CAPABILITY"):
         rendered += f'srbg_product_capabilities{{kind="{kind}"}} {int(capabilities.get(kind, 0))}\n'
-    rendered += (
-        "# TYPE srbg_product_normalization_pending gauge\n"
-        f"srbg_product_normalization_pending {pending_normalization}\n"
-    )
+    rendered += f"# TYPE srbg_product_normalization_pending gauge\nsrbg_product_normalization_pending {pending_normalization}\n"
     return rendered
 
 
@@ -4396,8 +2435,10 @@ def _render_resolution_metrics(metrics: dict[str, object]) -> str:
         "cluster_merges": "srbg_resolution_cluster_merges_total",
     }
     return "".join(
-        f"# TYPE {metric_name} gauge\n{metric_name} {cast(int, metrics[key])}\n"
-        for key, metric_name in names.items()
+        (
+            f"# TYPE {metric_name} gauge\n{metric_name} {cast(int, metrics[key])}\n"
+            for key, metric_name in names.items()
+        )
     )
 
 
@@ -4407,12 +2448,7 @@ def _evidence_locator(
     locator_type = row["locator_type"]
     if locator_type not in {"PDF_TEXT", "PDF_OCR", "PDF_TABLE_CELL"}:
         return None
-    bbox = PageBoundingBox(
-        x0=row["x0_mpt"],
-        y0=row["y0_mpt"],
-        x1=row["x1_mpt"],
-        y1=row["y1_mpt"],
-    )
+    bbox = PageBoundingBox(x0=row["x0_mpt"], y0=row["y0_mpt"], x1=row["x1_mpt"], y1=row["y1_mpt"])
     if locator_type == "PDF_OCR":
         return PdfOcrLocator(
             type="PDF_OCR",
@@ -4436,21 +2472,6 @@ def _evidence_locator(
         page_number=row["page_number"],
         block_id=row["document_text_block_id"],
         bbox=bbox,
-    )
-
-
-def _review_summary(row: RowMapping) -> ReviewTaskSummary:
-    return ReviewTaskSummary(
-        id=row["id"],
-        item_id=row["item_id"],
-        status=row["status"],
-        risk_level=row["risk_level"],
-        title=row["title"],
-        source_name=row["source_name"],
-        submitted_by=row["submitted_by"],
-        submitted_at=row["submitted_at"],
-        assigned_to=row["assigned_to"],
-        task_type=row["task_type"],
     )
 
 
@@ -4483,22 +2504,19 @@ def _feed_page(
 
 def _restricted_notice() -> FeedNotice:
     return FeedNotice(
-        code="R3_RESTRICTED",
-        level="info",
-        message="待人工审核；暂不展示高风险字段。",
+        code="R3_RESTRICTED", level="info", message="待人工审核；暂不展示高风险字段。"
     )
 
 
 def _encode_cursor(activity_at: datetime, item_id: UUID) -> str:
     return _cursor_codec().encode(
-        sort_values=(activity_at.isoformat(), str(item_id)),
-        binding={"kind": "feed-v1"},
+        sort_values=(activity_at.isoformat(), str(item_id)), binding={"kind": "feed-v1"}
     )
 
 
 def _decode_cursor(value: str | None) -> tuple[datetime | None, UUID | None]:
     if value is None:
-        return None, None
+        return (None, None)
     try:
         decoded = _cursor_codec().decode(value, binding={"kind": "feed-v1"})
         if len(decoded) != 2:
@@ -4507,7 +2525,7 @@ def _decode_cursor(value: str | None) -> tuple[datetime | None, UUID | None]:
         item_id = UUID(decoded[1])
         if activity_at.tzinfo is None or item_id.version != 7:
             raise ValueError
-        return activity_at, item_id
+        return (activity_at, item_id)
     except (ValueError, CursorBindingError) as exc:
         raise InvalidFeedCursor("invalid feed cursor") from exc
 
@@ -4517,12 +2535,7 @@ def _cursor_codec() -> CursorCodec:
 
 
 def _encode_hot_cursor(
-    heat: int,
-    activity_at: datetime,
-    topic_id: UUID,
-    *,
-    domain: str | None,
-    window_days: int,
+    heat: int, activity_at: datetime, topic_id: UUID, *, domain: str | None, window_days: int
 ) -> str:
     return _cursor_codec().encode(
         sort_values=(str(heat), activity_at.isoformat(), str(topic_id)),
@@ -4534,11 +2547,10 @@ def _decode_hot_cursor(
     value: str | None, *, domain: str | None, window_days: int
 ) -> tuple[int | None, datetime | None, UUID | None]:
     if value is None:
-        return None, None, None
+        return (None, None, None)
     try:
         decoded = _cursor_codec().decode(
-            value,
-            binding={"kind": "hot-v1", "domain": domain, "window_days": window_days},
+            value, binding={"kind": "hot-v1", "domain": domain, "window_days": window_days}
         )
         if len(decoded) != 3:
             raise ValueError
@@ -4546,6 +2558,6 @@ def _decode_hot_cursor(
         topic_id = UUID(decoded[2])
         if activity_at.tzinfo is None or topic_id.version != 7:
             raise ValueError
-        return int(decoded[0]), activity_at, topic_id
+        return (int(decoded[0]), activity_at, topic_id)
     except (ValueError, CursorBindingError) as exc:
         raise InvalidFeedCursor("invalid hot-topic cursor") from exc

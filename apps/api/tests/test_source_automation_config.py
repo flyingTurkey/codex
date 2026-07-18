@@ -7,7 +7,7 @@ def test_free_discovery_is_enabled_by_default_and_baidu_is_opt_in() -> None:
     settings = Settings()
 
     assert settings.source_discovery_enabled is True
-    assert settings.source_qualification_enabled is True
+    assert not hasattr(settings, "source_qualification_enabled")
     assert settings.baidu_search_enabled is False
     assert settings.baidu_search_api_key is None
     assert settings.baidu_search_monthly_cap_micrormb == 200_000_000
@@ -26,7 +26,6 @@ def test_baidu_without_secret_skips_search_but_endpoint_remains_pinned() -> None
             baidu_search_enabled=True,
             baidu_search_api_key=SecretStr("not-logged-secret"),
             source_discovery_enabled=False,
-            source_qualification_enabled=True,
         )
 
     with pytest.raises(ValidationError, match="endpoint"):
@@ -34,7 +33,6 @@ def test_baidu_without_secret_skips_search_but_endpoint_remains_pinned() -> None
             baidu_search_enabled=True,
             baidu_search_api_key=SecretStr("not-logged-secret"),
             baidu_search_api_url="https://attacker.example/search",
-            source_qualification_enabled=True,
         )
 
     with pytest.raises(ValidationError, match="endpoint"):
@@ -42,17 +40,13 @@ def test_baidu_without_secret_skips_search_but_endpoint_remains_pinned() -> None
             baidu_search_enabled=True,
             baidu_search_api_key=SecretStr("not-logged-secret"),
             baidu_search_api_url="https://qianfan.baidubce.com/unapproved-path",
-            source_qualification_enabled=True,
         )
 
 
-def test_discovery_requires_qualification_but_can_both_be_disabled() -> None:
-    with pytest.raises(ValidationError, match="qualification"):
-        Settings(source_discovery_enabled=True, source_qualification_enabled=False)
+def test_personal_discovery_can_be_disabled_without_an_enterprise_qualification_toggle() -> None:
+    settings = Settings(source_discovery_enabled=False)
 
-    settings = Settings(source_discovery_enabled=False, source_qualification_enabled=False)
-
-    assert settings.source_qualification_enabled is False
+    assert not hasattr(settings, "source_qualification_enabled")
     assert settings.source_discovery_enabled is False
 
 

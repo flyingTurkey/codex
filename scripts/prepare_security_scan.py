@@ -32,7 +32,12 @@ def prepare_scan_workspace(
     for relative_path in delivery_paths:
         if relative_path.anchor or ".." in relative_path.parts:
             raise ValueError(f"delivery path escapes repository: {relative_path}")
-        source = (repository / relative_path).resolve(strict=True)
+        candidate = repository / relative_path
+        # A staged deletion is part of the Git delivery set but has no bytes to
+        # scan. Its prior content must not make retirement gates fail.
+        if not candidate.exists():
+            continue
+        source = candidate.resolve(strict=True)
         if not _is_inside(source, repository) or not source.is_file():
             raise ValueError(f"delivery path is not a repository file: {relative_path}")
         target = destination / relative_path

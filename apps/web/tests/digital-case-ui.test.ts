@@ -1,6 +1,6 @@
 import { mount } from '@vue/test-utils'
 import type { ItemSummary } from '@srbg/contracts'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { Component } from 'vue'
 import { describe, expect, it } from 'vitest'
@@ -124,13 +124,7 @@ describe('round 05 digital case UI', () => {
     expect(page).not.toContain('建议采购')
   })
 
-  it('lets reviewers amend classifications, maturity, and outcome attribution', () => {
-    const page = readFileSync(resolve(process.cwd(), 'app/pages/admin/review/[id].vue'), 'utf8')
-
-    expect(page).toContain('digital_case_patch')
-    expect(page).toContain('工程专业代码')
-    expect(page).toContain('应用场景代码')
-    expect(page).toContain('成熟度')
-    expect(page).toContain('成效归因')
+  it('removes reviewer classification amendments', () => {
+    expect(existsSync(resolve(process.cwd(), 'app/pages/admin/review/[id].vue'))).toBe(false)
   })
 })

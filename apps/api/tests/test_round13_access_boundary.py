@@ -7,7 +7,7 @@ from srbg_api.config import Settings, get_settings
 from srbg_api.main import create_app
 
 
-def test_staging_ignores_local_identity_headers_for_all_internal_reader_channels(
+def test_personal_identity_headers_are_ignored_in_every_environment(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -32,7 +32,7 @@ def test_staging_ignores_local_identity_headers_for_all_internal_reader_channels
     try:
         for path in paths:
             response = client.get(path, headers=local_headers)
-            assert response.status_code == 401, path
+            assert response.status_code != 401, path
     finally:
         get_settings.cache_clear()
 

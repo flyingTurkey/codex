@@ -5,11 +5,10 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
-from srbg_contracts import UserRole
 
 from srbg_api.ai_pipeline.catalog import ProviderCode, provider_capability
 from srbg_api.ai_pipeline.secrets import SecretStorageDisabled
-from srbg_api.auth import Principal, require_roles, require_roles_with_step_up
+from srbg_api.auth import Principal, require_local_owner
 
 
 class AiAdminService(Protocol):
@@ -46,14 +45,14 @@ class AiSecretRequest(_StrictModel):
 
 ReadPrincipal = Annotated[
     Principal,
-    Depends(require_roles(UserRole.PLATFORM_ADMIN, UserRole.AUDITOR)),
+    Depends(require_local_owner),
 ]
 WritePrincipal = Annotated[
     Principal,
-    Depends(require_roles_with_step_up(UserRole.PLATFORM_ADMIN)),
+    Depends(require_local_owner),
 ]
 
-router = APIRouter(prefix="/api/v1/admin/ai", tags=["ai-administration"])
+router = APIRouter(prefix="/api/v1/settings/ai", tags=["personal-settings"])
 
 
 def _service(request: Request) -> AiAdminService:

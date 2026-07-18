@@ -38,7 +38,7 @@ describe('PERS-02 personal sources page', () => {
 
   it('forwards an ASCII-safe local Owner identity through HTTP headers', () => {
     expect(proxy).toContain("headers.set('x-srbg-local-user', 'Local Personal Owner')")
-    expect(proxy).toContain("new Set(['owner', ...compatibleRoles])")
+    expect(proxy).toContain("headers.set('x-srbg-local-roles', 'owner')")
   })
 
   it('adds one URL and exposes probe progress, streams, and retry only', () => {

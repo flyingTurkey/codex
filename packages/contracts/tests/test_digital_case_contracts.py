@@ -52,27 +52,6 @@ def test_digital_detail_requires_verified_outcomes_to_have_independent_evidence(
         )
 
 
-def test_review_decision_accepts_atomic_digital_case_patch() -> None:
-    request = models.ReviewDecisionRequest(
-        action="APPROVE",
-        reason="分类、成熟度和成效归因均与证据一致",
-        digital_case_patch=models.DigitalCaseReviewPatch(
-            engineering_domains=["HIGHWAY", "BRIDGE"],
-            lifecycle_stages=["CONSTRUCTION", "QUALITY_INSPECTION"],
-            technology_tags=["BIM", "INTERNET_OF_THINGS", "SMART_SITE"],
-            application_scenarios=["QUALITY_CONTROL", "PROGRESS_CONTROL"],
-            maturity_level="SINGLE_PROJECT_PRODUCTION",
-            maturity_evidence_ids=[UUID("019b0000-0000-7000-8000-000000005003")],
-            outcome_attributions=[],
-        ),
-    )
-
-    assert request.digital_case_patch is not None
-    assert (
-        request.digital_case_patch.maturity_level is models.MaturityLevel.SINGLE_PROJECT_PRODUCTION
-    )
-
-
 def test_item_detail_carries_digital_case_read_model_without_changing_item_summary_shape() -> None:
     item = models.ItemSummary(
         id=UUID("019b0000-0000-7000-8000-000000005010"),

@@ -86,4 +86,7 @@ docs/codex-kit/docs/codex/03-after-bootstrap-command-sequence.md
 - 第08轮前正式页面不显示演示评分；
 - 第10轮只组合完善，不重写平行Feed/Card；
 - 开发预览可跳过人工预计算证据摘要哈希；生产由服务端自动计算并校验SHA-256。
+# 历史命令（PERS-10 后失效）
+
+本文件中的企业角色、审批和 Operations 命令只作历史记录，不得用于当前个人平台。现行迁移与验收见 PERS-10 文档。
 
