@@ -248,6 +248,42 @@ async def test_six_fixed_replays_share_the_evidence_contract_and_never_use_netwo
         )
 
 
+async def test_generic_list_connector_filters_links_outside_the_list_path_boundary() -> None:
+    listing = "https://www.example.test/policy/"
+    detail = "https://www.example.test/policy/2026/content_1001.html"
+    body = (
+        b"<html><body>"
+        b"<a href='/other/2026/content_9999.html'>Other safety content</a>"
+        b"<a href='/policy/2026/content_1001.html'>Transport safety policy update</a>"
+        b"</body></html>"
+    )
+    config = {
+        "list_url": listing,
+        "allowed_hosts": ["www.example.test"],
+        "item_selector": "a",
+        "link_selector": "a",
+        "title_selector": "a",
+    }
+    transport = FixedFixtureTransport(
+        (
+            _exchange(listing, body, "text/html", etag='"list-v1"'),
+            _exchange(detail, DETAIL, "text/html", etag='"detail-v1"'),
+        )
+    )
+    executor = FixedReplayExecutor(
+        transport=transport, store=InMemoryEvidenceStore(), now=lambda: NOW
+    )
+
+    await executor.run(
+        ConnectorKind.LIST_DETAIL,
+        config,
+        source_allowed_hosts=("www.example.test",),
+        domain=ExecutionDomain.FIXTURE,
+    )
+
+    assert transport.calls == [listing, detail]
+
+
 async def test_fixed_replay_is_idempotent_and_preserves_http_validators() -> None:
     config, exchanges, _ = _fixture_case(ConnectorKind.RSS_ATOM)
     store = InMemoryEvidenceStore()

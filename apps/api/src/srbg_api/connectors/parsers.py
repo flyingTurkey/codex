@@ -603,6 +603,14 @@ def _generic_internal_url_allowed(url: str, config: dict[str, object]) -> bool:
         port = parts.port
     except ValueError:
         return False
+    list_url = config.get("list_url")
+    if not isinstance(list_url, str):
+        return False
+    list_path = urlsplit(list_url).path or "/"
+    normalized_prefix = list_path if list_path.endswith("/") else list_path + "/"
+    within_path = parts.path == normalized_prefix[:-1] or parts.path.startswith(
+        normalized_prefix
+    )
     return bool(
         parts.scheme.casefold() == "https"
         and hostname in allowed_hosts
@@ -611,6 +619,7 @@ def _generic_internal_url_allowed(url: str, config: dict[str, object]) -> bool:
         and parts.password is None
         and not parts.query
         and not parts.fragment
+        and within_path
     )
 
 

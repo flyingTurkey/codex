@@ -61,11 +61,98 @@ def test_homepage_discovers_same_origin_public_feed() -> None:
 
 
 def test_html_canonical_is_a_bounded_same_origin_follow_up() -> None:
-    body = b"<html><head><link rel='canonical' href='/news/'></head></html>"
+    body = b"<html><head><link rel='canonical' href='/index/news/'></head></html>"
     result = detect_streams(
         url="https://example.test/index", content_type="text/html", content=body
     )
-    assert result.follow_up_urls == ("https://example.test/news/",)
+    assert result.follow_up_urls == ("https://example.test/index/news/",)
+
+
+def test_legacy_government_list_uses_bounded_generic_anchor_connector() -> None:
+    body = b"""
+    <html><body><div class="news-list"><ul>
+      <li><a href="/policy/2026/content_1001.html">Transport safety policy update</a></li>
+      <li><a href="/policy/2026/content_1002.html">Digital transport guidance update</a></li>
+    </ul></div></body></html>
+    """
+
+    result = detect_streams(
+        url="https://example.test/policy/", content_type="text/html", content=body
+    )
+
+    assert result.input_kind is PersonalSourceInputKind.LIST_PAGE
+    assert result.streams[0].stream_type is PersonalSourceStreamType.LIST_DETAIL
+    assert result.streams[0].config == {
+        "allowed_hosts": ["example.test"],
+        "item_selector": "a",
+        "link_selector": "a",
+        "list_url": "https://example.test/policy/",
+        "title_selector": "a",
+    }
+
+
+def test_generic_anchor_detection_excludes_hidden_noisy_and_out_of_scope_links() -> None:
+    body = b"""
+    <html><body>
+      <div style="display:none">
+        <a href="/policy/2026/content_hidden.html">Hidden safety report</a>
+      </div>
+      <a href="https://other.test/policy/2026/content_1.html">External safety report</a>
+      <a href="/other/2026/content_2.html">Out of path safety report</a>
+      <a href="/policy/2026/content_3.html?preview=1">Preview safety report</a>
+      <a href="/policy/">Policy home</a>
+    </body></html>
+    """
+
+    with pytest.raises(ProbeDetectionError, match="UNRECOGNIZED_PUBLIC_ENTRY"):
+        detect_streams(
+            url="https://example.test/policy/", content_type="text/html", content=body
+        )
+
+
+def test_zero_delay_same_scope_meta_refresh_is_a_bounded_follow_up() -> None:
+    body = b"<html><head><meta http-equiv='refresh' content='0; URL=/policy/list/'></head></html>"
+
+    result = detect_streams(
+        url="https://example.test/policy/", content_type="text/html", content=body
+    )
+
+    assert result.follow_up_urls == ("https://example.test/policy/list/",)
+
+
+def test_javascript_redirect_is_classified_but_never_interpreted() -> None:
+    body = b"""
+    <html><body><script>
+      const domain = 'https://example.test';
+      const targetPath = '/policy/list/';
+      window.location.href = domain + targetPath;
+    </script></body></html>
+    """
+
+    with pytest.raises(ProbeDetectionError, match="UNSUPPORTED_CLIENT_REDIRECT"):
+        detect_streams(
+            url="https://example.test/policy/", content_type="text/html", content=body
+        )
+
+
+def test_year_archive_directories_are_bounded_same_scope_follow_ups() -> None:
+    body = b"""
+    <html><body>
+      <a href="/reports/2026/">2026</a>
+      <a href="/reports/2025/">2025</a>
+      <a href="/other/2024/">2024</a>
+      <script>window.location.href = dynamicTarget;</script>
+    </body></html>
+    """
+
+    result = detect_streams(
+        url="https://example.test/reports/", content_type="text/html", content=body
+    )
+
+    assert result.follow_up_urls == (
+        "https://example.test/reports/2026/",
+        "https://example.test/reports/2025/",
+    )
 
 
 def test_cross_origin_canonical_is_not_followed() -> None:

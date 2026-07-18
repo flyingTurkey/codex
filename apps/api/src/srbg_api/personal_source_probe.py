@@ -12,6 +12,10 @@ from defusedxml import ElementTree  # type: ignore[import-untyped]
 from srbg_contracts import PersonalSourceInputKind, PersonalSourceStreamType
 
 from srbg_api.connectors.config import ConnectorKind, validate_connector_config
+from srbg_api.connectors.parsers import (
+    _generic_internal_url_allowed,
+    _generic_link_quality,
+)
 
 
 class ProbeDetectionError(ValueError):
@@ -207,20 +211,44 @@ def _detect_xml(url: str, host: str, content: bytes) -> DetectionResult | None:
 
 
 class _EntryParser(HTMLParser):
+    _VOID = frozenset({"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta"})
+    _HIDDEN_TAGS = frozenset({"script", "style", "template", "noscript", "svg"})
+
     def __init__(self, base_url: str) -> None:
         super().__init__(convert_charrefs=True)
         self.base_url = base_url
         self.feed_urls: list[str] = []
         self.sitemap_urls: list[str] = []
         self.canonical_urls: list[str] = []
+        self.meta_refresh_urls: list[str] = []
+        self.anchor_candidates: list[tuple[str, str]] = []
+        self.client_redirect_present = False
         self.article_links = 0
         self._article_depth = 0
+        self._element_stack: list[tuple[str, bool]] = []
+        self._anchor: tuple[str, list[str], bool] | None = None
+        self._script_depth = 0
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        normalized_tag = tag.casefold()
         values = {key.casefold(): value for key, value in attrs if value is not None}
-        if tag.casefold() == "article":
+        inherited_hidden = self._element_stack[-1][1] if self._element_stack else False
+        style = values.get("style", "").replace(" ", "").casefold()
+        own_hidden = (
+            normalized_tag in self._HIDDEN_TAGS
+            or "hidden" in values
+            or values.get("aria-hidden", "").casefold() == "true"
+            or "display:none" in style
+            or "visibility:hidden" in style
+        )
+        hidden = inherited_hidden or own_hidden
+        if normalized_tag not in self._VOID:
+            self._element_stack.append((normalized_tag, hidden))
+        if normalized_tag == "script":
+            self._script_depth += 1
+        if normalized_tag == "article":
             self._article_depth += 1
-        if tag.casefold() == "link":
+        if normalized_tag == "link":
             rel = values.get("rel", "").casefold().split()
             kind = values.get("type", "").casefold()
             href = values.get("href")
@@ -234,12 +262,45 @@ class _EntryParser(HTMLParser):
                 self.sitemap_urls.append(urljoin(self.base_url, href))
             if href and "canonical" in rel:
                 self.canonical_urls.append(urljoin(self.base_url, href))
-        if tag.casefold() == "a" and self._article_depth and values.get("href"):
-            self.article_links += 1
+        if normalized_tag == "meta" and values.get("http-equiv", "").casefold() == "refresh":
+            content = values.get("content", "")
+            delay, separator, target = content.partition(";")
+            if separator and delay.strip() == "0" and "=" in target:
+                field, value = target.split("=", 1)
+                if field.strip().casefold() == "url" and value.strip():
+                    self.meta_refresh_urls.append(
+                        urljoin(self.base_url, value.strip().strip("\"'"))
+                    )
+        if normalized_tag == "a" and values.get("href"):
+            if self._article_depth:
+                self.article_links += 1
+            self._anchor = (values["href"], [], hidden)
 
     def handle_endtag(self, tag: str) -> None:
-        if tag.casefold() == "article" and self._article_depth:
+        normalized_tag = tag.casefold()
+        if normalized_tag == "a" and self._anchor is not None:
+            href, text_parts, hidden = self._anchor
+            title = " ".join(" ".join(text_parts).split())
+            if not hidden and title:
+                self.anchor_candidates.append((urljoin(self.base_url, href), title))
+            self._anchor = None
+        if normalized_tag == "article" and self._article_depth:
             self._article_depth -= 1
+        if normalized_tag == "script" and self._script_depth:
+            self._script_depth -= 1
+        for index in range(len(self._element_stack) - 1, -1, -1):
+            if self._element_stack[index][0] == normalized_tag:
+                del self._element_stack[index:]
+                break
+
+    def handle_data(self, data: str) -> None:
+        if self._anchor is not None:
+            self._anchor[1].append(data)
+        if self._script_depth and any(
+            marker in data.casefold()
+            for marker in ("window.location", "location.href", "location.replace")
+        ):
+            self.client_redirect_present = True
 
 
 def _detect_html(url: str, host: str, content: bytes) -> DetectionResult:
@@ -250,12 +311,24 @@ def _detect_html(url: str, host: str, content: bytes) -> DetectionResult:
     parser = _EntryParser(url)
     parser.feed(text)
     safe_links: list[str] = []
-    for candidate in parser.feed_urls + parser.sitemap_urls + parser.canonical_urls:
+    for candidate in (
+        parser.feed_urls
+        + parser.sitemap_urls
+        + parser.canonical_urls
+        + parser.meta_refresh_urls
+    ):
         try:
             normalized, _, candidate_host = normalize_public_https_url(candidate)
         except ValueError:
             continue
-        if candidate_host == host and normalized not in safe_links:
+        if (
+            candidate_host == host
+            and normalized != url
+            and _generic_internal_url_allowed(
+                normalized, {"allowed_hosts": [host], "list_url": url}
+            )
+            and normalized not in safe_links
+        ):
             safe_links.append(normalized)
     if safe_links:
         return DetectionResult(
@@ -278,4 +351,43 @@ def _detect_html(url: str, host: str, content: bytes) -> DetectionResult:
                 "title_selector": "a",
             },
         )
+    generic_candidates: dict[str, int] = {}
+    archive_follow_ups: list[str] = []
+    generic_config: dict[str, object] = {"allowed_hosts": [host], "list_url": url}
+    for candidate, title in parser.anchor_candidates:
+        if not _generic_internal_url_allowed(candidate, generic_config) or candidate == url:
+            continue
+        score = _generic_link_quality(title=title, url=candidate)
+        if score >= 30:
+            generic_candidates[candidate] = max(score, generic_candidates.get(candidate, score))
+        candidate_path = urlsplit(candidate).path.rstrip("/")
+        if (
+            len(title) == 4
+            and title.isdigit()
+            and 2000 <= int(title) <= 2100
+            and candidate_path.rsplit("/", 1)[-1] == title
+            and candidate not in archive_follow_ups
+        ):
+            archive_follow_ups.append(candidate)
+    if len(generic_candidates) >= 2:
+        return _single(
+            PersonalSourceInputKind.LIST_PAGE,
+            PersonalSourceStreamType.LIST_DETAIL,
+            url,
+            host,
+            {
+                "list_url": url,
+                "item_selector": "a",
+                "link_selector": "a",
+                "title_selector": "a",
+            },
+        )
+    if archive_follow_ups:
+        return DetectionResult(
+            input_kind=PersonalSourceInputKind.LIST_PAGE,
+            streams=(),
+            follow_up_urls=tuple(archive_follow_ups[:5]),
+        )
+    if parser.client_redirect_present:
+        raise ProbeDetectionError("UNSUPPORTED_CLIENT_REDIRECT")
     raise ProbeDetectionError("UNRECOGNIZED_PUBLIC_ENTRY")
