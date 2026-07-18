@@ -43,4 +43,4 @@ DeepSeek 不可用时，平台保留题录、原文链接和本地确定性提�
 
 平台现在只有本机 Owner。使用“我的来源”添加公开 URL、查看自动识别流/画像/健康原因，并直接表达启停意图；实际联网仍由公网安全、robots、条款、限速、预算和熔断门禁决定。AI 模型配置位于 `/settings/ai`。旧管理后台、审批队列、试运行批准、人工审核和企业角色不再存在。
 
-诊断页显示的数据库迁移头应为 `0031_controlled_personal_runs`。如果不是该版本，或备份恢复检查报告归档数量、哈希、角色状态不一致，请保持来源暂停并按迁移回滚 Runbook 处理，不要手工修改只读归档。无人值守试点先使用 `scripts/run_personal_pilot.ps1 -PreflightOnly`；只有输出 `CONTROLLED_PILOT_PREFLIGHT_OK_NO_NETWORK` 后才能正式启动。试点结束会自动停用其五个来源，不会自动开始第二轮。
+诊断页显示的数据库迁移头应为 `0032_controlled_run_worker_read`。如果不是该版本，或备份恢复检查报告归档数量、哈希、角色状态不一致，请保持来源暂停并按迁移回滚 Runbook 处理，不要手工修改只读归档。无人值守试点先使用 `scripts/run_personal_pilot.ps1 -PreflightOnly`；只有输出 `CONTROLLED_PILOT_PREFLIGHT_OK_NO_NETWORK` 后才能正式启动。试点结束会自动停用其五个来源，不会自动开始第二轮。

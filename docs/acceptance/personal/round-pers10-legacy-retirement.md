@@ -1,6 +1,6 @@
 # PERS-10 旧企业治理退场验收
 
-PERS-10 验收时迁移头为 `0030_pers10_role_archive_repair`；当前运行头随后扩展为 `0031_controlled_personal_runs`，仅增加个人真实试点的内部预算账本，不改变本页归档统计或恢复企业流程。`0029` 在单一 PostgreSQL 事务中归档旧治理记录；`0030` 保存 `srbg_admin_role`、`srbg_model_role`、`srbg_source_governance_writer` 三个角色的规范属性、成员关系和表授权，并修复已应用 0029 但未留下角色记录的数据库。归档 Schema 对 `PUBLIC` 及应用角色撤权，写操作由数据库触发器拒绝。
+PERS-10 验收时迁移头为 `0030_pers10_role_archive_repair`；当前运行头随后扩展为 `0032_controlled_run_worker_read`，其中 0031 增加个人真实试点内部预算账本，0032 只授予 Worker 对该账本的只读核验权限，不改变本页归档统计或恢复企业流程。`0029` 在单一 PostgreSQL 事务中归档旧治理记录；`0030` 保存 `srbg_admin_role`、`srbg_model_role`、`srbg_source_governance_writer` 三个角色的规范属性、成员关系和表授权，并修复已应用 0029 但未留下角色记录的数据库。归档 Schema 对 `PUBLIC` 及应用角色撤权，写操作由数据库触发器拒绝。
 
 开发库实际归档 53 类、原始 69 行、归档 69 行；manifest 清单汇总 SHA-256 为 `780f6fd212970588e84d29f9fba169dc5ee5ef4903264cb46f9c831cbb75825c`。非零类别如下：
 

@@ -15,9 +15,9 @@
 
 ## PERS-10 企业治理退场
 
-数据库头为 `0031_controlled_personal_runs`。`0029` 在同一事务中归档旧治理关系；`0030` 补齐三个企业数据库角色的规范快照并删除最后的来源治理角色；`0031` 只新增无人值守真实试点的内部预算与停止账本，不恢复任何企业治理能力。归档保存规范化 JSON、逐行 SHA-256、分类计数和分类汇总 SHA-256；数量、哈希、角色状态或跨数据库依赖不一致时拒绝退场。正常业务角色没有归档 Schema 使用权，业务代码禁止读取归档。
+数据库头为 `0032_controlled_run_worker_read`。`0029` 在同一事务中归档旧治理关系；`0030` 补齐三个企业数据库角色的规范快照并删除最后的来源治理角色；`0031` 只新增无人值守真实试点的内部预算与停止账本，`0032` 只允许 Worker 读取该账本，均不恢复任何企业治理能力。归档保存规范化 JSON、逐行 SHA-256、分类计数和分类汇总 SHA-256；数量、哈希、角色状态或跨数据库依赖不一致时拒绝退场。正常业务角色没有归档 Schema 使用权，业务代码禁止读取归档。
 
-降级先重新验证每行和每类 manifest，损坏时以 `PERS10_ARCHIVE_CORRUPT`/`PERS10_ARCHIVE_HASH_MISMATCH` 中止；验证通过后恢复旧表、数据、约束、触发器、授权和 0029 前调度函数。操作见[迁移回滚 Runbook](docs/operations/pers10-migration-rollback-runbook.md)和[备份恢复说明](docs/operations/personal-backup-restore.md)。
+当前迁移头为 `0032_controlled_run_worker_read`。降级先重新验证每行和每类 manifest，损坏时以 `PERS10_ARCHIVE_CORRUPT`/`PERS10_ARCHIVE_HASH_MISMATCH` 中止；验证通过后恢复旧表、数据、约束、触发器、授权和 0029 前调度函数。含受控试点事实的当前业务库拒绝破坏性降级，应从已验证备份在隔离实例恢复。操作见[迁移回滚 Runbook](docs/operations/pers10-migration-rollback-runbook.md)和[备份恢复说明](docs/operations/personal-backup-restore.md)。
 
 旧 `/api/v1/admin/**` API、企业后台任务、生成契约、页面组件、运行时模块和企业产品角色均已退场；只保留 `owner` 语义及必要内部服务主体。历史企业文档的状态总表见[失效企业流程说明](docs/ENTERPRISE-PROCESSES-RETIRED.md)。
 

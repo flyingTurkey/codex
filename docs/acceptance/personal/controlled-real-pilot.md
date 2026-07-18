@@ -21,3 +21,20 @@ DeepSeek 尚未接入同一耐久请求与费用账本，因此本轮真实试�
 - 四个正文对象已写入私有 MinIO；逐对象重新读取并计算 SHA-256，4/4 与 capture manifest 一致。没有内容进入 PublicationService、事实索引或页面，因此不得宣称“采集→证据→事实→展示”通过。
 - 五个来源最终 `desired_enabled=false`、`enabled=false`、`runtime_state=STOPPED`；AI Worker 保持停止；没有第二轮、没有界面实施。
 - P0：0。P1：1（个人流识别器无法识别四个目标政府公开入口，试点成功来源 0/5，低于 4/5 门槛）。后续应以这四份真实原文重放定位列表/直接内容识别缺口；修复不得放宽白名单、频率、预算、事实规则或数据库设计。
+
+### 2026-07-18 修复后两小时试点与只读复核
+
+修复没有为五个站点硬编码选择器，也没有放宽公网安全、白名单、频率、预算、证据或事实规则。通用探测器从普通列表结构提取有标题的同域 HTTPS 详情链接；隐藏、导航、query/fragment、跨域和来源路径前缀外链接均被排除。严格零延迟 meta refresh、HTTP redirect 和同域 canonical 只在同一边界内跟随；JavaScript 跳转不执行、不推断。
+
+- 运行 ID：`019f75ae-4fba-76d4-bc0f-3fb1744eaa86`；当前迁移头：`0032_controlled_run_worker_read`。运行达到 7200 秒 active limit 后结束，没有启动第二轮。
+- 原始报告 `D:\SRBGData\reports\controlled-pilot-20260718T144305Z.json` 保持原样。由于当时三个画像回调已失联且停在 `RUNNING`，该报告按失败关闭；修复后没有重写历史报告。
+- 独立只读复核报告：`D:\SRBGData\reports\controlled-pilot-reassessment-019f75ae-4fba-76d4-bc0f-3fb1744eaa86.json`；SHA-256 `B0271D1C92C1C8DEC4F280F530289C7DACBBA8042587A11B89923FCF09B3CB4A`；`reassessment_network_io_performed=false`。
+- 结论为 `LIMITED_PASS`：中国政府网政策、交通运输部、四川省交通运输厅 3/5 完成探测、画像、受控计划和至少一个正常采集周期；应急管理部事故调查入口、交通运输部信息公开根入口均以 `UNSUPPORTED_CLIENT_REDIRECT` 失败，未绕过客户端跳转。
+- 资源账本：50 次物理 HTTP 全部结算，响应 1,745,429 字节，1 次 `OSERROR` 抓取失败，失败率 2%；没有悬挂预约。AI 为 `DEGRADED_DISABLED`，调用 0、费用 0。
+- 真实链路：13 个原始版本均通过对象哈希复核，形成 7 条内容、16 个 accepted claims 和 16 个有效 Evidence IDs；关键数字/日期无证据数 0，未验证 AI 写入事实索引数 0。7 条内容只由 PublicationService 投影，API/Worker 均无直接投影写权限。
+- 样例内容 `019f75c0-bddd-743d-ae83-7d1196e0da19`，原文 `https://jtt.sc.gov.cn/jtt/c101585/2026/7/17/40e261598f1648a5924e1fb47e009d1e.shtml`。本轮远端原文没有自然变化，报告为 `NOT_OBSERVED`；不可跳过的哈希变化集成测试证明旧结果立即失效机制，没有伪造现场变化。
+- 到期后五个来源全部停用、预约排空；从最早 `manual_disabled_at` 起的停止后联网尝试数为 0。按锁定规则，`LIMITED_PASS` 只完成安全收尾和报告，不进入界面审查或候选图制作。
+
+### 信源替换候选（尚未验收）
+
+若下一轮获准重跑，可优先用静态公开目录替换两个脚本跳转入口：应急管理部 `https://www.mem.gov.cn/gk/index.shtml`，交通运输部政策解读 `https://www.mot.gov.cn/gongkai/zcjd/`。两者只是基于官方网站结构的候选，尚未通过平台新一轮 Probe、路径边界、robots、受控采集和证据门禁，不能计入本轮 3/5，也不能在未经授权时自动启动试点。

@@ -31,7 +31,7 @@
 
 ## 归档与角色
 
-开发库的 PERS-10 归档验收头为 `0030_pers10_role_archive_repair`，当前应用头为 `0031_controlled_personal_runs`。归档仍为 53 类、原始 69 行、归档 69 行，manifest 清单汇总 SHA-256 `780f6fd212970588e84d29f9fba169dc5ee5ef4903264cb46f9c831cbb75825c`；其中三个数据库角色的分类哈希为 `a1e0a36ca4bdd7a0cacebb997bd26a19110d4672b6695cad7a0e4f12f9def1d4`。正常业务角色无归档 Schema 使用权。0031 有试点事实时先拒绝降级；无事实时可回到 0030，再由 PERS-10 校验逐行及逐类计数和哈希后按 `0030 → 0029 → 0028` 恢复。
+开发库的 PERS-10 归档验收头为 `0030_pers10_role_archive_repair`，当前应用头为 `0032_controlled_run_worker_read`。归档仍为 53 类、原始 69 行、归档 69 行，manifest 清单汇总 SHA-256 `780f6fd212970588e84d29f9fba169dc5ee5ef4903264cb46f9c831cbb75825c`；其中三个数据库角色的分类哈希为 `a1e0a36ca4bdd7a0cacebb997bd26a19110d4672b6695cad7a0e4f12f9def1d4`。正常业务角色无归档 Schema 使用权。含试点事实的业务库拒绝破坏性降级；回滚应从已验证备份恢复隔离实例，再由 PERS-10 校验逐行及逐类计数和哈希后按 `0030 → 0029 → 0028` 恢复。
 
 旧产品角色与旧 NOLOGIN 企业角色 `srbg_admin_role`、`srbg_model_role`、`srbg_source_governance_writer` 已删除；只保留 owner 语义及 API、Worker、Publisher、投影读取等必要内部服务主体。
 
@@ -41,3 +41,5 @@
 - 原文变化证据是使用真实官方字节走生产服务的受控变化，不是交通运输部远端内容自然变化；报告明确区分二者。
 - 归档回滚会短暂恢复企业结构，只能在完整备份、停机窗口和 Runbook 校验下执行。
 - 用户可见界面没有在无人值守阶段修改；任何后续可见改版仍须先提供候选截图并取得确认。
+- 修复后的两小时试点为 `LIMITED_PASS`（3/5），不是正式 4/5 `PASS`。应急管理部和交通运输部信息公开两个入口因 JavaScript 跳转被安全拒绝；替换静态目录需要下一轮授权和完整真实预检，当前没有进入界面审查。
+- 原始试点报告因画像回调失联判为失败并保持不可改写；独立只读复核报告证明画像恢复后满足 3/5 受限通过，报告 SHA-256 为 `B0271D1C92C1C8DEC4F280F530289C7DACBBA8042587A11B89923FCF09B3CB4A`。

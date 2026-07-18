@@ -1,6 +1,6 @@
 # PERS-10 迁移与回滚 Runbook
 
-当前应用头为 `0031_controlled_personal_runs`。升级必须先完成 PERS-10 的 `0028 → 0029 → 0030` 验证，再执行 `make personal-pilot-control-test` 所覆盖的 `0030 → 0031 → 0030 → 0031`。0031 存在任何 `personal_controlled_run` 事实时会以 `CONTROLLED_RUN_DOWNGRADE_BLOCKED` 拒绝降级；先停止控制器、确认无 `RESERVED` 请求并保留试点报告，禁止删除事实来强行回滚。需要回到 0028 时，先在经批准的恢复副本中处理 0031 事实，再按原 PERS-10 流程降级。
+当前应用头为 `0032_controlled_run_worker_read`。升级必须先完成 PERS-10 的 `0028 → 0029 → 0030` 验证，再执行 `make personal-pilot-control-test` 覆盖的 `0030 → 0031 → 0032 → 0031 → 0030 → 0032`。0031 存在任何 `personal_controlled_run` 事实时会以 `CONTROLLED_RUN_DOWNGRADE_BLOCKED` 拒绝降级；先停止控制器、确认无 `RESERVED` 请求并保留原始及只读复核报告，禁止删除事实来强行回滚。需要回到 0028 时，不能在当前含试点事实的业务库破坏性降级；应从升级前已验证备份恢复到隔离实例，再按 PERS-10 流程验证降级和切换。
 
 升级前执行 PostgreSQL `pg_dump -Fc` 并校验备份可读取；确认所有启用来源至少有一个 READY 个人流，且不存在 ACTIVE `LEGACY_GOVERNED` 调度。执行 `alembic upgrade 0030_pers10_role_archive_repair` 后查询 manifest，要求每类 `original_count = archive_count`，三个企业角色均不存在，并保存汇总哈希。若报告 `PERS10_ROLE_EXTERNAL_DEPENDENCIES`，先识别依赖数据库；只允许清理经确认、无连接且符合隔离测试命名的临时数据库，不得修改或删除业务数据库。
 
