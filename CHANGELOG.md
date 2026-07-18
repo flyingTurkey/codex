@@ -5,6 +5,7 @@
 - 新增 `0031_controlled_personal_runs`，把两小时个人试点的 80 次物理 HTTP、150MB 总响应、50MB 单响应、10 次/30% 失败熔断、四小时墙钟以及精确来源路径边界固化为 PostgreSQL 权威账本；新请求在 `STOPPING` 后失败关闭，已预约请求必须结算后才能结束。
 - 来源探测和生产抓取共用物理请求观察器；重试与重定向逐次记账，同域一分钟限速由数据库串行校验，受控 `fetch_run` 自动继承试点 ID。未接入同等耐久费用账本前 DeepSeek 在试点中明确降级关闭，禁止 mock 结果冒充真实 AI。
 - 新增 `make personal-pilot-control-test`，在一次性 PostgreSQL 中执行 `0030 → 0031 → 0030 → 0031`，并验证有事实时拒绝降级、路径越界拒绝、响应字节结算与网络对端异常记账。
+- 首轮受控真实试点在 12 个请求、173,268 字节、0 传输失败时因四个来源均无法识别采集流而以 `SOURCE_RELIABILITY_GATE` 失败关闭；五来源全部停用，4 个真实原文对象哈希复核 100%，未进入事实或页面投影。结果保存在 D 盘并记录于 `docs/acceptance/personal/controlled-real-pilot.md`。
 
 所有重要变更记录在此文件。
 
