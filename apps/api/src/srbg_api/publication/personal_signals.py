@@ -12,7 +12,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 ResultType = Literal["EVIDENCE_FACT", "AI_JUDGMENT", "UNVERIFIED_AI", "AI_PROCESSING_FAILED"]
 SearchSurface = Literal["PRIMARY", "UNVERIFIED"]
-DailySection = Literal["EVIDENCE_FACTS", "UNVERIFIED_AI"]
+DailySection = Literal[
+    "EVIDENCE_FACTS", "AI_JUDGMENTS", "UNVERIFIED_AI", "AI_PROCESSING_FAILURES"
+]
 
 
 class PersonalSignalInput(BaseModel):
@@ -95,8 +97,10 @@ def build_personal_signal_projections(
             **common,
             "failure_reason_codes": list(value.failure_reason_codes),
         }
-        search_surface = None
-        daily_section = None
+        # Only source metadata and bounded reason codes are indexed. Invalid model output
+        # never crosses the publication boundary.
+        search_surface = "UNVERIFIED"
+        daily_section = "AI_PROCESSING_FAILURES"
     else:
         payload = {
             **common,
@@ -107,7 +111,7 @@ def build_personal_signal_projections(
             "UNVERIFIED" if result_type == "UNVERIFIED_AI" else "PRIMARY"
         )
         daily_section = (
-            "UNVERIFIED_AI" if result_type == "UNVERIFIED_AI" else None
+            "UNVERIFIED_AI" if result_type == "UNVERIFIED_AI" else "AI_JUDGMENTS"
         )
     projections.append(
         PersonalSignalProjection(

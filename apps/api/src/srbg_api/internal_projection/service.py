@@ -9,6 +9,7 @@ from uuid import UUID
 
 from srbg_contracts import (
     DailyReport,
+    EventAutomaticResultView,
     EventDetail,
     EventStatus,
     EventSummary,
@@ -16,7 +17,6 @@ from srbg_contracts import (
     EventType,
     FeedPage,
     ItemDetail,
-    PublishedEventDetailV1,
     PublishedEventSummaryV1,
 )
 
@@ -148,7 +148,10 @@ class PublishedIntelligenceQueryService:
         return await self._reader.get_daily_report(report_id=report_id, report_date=report_date)
 
     async def get_event(self, event_id: UUID) -> EventDetail:
-        value: PublishedEventDetailV1 = await self._reader.get_event(event_id)
+        value, personal_signals = await asyncio.gather(
+            self._reader.get_event(event_id),
+            self._reader.list_personal_signals_for_event(event_id),
+        )
         summary = value.summary
         event_type = summary.event_type or _EVENT_TYPE_BY_CONTENT_TYPE[summary.content_type.value]
         return EventDetail(
@@ -170,6 +173,21 @@ class PublishedIntelligenceQueryService:
             documents=value.documents,
             source_comparison=value.source_comparison,
             type_detail=value.type_detail,
+            automatic_results=[
+                EventAutomaticResultView(
+                    signal_id=signal["signal_id"],
+                    result_type=signal["result_type"],
+                    title=signal["payload"]["title"],
+                    original_url=signal["payload"]["original_url"],
+                    judgment=(
+                        signal["payload"].get("judgment")
+                        if signal["result_type"] in {"AI_JUDGMENT", "UNVERIFIED_AI"}
+                        else None
+                    ),
+                    failure_reason_codes=signal["payload"].get("failure_reason_codes", []),
+                )
+                for signal in personal_signals
+            ],
         )
 
     async def resolve_event_redirect(self, event_id: UUID) -> UUID | None:

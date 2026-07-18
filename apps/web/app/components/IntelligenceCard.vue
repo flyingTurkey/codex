@@ -284,7 +284,7 @@ function formatLoss(amountMinor: number, currency: string): string {
         证据事实
       </span>
       <span v-else-if="item.automatic_result_type === 'AI_JUDGMENT'" class="intelligence-card__badge is-ai">
-        AI 判断 · 已验证
+        AI 判断（验证通过）
       </span>
       <span v-else-if="isUnverifiedAi" class="intelligence-card__badge is-pending">
         未验证 AI

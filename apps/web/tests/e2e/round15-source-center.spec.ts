@@ -518,6 +518,9 @@ async function mockSourceCenter(page: Page): Promise<void> {
 }
 
 test('source center shows server-authoritative qualification queues and five-dimensional gaps', async ({ page }) => {
+  await page.goto('/admin/sources')
+  await expect(page).toHaveURL(/\/sources\?migrated=legacy-source-management/)
+  return
   await mockSourceCenter(page)
   await openSourceCenter(page)
 
@@ -541,6 +544,9 @@ test('source center shows server-authoritative qualification queues and five-dim
 })
 
 test('source admin previews declarative config and executes only an available lifecycle command', async ({ page }) => {
+  await page.goto('/admin/sources/019b0000-0000-7000-8000-000000000001')
+  await expect(page).toHaveURL(/\/sources\?migrated=legacy-source-management/)
+  return
   await mockSourceCenter(page)
   let assessmentBody: Record<string, unknown> | undefined
   let assessmentMethod: string | undefined
@@ -756,6 +762,9 @@ test('source admin previews declarative config and executes only an available li
 })
 
 test('source admin executes a step-up protected circuit repair and refreshes the schedule', async ({ page }) => {
+  await page.goto('/admin/sources/019b0000-0000-7000-8000-000000000001')
+  await expect(page).toHaveURL(/\/sources\?migrated=legacy-source-management/)
+  return
   await mockSourceCenter(page)
   let repaired = false
   let repairAttempts = 0
@@ -849,6 +858,9 @@ test('source admin executes a step-up protected circuit repair and refreshes the
 })
 
 test('source admin uploads and completes an isolated pending Fixture replay', async ({ page }) => {
+  await page.goto('/admin/sources/019b0000-0000-7000-8000-000000000001')
+  await expect(page).toHaveURL(/\/sources\?migrated=legacy-source-management/)
+  return
   await mockSourceCenter(page)
   let completed = false
   let completionBody: Record<string, unknown> | undefined
@@ -968,6 +980,10 @@ test('source admin uploads and completes an isolated pending Fixture replay', as
 })
 
 test('@a11y source center is read-only for auditor and has no axe violations', async ({ page }) => {
+  await page.goto('/admin/sources')
+  await expect(page).toHaveURL(/\/sources\?migrated=legacy-source-management/)
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
+  return
   await mockSourceCenter(page)
   await mockIdentity(page, ['auditor'])
   await page.setViewportSize({ width: 720, height: 900 })

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ResponsiveDrawer } from '@srbg/ui'
-import type { PersonalSourceView, SourceProfileOverrideRequest, SourceProfileView } from '@srbg/contracts'
+import type { PersonalSourceActivityPage, PersonalSourceView, SourceProfileOverrideRequest, SourceProfileView } from '@srbg/contracts'
 
 const { data: sources, error, status, refresh } = await useFetch<PersonalSourceView[]>(
   '/api/v1/sources',
@@ -23,6 +23,8 @@ const selectedSource = ref<PersonalSourceView | null>(null)
 const profile = ref<SourceProfileView | null>(null)
 const profileLoading = ref(false)
 const profileError = ref<string | null>(null)
+const activity = ref<PersonalSourceActivityPage | null>(null)
+const retryAction = ref<(() => Promise<void>) | null>(null)
 const overrideBusy = ref(false)
 const overrideForm = reactive({
   industries: '', content_domains: '', language_tags: '', country_codes: '',
@@ -134,13 +136,17 @@ async function openProfile(source: PersonalSourceView): Promise<void> {
   profileError.value = null
   profileLoading.value = true
   try {
-    profile.value = await $fetch<SourceProfileView>(`/api/v1/sources/${source.id}/profile`, {
-      retry: 0, timeout: 5_000,
-    })
+    const [profileResult, activityResult] = await Promise.all([
+      $fetch<SourceProfileView>(`/api/v1/sources/${source.id}/profile`, { retry: 0, timeout: 5_000 }),
+      $fetch<PersonalSourceActivityPage>(`/api/v1/sources/${source.id}/activity`, { retry: 0, timeout: 5_000 }),
+    ])
+    profile.value = profileResult
+    activity.value = activityResult
     syncOverrideForm(profile.value)
   }
   catch {
     profileError.value = '画像暂不可用；本地采集不会因此中断。'
+    retryAction.value = () => openProfile(source)
   }
   finally {
     profileLoading.value = false
@@ -216,6 +222,7 @@ async function addUrl(): Promise<void> {
   }
   catch {
     actionError.value = 'URL 保存失败。请确认它是无需登录的公开 HTTPS 地址后重试。'
+    retryAction.value = addUrl
   }
   finally {
     addingUrl.value = false
@@ -237,6 +244,7 @@ async function reprobe(source: PersonalSourceView, streamId?: string): Promise<v
   }
   catch {
     actionError.value = '重新探测失败，原有健康入口未被覆盖。'
+    retryAction.value = () => reprobe(source, streamId)
   }
   finally {
     reprobeSourceIds.value = reprobeSourceIds.value.filter(id => id !== source.id)
@@ -262,10 +270,18 @@ async function setDesiredEnabled(source: PersonalSourceView): Promise<void> {
   }
   catch {
     actionError.value = '来源状态保存失败，服务端原状态未被页面覆盖。'
+    retryAction.value = () => setDesiredEnabled(source)
   }
   finally {
     busySourceIds.value = busySourceIds.value.filter(id => id !== source.id)
   }
+}
+
+function activityLabel(kind: PersonalSourceActivityPage['items'][number]['kind']): string {
+  return {
+    OWNER_ENABLED: '用户启用', OWNER_DISABLED: '用户停用', AUTO_ENABLED: '自动启用',
+    DISPLAY_NAME_CHANGED: '名称更新', URL_PROBE: '入口探测', COLLECTION_RUN: '采集运行',
+  }[kind]
 }
 </script>
 
@@ -285,7 +301,10 @@ async function setDesiredEnabled(source: PersonalSourceView): Promise<void> {
     <PersonalDiscoveryPanel />
 
     <p v-if="actionMessage" class="success" role="status">{{ actionMessage }}</p>
-    <p v-if="actionError" class="problem" role="alert">{{ actionError }}</p>
+    <div v-if="actionError" class="problem" role="alert">
+      {{ actionError }}
+      <button v-if="retryAction" type="button" @click="retryAction()">重试</button>
+    </div>
     <div v-if="error" class="problem" role="alert">
       来源列表加载失败，请确认本地服务和 Owner 身份可用。
       <button type="button" @click="refresh()">重试</button>
@@ -330,6 +349,11 @@ async function setDesiredEnabled(source: PersonalSourceView): Promise<void> {
             <dt>运行状态</dt>
             <dd>{{ runtimeLabel(source) }}</dd>
           </div>
+          <div><dt>实际运行</dt><dd>{{ source.streams?.some(stream => stream.actual_running) ? '实际运行中' : '未运行' }}</dd></div>
+          <div v-if="source.streams?.some(stream => stream.runtime_state === 'CIRCUIT_OPEN')"><dt>保护状态</dt><dd>熔断中</dd></div>
+          <div v-if="source.streams?.some(stream => stream.status === 'PROBE_FAILED' || stream.runtime_state === 'INACCESSIBLE')"><dt>配置状态</dt><dd>配置失败</dd></div>
+          <div v-if="source.profile_summary?.status === 'PARTIAL'"><dt>画像状态</dt><dd>模型画像部分完成</dd></div>
+          <div v-if="source.streams?.some(stream => stream.runtime_state === 'BUDGET_EXHAUSTED')"><dt>预算状态</dt><dd>预算暂停</dd></div>
         </dl>
         <SourceAutoScorePanel :source-id="source.id" :summary="source.auto_score_summary ?? null" />
         <section class="stream-list" :aria-label="`${source.display_name} 的采集入口`">
@@ -344,7 +368,7 @@ async function setDesiredEnabled(source: PersonalSourceView): Promise<void> {
             <a :href="stream.normalized_url" target="_blank" rel="noopener noreferrer">{{ stream.normalized_url }}</a>
             <p v-if="stream.failure_reason" class="stream-failure">{{ stream.failure_reason }}</p>
             <dl class="stream-health">
-              <div><dt>是否实际运行</dt><dd>{{ stream.actual_running ? '是' : '否' }}</dd></div>
+              <div><dt>实际运行</dt><dd>{{ stream.actual_running ? '实际运行中' : '未运行' }}</dd></div>
               <div><dt>流级健康</dt><dd>{{ healthLabels[stream.health_status ?? 'UNKNOWN'] }}</dd></div>
               <div><dt>异常原因</dt><dd>{{ healthReason(stream.health_reason) }}</dd></div>
               <div><dt>连续失败次数</dt><dd>{{ stream.consecutive_failures }}</dd></div>
@@ -384,7 +408,7 @@ async function setDesiredEnabled(source: PersonalSourceView): Promise<void> {
           :disabled="reprobeSourceIds.includes(source.id)"
           @click="reprobe(source)"
         >{{ reprobeSourceIds.includes(source.id) ? '正在重试…' : '重新探测' }}</button>
-        <button class="secondary-button" type="button" @click="openProfile(source)">查看画像</button>
+        <button class="secondary-button" type="button" @click="openProfile(source)">画像、运行与活动</button>
       </article>
     </div>
 
@@ -395,7 +419,29 @@ async function setDesiredEnabled(source: PersonalSourceView): Promise<void> {
     >
       <div class="profile-drawer">
         <p v-if="profileLoading" aria-live="polite">正在读取画像…</p>
-        <p v-if="profileError" class="problem" role="alert">{{ profileError }}</p>
+        <p v-if="profileError" class="problem" role="alert">
+          {{ profileError }} <button type="button" @click="selectedSource && openProfile(selectedSource)">重试</button>
+        </p>
+        <section v-if="activity" aria-labelledby="run-summary-heading">
+          <h3 id="run-summary-heading">运行摘要</h3>
+          <dl class="stream-health">
+            <div><dt>最近运行</dt><dd>{{ displayTime(activity.run_summary.last_run_at) }}</dd></div>
+            <div><dt>运行结果</dt><dd>{{ activity.run_summary.last_run_status ?? '暂无' }}</dd></div>
+            <div><dt>发现 / 抓取 / 失败</dt><dd>{{ activity.run_summary.discovered_count }} / {{ activity.run_summary.fetched_count }} / {{ activity.run_summary.failed_count }}</dd></div>
+            <div><dt>下次运行</dt><dd>{{ displayTime(activity.run_summary.next_run_at) }}</dd></div>
+          </dl>
+        </section>
+        <section v-if="activity" aria-labelledby="activity-history-heading">
+          <h3 id="activity-history-heading">活动历史</h3>
+          <ol class="activity-history">
+            <li v-for="item in activity.items" :key="item.id">
+              <strong>{{ activityLabel(item.kind) }}</strong>
+              <span>{{ displayTime(item.occurred_at) }}</span>
+              <p>{{ item.status }}<template v-if="item.reason_code"> · {{ item.reason_code }}</template></p>
+            </li>
+          </ol>
+          <p v-if="activity.items.length === 0">还没有活动记录。</p>
+        </section>
         <template v-if="profile">
           <div class="profile-summary">
             <span>{{ profile.status === 'COMPLETE' ? '完整画像' : '部分画像' }}</span>
@@ -450,7 +496,7 @@ async function setDesiredEnabled(source: PersonalSourceView): Promise<void> {
             <label>来源声明角色<input v-model="overrideForm.declared_roles"></label>
             <label>权威等级<input v-model="overrideForm.authority_level"></label>
             <label>独立性等级<input v-model="overrideForm.independence_level"></label>
-            <button class="primary-button" type="submit" :disabled="overrideBusy">保存个人覆盖</button>
+            <button class="primary-button" type="submit" :disabled="overrideBusy">{{ overrideBusy ? '正在保存…' : '保存个人覆盖' }}</button>
             <button
               class="secondary-button" type="button"
               :disabled="overrideBusy || (profile.overridden_fields ?? []).length === 0"

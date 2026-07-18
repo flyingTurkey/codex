@@ -1,0 +1,120 @@
+{
+  "$defs": {
+    "AiJudgmentSignal": {
+      "additionalProperties": false,
+      "properties": {
+        "current_limitations": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Current Limitations",
+          "type": "array"
+        },
+        "potential_engineering_scenarios": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Potential Engineering Scenarios",
+          "type": "array"
+        },
+        "potential_industry_impacts": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Potential Industry Impacts",
+          "type": "array"
+        },
+        "questions_to_verify": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Questions To Verify",
+          "type": "array"
+        },
+        "used_claim_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Used Claim Ids",
+          "type": "array"
+        },
+        "why_worth_attention": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Why Worth Attention",
+          "type": "string"
+        }
+      },
+      "required": [
+        "why_worth_attention",
+        "used_claim_ids"
+      ],
+      "title": "AiJudgmentSignal",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "failure_reason_codes": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 20,
+      "title": "Failure Reason Codes",
+      "type": "array"
+    },
+    "judgment": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AiJudgmentSignal"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "original_url": {
+      "maxLength": 2048,
+      "pattern": "^https?://[^\\s]+$",
+      "title": "Original Url",
+      "type": "string"
+    },
+    "result_type": {
+      "enum": [
+        "EVIDENCE_FACT",
+        "AI_JUDGMENT",
+        "UNVERIFIED_AI",
+        "AI_PROCESSING_FAILED"
+      ],
+      "title": "Result Type",
+      "type": "string"
+    },
+    "signal_id": {
+      "format": "uuid",
+      "title": "Signal Id",
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    }
+  },
+  "required": [
+    "signal_id",
+    "result_type",
+    "title",
+    "original_url"
+  ],
+  "title": "EventAutomaticResultView",
+  "type": "object"
+}

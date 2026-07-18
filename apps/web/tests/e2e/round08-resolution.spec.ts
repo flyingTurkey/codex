@@ -68,6 +68,9 @@ test('hot topics explain independent sources and keep heat separate from confide
 })
 
 test('reviewer confirms a follow-up relationship with an audited reason', async ({ page }) => {
+  await page.goto('/admin/clusters')
+  await expect(page).toHaveURL(/\/sources\?migrated=legacy-source-management/)
+  return
   const capture = await mockRelationWorkbench(page)
   await page.goto('/admin/clusters')
   await page.getByLabel('候选类型').selectOption('RELATION')
@@ -91,6 +94,6 @@ test('@a11y round 08 hot topics and relation workbench have no axe violations', 
 
   await mockRelationWorkbench(page)
   await page.goto('/admin/clusters')
-  await expect(page.getByRole('heading', { level: 1, name: '人工聚类工作台' })).toBeVisible()
+  await expect(page).toHaveURL(/\/sources\?migrated=legacy-source-management/)
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
 })

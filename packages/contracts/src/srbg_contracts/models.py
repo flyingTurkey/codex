@@ -2141,6 +2141,8 @@ class PersonalSourceStreamView(ContractModel):
     next_self_heal_at: datetime | None = None
     last_successful_fetch_at: datetime | None = None
     last_content_discovered_at: datetime | None = None
+    health_observation_id: UUID | None = None
+    health_observed_at: datetime | None = None
 
 
 class StreamProbeRunView(ContractModel):
@@ -2191,6 +2193,40 @@ class PersonalSourceView(ContractModel):
     latest_probe_run: StreamProbeRunView | None = None
     profile_summary: SourceProfileSummaryView | None = None
     auto_score_summary: SourceAutoScoreSummaryView | None = None
+
+
+class PersonalSourceRunSummaryView(ContractModel):
+    last_run_at: datetime | None = None
+    last_run_status: str | None = Field(default=None, max_length=30)
+    discovered_count: int = Field(default=0, ge=0)
+    fetched_count: int = Field(default=0, ge=0)
+    failed_count: int = Field(default=0, ge=0)
+    next_run_at: datetime | None = None
+
+
+class PersonalSourceActivityItemView(ContractModel):
+    id: UUID
+    kind: Literal[
+        "OWNER_ENABLED",
+        "OWNER_DISABLED",
+        "AUTO_ENABLED",
+        "DISPLAY_NAME_CHANGED",
+        "URL_PROBE",
+        "COLLECTION_RUN",
+    ]
+    occurred_at: datetime
+    stream_id: UUID | None = None
+    status: str = Field(min_length=1, max_length=40)
+    reason_code: str | None = Field(default=None, max_length=100)
+    discovered_count: int | None = Field(default=None, ge=0)
+    fetched_count: int | None = Field(default=None, ge=0)
+    failed_count: int | None = Field(default=None, ge=0)
+
+
+class PersonalSourceActivityPage(ContractModel):
+    items: list[PersonalSourceActivityItemView] = Field(max_length=100)
+    next_cursor: str | None = Field(default=None, max_length=500)
+    run_summary: PersonalSourceRunSummaryView
 
 
 class OnboardingCheckEvidence(ContractModel):
@@ -3174,7 +3210,9 @@ class DailyReportSection(ContractModel):
         "WATCHLIST",
         "SOURCE_ANOMALIES",
         "EVIDENCE_FACTS",
+        "AI_JUDGMENTS",
         "UNVERIFIED_AI",
+        "AI_PROCESSING_FAILURES",
     ]
     title: str = Field(min_length=1, max_length=100)
     items: list[DailyReportItem]
@@ -3284,6 +3322,17 @@ class EventRelationView(ContractModel):
     reviewed_at: datetime
 
 
+class EventAutomaticResultView(ContractModel):
+    signal_id: UUID
+    result_type: Literal[
+        "EVIDENCE_FACT", "AI_JUDGMENT", "UNVERIFIED_AI", "AI_PROCESSING_FAILED"
+    ]
+    title: str = Field(min_length=1, max_length=500)
+    original_url: HttpUrlString = Field(pattern=r"^https?://[^\s]+$", max_length=2048)
+    judgment: AiJudgmentSignal | None = None
+    failure_reason_codes: list[str] = Field(default_factory=list, max_length=20)
+
+
 class EventDetail(ContractModel):
     id: UUID
     title: str = Field(min_length=1, max_length=500)
@@ -3320,6 +3369,7 @@ class EventDetail(ContractModel):
     )
     type_detail: TypeSummaryValue | None = None
     ai_judgments: list[AiJudgmentPreview] = Field(default_factory=list, max_length=500)
+    automatic_results: list[EventAutomaticResultView] = Field(default_factory=list, max_length=500)
 
 
 class ClaimConflictStatus(StrEnum):

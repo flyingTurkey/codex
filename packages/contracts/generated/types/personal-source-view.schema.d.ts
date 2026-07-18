@@ -41,6 +41,8 @@ export type ConfigSha256 = string | null
 export type ConsecutiveFailures = number
 export type DiscoveryMethod = string
 export type FailureReason1 = string | null
+export type HealthObservationId = string | null
+export type HealthObservedAt = string | null
 export type PersonalStreamHealthReason =
   | 'DNS_FAILURE'
   | 'TLS_FAILURE'
@@ -118,6 +120,8 @@ export interface PersonalSourceStreamView {
   consecutive_failures?: ConsecutiveFailures
   discovery_method: DiscoveryMethod
   failure_reason?: FailureReason1
+  health_observation_id?: HealthObservationId
+  health_observed_at?: HealthObservedAt
   health_reason?: PersonalStreamHealthReason | null
   health_status?: PersonalStreamHealthStatus
   id: Id2

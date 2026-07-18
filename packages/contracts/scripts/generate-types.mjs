@@ -81,6 +81,7 @@ const publicExports = {
   'evidence-view.schema.json': ['EvidenceView'],
   'event-candidate-generation-response.schema.json': ['EventCandidateGenerationResponse'],
   'event-detail.schema.json': ['EventDetail'],
+  'event-automatic-result-view.schema.json': ['EventAutomaticResultView'],
   'event-item.schema.json': ['EventItem'],
   'event-relation-view.schema.json': ['EventRelationView'],
   'event-timeline.schema.json': ['EventTimeline'],
@@ -120,6 +121,11 @@ const publicExports = {
     'PersonalSourceRuntimeState',
     'PersonalSourceView',
     'SourceProfileSummaryView',
+  ],
+  'personal-source-activity-page.schema.json': [
+    'PersonalSourceActivityPage',
+    'PersonalSourceActivityItemView',
+    'PersonalSourceRunSummaryView',
   ],
   'source-profile-model-output.schema.json': [
     'SourceProfileCandidate',

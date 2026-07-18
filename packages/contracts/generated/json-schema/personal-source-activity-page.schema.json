@@ -1,0 +1,207 @@
+{
+  "$defs": {
+    "PersonalSourceActivityItemView": {
+      "additionalProperties": false,
+      "properties": {
+        "discovered_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Discovered Count"
+        },
+        "failed_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Failed Count"
+        },
+        "fetched_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fetched Count"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "OWNER_ENABLED",
+            "OWNER_DISABLED",
+            "AUTO_ENABLED",
+            "DISPLAY_NAME_CHANGED",
+            "URL_PROBE",
+            "COLLECTION_RUN"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string"
+        },
+        "reason_code": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason Code"
+        },
+        "status": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Status",
+          "type": "string"
+        },
+        "stream_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stream Id"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "occurred_at",
+        "status"
+      ],
+      "title": "PersonalSourceActivityItemView",
+      "type": "object"
+    },
+    "PersonalSourceRunSummaryView": {
+      "additionalProperties": false,
+      "properties": {
+        "discovered_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Discovered Count",
+          "type": "integer"
+        },
+        "failed_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Failed Count",
+          "type": "integer"
+        },
+        "fetched_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Fetched Count",
+          "type": "integer"
+        },
+        "last_run_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Run At"
+        },
+        "last_run_status": {
+          "anyOf": [
+            {
+              "maxLength": 30,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Run Status"
+        },
+        "next_run_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Run At"
+        }
+      },
+      "title": "PersonalSourceRunSummaryView",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/PersonalSourceActivityItemView"
+      },
+      "maxItems": 100,
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "maxLength": 500,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Next Cursor"
+    },
+    "run_summary": {
+      "$ref": "#/$defs/PersonalSourceRunSummaryView"
+    }
+  },
+  "required": [
+    "items",
+    "run_summary"
+  ],
+  "title": "PersonalSourceActivityPage",
+  "type": "object"
+}

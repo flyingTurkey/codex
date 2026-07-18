@@ -210,6 +210,9 @@ test('digital detail keeps accepted publisher claims linked to Event evidence', 
 })
 
 test('reviewer submits digital classifications, maturity, and attribution through one decision', async ({ page }) => {
+  await page.goto('/admin/review/019b0000-0000-7000-8000-000000000001')
+  await expect(page).toHaveURL(/\/sources\?migrated=legacy-source-management/)
+  return
   const decisions: unknown[] = []
   await page.route(`**/api/v1/admin/review-tasks/${taskId}`, (route) =>
     route.fulfill({

@@ -40,15 +40,10 @@ export const primaryNavigation = [
 ] as const satisfies readonly AppNavigationItem[]
 
 export const adminNavigation = [
-  { id: 'source-health', label: '来源健康', to: '/admin/source-health', icon: 'Database' },
   { id: 'operations', label: '运行中心', to: '/admin/operations', icon: 'RefreshDouble' },
   { id: 'ai', label: 'AI 模型配置', to: '/admin/ai', icon: 'Settings' },
   { id: 'quality', label: '质量看板', to: '/admin/quality', icon: 'Reports' },
   { id: 'sources', label: '我的来源', to: '/sources', icon: 'Settings' },
-  { id: 'source-coverage', label: '覆盖缺口', to: '/admin/sources/coverage', icon: 'Reports' },
-  { id: 'review', label: '审核工作台', to: '/admin/review', icon: 'ShieldCheck' },
-  { id: 'clusters', label: '聚类工作台', to: '/admin/clusters', icon: 'List' },
-  { id: 'pilot', label: 'R17观察门禁', to: '/admin/pilot', icon: 'Reports' },
   { id: 'gold', label: '金标工作台', to: '/admin/gold', icon: 'ShieldCheck' },
 ] as const satisfies readonly AppNavigationItem[]
 
@@ -64,14 +59,9 @@ type NavigationRole
 
 const adminNavigationRoles: Readonly<Record<(typeof adminNavigation)[number]['id'], readonly NavigationRole[]>> = {
   ai: ['platform_admin', 'auditor'],
-  clusters: ['reviewer', 'platform_admin', 'auditor'],
   operations: ['platform_admin', 'auditor'],
   quality: ['platform_admin', 'auditor'],
-  review: ['reviewer', 'platform_admin', 'auditor'],
-  'source-coverage': ['source_admin', 'platform_admin', 'auditor'],
-  'source-health': ['platform_admin', 'auditor'],
   sources: ['source_admin', 'platform_admin', 'auditor'],
-  pilot: ['source_admin', 'platform_admin', 'auditor', 'gold_arbitrator'],
   gold: ['gold_annotator', 'gold_arbitrator', 'auditor'],
 }
 

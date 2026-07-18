@@ -56,7 +56,7 @@ def test_verified_judgment_and_fact_have_independent_signal_cards() -> None:
     assert result[0].search_surface == "PRIMARY"
     assert result[1].search_surface == "PRIMARY"
     assert result[0].daily_section == "EVIDENCE_FACTS"
-    assert result[1].daily_section is None
+    assert result[1].daily_section == "AI_JUDGMENTS"
 
 
 def test_unverified_ai_is_isolated_and_keeps_structured_reason_and_link() -> None:
@@ -78,7 +78,7 @@ def test_processing_failure_never_projects_raw_provider_text() -> None:
         )
     )[-1]
     assert failure.result_type == "AI_PROCESSING_FAILED"
-    assert failure.search_surface is None
-    assert failure.daily_section is None
+    assert failure.search_surface == "UNVERIFIED"
+    assert failure.daily_section == "AI_PROCESSING_FAILURES"
     assert "raw_output" not in failure.payload
     assert "malformed provider text" not in str(failure.payload)

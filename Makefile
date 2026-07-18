@@ -194,10 +194,11 @@ personal-source-test:
 		apps/api/tests/test_acquisition_security.py \
 		apps/api/tests/test_round15_http_security.py \
 		apps/api/tests/test_personal_source_api.py \
+		packages/contracts/tests/test_pers09_contracts.py \
 		packages/contracts/tests/test_personal_source_contracts.py \
 		apps/worker/tests/test_personal_source_probe_worker.py \
 		apps/worker/tests/test_round17_worker.py -q
-	$(PNPM) --filter @srbg/web test -- personal-sources-ui.test.ts
+	$(PNPM) --filter @srbg/web test -- personal-sources-ui.test.ts pers09-personal-workspace-ui.test.ts
 
 personal-content-test:
 	$(COMPOSE) up --detach --wait postgres minio redis
@@ -207,6 +208,7 @@ personal-content-test:
 		apps/api/tests/test_pers08_automatic_relationships.py \
 		apps/api/tests/test_pers08_relationship_api.py \
 		apps/api/tests/test_pers08_publication_boundary.py \
+		apps/api/tests/test_pers09_personal_projection.py \
 		packages/contracts/tests/test_pers08_relationship_contracts.py \
 		apps/api/tests/test_pers07_migration.py \
 		apps/api/tests/test_pers07_ai_judgments.py \
@@ -217,7 +219,7 @@ personal-content-test:
 		apps/api/tests/test_pers06_publication_boundary.py \
 		apps/api/tests/test_ai01_orchestration.py \
 		apps/api/tests/test_publication_service.py -q
-	$(PNPM) --filter @srbg/web test -- ai01-content-preparation-ui.test.ts pers07-ai-signals-ui.test.ts pers08-automatic-relationships-ui.test.ts
+	$(PNPM) --filter @srbg/web test -- ai01-content-preparation-ui.test.ts pers07-ai-signals-ui.test.ts pers08-automatic-relationships-ui.test.ts pers09-personal-workspace-ui.test.ts
 	$(UV) run python scripts/evaluate_pers07.py
 
 quality-gate: lint typecheck test contract-test security-check

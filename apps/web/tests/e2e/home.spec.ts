@@ -138,19 +138,13 @@ test('skip link is first, moves focus to main, and desktop navigation remains ta
   await expect(page.getByRole('main')).toBeFocused()
 
   await page.keyboard.press('Shift+Tab')
-  await expect(page.getByRole('link', { name: 'R17观察门禁', exact: true })).toBeFocused()
-  await page.keyboard.press('Shift+Tab')
-  await expect(page.getByRole('link', { name: '聚类工作台', exact: true })).toBeFocused()
-  await page.keyboard.press('Shift+Tab')
-  await expect(page.getByRole('link', { name: '审核工作台', exact: true })).toBeFocused()
-  await page.keyboard.press('Shift+Tab')
-  await expect(page.getByRole('link', { name: '覆盖缺口', exact: true })).toBeFocused()
-  await page.keyboard.press('Shift+Tab')
-  await expect(page.getByRole('link', { name: '管理入口', exact: true })).toBeFocused()
+  await expect(page.getByRole('link', { name: '我的来源', exact: true })).toBeFocused()
   await page.keyboard.press('Shift+Tab')
   await expect(page.getByRole('link', { name: '收藏', exact: true })).toBeFocused()
   await page.keyboard.press('Shift+Tab')
   await expect(page.getByRole('link', { name: '行业日报', exact: true })).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(page.getByRole('link', { name: '行业热点', exact: true })).toBeFocused()
 })
 
 test('mobile drawer has keyboard focus containment, Escape close, and scroll restoration', async ({
@@ -174,11 +168,11 @@ test('mobile drawer has keyboard focus containment, Escape close, and scroll res
   expect(await page.evaluate(() => document.body.style.overflow)).toBe('hidden')
 
   await page.keyboard.press('Shift+Tab')
-  await expect(dialog.getByRole('link', { name: 'R17观察门禁', exact: true })).toBeFocused()
+  await expect(dialog.getByRole('link', { name: '我的来源', exact: true })).toBeFocused()
   await page.keyboard.press('Shift+Tab')
-  await expect(dialog.getByRole('link', { name: '聚类工作台', exact: true })).toBeFocused()
+  await expect(dialog.getByRole('link', { name: '收藏', exact: true })).toBeFocused()
   await page.keyboard.press('Tab')
-  await expect(dialog.getByRole('link', { name: 'R17观察门禁', exact: true })).toBeFocused()
+  await expect(dialog.getByRole('link', { name: '我的来源', exact: true })).toBeFocused()
   await page.keyboard.press('Tab')
   await expect(closeButton).toBeFocused()
 

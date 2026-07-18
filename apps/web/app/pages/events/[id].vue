@@ -116,6 +116,10 @@ const shanghaiDateTime = new Intl.DateTimeFormat('zh-CN', {
   timeStyle: 'short',
   timeZone: 'Asia/Shanghai',
 })
+const automaticResultLabels = {
+  EVIDENCE_FACT: '证据事实', AI_JUDGMENT: 'AI 判断',
+  UNVERIFIED_AI: '未验证 AI', AI_PROCESSING_FAILED: 'AI 处理失败',
+} as const
 
 function formatDate(value: string | null | undefined): string {
   return value ? shanghaiDateTime.format(new Date(value)) : '待正式证据补充'
@@ -206,6 +210,16 @@ function openEvidence(evidenceIds: string[]): void {
     />
 
     <template v-else-if="detail">
+      <section v-if="detail.automatic_results?.length" class="event-detail-page__type-detail" aria-labelledby="automatic-results-title">
+        <h2 id="automatic-results-title">自动处理结果</h2>
+        <article v-for="result in detail.automatic_results" :key="result.signal_id" :data-result-type="result.result_type">
+          <strong>{{ automaticResultLabels[result.result_type] }}</strong>
+          <h3>{{ result.title }}</h3>
+          <p v-if="result.result_type === 'AI_PROCESSING_FAILED'">未生成可用内容；原因：{{ (result.failure_reason_codes ?? []).join('、') || '模型或验证服务不可用' }}</p>
+          <p v-else-if="result.result_type === 'UNVERIFIED_AI'">该判断尚未验证，不作为证据事实。</p>
+          <a :href="result.original_url" target="_blank" rel="noopener noreferrer">查看原文</a>
+        </article>
+      </section>
       <section v-if="content?.kind === 'DIGITAL_CASE'" class="event-detail-page__type-detail">
         <h2>发布方声称的成效</h2>
         <p>{{ content.publisher_claim_label ?? '未展示无 accepted claim 证据的发布方成效声明。' }}</p>

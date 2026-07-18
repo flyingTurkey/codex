@@ -67,7 +67,7 @@ describe('round 17 pilot operations UI', () => {
 
   it('makes the two workspaces visible only to their bounded admin roles', () => {
     const navigation = readFileSync(resolve(process.cwd(), 'app/navigation.ts'), 'utf8')
-    expect(navigation).toContain("to: '/admin/pilot'")
+    expect(navigation).not.toContain("to: '/admin/pilot'")
     expect(navigation).toContain("to: '/admin/gold'")
     expect(navigation).toContain("'gold_annotator'")
     expect(navigation).toContain("'gold_arbitrator'")

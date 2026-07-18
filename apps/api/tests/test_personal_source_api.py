@@ -9,9 +9,12 @@ from srbg_contracts import (
     DiscoverySettingView,
     DiscoveryTopicPatchRequest,
     DiscoveryTopicView,
+    PersonalSourceActivityItemView,
+    PersonalSourceActivityPage,
     PersonalSourceCreateRequest,
     PersonalSourcePatchRequest,
     PersonalSourceReprobeRequest,
+    PersonalSourceRunSummaryView,
     PersonalSourceRuntimeState,
     PersonalSourceView,
     SourceAutoScoreDetailView,
@@ -128,6 +131,24 @@ class StubPersonalSourceService:
     async def get_personal_source(self, source_id: UUID) -> PersonalSourceView:
         assert source_id == SOURCE_ID
         return _view(desired_enabled=True)
+
+    async def get_personal_source_activity(
+        self, source_id: UUID, *, cursor: str | None, limit: int
+    ) -> PersonalSourceActivityPage:
+        assert source_id == SOURCE_ID
+        assert cursor is None
+        assert limit == 30
+        return PersonalSourceActivityPage(
+            items=[PersonalSourceActivityItemView(
+                id=UUID("019b0000-0000-7000-8000-000000000004"),
+                kind="COLLECTION_RUN", occurred_at=datetime(2026, 7, 17, tzinfo=UTC),
+                status="SUCCEEDED", discovered_count=2, fetched_count=2, failed_count=0,
+            )],
+            run_summary=PersonalSourceRunSummaryView(
+                last_run_at=datetime(2026, 7, 17, tzinfo=UTC), last_run_status="SUCCEEDED",
+                discovered_count=2, fetched_count=2, failed_count=0,
+            ),
+        )
 
     async def patch_personal_source(
         self,
@@ -280,6 +301,23 @@ def test_fixed_local_owner_can_list_get_and_patch_personal_sources() -> None:
     assert patched.json()["desired_enabled"] is False
     assert patched.json()["runtime_state"] == "PENDING_CONFIGURATION"
     assert len(service.patch_calls) == 1
+
+
+def test_owner_can_read_source_activity_but_viewer_cannot() -> None:
+    client = _client()
+    owner = client.get(
+        f"/api/v1/sources/{SOURCE_ID}/activity",
+        headers={"X-SRBG-Local-Roles": "owner,viewer"},
+    )
+    viewer = client.get(
+        f"/api/v1/sources/{SOURCE_ID}/activity",
+        headers={"X-SRBG-Local-Roles": "viewer"},
+    )
+
+    assert owner.status_code == 200
+    assert owner.json()["items"][0]["kind"] == "COLLECTION_RUN"
+    assert owner.json()["run_summary"]["fetched_count"] == 2
+    assert viewer.status_code == 403
 
 
 def test_non_owner_and_second_local_identity_cannot_write_personal_source() -> None:

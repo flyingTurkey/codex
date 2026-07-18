@@ -50,6 +50,40 @@ export type TargetItemId = string
  * @maxItems 1000
  */
 export type AutomaticRelationships = AutomaticRelationshipView[]
+/**
+ * @maxItems 20
+ */
+export type FailureReasonCodes = string[]
+/**
+ * @maxItems 10
+ */
+export type CurrentLimitations = string[]
+/**
+ * @maxItems 10
+ */
+export type PotentialEngineeringScenarios = string[]
+/**
+ * @maxItems 10
+ */
+export type PotentialIndustryImpacts = string[]
+/**
+ * @maxItems 10
+ */
+export type QuestionsToVerify = string[]
+/**
+ * @minItems 1
+ * @maxItems 100
+ */
+export type UsedClaimIds = string[]
+export type WhyWorthAttention = string
+export type OriginalUrl = string
+export type ResultType = 'EVIDENCE_FACT' | 'AI_JUDGMENT' | 'UNVERIFIED_AI' | 'AI_PROCESSING_FAILED'
+export type SignalId = string
+export type Title = string
+/**
+ * @maxItems 500
+ */
+export type AutomaticResults = EventAutomaticResultView[]
 export type CanonicalEventId = string | null
 export type ClaimId = string
 /**
@@ -89,7 +123,7 @@ export type Unit = string | null
 export type Value2 = string | number | string[]
 export type ConfirmedFacts = ConfirmedFact[]
 export type DocumentId = string
-export type OriginalUrl = string
+export type OriginalUrl1 = string
 /**
  * @maxItems 1000
  */
@@ -208,7 +242,7 @@ export type FirstDiscoveredAt = string
 export type Generation = number
 export type Id4 = string
 export type OneSentenceFact = string | null
-export type OriginalUrl1 = string
+export type OriginalUrl2 = string
 /**
  * Maximum content projection level decided by server-side policy.
  */
@@ -226,7 +260,7 @@ export type PublicationRiskTier = 'R1' | 'R2' | 'R3' | 'R4'
 export type ReviewStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
 export type SourceName1 = string
 export type SourcePublishedAt = string | null
-export type Title = string
+export type Title1 = string
 export type TypeSummary =
   | (
       | SafetyRegulationTypeSummary
@@ -389,13 +423,13 @@ export type DocumentStates = DocumentState[] | null
 export type DocumentState = 'UPDATED' | 'RE_REVIEW_PENDING' | 'WITHDRAWN' | 'SOURCE_UNAVAILABLE'
 export type EvidenceCount = number | null
 export type ItemId = string
-export type OriginalUrl2 = string
+export type OriginalUrl3 = string
 export type PublicationRevisionId1 = string | null
 export type SourceName2 = string
 export type SourcePublishedAt1 = string | null
-export type Title1 = string
-export type Items = EventItem[]
 export type Title2 = string
+export type Items = EventItem[]
+export type Title3 = string
 export type TopicIds = string[]
 export type TypeDetail =
   | (
@@ -423,6 +457,7 @@ export type UnverifiedFacts = UnverifiedFact[]
 export interface EventDetail {
   ai_judgments?: AiJudgments
   automatic_relationships?: AutomaticRelationships
+  automatic_results?: AutomaticResults
   canonical_event_id?: CanonicalEventId
   claims?: Claims
   confirmed_facts: ConfirmedFacts
@@ -448,7 +483,7 @@ export interface EventDetail {
   split_child_event_ids?: SplitChildEventIds
   summary?: PublishedEventSummaryV1 | null
   timeline: EventTimeline
-  title: Title2
+  title: Title3
   topic_ids?: TopicIds
   type_detail?: TypeDetail
   unverified_facts: UnverifiedFacts
@@ -485,6 +520,22 @@ export interface AutomaticRelationshipView {
   status: Status1
   target_item_id: TargetItemId
 }
+export interface EventAutomaticResultView {
+  failure_reason_codes?: FailureReasonCodes
+  judgment?: AiJudgmentSignal | null
+  original_url: OriginalUrl
+  result_type: ResultType
+  signal_id: SignalId
+  title: Title
+}
+export interface AiJudgmentSignal {
+  current_limitations?: CurrentLimitations
+  potential_engineering_scenarios?: PotentialEngineeringScenarios
+  potential_industry_impacts?: PotentialIndustryImpacts
+  questions_to_verify?: QuestionsToVerify
+  used_claim_ids: UsedClaimIds
+  why_worth_attention: WhyWorthAttention
+}
 export interface PublishedClaimV1 {
   claim_id: ClaimId
   evidence_ids: EvidenceIds
@@ -505,7 +556,7 @@ export interface ConfirmedFact {
 }
 export interface PublishedDocumentReferenceV1 {
   document_id: DocumentId
-  original_url: OriginalUrl
+  original_url: OriginalUrl1
   publication_revision_ids?: PublicationRevisionIds
   source_name: SourceName
   source_role?: SourceLineageRole | null
@@ -569,7 +620,7 @@ export interface PublishedEventSummaryV1 {
   generation: Generation
   id: Id4
   one_sentence_fact?: OneSentenceFact
-  original_url: OriginalUrl1
+  original_url: OriginalUrl2
   projection_level: ProjectionLevel
   projection_version: ProjectionVersion
   publication_revision_id: PublicationRevisionId
@@ -578,7 +629,7 @@ export interface PublishedEventSummaryV1 {
   review_status: ReviewStatus
   source_name: SourceName1
   source_published_at: SourcePublishedAt
-  title: Title
+  title: Title1
   type_summary?: TypeSummary
 }
 export interface SafetyRegulationTypeSummary {
@@ -710,14 +761,14 @@ export interface EventItem {
   evidence_count?: EvidenceCount
   incident_status?: IncidentStatus | null
   item_id: ItemId
-  original_url: OriginalUrl2
+  original_url: OriginalUrl3
   publication_revision_id: PublicationRevisionId1
   relation_type?: EventRelation | null
   report_stage?: SafetyCaseReportStage | null
   review_status: ReviewStatus
   source_name: SourceName2
   source_published_at: SourcePublishedAt1
-  title: Title1
+  title: Title2
 }
 /**
  * Public-safe unresolved fact: candidate values are intentionally absent.

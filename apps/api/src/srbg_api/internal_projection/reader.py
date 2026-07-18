@@ -59,6 +59,22 @@ class PublishedProjectionReader:
             )
         return [dict(row) for row in rows]
 
+    async def list_personal_signals_for_event(self, event_id: UUID) -> list[dict[str, Any]]:
+        async with self._engine.connect() as connection:
+            rows = list(
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT id AS signal_id,event_id,result_type,payload,generation "
+                            "FROM personal_signal_projection WHERE visible AND event_id=:event_id "
+                            "ORDER BY updated_at DESC,id DESC"
+                        ),
+                        {"event_id": event_id},
+                    )
+                ).mappings()
+            )
+        return [dict(row) for row in rows]
+
     async def search_personal_primary(self, query: str, *, limit: int) -> list[dict[str, Any]]:
         return await self._search_personal_table(
             "personal_primary_search_projection", query, limit=limit
@@ -287,7 +303,12 @@ class PublishedProjectionReader:
                     )
                 ).mappings()
             )
-        titles = (("EVIDENCE_FACTS", "证据事实"), ("UNVERIFIED_AI", "未验证 AI"))
+        titles = (
+            ("EVIDENCE_FACTS", "证据事实"),
+            ("AI_JUDGMENTS", "AI 判断 - 验证通过"),
+            ("UNVERIFIED_AI", "未验证 AI"),
+            ("AI_PROCESSING_FAILURES", "AI 处理失败"),
+        )
         return DailyReport(
             id=report["id"],
             report_date=report["report_date"],
@@ -308,7 +329,7 @@ class PublishedProjectionReader:
                             title=row["payload"]["title"],
                             summary=(
                                 row["payload"].get("judgment", {}).get("why_worth_attention")
-                                if row["result_type"] == "UNVERIFIED_AI"
+                                if row["result_type"] in {"AI_JUDGMENT", "UNVERIFIED_AI"}
                                 else None
                             ),
                             current_state="PUBLISHED",

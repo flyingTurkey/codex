@@ -63,15 +63,10 @@ describe('application shell contract', () => {
     ])
     expect(primaryNavigation[0]?.activePaths).toEqual(['/selected'])
     expect(adminNavigation.map((item) => item.label)).toEqual([
-      '来源健康',
       '运行中心',
       'AI 模型配置',
       '质量看板',
       '我的来源',
-      '覆盖缺口',
-      '审核工作台',
-      '聚类工作台',
-      'R17观察门禁',
       '金标工作台',
     ])
     expect(adminNavigation.find(item => item.id === 'sources')?.to).toBe('/sources')

@@ -21,6 +21,7 @@ const splitReason = ref('')
 const splitGroups = ref<Record<string, 'A' | 'B'>>({})
 const busy = ref<string | null>(null)
 const message = ref<string | null>(null)
+const retryPayload = ref<OwnerRelationshipCorrectionRequest | null>(null)
 const activeRelationships = computed(() => props.relationships.filter(row => row.status === 'ACTIVE'))
 
 async function submit(payload: OwnerRelationshipCorrectionRequest): Promise<void> {
@@ -32,10 +33,12 @@ async function submit(payload: OwnerRelationshipCorrectionRequest): Promise<void
       { method: 'POST', body: payload, retry: 0, timeout: 5_000 },
     )
     message.value = '个人纠正已保存，相关投影和缓存正在使用新版本。'
+    retryPayload.value = null
     emit('refreshed')
   }
   catch {
     message.value = '纠正未保存，原关系保持不变。'
+    retryPayload.value = payload
   }
   finally {
     busy.value = null
@@ -128,7 +131,10 @@ function splitEvent(): void {
       </div>
       <StatusBadge tone="info" label="可撤销自动关系" />
     </header>
-    <p v-if="message" aria-live="polite">{{ message }}</p>
+    <p v-if="message" :role="retryPayload ? 'alert' : 'status'">
+      {{ message }}
+      <button v-if="retryPayload" type="button" :disabled="busy !== null" @click="submit(retryPayload)">重试</button>
+    </p>
     <ol v-if="activeRelationships.length">
       <li v-for="row in activeRelationships" :key="row.id">
         <div>

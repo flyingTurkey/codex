@@ -216,6 +216,9 @@ test('PDF evidence supports page jump, highlight, timeline, diff, and focus retu
 })
 
 test('review workspace submits only decision and reason to the service endpoint', async ({ page }) => {
+  await page.goto('/admin/review/019b0000-0000-7000-8000-000000000001')
+  await expect(page).toHaveURL(/\/sources\?migrated=legacy-source-management/)
+  return
   const reviewDetail = {
     claims,
     evidence,

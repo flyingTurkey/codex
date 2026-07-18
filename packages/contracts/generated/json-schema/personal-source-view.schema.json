@@ -110,6 +110,32 @@
           "default": null,
           "title": "Failure Reason"
         },
+        "health_observation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Health Observation Id"
+        },
+        "health_observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Health Observed At"
+        },
         "health_reason": {
           "anyOf": [
             {

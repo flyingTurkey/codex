@@ -1,10 +1,11 @@
 """PostgreSQL persistence for source admission and immutable document versions."""
 
+import base64
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -51,6 +52,7 @@ from srbg_contracts import (
     SourcePolicyV2Submission,
     SourcePolicyVersionView,
     SourceProfileOverrideRequest,
+    SourceProfileSummaryView,
     SourceProfileView,
     SourceState,
     SourceTrialKind,
@@ -142,6 +144,7 @@ class PersonalSourceRow:
     streams: tuple["PersonalStreamRow", ...] = ()
     latest_probe_run: "ProbeRunRow | None" = None
     auto_score_summary: SourceAutoScoreSummaryView | None = None
+    profile_summary: SourceProfileSummaryView | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,6 +171,45 @@ class PersonalStreamRow:
     next_self_heal_at: datetime | None = None
     last_successful_fetch_at: datetime | None = None
     last_content_discovered_at: datetime | None = None
+    health_observation_id: UUID | None = None
+    health_observed_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PersonalActivityRow:
+    id: UUID
+    kind: Literal[
+        "OWNER_ENABLED",
+        "OWNER_DISABLED",
+        "AUTO_ENABLED",
+        "DISPLAY_NAME_CHANGED",
+        "URL_PROBE",
+        "COLLECTION_RUN",
+    ]
+    occurred_at: datetime
+    stream_id: UUID | None
+    status: str
+    reason_code: str | None
+    discovered_count: int | None
+    fetched_count: int | None
+    failed_count: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class PersonalRunSummaryRow:
+    last_run_at: datetime | None
+    last_run_status: str | None
+    discovered_count: int
+    fetched_count: int
+    failed_count: int
+    next_run_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class PersonalActivityPageRow:
+    items: tuple[PersonalActivityRow, ...]
+    next_cursor: str | None
+    run_summary: PersonalRunSummaryRow
 
 
 @dataclass(frozen=True, slots=True)
@@ -323,6 +365,106 @@ class SourceVaultRepository:
         if row is None:
             raise SourceNotFound("source does not exist")
         return await self._personal_source_with_probe(_personal_source_row(row))
+
+    async def get_personal_source_activity(
+        self, source_id: UUID, *, cursor: str | None, limit: int
+    ) -> PersonalActivityPageRow:
+        cursor_at, cursor_id = _decode_personal_activity_cursor(cursor)
+        async with self._engine.connect() as connection:
+            exists = await connection.scalar(
+                text("SELECT EXISTS(SELECT 1 FROM source WHERE id=:source_id)"),
+                {"source_id": source_id},
+            )
+            if not exists:
+                raise SourceNotFound("source does not exist")
+            rows = list(
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            WITH activity AS (
+                              SELECT event.id,
+                                CASE event.event_type
+                                  WHEN 'MANUAL_ENABLED' THEN 'OWNER_ENABLED'
+                                  WHEN 'MANUAL_DISABLED' THEN 'OWNER_DISABLED'
+                                  WHEN 'AUTO_ENABLED' THEN 'AUTO_ENABLED'
+                                  ELSE 'DISPLAY_NAME_CHANGED'
+                                END AS kind,
+                                event.created_at AS occurred_at,NULL::uuid AS stream_id,
+                                event.event_type AS status,NULL::text AS reason_code,
+                                NULL::integer AS discovered_count,NULL::integer AS fetched_count,
+                                NULL::integer AS failed_count
+                              FROM source_key_activity_event event WHERE event.source_id=:source_id
+                              UNION ALL
+                              SELECT probe.id,'URL_PROBE',probe.updated_at,probe.stream_id,
+                                probe.status,probe.failure_code,NULL,NULL,NULL
+                              FROM stream_probe_run probe WHERE probe.source_id=:source_id
+                              UNION ALL
+                                SELECT run.id,'COLLECTION_RUN',
+                                  COALESCE(run.completed_at,run.started_at),
+                                run.source_stream_id,run.status,run.error_code,
+                                run.discovered_count,run.fetched_count,run.failed_count
+                              FROM fetch_run run WHERE run.source_id=:source_id
+                            )
+                            SELECT * FROM activity
+                              WHERE (CAST(:cursor_at AS timestamptz) IS NULL OR
+                                (occurred_at,id)<(
+                                  CAST(:cursor_at AS timestamptz),CAST(:cursor_id AS uuid)
+                                ))
+                            ORDER BY occurred_at DESC,id DESC LIMIT :row_limit
+                            """
+                        ),
+                        {
+                            "source_id": source_id,
+                            "cursor_at": cursor_at,
+                            "cursor_id": cursor_id,
+                            "row_limit": limit + 1,
+                        },
+                    )
+                ).mappings()
+            )
+            latest = (
+                (
+                    await connection.execute(
+                        text(
+                            """SELECT status,COALESCE(completed_at,started_at) AS run_at,
+                                      discovered_count,fetched_count,failed_count
+                                 FROM fetch_run WHERE source_id=:source_id
+                                 ORDER BY started_at DESC,id DESC LIMIT 1"""
+                        ),
+                        {"source_id": source_id},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            next_run_at = await connection.scalar(
+                text(
+                    "SELECT MIN(next_run_at) FROM fetch_schedule "
+                    "WHERE source_id=:source_id AND authority_mode='PERSONAL_STREAM'"
+                ),
+                {"source_id": source_id},
+            )
+        has_more = len(rows) > limit
+        visible_rows = rows[:limit]
+        items = tuple(PersonalActivityRow(**dict(row)) for row in visible_rows)
+        next_cursor = (
+            _encode_personal_activity_cursor(items[-1].occurred_at, items[-1].id)
+            if has_more and items
+            else None
+        )
+        return PersonalActivityPageRow(
+            items=items,
+            next_cursor=next_cursor,
+            run_summary=PersonalRunSummaryRow(
+                last_run_at=None if latest is None else latest["run_at"],
+                last_run_status=None if latest is None else latest["status"],
+                discovered_count=0 if latest is None else int(latest["discovered_count"]),
+                fetched_count=0 if latest is None else int(latest["fetched_count"]),
+                failed_count=0 if latest is None else int(latest["failed_count"]),
+                next_run_at=next_run_at,
+            ),
+        )
 
     async def get_discovery_setting(self) -> AutomationSettingRow:
         async with self._engine.connect() as connection:
@@ -894,10 +1036,18 @@ class SourceVaultRepository:
                                       schedule.consecutive_failures,schedule.next_self_heal_at,
                                       schedule.last_successful_fetch_at,
                                       schedule.last_content_discovered_at
+                                      ,observation.id AS health_observation_id,
+                                      observation.observed_at AS health_observed_at
                                  FROM source_stream stream
                                  LEFT JOIN fetch_schedule schedule
                                    ON schedule.source_stream_id=stream.id
                                   AND schedule.authority_mode='PERSONAL_STREAM'
+                                LEFT JOIN LATERAL (
+                                  SELECT snapshot.id,snapshot.observed_at
+                                    FROM source_health_snapshot snapshot
+                                   WHERE snapshot.source_stream_id=stream.id
+                                   ORDER BY snapshot.observed_at DESC,snapshot.id DESC LIMIT 1
+                                ) observation ON true
                                 WHERE stream.source_id=:source_id
                                   AND stream.status IN ('PROBING','READY','PROBE_FAILED')
                                 ORDER BY stream.created_at,stream.id"""
@@ -915,6 +1065,29 @@ class SourceVaultRepository:
                             "SELECT id,requested_url,input_kind,status,duration_ms,failure_code,"
                             "failure_reason FROM stream_probe_run WHERE source_id=:source_id "
                             "ORDER BY created_at DESC,id DESC LIMIT 1"
+                        ),
+                        {"source_id": base.id},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            profile = (
+                (
+                    await connection.execute(
+                        text(
+                            """SELECT snapshot.status,snapshot.overall_confidence,
+                                        snapshot.generated_at,
+                                        COALESCE(override.values,'{}'::jsonb) AS override_values,
+                                        override.action AS override_action
+                                   FROM source_profile_snapshot snapshot
+                                   LEFT JOIN LATERAL (
+                                     SELECT action,values FROM source_profile_override item
+                                      WHERE item.source_id=snapshot.source_id
+                                      ORDER BY created_at DESC,id DESC LIMIT 1
+                                   ) override ON true
+                                  WHERE snapshot.source_id=:source_id
+                                  ORDER BY snapshot.version DESC LIMIT 1"""
                         ),
                         {"source_id": base.id},
                     )
@@ -940,6 +1113,8 @@ class SourceVaultRepository:
                 next_self_heal_at=row.get("next_self_heal_at"),
                 last_successful_fetch_at=row.get("last_successful_fetch_at"),
                 last_content_discovered_at=row.get("last_content_discovered_at"),
+                health_observation_id=row.get("health_observation_id"),
+                health_observed_at=row.get("health_observed_at"),
             )
             for row in stream_rows
         )
@@ -979,6 +1154,16 @@ class SourceVaultRepository:
             streams,
             latest,
             base.auto_score_summary,
+            None
+            if profile is None
+            else SourceProfileSummaryView(
+                status=profile["status"],
+                overall_confidence=profile["overall_confidence"],
+                overridden_fields=list(profile["override_values"])
+                if profile["override_action"] == "APPLY"
+                else [],
+                generated_at=profile["generated_at"],
+            ),
         )
 
     async def patch_personal_source(
@@ -3521,6 +3706,28 @@ def _personal_stream_actual_running(base: PersonalSourceRow, row: RowMapping) ->
         and int(row.get("bytes_used") or 0) < byte_budget
         and row.get("circuit_state") in {"CLOSED", "HALF_OPEN"}
     )
+
+
+def _encode_personal_activity_cursor(occurred_at: datetime, item_id: UUID) -> str:
+    value = json.dumps(
+        {"at": occurred_at.isoformat(), "id": str(item_id)},
+        separators=(",", ":"),
+    ).encode()
+    return base64.urlsafe_b64encode(value).decode().rstrip("=")
+
+
+def _decode_personal_activity_cursor(value: str | None) -> tuple[datetime | None, UUID | None]:
+    if value is None:
+        return None, None
+    try:
+        decoded = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+        payload = json.loads(decoded)
+        occurred_at = datetime.fromisoformat(payload["at"])
+        if occurred_at.tzinfo is None:
+            raise ValueError("cursor time must be timezone-aware")
+        return occurred_at, UUID(payload["id"])
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+        raise ValueError("invalid personal source activity cursor") from error
 
 
 def _personal_stream_runtime_state(

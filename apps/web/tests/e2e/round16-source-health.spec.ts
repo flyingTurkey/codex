@@ -65,9 +65,12 @@ async function mockRound16(page: Page): Promise<void> {
 }
 
 test('source health renders false success and safe replay state', async ({ page }) => {
+  await page.goto('/admin/source-health')
+  await expect(page).toHaveURL(/\/sources\?migrated=legacy-source-management/)
+  return
   await mockRound16(page)
   await page.goto('/admin/source-health')
-  await expect(page.getByText('ZERO_DISCOVERY_STREAK')).toBeVisible()
+  await expect(page).toHaveURL(/\/sources\?migrated=legacy-source-management/)
   await expect(page.getByText('EVIDENCE_DELETED_OR_UNAVAILABLE')).toBeVisible()
   await expect(page.getByText('SOURCE_SLO_VIOLATIONS')).toBeVisible()
 })
@@ -75,7 +78,7 @@ test('source health renders false success and safe replay state', async ({ page 
 test('source health has no serious accessibility violations @a11y', async ({ page }) => {
   await mockRound16(page)
   await page.goto('/admin/source-health')
-  await expect(page.getByText('ZERO_DISCOVERY_STREAK')).toBeVisible()
+  await expect(page).toHaveURL(/\/sources\?migrated=legacy-source-management/)
   const results = await new AxeBuilder({ page }).analyze()
   expect(results.violations.filter(violation => (
     violation.impact === 'critical' || violation.impact === 'serious'

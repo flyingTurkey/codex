@@ -3,7 +3,7 @@
 from typing import Annotated, Protocol, cast
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from srbg_contracts import (
     ConnectorConfigPreview,
     ConnectorConfigPreviewRequest,
@@ -19,6 +19,7 @@ from srbg_contracts import (
     DocumentDetail,
     FixtureUploadResponse,
     MeResponse,
+    PersonalSourceActivityPage,
     PersonalSourceCreateRequest,
     PersonalSourcePatchRequest,
     PersonalSourceReprobeRequest,
@@ -155,6 +156,10 @@ class AdminSourceService(Protocol):
     async def list_personal_sources(self) -> list[PersonalSourceView]: ...
 
     async def get_personal_source(self, source_id: UUID) -> PersonalSourceView: ...
+
+    async def get_personal_source_activity(
+        self, source_id: UUID, *, cursor: str | None, limit: int
+    ) -> PersonalSourceActivityPage: ...
 
     async def get_source_profile(self, source_id: UUID) -> SourceProfileView: ...
 
@@ -495,6 +500,26 @@ async def get_personal_source(
     _: OwnerPrincipal,
 ) -> PersonalSourceView:
     return await _service(request).get_personal_source(source_id)
+
+
+@router.get(
+    "/sources/{source_id}/activity",
+    response_model=PersonalSourceActivityPage,
+    tags=["personal-sources"],
+)
+async def get_personal_source_activity(
+    source_id: UUID,
+    request: Request,
+    _: OwnerPrincipal,
+    cursor: str | None = Query(default=None, max_length=500),
+    limit: int = Query(default=30, ge=1, le=100),
+) -> PersonalSourceActivityPage:
+    try:
+        return await _service(request).get_personal_source_activity(
+            source_id, cursor=cursor, limit=limit
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @router.get(

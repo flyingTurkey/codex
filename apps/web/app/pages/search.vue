@@ -52,6 +52,12 @@ async function loadMore(): Promise<void> {
     @load-more="loadMore"
     @retry="refresh"
   >
+    <template #notice>
+      <aside class="result-legend" aria-label="搜索结果类型说明">
+        <strong>证据事实</strong>来自可定位原文；<strong>AI 判断</strong>已通过验证；
+        <strong>未验证 AI</strong>以独立卡片保留；<strong>AI 处理失败</strong>仅显示安全失败原因。
+      </aside>
+    </template>
     <template #actions>
       <GlobalSearch :initial-query="query" @search="search" />
     </template>
@@ -60,3 +66,7 @@ async function loadMore(): Promise<void> {
     </template>
   </IntelligenceFeedPage>
 </template>
+
+<style scoped>
+.result-legend { padding: var(--spacing-3); color: var(--color-ink-700); background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+</style>

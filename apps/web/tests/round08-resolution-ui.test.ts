@@ -66,7 +66,8 @@ describe('round 08 explainable resolution UI', () => {
     const workbench = readFileSync(resolve(process.cwd(), 'app/pages/admin/clusters.vue'), 'utf8')
 
     expect(navigation).toContain("to: '/hot'")
-    expect(navigation).toContain("to: '/admin/clusters'")
+    expect(navigation).not.toContain("to: '/admin/clusters'")
+    expect(navigation).toContain("to: '/sources'")
     expect(hotPage).toContain('/api/v1/hot-topics')
     expect(eventPage).toContain('SourceComparison')
     expect(workbench).toContain('/api/v1/admin/clustering-workbench')

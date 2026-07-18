@@ -21,7 +21,9 @@ export type Kind =
   | 'WATCHLIST'
   | 'SOURCE_ANOMALIES'
   | 'EVIDENCE_FACTS'
+  | 'AI_JUDGMENTS'
   | 'UNVERIFIED_AI'
+  | 'AI_PROCESSING_FAILURES'
 export type Title1 = string
 export type Sections = DailyReportSection[]
 export type SnapshotAt = string

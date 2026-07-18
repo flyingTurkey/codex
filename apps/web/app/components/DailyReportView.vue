@@ -5,8 +5,12 @@ import { computed } from 'vue'
 
 const props = defineProps<{ report: DailyReport }>()
 const isAutomaticPersonalReport = computed(() =>
-  props.report.sections.some(section => ['EVIDENCE_FACTS', 'UNVERIFIED_AI'].includes(section.kind)),
+  props.report.sections.some(section => ['EVIDENCE_FACTS', 'AI_JUDGMENTS', 'UNVERIFIED_AI', 'AI_PROCESSING_FAILURES'].includes(section.kind)),
 )
+const resultLabels = {
+  EVIDENCE_FACT: '证据事实', AI_JUDGMENT: 'AI 判断',
+  UNVERIFIED_AI: '未验证 AI', AI_PROCESSING_FAILED: 'AI 处理失败',
+} as const
 </script>
 
 <template>
@@ -32,7 +36,7 @@ const isAutomaticPersonalReport = computed(() =>
             <a :href="`/events/${item.event_id ?? item.item_id}`">{{ item.title }}</a>
             <strong v-if="item.current_state === 'WITHDRAWN'">已撤回</strong>
             <strong v-else-if="item.current_state === 'SOURCE_UNAVAILABLE'">原文失效</strong>
-            <strong v-else-if="item.automatic_result_type === 'UNVERIFIED_AI'">未验证 AI</strong>
+            <strong v-if="item.automatic_result_type">{{ resultLabels[item.automatic_result_type] }}</strong>
           </div>
           <p v-if="item.summary && item.current_state === 'PUBLISHED'">{{ item.summary }}</p>
         </li>

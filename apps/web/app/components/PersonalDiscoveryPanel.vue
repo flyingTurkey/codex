@@ -22,6 +22,8 @@ const { data: usage } = await useFetch<DiscoveryDailyUsageView>(
 const busy = ref(false)
 const editing = ref<string | null>(null)
 const message = ref<string | null>(null)
+const problem = ref<string | null>(null)
+const retry = ref<(() => Promise<void>) | null>(null)
 const form = reactive({ keywords: '', excludedTerms: '', focusRegions: '', enabled: true })
 
 const baiduLabel = computed(() => {
@@ -47,12 +49,17 @@ function values(value: string): string[] {
 async function toggleDiscovery(): Promise<void> {
   if (!setting.value || busy.value) return
   busy.value = true
+  problem.value = null
   try {
     await $fetch('/api/v1/source-discovery/settings', {
       method: 'PATCH', body: { automation_enabled: !setting.value.automation_enabled }, retry: 0, timeout: 5_000,
     })
     await refreshSetting()
     message.value = '自动发现设置已保存。'
+  }
+  catch {
+    problem.value = '自动发现设置保存失败，原设置保持不变。'
+    retry.value = toggleDiscovery
   }
   finally {
     busy.value = false
@@ -67,6 +74,7 @@ async function saveTopic(topic: DiscoveryTopicView): Promise<void> {
     return
   }
   busy.value = true
+  problem.value = null
   const body: DiscoveryTopicPatchRequest = {
     keywords,
     excluded_terms: values(form.excludedTerms),
@@ -80,6 +88,10 @@ async function saveTopic(topic: DiscoveryTopicView): Promise<void> {
     await refreshTopics()
     editing.value = null
     message.value = `${topic.name}主题已保存。`
+  }
+  catch {
+    problem.value = `${topic.name}主题保存失败，原主题保持不变。`
+    retry.value = () => saveTopic(topic)
   }
   finally {
     busy.value = false
@@ -114,6 +126,9 @@ async function saveTopic(topic: DiscoveryTopicView): Promise<void> {
     </div>
 
     <p v-if="message" role="status" class="discovery-panel__message">{{ message }}</p>
+    <p v-if="problem" role="alert" class="discovery-panel__problem">
+      {{ problem }} <button v-if="retry" type="button" @click="retry()">重试</button>
+    </p>
     <div class="discovery-panel__topics">
       <article v-for="topic in topics" :key="topic.id" class="discovery-topic">
         <div class="discovery-topic__title">
@@ -125,7 +140,7 @@ async function saveTopic(topic: DiscoveryTopicView): Promise<void> {
           <label>排除词<input v-model="form.excludedTerms"></label>
           <label>重点地区<input v-model="form.focusRegions"></label>
           <label class="discovery-topic__check"><input v-model="form.enabled" type="checkbox">启用主题</label>
-          <div><button type="submit" :disabled="busy">保存</button><button type="button" @click="editing = null">取消</button></div>
+          <div><button type="submit" :disabled="busy">{{ busy ? '正在保存…' : '保存' }}</button><button type="button" @click="editing = null">取消</button></div>
         </form>
       </article>
     </div>
@@ -135,7 +150,7 @@ async function saveTopic(topic: DiscoveryTopicView): Promise<void> {
 <style scoped>
 .discovery-panel { margin: 1rem 0; padding: 1rem; border: 1px solid var(--ui-border); border-radius: .75rem; background: var(--ui-bg); }
 .discovery-panel__heading, .discovery-topic__title { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
-.discovery-panel__eyebrow { margin: 0; color: var(--ui-primary); font-size: .75rem; font-weight: 700; }
+.discovery-panel__eyebrow { margin: 0; color: var(--color-ink-900); font-size: .75rem; font-weight: 700; }
 .discovery-panel__usage { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: .75rem; margin: 1rem 0; }
 .discovery-panel__usage p { display: grid; gap: .25rem; margin: 0; padding: .75rem; border-radius: .5rem; background: var(--ui-bg-muted); }
 .discovery-panel__topics { display: grid; gap: .75rem; }
@@ -146,4 +161,5 @@ async function saveTopic(topic: DiscoveryTopicView): Promise<void> {
 .discovery-topic input:not([type='checkbox']) { min-height: 2.5rem; padding: .5rem; border: 1px solid var(--ui-border); border-radius: .4rem; }
 .discovery-topic__check { display: flex; gap: .5rem; align-items: center; }
 .discovery-panel__message { color: var(--ui-primary); }
+.discovery-panel__problem { color: var(--color-conflict-700); }
 </style>

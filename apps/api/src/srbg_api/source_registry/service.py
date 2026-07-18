@@ -22,9 +22,12 @@ from srbg_contracts import (
     DiscoveryTopicView,
     DocumentDetail,
     FixtureUploadResponse,
+    PersonalSourceActivityItemView,
+    PersonalSourceActivityPage,
     PersonalSourceCreateRequest,
     PersonalSourcePatchRequest,
     PersonalSourceReprobeRequest,
+    PersonalSourceRunSummaryView,
     PersonalSourceStreamView,
     PersonalSourceView,
     RuntimeAuthorization,
@@ -221,6 +224,38 @@ class SourceRegistryService:
 
     async def get_personal_source(self, source_id: UUID) -> PersonalSourceView:
         return _personal_source_view(await self._repository.get_personal_source(source_id))
+
+    async def get_personal_source_activity(
+        self, source_id: UUID, *, cursor: str | None, limit: int
+    ) -> PersonalSourceActivityPage:
+        page = await self._repository.get_personal_source_activity(
+            source_id, cursor=cursor, limit=limit
+        )
+        return PersonalSourceActivityPage(
+            items=[
+                PersonalSourceActivityItemView(
+                    id=item.id,
+                    kind=item.kind,
+                    occurred_at=item.occurred_at,
+                    stream_id=item.stream_id,
+                    status=item.status,
+                    reason_code=item.reason_code,
+                    discovered_count=item.discovered_count,
+                    fetched_count=item.fetched_count,
+                    failed_count=item.failed_count,
+                )
+                for item in page.items
+            ],
+            next_cursor=page.next_cursor,
+            run_summary=PersonalSourceRunSummaryView(
+                last_run_at=page.run_summary.last_run_at,
+                last_run_status=page.run_summary.last_run_status,
+                discovered_count=page.run_summary.discovered_count,
+                fetched_count=page.run_summary.fetched_count,
+                failed_count=page.run_summary.failed_count,
+                next_run_at=page.run_summary.next_run_at,
+            ),
+        )
 
     async def get_discovery_setting(self) -> DiscoverySettingView:
         row = await self._repository.get_discovery_setting()
@@ -1509,6 +1544,8 @@ def _personal_source_view(row: PersonalSourceRow) -> PersonalSourceView:
                 next_self_heal_at=stream.next_self_heal_at,
                 last_successful_fetch_at=stream.last_successful_fetch_at,
                 last_content_discovered_at=stream.last_content_discovered_at,
+                health_observation_id=stream.health_observation_id,
+                health_observed_at=stream.health_observed_at,
             )
             for stream in row.streams
         ],
@@ -1524,6 +1561,7 @@ def _personal_source_view(row: PersonalSourceRow) -> PersonalSourceView:
             failure_reason=row.latest_probe_run.failure_reason,
         ),
         auto_score_summary=row.auto_score_summary,
+        profile_summary=row.profile_summary,
     )
 
 
