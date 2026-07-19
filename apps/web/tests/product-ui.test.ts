@@ -73,15 +73,12 @@ describe('round 07 technology product UI', () => {
     expect(panel).toContain('部署方式')
   })
 
-  it('shows the three required product detail regions and fixed low-altitude boundary', () => {
+  it('shows products through the shared evidence-first v2 reader', () => {
     const page = readFileSync(resolve(process.cwd(), 'app/pages/events/[id].vue'), 'utf8')
 
-    expect(page).toContain('<h2>产品能力</h2>')
-    expect(page).toContain('<h2>工程证据</h2>')
-    expect(page).toContain('<h2>许可与限制</h2>')
-    expect(page).toContain('产品发布不代表空域、适航、飞手和项目许可。')
-    expect(page).toContain('仅供技术调研，不构成采购建议')
-    expect(page).not.toContain('适用于四川路桥采购')
+    expect(page).toContain('原文摘录')
+    expect(page).toContain('AI 总结')
+    expect(page).toContain('证据、关系、更正与自动处理附录')
   })
 
   it('removes legacy normalization candidate review', () => {

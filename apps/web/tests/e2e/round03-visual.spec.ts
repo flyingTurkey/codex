@@ -1,132 +1,80 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
+import { v2Projection } from './v2-fixtures'
 
-const itemId = '019b0000-0000-7000-8000-000000003001'
-const versionV1 = '019b0000-0000-7000-8000-000000003002'
-const versionV3 = '019b0000-0000-7000-8000-000000003003'
-const evidenceId = '019b0000-0000-7000-8000-000000003004'
-const claimId = '019b0000-0000-7000-8000-000000003005'
-const preview = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
-  'base64',
-)
-
-const item = {
-  activity_at: '2026-07-14T03:00:00Z',
-  content_type: 'SAFETY_REGULATION',
-  document_states: ['UPDATED'],
-  domain: 'SAFETY',
-  evidence_count: 1,
-  evidence_status: 'VERIFIED',
-  first_discovered_at: '2026-07-01T00:00:00Z',
-  has_version_history: true,
-  id: itemId,
-  original_url: 'https://www.mem.gov.cn/test-only/round03.pdf',
-  publication_revision_id: '019b0000-0000-7000-8000-000000003006',
-  publication_status: 'PUBLISHED',
-  review_status: 'APPROVED',
+const event = {
+  id: '019b0000-0000-7000-8000-000000003001',
+  title: '桥梁施工安全规定',
   source_name: '应急管理部',
   source_published_at: '2026-07-01T00:00:00Z',
-  source_role: '官方一手来源',
-  title: '测试专用桥梁施工安全规定',
-  type_summary: {
-    classification: 'DEPARTMENT_RULE',
-    document_number: 'TEST-ONLY-2026-04',
-    issuing_authority: '应急管理部',
-    kind: 'SAFETY_REGULATION',
-    regulation_status: 'UNKNOWN',
-  },
+  first_discovered_at: '2026-07-01T00:05:00Z',
+  original_url: 'https://www.mem.gov.cn/test-only/round03.pdf',
+  domain: 'SAFETY',
+  content_type: 'SAFETY_REGULATION',
 }
+const mediaId = '019b0000-0000-7000-8000-000000003010'
 
-async function mockRound03(page: Page, withdrawn = false): Promise<void> {
-  const projected = withdrawn
-    ? { ...item, document_states: ['WITHDRAWN'], publication_revision_id: null, publication_status: 'WITHDRAWN' }
-    : item
-  await page.route('**/api/v1/feed**', route => route.fulfill({
-    contentType: 'application/json',
-    body: JSON.stringify({
-      fingerprint: 'sha256:round03-visual', freshness: 'fresh', generated_at: '2026-07-14T03:00:00Z',
-      items: [projected], next_cursor: null, notices: [],
-    }),
+test('v2 FULL reader renders only server-authorized media preview and download URLs', async ({ page }) => {
+  const projection = v2Projection(event) as ReturnType<typeof v2Projection> & {
+    media: unknown[]
+    attachments: unknown[]
+  }
+  projection.media = [{
+    media_id: mediaId,
+    name: '证据图片',
+    preview_url: `/api/v2/media/${mediaId}/preview`,
+    rights_basis: 'SOURCE_AUTHORIZED',
+  }]
+  projection.attachments = [{
+    media_id: mediaId,
+    name: '公开附件.pdf',
+    download_url: `/api/v2/media/${mediaId}/download`,
+    source_url: 'https://example.com/attachment.pdf',
+    redistribution_allowed: true,
+  }]
+  await page.route(`**/api/v2/events/${event.id}`, route => route.fulfill({ json: projection }))
+  await page.route(`**/api/v2/media/${mediaId}/preview`, route => route.fulfill({
+    contentType: 'image/png',
+    body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64'),
   }))
-  await page.route(`**/api/v1/items/${itemId}`, route => route.fulfill({
-    contentType: 'application/json',
-    body: JSON.stringify({
-      item,
-      claims: [{ claim_type: 'document_number', evidence_ids: [evidenceId], id: claimId, label: '文号', value: 'TEST-ONLY-2026-04' }],
-      evidence: [{
-        claim_ids: [claimId], document_version_id: versionV3, excerpt: 'Document number: TEST-ONLY-2026-04',
-        excerpt_sha256: 'a'.repeat(64), id: evidenceId,
-        locator: { bbox: { x0: 72000, x1: 350000, y0: 170000, y1: 205000 }, block_id: claimId, page_number: 2, type: 'PDF_TEXT' },
-        original_url: item.original_url,
-      }],
-    }),
-  }))
-  await page.route(`**/api/v1/items/${itemId}/versions`, route => route.fulfill({
-    contentType: 'application/json',
-    body: JSON.stringify({
-      item_id: itemId,
-      versions: [
-        { acquired_at: '2026-07-01T00:00:00Z', change_type: 'INITIAL', is_current: false, material: true, processing_state: 'READY', review_state: 'APPROVED', version_id: versionV1, version_number: 1 },
-        { acquired_at: '2026-07-14T00:00:00Z', change_type: 'CONTENT_UPDATE', is_current: true, material: true, processing_state: 'READY', review_state: 'APPROVED', version_id: versionV3, version_number: 3 },
-      ],
-    }),
-  }))
-  await page.route(`**/api/v1/items/${itemId}/diff**`, route => route.fulfill({
-    contentType: 'application/json',
-    body: JSON.stringify({
-      changed_token_count: 14, changed_token_ratio_bps: 80, change_type: 'CONTENT_UPDATE',
-      critical_fields: [{ after: 'TEST-ONLY-2026-04', before: 'TEST-ONLY-2026-03', field: 'document_number' }],
-      from_version_id: versionV1, item_id: itemId, material: true,
-      pages: [{ category: 'BODY', hunks: [{ after: 'must inspect before every shift', before: 'shall inspect before use', operation: 'REPLACE' }], page_number: 2 }],
-      to_version_id: versionV3,
-    }),
-  }))
-  await page.route(`**/api/v1/document-versions/${versionV3}/pages/*/preview`, route => route.fulfill({
-    contentType: 'image/png', body: preview,
-  }))
-  await page.route(`**/api/v1/document-versions/${versionV3}/pages/*`, route => {
-    if (route.request().url().endsWith('/preview')) return route.fallback()
-    const pageNumber = Number(route.request().url().split('/').at(-1))
-    return route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        document_version_id: versionV3, height_mpt: 842000, page_count: 3, page_number: pageNumber,
-        preview_url: `/api/v1/document-versions/${versionV3}/pages/${pageNumber}/preview`,
-        rotation: 0, text_source: 'NATIVE', width_mpt: 595000,
-      }),
-    })
-  })
-}
+  await page.goto(`/events/${event.id}`)
 
-async function openSafety(page: Page): Promise<void> {
-  await page.goto('/safety')
-  await expect(page.locator('.srbg-app-shell[aria-busy="false"]')).toBeVisible({ timeout: 20_000 })
-}
+  await expect(page.getByRole('img', { name: '证据图片' })).toHaveAttribute(
+    'src',
+    `/api/v2/media/${mediaId}/preview`,
+  )
+  await expect(page.getByRole('link', { name: '公开附件.pdf' })).toHaveAttribute(
+    'href',
+    `/api/v2/media/${mediaId}/download`,
+  )
+})
 
-const scenarios = [
-  { kind: 'highlight', width: 1920, height: 1080 },
-  { kind: 'diff', width: 1440, height: 900 },
-  { kind: 'withdrawn', width: 1024, height: 768 },
-  { kind: 'highlight', width: 768, height: 1024 },
-] as const
+test('R3 projection never exposes media or attachment metadata', async ({ page }) => {
+  await page.route(`**/api/v2/events/${event.id}`, route => route.fulfill({
+    json: v2Projection(event, { risk: 'R3_METADATA' }),
+  }))
+  await page.goto(`/events/${event.id}`)
 
-for (const scenario of scenarios) {
-  test(`round03 ${scenario.kind} visual at ${scenario.width}x${scenario.height}`, async ({ page }) => {
-    await page.setViewportSize({ width: scenario.width, height: scenario.height })
-    await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
-    await mockRound03(page, scenario.kind === 'withdrawn')
-    await openSafety(page)
-    if (scenario.kind !== 'withdrawn') {
-      await page.getByTestId('evidence-trigger').click()
-      const drawer = page.getByRole('dialog', { name: '原文段落与页码定位' })
-      await expect(drawer).toBeVisible()
-      await expect(drawer.getByTestId('pdf-highlight')).toBeVisible()
-      if (scenario.kind === 'diff') await drawer.getByText('版本差异').scrollIntoViewIfNeeded()
-    } else {
-      await expect(page.getByText('已撤回', { exact: true })).toBeVisible()
-      await expect(page.getByTestId('evidence-trigger')).toHaveCount(0)
-    }
-    const baseline = `round03-${scenario.kind}-${scenario.width}x${scenario.height}.png`
-    await expect(page).toHaveScreenshot(baseline, { animations: 'disabled' })
-  })
-}
+  await expect(page.getByText('待 Owner 审核')).toBeVisible()
+  await expect(page.getByRole('img')).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: '附件' })).toHaveCount(0)
+})
+
+test('version timeline and diff remain v1 but old item detail is retired', async ({ page }) => {
+  await page.route(`**/api/v1/items/${event.id}`, route => route.fulfill({ status: 404 }))
+  await page.route(`**/api/v1/items/${event.id}/versions`, route => route.fulfill({
+    json: { item_id: event.id, versions: [{ version_number: 3, is_current: true }] },
+  }))
+  await page.route(`**/api/v1/items/${event.id}/diff**`, route => route.fulfill({
+    json: { item_id: event.id, material: true, change_type: 'CONTENT_UPDATE' },
+  }))
+  await page.goto('/')
+
+  const responses = await page.evaluate(async id => Promise.all([
+    fetch(`/api/v1/items/${id}`).then(response => response.status),
+    fetch(`/api/v1/items/${id}/versions`).then(response => response.json()),
+    fetch(`/api/v1/items/${id}/diff?from=1&to=3`).then(response => response.json()),
+  ]), event.id)
+  expect(responses[0]).toBe(404)
+  expect(responses[1].versions[0].version_number).toBe(3)
+  expect(responses[2].material).toBe(true)
+})

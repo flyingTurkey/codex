@@ -357,7 +357,8 @@ services:
     hostname: ai-worker
     environment:
       SRBG_AI_BROKER_URL: ${SRBG_REDIS_URL:-redis://redis:6379/0}
-      SRBG_AI_PROVIDER: ${SRBG_AI_PROVIDER:-mock}
+      SRBG_AI_PROVIDER: ${SRBG_AI_PROVIDER:-deepseek}
+      SRBG_AI_ENVIRONMENT: ${SRBG_ENVIRONMENT:-production}
       SRBG_AI_API_KEY: ${SRBG_AI_API_KEY:-}
       SRBG_AI_API_KEY_FILE: /run/secrets/srbg-ai/deepseek.key
       SRBG_AI_TIMEOUT_SECONDS: ${SRBG_AI_TIMEOUT_SECONDS:-30}

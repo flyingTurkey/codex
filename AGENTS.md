@@ -32,7 +32,7 @@
 - PostgreSQL 是业务事实的唯一权威数据库；Redis 只用于缓存、锁和任务队列。
 - 对象存储保存原始 HTML、JSON、PDF、附件、OCR 结果和内容哈希。
 - 所有数据库变更必须通过 Alembic，不允许生产环境自动建表。
-- 公开接口使用 `/api/v1` 版本前缀；错误响应遵循统一 Problem Details 契约。
+- saved/daily、引用、版本/diff、关系纠正、来源和 AI 设置继续使用 `/api/v1`；土木工程情报 Feed、搜索、热点、Event 阅读、媒体和 Owner 复核使用 `/api/v2`，详见 ADR-0002。错误响应遵循统一 Problem Details 契约。
 
 ### UI 与前端约束
 

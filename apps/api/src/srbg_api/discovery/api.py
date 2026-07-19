@@ -135,7 +135,6 @@ def _expected_version(raw_value: str | None) -> int:
     return int(match.group("version"))
 
 
-@router.get("/search", response_model=FeedPage, response_model_exclude_unset=True)
 async def search(
     request: Request,
     principal: CurrentPrincipal,

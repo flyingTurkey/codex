@@ -36,18 +36,34 @@ function durationInMilliseconds(duration: string): number {
   )
 }
 
-test('root renders the selected-feed gate and honest no-score empty state', async ({
-  page,
-}) => {
-  await page.route('**/api/v1/feed**', route => route.fulfill({
-    contentType: 'application/json',
-    body: JSON.stringify({
-      fingerprint: 'sha256:e2e-empty',
-      freshness: 'fresh',
+test.beforeEach(async ({ page }) => {
+  await page.route('**/api/v2/feed**', route => route.fulfill({
+    json: {
       generated_at: '2026-07-15T01:00:00Z',
       items: [],
       next_cursor: null,
-      notices: [],
+      projection_generation: 'v2',
+    },
+  }))
+  await page.route('**/api/v1/version', route => route.fulfill({
+    json: { api_version: 'v1', content_schema_version: '1.1.0' },
+  }))
+  await page.route('**/api/v1/sources', route => route.fulfill({ json: [] }))
+  await page.route('**/api/v1/source-discovery/settings', route => route.fulfill({
+    json: { automation_enabled: false },
+  }))
+})
+
+test('root renders the selected-feed gate and honest no-score empty state', async ({
+  page,
+}) => {
+  await page.route('**/api/v2/feed**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      generated_at: '2026-07-15T01:00:00Z',
+      items: [],
+      next_cursor: null,
+      projection_generation: 'v2',
     }),
   }))
   const browserErrors = collectBrowserErrors(page)
@@ -55,7 +71,7 @@ test('root renders the selected-feed gate and honest no-score empty state', asyn
   await page.goto('/')
   await expectHydratedApp(page)
 
-  await expect(page.getByRole('heading', { level: 1, name: '今日情报' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: '今日精选' })).toBeVisible()
   await expect(page.locator('.srbg-status-badge')).toContainText('数据已更新')
   await expect(page.getByText('API v1 · Schema 1.1.0', { exact: true })).toBeVisible()
   const updatedAt = page.getByTestId('page-updated-at')
@@ -81,7 +97,7 @@ test('/ and /selected both mark 今日精选 as the current page', async ({ page
     )
     await expect(page.getByRole('heading', {
       level: 1,
-      name: path === '/' ? '今日情报' : '今日精选',
+      name: '今日精选',
     })).toBeVisible()
   }
 })
@@ -118,7 +134,7 @@ test('primary navigation uses SPA routing and returns without a document navigat
     'aria-current',
     'page',
   )
-  await expect(page.getByRole('heading', { level: 1, name: '今日情报' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: '今日精选' })).toBeVisible()
   expect(await page.evaluate(() => performance.getEntriesByType('navigation').length)).toBe(
     navigationEntries,
   )
@@ -235,7 +251,7 @@ test('720px equivalent 200% reading viewport keeps the primary task reachable', 
   await page.keyboard.press('Enter')
 
   await expect(page.getByRole('main')).toBeFocused()
-  await expect(page.getByRole('heading', { level: 1, name: '今日情报' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: '今日精选' })).toBeVisible()
   await expect(page.getByRole('button', { name: '打开导航' })).toBeVisible()
   await expectNoHorizontalOverflow(page)
 })
@@ -306,7 +322,7 @@ test('forced colors preserves a visible focus indicator and text-plus-icon statu
 test('@a11y root has an entirely empty axe violations array', async ({ page }) => {
   await page.goto('/')
   await expectHydratedApp(page)
-  await expect(page.getByRole('heading', { level: 1, name: '今日情报' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: '今日精选' })).toBeVisible()
 
   const results = await new AxeBuilder({ page }).analyze()
   expect(results.violations).toEqual([])

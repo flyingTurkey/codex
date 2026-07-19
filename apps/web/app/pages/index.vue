@@ -57,7 +57,7 @@ function search(value: string): void {
 
 <template>
   <IntelligenceFeedPage
-    title="今日情报"
+    title="今日精选"
     eyebrow="个人研究工作台"
     description="个人来源自动采集的题录与证据事实；机器整理和未人工复核状态始终可见。"
     :status-label="freshnessLabel"
@@ -70,7 +70,7 @@ function search(value: string): void {
     :loading-more="loadingMore"
     @load-more="loadMore"
   >
-    <template #actions>
+    <template #before-header>
       <GlobalSearch @search="search" />
     </template>
     <template #notice>

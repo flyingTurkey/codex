@@ -9,6 +9,7 @@ from uuid import UUID
 from celery import Celery
 from celery.signals import task_failure
 from redis.asyncio import Redis, from_url
+from sqlalchemy import text
 from srbg_api.ai_pipeline.ai_judgments import (
     AiJudgmentResultType,
     SummarizeOutput,
@@ -21,7 +22,7 @@ from srbg_api.ai_pipeline.content_preparation import (
     AiContentPreparationService,
     PreparationDocument,
 )
-from srbg_api.ai_pipeline.contracts import AiStep, ModelRequest, ModelResponse
+from srbg_api.ai_pipeline.contracts import AiStep, ClassificationOutput, ModelRequest, ModelResponse
 from srbg_api.ai_pipeline.gateway import ModelOutputRejected, validate_step_output
 from srbg_api.ai_pipeline.preparation import PreparedDocumentInput, prepare_document_input
 from srbg_api.ai_pipeline.runtime import AttemptKind
@@ -31,6 +32,7 @@ from srbg_api.database import create_database_engine, create_publication_engine
 from srbg_api.discovery.projections import PostgresDiscoveryProjectionWriter
 from srbg_api.document_vault.storage import S3ObjectStore
 from srbg_api.identifiers import uuid7
+from srbg_api.intelligence_v2.qualification import classification_allows_extraction
 from srbg_api.internal_projection.audit_anchor import anchor_latest_audit_root
 from srbg_api.logging import configure_logging
 from srbg_api.observability import (
@@ -103,6 +105,7 @@ from srbg_worker.source_runtime import (
     RuntimeBinding,
     RuntimeFetchExecutor,
 )
+from srbg_worker.v2_canary import fixed_canary_input
 
 configure_logging()
 settings = get_settings()
@@ -144,6 +147,21 @@ celery_app.conf.update(
             "schedule": 5.0,
             "options": {"queue": "publisher"},
         },
+        "reprocess-v2-owner-review": {
+            "task": "srbg.intelligence_v2.review_dispatch",
+            "schedule": 5.0,
+            "options": {"queue": "publisher"},
+        },
+        "observe-ai-runtime": {
+            "task": "srbg.ai.runtime_probe_dispatch",
+            "schedule": 30.0,
+            "options": {"queue": "celery"},
+        },
+        "run-ai-v2-fixed-canary": {
+            "task": "srbg.ai.v2_canary_dispatch",
+            "schedule": 21600.0,
+            "options": {"queue": "celery"},
+        },
         "anchor-audit-chain": {
             "task": "srbg.audit.anchor",
             "schedule": 86400.0,
@@ -175,8 +193,14 @@ celery_app.conf.update(
         "srbg.ai_content.result": {"queue": "parser"},
         "srbg.ai.generate": {"queue": "ai"},
         "srbg.ai.generate_attempt": {"queue": "ai"},
+        "srbg.ai.runtime_probe_dispatch": {"queue": "celery"},
+        "srbg.ai.runtime_observation": {"queue": "celery"},
+        "srbg.ai.v2_canary_dispatch": {"queue": "celery"},
+        "srbg.ai.v2_canary_result": {"queue": "celery"},
         "srbg.publication.outbox": {"queue": "publisher"},
         "srbg.publication.projections": {"queue": "publisher"},
+        "srbg.intelligence_v2.review_dispatch": {"queue": "publisher"},
+        "srbg.intelligence_v2.review_reprocess": {"queue": "publisher"},
         "srbg.audit.anchor": {"queue": "publisher"},
     },
 )
@@ -204,6 +228,186 @@ def record_task_failure(
 @celery_app.task(name="srbg.system.health")  # type: ignore[untyped-decorator]
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "worker"}
+
+
+@celery_app.task(name="srbg.ai.runtime_probe_dispatch")  # type: ignore[untyped-decorator]
+def dispatch_ai_runtime_probe() -> dict[str, int]:
+    callback = celery_app.signature("srbg.ai.runtime_observation", queue="celery")
+    celery_app.send_task("srbg.ai.runtime_probe", queue="ai", link=callback)
+    return {"dispatched": 1}
+
+
+@celery_app.task(name="srbg.ai.runtime_observation")  # type: ignore[untyped-decorator]
+def record_ai_runtime_observation(result: dict[str, str]) -> dict[str, str]:
+    asyncio.run(_record_ai_runtime_observation(result))
+    return {"status": "RECORDED"}
+
+
+async def _record_ai_runtime_observation(result: dict[str, str]) -> None:
+    if result.get("status") != "READY":
+        raise ValueError("AI_RUNTIME_PROBE_NOT_READY")
+    if result.get("environment") != settings.environment:
+        raise ValueError("AI_RUNTIME_PROBE_ENVIRONMENT_MISMATCH")
+    observed_at = datetime.fromisoformat(result["observed_at"])
+    if observed_at.tzinfo is None:
+        raise ValueError("AI_RUNTIME_PROBE_TIMEZONE_REQUIRED")
+    repository = _ai_repository()
+    try:
+        await repository.record_runtime_observation(
+            provider=result["provider"],
+            model="deepseek-v4-flash",
+            worker_heartbeat_at=observed_at,
+        )
+    finally:
+        await repository.close()
+
+
+@celery_app.task(name="srbg.ai.v2_canary_dispatch")  # type: ignore[untyped-decorator]
+def dispatch_ai_v2_canary() -> dict[str, object]:
+    return asyncio.run(_dispatch_ai_v2_canary())
+
+
+async def _dispatch_ai_v2_canary() -> dict[str, object]:
+    if settings.environment.casefold() not in {"acceptance", "staging", "preproduction"}:
+        return {"dispatched": 0, "reason": "AI_CANARY_ENVIRONMENT_NOT_AUTHORIZED"}
+    repository = _ai_repository()
+    try:
+        template = fixed_canary_input("00000000-0000-0000-0000-000000000000")
+        created = await repository.create_fixed_canary_run(input_sha256=template.input_sha256)
+        if created is None:
+            return {"dispatched": 0, "reason": "AI_CANARY_RUNTIME_GATES_DENIED"}
+        run_id, document_version_id = created
+        prepared = fixed_canary_input(str(document_version_id))
+        request = AiContentPreparationService.build_request(AiStep.CLASSIFY, prepared)
+        reservation = await repository.reserve(run_id, AiStep.CLASSIFY, 1)
+        callback = celery_app.signature(
+            "srbg.ai.v2_canary_result",
+            kwargs={
+                "run_id": str(run_id),
+                "document_version_id": str(document_version_id),
+                "reservation_id": str(reservation),
+            },
+            immutable=False,
+            queue="celery",
+        )
+        try:
+            celery_app.send_task(
+                "srbg.ai.generate_attempt",
+                args=[request.model_dump(mode="json")],
+                queue="ai",
+                link=callback,
+            )
+        except Exception:
+            await repository.release(reservation)
+            await repository.complete_fixed_canary(
+                run_id=run_id,
+                succeeded=False,
+                failure_code="AI_CANARY_DISPATCH_FAILED",
+            )
+            raise
+        return {"dispatched": 1, "run_id": str(run_id)}
+    finally:
+        await repository.close()
+
+
+@celery_app.task(name="srbg.ai.v2_canary_result")  # type: ignore[untyped-decorator]
+def record_ai_v2_canary_result(
+    result: dict[str, object],
+    *,
+    run_id: str,
+    document_version_id: str,
+    reservation_id: str,
+) -> dict[str, str]:
+    return asyncio.run(
+        _record_ai_v2_canary_result(
+            result,
+            run_id=UUID(run_id),
+            document_version_id=UUID(document_version_id),
+            reservation_id=UUID(reservation_id),
+        )
+    )
+
+
+async def _record_ai_v2_canary_result(
+    result: dict[str, object],
+    *,
+    run_id: UUID,
+    document_version_id: UUID,
+    reservation_id: UUID,
+) -> dict[str, str]:
+    repository = _ai_repository()
+    prepared = fixed_canary_input(str(document_version_id))
+    request = AiContentPreparationService.build_request(AiStep.CLASSIFY, prepared)
+    try:
+        if result.get("status") == "SUCCEEDED" and result.get("runtime_provider") == "deepseek":
+            try:
+                response = ModelResponse.model_validate(result.get("response"))
+                validated = validate_step_output(response.output, request)
+            except (ModelOutputRejected, ValueError) as error:
+                await repository.settle(reservation_id, None)
+                code = _safe_ai_error_code(error)
+                await repository.append_failed_step(
+                    run_id,
+                    AiStep.CLASSIFY,
+                    1,
+                    AttemptKind.PRIMARY.value,
+                    code,
+                    request.input_sha256,
+                )
+                await repository.complete_fixed_canary(
+                    run_id=run_id,
+                    succeeded=False,
+                    failure_code=code,
+                )
+                return {"run_id": str(run_id), "status": "FAILED"}
+            response = response.model_copy(
+                update={"output": validated.model_dump(mode="json", exclude_none=True)}
+            )
+            await repository.settle(reservation_id, response)
+            await repository.append_step(
+                run_id,
+                AiStep.CLASSIFY,
+                1,
+                AttemptKind.PRIMARY.value,
+                response,
+                request.input_sha256,
+            )
+            await repository.record_runtime_health(
+                provider="deepseek",
+                model=request.model_profile,
+            )
+            await repository.complete_fixed_canary(run_id=run_id, succeeded=True)
+            return {"run_id": str(run_id), "status": "SUCCEEDED"}
+        await repository.settle(reservation_id, None)
+        code = str(
+            result.get("error_code")
+            or (
+                "AI_CANARY_PROVIDER_MISMATCH"
+                if result.get("status") == "SUCCEEDED"
+                else "AI_CANARY_FAILED"
+            )
+        )[:80]
+        await repository.append_failed_step(
+            run_id,
+            AiStep.CLASSIFY,
+            1,
+            AttemptKind.PRIMARY.value,
+            code,
+            request.input_sha256,
+        )
+        if code == "PROVIDER_BALANCE_INSUFFICIENT":
+            await repository.record_balance_insufficient(
+                provider="deepseek",
+                model=request.model_profile,
+            )
+        await repository.complete_fixed_canary(
+            run_id=run_id,
+            succeeded=False,
+            failure_code=code,
+        )
+        return {"run_id": str(run_id), "status": "FAILED"}
+    finally:
+        await repository.close()
 
 
 @celery_app.task(name="srbg.safety_regulations.discover")  # type: ignore[untyped-decorator]
@@ -602,7 +806,7 @@ async def _start_ai_content_preparation(run_id: UUID) -> dict[str, object]:
     repository = _ai_repository()
     try:
         document, classify_input, extract_input = await _prepare_ai_inputs(repository, run_id)
-        local_fact_count = await repository.materialize_local(document)
+        local_fact_count = 0
         scan = PromptInjectionScanner().scan(extract_input.text)
         await repository.record_security(document, scan.detected)
         if scan.detected:
@@ -655,7 +859,35 @@ async def _handle_ai_content_result(
 ) -> dict[str, object]:
     repository = _ai_repository()
     try:
-        document, classify_input, extract_input = await _prepare_ai_inputs(repository, run_id)
+        document = await repository.begin(run_id)
+        if not await repository.authorize_real_run(document):
+            billable_response: ModelResponse | None = None
+            if result.get("status") == "SUCCEEDED":
+                try:
+                    billable_response = ModelResponse.model_validate(result.get("response"))
+                except ValueError:
+                    # Authorization denial is terminal. An invalid callback cannot turn it
+                    # into a repair request or prevent reservation/outbox finalization.
+                    billable_response = None
+            await repository.settle(reservation_id, billable_response)
+            await repository.append_failed_step(
+                run_id,
+                step,
+                attempt,
+                kind.value,
+                "AI_RUNTIME_AUTHORIZATION_DENIED",
+                None,
+                billing_response=billable_response,
+            )
+            await repository.fail(
+                run_id, "FAILED", "AI_RUNTIME_AUTHORIZATION_DENIED"
+            )
+            return {
+                "run_id": str(run_id),
+                "status": "FAILED",
+                "failure_code": "AI_RUNTIME_AUTHORIZATION_DENIED",
+            }
+        classify_input, extract_input = _prepare_ai_inputs_for_document(document)
         prepared = await _prepared_for_step(
             repository,
             document=document,
@@ -680,7 +912,24 @@ async def _handle_ai_content_result(
                 response,
                 request.input_sha256,
             )
+            await repository.complete_compensation(run_id=run_id, succeeded=True)
+            runtime_provider = result.get("runtime_provider")
+            runtime_model = result.get("runtime_model")
+            if runtime_provider and runtime_model:
+                await repository.record_runtime_health(
+                    provider=str(runtime_provider), model=str(runtime_model)
+                )
             if step is AiStep.CLASSIFY:
+                classification = ClassificationOutput.model_validate(response.output)
+                if not classification_allows_extraction(classification):
+                    case_id = await repository.queue_qualification_review(
+                        document, classification.model_dump(mode="json")
+                    )
+                    return {
+                        "run_id": str(run_id),
+                        "status": "WAITING_CLAIM_REVIEW",
+                        "review_case_id": str(case_id),
+                    }
                 await repository.transition(run_id, "EXTRACTING")
                 await _dispatch_ai_attempt(
                     repository,
@@ -694,11 +943,11 @@ async def _handle_ai_content_result(
                 )
                 return {"run_id": str(run_id), "status": "EXTRACTING"}
             if step is AiStep.EXTRACT:
-                classification = await repository.successful_output(run_id, AiStep.CLASSIFY)
+                classification_payload = await repository.successful_output(run_id, AiStep.CLASSIFY)
                 await repository.transition(run_id, "EVIDENCE_GATING")
                 candidates = await repository.materialize(
                     document,
-                    classification,
+                    classification_payload,
                     response.output,
                 )
                 if candidates < 1:
@@ -747,23 +996,35 @@ async def _handle_ai_content_result(
 
         await repository.settle(reservation_id, None)
         code = str(result.get("error_code") or "MODEL_ATTEMPT_FAILED")[:80]
+        if code == "PROVIDER_BALANCE_INSUFFICIENT":
+            await repository.record_balance_insufficient(
+                provider="deepseek",
+                model=request.model_profile,
+            )
         await repository.append_failed_step(
             run_id, step, attempt, kind.value, code, request.input_sha256
         )
         retryable = result.get("retryable") is True
         repairable = result.get("repairable") is True
-        if retryable and network_retries < 2:
-            await _dispatch_ai_attempt(
-                repository,
+        if retryable and network_retries < 3:
+            delay = await repository.schedule_compensation(
                 run_id=run_id,
-                step=step,
-                prepared=prepared,
-                attempt=attempt + 1,
-                kind=AttemptKind.NETWORK_RETRY,
-                network_retries=network_retries + 1,
-                repair_used=repair_used,
+                reason_code=code,
+                attempt_count=network_retries,
             )
-            return {"run_id": str(run_id), "status": "RETRYING"}
+            if delay is not None:
+                await _dispatch_ai_attempt(
+                    repository,
+                    run_id=run_id,
+                    step=step,
+                    prepared=prepared,
+                    attempt=attempt + 1,
+                    kind=AttemptKind.NETWORK_RETRY,
+                    network_retries=network_retries + 1,
+                    repair_used=repair_used,
+                    countdown_seconds=delay,
+                )
+                return {"run_id": str(run_id), "status": "RETRYING"}
         if repairable and not repair_used:
             await _dispatch_ai_attempt(
                 repository,
@@ -787,6 +1048,8 @@ async def _handle_ai_content_result(
                 (code,),
             )
         await repository.fail(run_id, failure_status, code)
+        if retryable:
+            await repository.complete_compensation(run_id=run_id, succeeded=False)
         return {"run_id": str(run_id), "status": failure_status}
     except (ModelOutputRejected, ValueError) as error:
         await repository.settle(reservation_id, None)
@@ -829,10 +1092,21 @@ async def _handle_ai_content_result(
 async def _prepare_ai_inputs(
     repository: PostgresAiPreparationRepository,
     run_id: UUID,
+    *,
+    authorize: bool = True,
 ) -> tuple[PreparationDocument, PreparedDocumentInput, PreparedDocumentInput]:
     document = await repository.begin(run_id)
+    if authorize and not await repository.authorize_real_run(document):
+        await repository.fail(run_id, "FAILED", "AI_RUNTIME_AUTHORIZATION_DENIED")
+        raise PermissionError("AI_RUNTIME_AUTHORIZATION_DENIED")
+    classify_input, extract_input = _prepare_ai_inputs_for_document(document)
+    return document, classify_input, extract_input
+
+
+def _prepare_ai_inputs_for_document(
+    document: PreparationDocument,
+) -> tuple[PreparedDocumentInput, PreparedDocumentInput]:
     return (
-        document,
         prepare_document_input(
             document_version_id=document.document_version_id,
             title=document.title,
@@ -883,6 +1157,7 @@ async def _dispatch_ai_attempt(
     network_retries: int,
     repair_used: bool,
     repair_code: str | None = None,
+    countdown_seconds: int = 0,
 ) -> None:
     request = AiContentPreparationService.build_request(step, prepared)
     if repair_code:
@@ -909,10 +1184,14 @@ async def _dispatch_ai_attempt(
         immutable=False,
     )
     try:
+        options: dict[str, object] = {}
+        if countdown_seconds:
+            options["countdown"] = countdown_seconds
         celery_app.send_task(
             "srbg.ai.generate_attempt",
             args=[request.model_dump(mode="json")],
             link=callback,
+            **options,
         )
     except Exception:
         await repository.release(reservation)
@@ -1247,6 +1526,17 @@ def apply_publication_projections() -> dict[str, int]:
     return asyncio.run(_drain_publication_projections())
 
 
+@celery_app.task(name="srbg.intelligence_v2.review_dispatch")  # type: ignore[untyped-decorator]
+def dispatch_v2_review_reprocessing() -> dict[str, int]:
+    return asyncio.run(_dispatch_v2_review_reprocessing())
+
+
+@celery_app.task(name="srbg.intelligence_v2.review_reprocess")  # type: ignore[untyped-decorator]
+def reprocess_v2_review(outbox_id: str) -> dict[str, str]:
+    asyncio.run(_reprocess_v2_review(UUID(outbox_id)))
+    return {"outbox_id": outbox_id, "status": "COMPLETED"}
+
+
 @celery_app.task(name="srbg.audit.anchor")  # type: ignore[untyped-decorator]
 def anchor_audit_chain() -> dict[str, object]:
     return asyncio.run(_anchor_audit_chain())
@@ -1281,6 +1571,48 @@ async def _drain_publication_outbox() -> dict[str, int]:
                 continue
             break
         return {"processed": processed}
+    finally:
+        await service.close()
+
+
+async def _dispatch_v2_review_reprocessing() -> dict[str, int]:
+    engine = create_publication_engine(settings)
+    try:
+        async with engine.connect() as connection:
+            outbox_ids = list(
+                (
+                    await connection.scalars(
+                        text(
+                            "SELECT id FROM owner_review_reprocessing_outbox_v2 "
+                            "WHERE status IN ('PENDING','FAILED') AND available_at<=:now "
+                            "AND attempt_count<3 ORDER BY available_at,id LIMIT 50"
+                        ),
+                        {"now": datetime.now(UTC)},
+                    )
+                ).all()
+            )
+        for outbox_id in outbox_ids:
+            celery_app.send_task(
+                "srbg.intelligence_v2.review_reprocess",
+                kwargs={"outbox_id": str(outbox_id)},
+                queue="publisher",
+            )
+        return {"dispatched": len(outbox_ids)}
+    finally:
+        await engine.dispose()
+
+
+async def _reprocess_v2_review(outbox_id: UUID) -> None:
+    policy_root = Path("docs/codex-kit/assets/validation")
+    service = PublicationService(
+        repository=PostgresPublicationRepository(create_publication_engine(settings)),
+        gate=PublicationGate.from_files(
+            policy_root / "publication_gate.json",
+            policy_root / "publication_evaluation.schema.json",
+        ),
+    )
+    try:
+        await service.process_v2_review_reprocessing(outbox_id=outbox_id)
     finally:
         await service.close()
 

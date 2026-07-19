@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Intelligence v2 engineering Feed structural audit row",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "projection_id",
+    "risk_tier",
+    "unaccepted_claims",
+    "unsupported_facts",
+    "evidence_kind",
+    "snapshot_sha256",
+    "content_sha256",
+    "raw_object_sha256",
+    "rule_version"
+  ],
+  "properties": {
+    "projection_id": {"type": "string", "minLength": 1},
+    "risk_tier": {"enum": ["R1", "R2", "R3", "R4"]},
+    "unaccepted_claims": {"type": "integer", "minimum": 0},
+    "unsupported_facts": {"type": "integer", "minimum": 0},
+    "evidence_kind": {"const": "SERVER_PROJECTION_AUDIT"},
+    "snapshot_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "content_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "raw_object_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "rule_version": {"const": "intelligence-v2-feed-structural-engineering-1.0.0"}
+  }
+}

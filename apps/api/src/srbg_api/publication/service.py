@@ -27,6 +27,21 @@ class PublicationRepository(Protocol):
 
     async def process_personal_content_once(self, *, processed_at: datetime) -> bool: ...
 
+    async def refresh_v2_projection(
+        self,
+        *,
+        event_id: UUID,
+        document_version_id: UUID,
+        projected_at: datetime,
+    ) -> None: ...
+
+    async def process_v2_review_reprocessing(
+        self,
+        *,
+        outbox_id: UUID,
+        processed_at: datetime,
+    ) -> None: ...
+
     async def correct_automatic_relationship(
         self,
         *,
@@ -75,6 +90,28 @@ class PublicationService:
     async def process_personal_content_once(self) -> bool:
         """Write the minimal personal projection through the sole publisher boundary."""
         return await self._repository.process_personal_content_once(processed_at=self._now())
+
+    async def refresh_v2_projection(
+        self,
+        *,
+        event_id: UUID,
+        document_version_id: UUID,
+    ) -> None:
+        """Rebuild a v2 projection from database facts at the sole write boundary."""
+
+        await self._repository.refresh_v2_projection(
+            event_id=event_id,
+            document_version_id=document_version_id,
+            projected_at=self._now(),
+        )
+
+    async def process_v2_review_reprocessing(self, *, outbox_id: UUID) -> None:
+        """Apply one durable Owner decision identified only by its Outbox fact."""
+
+        await self._repository.process_v2_review_reprocessing(
+            outbox_id=outbox_id,
+            processed_at=self._now(),
+        )
 
     async def correct_automatic_relationship(
         self, event_id: UUID, *, payload: OwnerRelationshipCorrectionRequest, owner_id: UUID

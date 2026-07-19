@@ -42,15 +42,13 @@ for (const viewport of visualViewports) {
       contentType: 'application/json',
       body: JSON.stringify({ automation_enabled: false }),
     }))
-    await page.route('**/api/v1/feed**', route => route.fulfill({
+    await page.route('**/api/v2/feed**', route => route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
-        fingerprint: 'sha256:e2e-empty',
-        freshness: 'fresh',
         generated_at: '2026-07-15T01:00:00Z',
         items: [],
         next_cursor: null,
-        notices: [],
+        projection_generation: 'v2',
       }),
     }))
     await page.setViewportSize({ width: viewport.width, height: viewport.height })
@@ -59,7 +57,7 @@ for (const viewport of visualViewports) {
     await expect(page.locator('.srbg-app-shell[aria-busy="false"]')).toBeVisible({
       timeout: 20_000,
     })
-    await expect(page.getByRole('heading', { level: 1, name: '今日情报' })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 1, name: '今日精选' })).toBeVisible()
     await expect(page.getByText('API v1 · Schema 1.1.0', { exact: true })).toBeVisible()
     await expect(page.getByRole('search')).toBeVisible()
     await expect(page.getByRole('region', { name: '今日重点与数据状态' })).toBeVisible()

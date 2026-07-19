@@ -37,7 +37,7 @@ describe('R-AI01 model configuration and claim review UI', () => {
     if (!Panel) return
     const wrapper = mount(Panel, { props: { providers } })
     expect(wrapper.text()).toContain('https://api.deepseek.com/chat/completions')
-    expect(wrapper.text()).toContain('未就绪（MODEL_DISABLED）')
+    expect(wrapper.text()).toContain('不可用（MODEL_DISABLED）')
     expect(wrapper.text()).toContain('仅 Mock')
     expect(wrapper.find('input[name="base_url"]').exists()).toBe(false)
     expect(wrapper.find('input[type="password"]').attributes('autocomplete')).toBe('new-password')

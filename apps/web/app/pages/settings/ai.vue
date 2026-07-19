@@ -6,6 +6,8 @@ type ProviderView = {
   models: string[]
   real_call_enabled: boolean
   key_configured: boolean
+  configured: boolean
+  available: boolean
   runtime_status: string
   blocking_reasons: string[]
 }

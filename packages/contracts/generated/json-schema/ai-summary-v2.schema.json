@@ -1,0 +1,85 @@
+{
+  "$defs": {
+    "AiSummaryStatusV2": {
+      "enum": [
+        "NOT_GENERATED",
+        "PROCESSING",
+        "TEMPORARILY_UNAVAILABLE",
+        "SCHEMA_REJECTED",
+        "INSUFFICIENT_EVIDENCE",
+        "SUCCEEDED",
+        "STALE"
+      ],
+      "title": "AiSummaryStatusV2",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "body": {
+      "anyOf": [
+        {
+          "maxLength": 500,
+          "minLength": 30,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Body"
+    },
+    "claim_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Claim Ids",
+      "type": "array"
+    },
+    "generated_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Generated At"
+    },
+    "judgment_paragraphs": {
+      "items": {
+        "type": "integer"
+      },
+      "maxItems": 3,
+      "title": "Judgment Paragraphs",
+      "type": "array"
+    },
+    "model": {
+      "anyOf": [
+        {
+          "maxLength": 100,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model"
+    },
+    "status": {
+      "$ref": "#/$defs/AiSummaryStatusV2"
+    }
+  },
+  "required": [
+    "status"
+  ],
+  "title": "AiSummaryV2",
+  "type": "object"
+}

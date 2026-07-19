@@ -1,0 +1,64 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "command": {
+      "enum": [
+        "CONFIRM_RELEVANCE",
+        "EXCLUDE_RELEVANCE",
+        "CORRECT_PRIMARY_TYPE",
+        "CORRECT_FACETS",
+        "ACCEPT_CLAIM",
+        "REJECT_CLAIM",
+        "REPLACE_CLAIM",
+        "APPROVE_AI_SUMMARY",
+        "REJECT_AI_SUMMARY",
+        "REGENERATE_AI_SUMMARY",
+        "DECIDE_RISK",
+        "REEVALUATE"
+      ],
+      "title": "Command",
+      "type": "string"
+    },
+    "expected_version": {
+      "minimum": 1,
+      "title": "Expected Version",
+      "type": "integer"
+    },
+    "payload": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ]
+      },
+      "title": "Payload",
+      "type": "object"
+    },
+    "reason": {
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Reason",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command",
+    "reason",
+    "expected_version"
+  ],
+  "title": "ReviewDecisionCommandV2",
+  "type": "object"
+}

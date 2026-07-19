@@ -25,6 +25,56 @@ def test_worker_uses_utc_and_json_serialization() -> None:
     assert _INSERT_STEP_SQL.count("CAST(:status AS varchar)") == 2
 
 
+def test_v2_review_reprocessing_is_dispatched_by_outbox_id() -> None:
+    schedule = worker.celery_app.conf.beat_schedule["reprocess-v2-owner-review"]
+
+    assert schedule["task"] == "srbg.intelligence_v2.review_dispatch"
+    assert schedule["options"] == {"queue": "publisher"}
+    assert worker.celery_app.conf.task_routes["srbg.intelligence_v2.review_reprocess"] == {
+        "queue": "publisher"
+    }
+
+
+def test_ai_runtime_probe_runs_every_thirty_seconds_with_api_callback() -> None:
+    schedule = worker.celery_app.conf.beat_schedule["observe-ai-runtime"]
+
+    assert schedule["task"] == "srbg.ai.runtime_probe_dispatch"
+    assert schedule["schedule"] == 30.0
+    assert worker.celery_app.conf.task_routes["srbg.ai.runtime_observation"] == {
+        "queue": "celery"
+    }
+
+
+def test_real_schema_canary_is_scheduled_every_six_hours_and_stays_on_ai_queue() -> None:
+    schedule = worker.celery_app.conf.beat_schedule["run-ai-v2-fixed-canary"]
+
+    assert schedule["task"] == "srbg.ai.v2_canary_dispatch"
+    assert schedule["schedule"] == 21600.0
+    assert worker.celery_app.conf.task_routes["srbg.ai.v2_canary_result"] == {
+        "queue": "celery"
+    }
+
+
+def test_fixed_canary_refuses_unapproved_environment_before_database_access(monkeypatch) -> None:
+    monkeypatch.setattr(
+        worker,
+        "settings",
+        worker.settings.model_copy(update={"environment": "demo"}),
+    )
+    monkeypatch.setattr(
+        worker,
+        "_ai_repository",
+        lambda: (_ for _ in ()).throw(AssertionError("database must not be opened")),
+    )
+
+    result = worker.celery_app.tasks["srbg.ai.v2_canary_dispatch"].run()
+
+    assert result == {
+        "dispatched": 0,
+        "reason": "AI_CANARY_ENVIRONMENT_NOT_AUTHORIZED",
+    }
+
+
 def test_worker_only_schedules_the_database_source_dispatcher() -> None:
     assert "srbg.safety_regulations.discover" in worker.celery_app.tasks
     schedule = worker.celery_app.conf.beat_schedule["dispatch-due-source-schedules"]

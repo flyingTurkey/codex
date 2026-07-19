@@ -120,7 +120,10 @@ test('owner can add one public URL and sees probe feedback', async ({ page }) =>
   await mockPersonalSources(page)
   await page.goto('/sources')
 
-  await page.getByLabel('添加 URL').fill('https://www.mot.gov.cn/')
+  const input = page.getByLabel('添加 URL')
+  await expect(input).toBeEnabled()
+  await input.fill('https://www.mot.gov.cn/')
+  await expect(page.getByRole('button', { name: '保存并探测' })).toBeEnabled()
   await page.getByRole('button', { name: '保存并探测' }).click()
 
   await expect(page.getByRole('status')).toContainText('URL 已保存')

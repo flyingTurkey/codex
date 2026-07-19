@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Intelligence v2 private Owner annotation row",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["case_id", "bucket", "expected_relevant", "predicted_relevant", "locked_negative", "annotator_kind", "content_sha256", "raw_object_sha256", "locator", "primary_type", "engineering_object", "rule_version"],
+      "properties": {
+        "case_id": {"type": "string", "minLength": 1},
+        "bucket": {"enum": ["POSITIVE", "BOUNDARY", "NEGATIVE"]},
+        "expected_relevant": {"type": "boolean"},
+        "predicted_relevant": {"type": "boolean"},
+        "locked_negative": {"type": "boolean"},
+        "annotator_kind": {"const": "HUMAN_OWNER"},
+        "content_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "raw_object_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "locator": {"type": "string", "minLength": 1},
+        "primary_type": {"type": ["string", "null"]},
+        "engineering_object": {"type": ["string", "null"]},
+        "rule_version": {"const": "intelligence-v2-qualification-1.0.0"}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projection_id", "owner_relevant", "risk_tier", "unaccepted_claims", "unsupported_facts", "annotator_kind", "snapshot_sha256", "content_sha256", "raw_object_sha256", "rule_version"],
+      "properties": {
+        "projection_id": {"type": "string", "minLength": 1},
+        "owner_relevant": {"type": "boolean"},
+        "risk_tier": {"enum": ["R1", "R2", "R3", "R4"]},
+        "unaccepted_claims": {"type": "integer", "minimum": 0},
+        "unsupported_facts": {"type": "integer", "minimum": 0},
+        "annotator_kind": {"const": "HUMAN_OWNER"},
+        "snapshot_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "content_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "raw_object_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "rule_version": {"const": "intelligence-v2-feed-inspection-1.0.0"}
+      }
+    }
+  ]
+}

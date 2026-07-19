@@ -98,10 +98,9 @@ describe('round 10 search daily and saved UI', () => {
   it('appends cursor pages through the shared feed load-more contract', () => {
     const searchPage = readFileSync(resolve(process.cwd(), 'app/pages/search.vue'), 'utf8')
     const savedPage = readFileSync(resolve(process.cwd(), 'app/pages/saved.vue'), 'utf8')
-    for (const page of [searchPage, savedPage]) {
-      expect(page).toContain('@load-more="loadMore"')
-      expect(page).toContain('current.next_cursor')
-      expect(page).toContain('items: [...current.items, ...next.items]')
-    }
+    for (const page of [searchPage, savedPage]) expect(page).toContain('@load-more="loadMore"')
+    expect(searchPage).toContain('current.next_cursor')
+    expect(searchPage).toContain('items: [...current.items, ...next.items]')
+    expect(savedPage).toContain('current.next_cursor')
   })
 })

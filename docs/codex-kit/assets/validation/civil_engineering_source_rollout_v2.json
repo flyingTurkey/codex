@@ -1,0 +1,34 @@
+{
+  "rule_version": "civil-source-rollout-v2.0.0",
+  "state": "DISCOVERY_ONLY_NOT_ENABLED",
+  "wave_size": 2,
+  "minimum_wave_hours": 72,
+  "first_batch_observation_days": 14,
+  "minimum_samples": 30,
+  "batches": [
+    {
+      "target_count": 10,
+      "institutions": [
+        "交通运输部", "住房和城乡建设部", "国家铁路局", "国家矿山安全监察局", "水利部",
+        "国家能源局", "中国民用航空局", "中国公路学报", "中国中铁", "三一集团"
+      ]
+    },
+    {
+      "target_count": 20,
+      "institutions": [
+        "四川省交通运输厅", "应急管理部", "全国标准信息公共服务平台", "中国土木工程学会", "中国公路学会",
+        "隧道建设（中英文）", "中国建筑科学研究院", "中国交通建设集团", "广联达", "中国煤炭科工集团"
+      ]
+    }
+  ],
+  "hard_gates": ["ROBOTS", "TERMS", "COPYRIGHT", "PUBLIC_NETWORK_SAFETY", "HARD_NEGATIVE_ZERO"],
+  "soft_threshold_bps": {
+    "fetch_success_min": 9800,
+    "parse_evidence_success_min": 9500,
+    "metadata_success_min": 9800,
+    "useful_yield_min": 5000,
+    "duplicate_max": 3000
+  },
+  "retire_after_consecutive_14_day_soft_failures": 2,
+  "expansion_to_30_50_allowed": false
+}

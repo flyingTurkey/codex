@@ -1,0 +1,87 @@
+{
+  "$defs": {
+    "PrimaryIntelligenceType": {
+      "enum": [
+        "DIGITAL_TRANSFORMATION",
+        "SAFETY_INTELLIGENCE",
+        "INDUSTRY_UPDATE"
+      ],
+      "title": "PrimaryIntelligenceType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "event_id": {
+      "format": "uuid",
+      "title": "Event Id",
+      "type": "string"
+    },
+    "first_discovered_at": {
+      "format": "date-time",
+      "title": "First Discovered At",
+      "type": "string"
+    },
+    "official_source": {
+      "title": "Official Source",
+      "type": "boolean"
+    },
+    "original_url": {
+      "maxLength": 2048,
+      "pattern": "^https?://[^\\s]+$",
+      "title": "Original Url",
+      "type": "string"
+    },
+    "primary_type": {
+      "$ref": "#/$defs/PrimaryIntelligenceType"
+    },
+    "projection_kind": {
+      "const": "R3_METADATA",
+      "default": "R3_METADATA",
+      "title": "Projection Kind",
+      "type": "string"
+    },
+    "review_state": {
+      "const": "PENDING_OWNER_REVIEW",
+      "default": "PENDING_OWNER_REVIEW",
+      "title": "Review State",
+      "type": "string"
+    },
+    "source_name": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Source Name",
+      "type": "string"
+    },
+    "source_published_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Source Published At"
+    },
+    "title": {
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    }
+  },
+  "required": [
+    "event_id",
+    "title",
+    "primary_type",
+    "official_source",
+    "source_name",
+    "source_published_at",
+    "first_discovered_at",
+    "original_url"
+  ],
+  "title": "EventMetadataProjectionV2",
+  "type": "object"
+}

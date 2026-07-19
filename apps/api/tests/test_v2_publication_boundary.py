@@ -1,0 +1,41 @@
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock
+from uuid import UUID
+
+import pytest
+from srbg_api.publication.service import PublicationService
+
+EVENT_ID = UUID("019f7c00-0000-7000-8000-000000000011")
+VERSION_ID = UUID("019f7c00-0000-7000-8000-000000000012")
+OUTBOX_ID = UUID("019f7c00-0000-7000-8000-000000000013")
+NOW = datetime(2026, 7, 19, tzinfo=UTC)
+
+
+@pytest.mark.asyncio
+async def test_v2_projection_refresh_accepts_only_authoritative_identifiers() -> None:
+    repository = AsyncMock()
+    service = PublicationService(repository=repository, gate=object(), now=lambda: NOW)  # type: ignore[arg-type]
+
+    await service.refresh_v2_projection(
+        event_id=EVENT_ID,
+        document_version_id=VERSION_ID,
+    )
+
+    repository.refresh_v2_projection.assert_awaited_once_with(
+        event_id=EVENT_ID,
+        document_version_id=VERSION_ID,
+        projected_at=NOW,
+    )
+
+
+@pytest.mark.asyncio
+async def test_review_reprocessing_accepts_only_outbox_identifier() -> None:
+    repository = AsyncMock()
+    service = PublicationService(repository=repository, gate=object(), now=lambda: NOW)  # type: ignore[arg-type]
+
+    await service.process_v2_review_reprocessing(outbox_id=OUTBOX_ID)
+
+    repository.process_v2_review_reprocessing.assert_awaited_once_with(
+        outbox_id=OUTBOX_ID,
+        processed_at=NOW,
+    )

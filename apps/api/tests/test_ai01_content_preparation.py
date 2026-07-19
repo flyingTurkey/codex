@@ -61,13 +61,15 @@ def _request(step: AiStep = AiStep.CLASSIFY) -> ModelRequest:
 
 def _classification() -> dict[str, Any]:
     return {
-        "channel": "DIGITAL",
-        "item_type": "DIGITAL_CASE",
-        "engineering_domains": ["HIGHWAY"],
-        "lifecycle_stages": ["OPERATION"],
-        "technology_tags": ["DIGITALIZATION"],
-        "application_scenarios": ["ROAD_MAINTENANCE"],
-        "confidence": 0.9,
+        "direct_relevance": "RELEVANT",
+        "core_new_fact": "公路养护采用数字化系统",
+        "primary_type": "DIGITAL_TRANSFORMATION",
+        "engineering_objects": ["HIGHWAY"],
+        "specialty_facets": [],
+        "equipment_domains": [],
+        "content_form": "PROJECT_RECORD",
+        "evidence_locators": ["html:p:1"],
+        "confidence": 0.95,
         "needs_human_review": True,
         "review_reasons": ["SHADOW_PILOT"],
         "security": {

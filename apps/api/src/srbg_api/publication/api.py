@@ -147,7 +147,6 @@ def _publication_service(request: Request) -> PersonalPublicationService:
     return cast(PersonalPublicationService, service)
 
 
-@router.get("/feed", response_model=FeedPage, response_model_exclude_unset=True)
 async def get_feed(
     request: Request,
     _: CurrentPrincipal,
@@ -207,7 +206,6 @@ async def get_feed(
     return contract_etag_response(request, page, exclude_unset=True)
 
 
-@router.get("/hot-topics", response_model=HotTopicPage, response_model_exclude_none=True)
 async def list_hot_topics(
     request: Request,
     _: CurrentPrincipal,
@@ -225,7 +223,6 @@ async def list_hot_topics(
     return contract_etag_response(request, page, exclude_none=True)
 
 
-@router.get("/items/{item_id}", response_model=ItemDetail, response_model_exclude_unset=True)
 async def get_item(item_id: UUID, request: Request, _: CurrentPrincipal) -> Response:
     service = _query_service(request)
     return contract_etag_response(
@@ -256,7 +253,6 @@ async def get_item_citation(
     )
 
 
-@router.get("/events/{event_id}", response_model=EventDetail)
 async def get_event(event_id: UUID, request: Request, _: CurrentPrincipal) -> Response:
     service = _public_query_service(request)
     resolver = getattr(service, "resolve_event_redirect", None)
@@ -268,9 +264,6 @@ async def get_event(event_id: UUID, request: Request, _: CurrentPrincipal) -> Re
     return contract_etag_response(request, await service.get_event(event_id))
 
 
-@router.get(
-    "/events/{event_id}/content", response_model=ItemDetail, response_model_exclude_unset=True
-)
 async def get_event_content(event_id: UUID, request: Request, _: CurrentPrincipal) -> Response:
     return contract_etag_response(
         request,

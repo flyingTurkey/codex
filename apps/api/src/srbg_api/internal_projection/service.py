@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -22,7 +21,7 @@ from srbg_contracts import (
     PublishedEvidenceReferenceV1,
 )
 
-from srbg_api.internal_projection.reader import PublishedEventNotFound, PublishedProjectionReader
+from srbg_api.internal_projection.reader import PublishedProjectionReader
 
 _EVENT_TYPE_BY_CONTENT_TYPE = {
     "DIGITAL_CASE": EventType.DIGITAL_PROJECT,
@@ -98,16 +97,10 @@ class PublishedIntelligenceQueryService:
 
     async def get_feed(self, **filters: Any) -> FeedPage:
         limit = int(filters.get("limit", 20))
-        values, personal = await asyncio.gather(
-            self._reader.list_events(limit=limit),
-            self._reader.list_personal_signals(limit=limit),
-        )
+        values = await self._reader.list_events(limit=limit)
         domain = filters.get("domain")
         content_type = filters.get("content_type")
-        summaries = self._collapse_event_summaries(
-            [self._summary(value) for value in values]
-            + [self._personal_summary(value) for value in personal]
-        )
+        summaries = [self._summary(value) for value in values]
         if domain:
             summaries = [value for value in summaries if value.domain.value == domain.upper()]
         if content_type:
@@ -151,14 +144,8 @@ class PublishedIntelligenceQueryService:
         raise RuntimeError("legacy Item reads must resolve through the immutable alias")
 
     async def search_events(self, query: str, *, limit: int) -> list[EventSummary]:
-        published, primary, unverified = await asyncio.gather(
-            self._reader.title_search(query, limit=limit),
-            self._reader.search_personal_primary(query, limit=limit),
-            self._reader.search_personal_unverified(query, limit=limit),
-        )
-        values = [self._summary(value) for value in published] + [
-            self._personal_summary(value) for value in [*primary, *unverified]
-        ]
+        published = await self._reader.title_search(query, limit=limit)
+        values = [self._summary(value) for value in published]
         return sorted(values, key=lambda value: value.activity_at, reverse=True)[:limit]
 
     async def get_daily_report(
@@ -171,14 +158,9 @@ class PublishedIntelligenceQueryService:
         return await self._reader.get_daily_report(report_id=report_id, report_date=report_date)
 
     async def get_event(self, event_id: UUID) -> EventDetail:
-        personal_signals = await self._reader.list_personal_signals_for_event(event_id)
-        try:
-            value = await self._reader.get_event(event_id)
-        except PublishedEventNotFound:
-            if not personal_signals:
-                raise
-            return self._personal_event_detail(event_id, personal_signals)
-        personal_claims, personal_evidence = self._personal_claims_and_evidence(personal_signals)
+        # Review-only personal signals are not publication projections. They must
+        # never enrich R3 metadata or resurrect an Event absent from publication.
+        value = await self._reader.get_event(event_id)
         summary = value.summary
         event_type = summary.event_type or _EVENT_TYPE_BY_CONTENT_TYPE[summary.content_type.value]
         return EventDetail(
@@ -195,12 +177,12 @@ class PublishedIntelligenceQueryService:
             similar_scenario_tags=[],
             prevention_measure_tags=[],
             summary=summary,
-            claims=value.claims or personal_claims,
-            evidence=value.evidence or personal_evidence,
+            claims=value.claims,
+            evidence=value.evidence,
             documents=value.documents,
             source_comparison=value.source_comparison,
             type_detail=value.type_detail,
-            automatic_results=self._automatic_results(personal_signals),
+            automatic_results=[],
         )
 
     @staticmethod

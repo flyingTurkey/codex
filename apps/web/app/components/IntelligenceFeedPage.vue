@@ -124,6 +124,9 @@ const visibleItems = computed(() => props.feed?.items ?? [])
 
 <template>
   <section class="intelligence-feed-page">
+    <div v-if="$slots['before-header']" class="intelligence-feed-page__before-header">
+      <slot name="before-header" />
+    </div>
     <PageHeader
       :title="title"
       :eyebrow="eyebrow"

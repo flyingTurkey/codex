@@ -1,6 +1,20 @@
 {
   "additionalProperties": false,
   "properties": {
+    "code": {
+      "anyOf": [
+        {
+          "maxLength": 100,
+          "pattern": "^[A-Z0-9_]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Code"
+    },
     "detail": {
       "anyOf": [
         {

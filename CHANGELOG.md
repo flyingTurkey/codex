@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-07-19（土木工程情报质量与阅读体验 v2）
+
+- 修复“DeepSeek 已配置但无内容结果”的真实运行断点：新增 `0036_ai_content_result_lifecycle`，将终态 pipeline 与 durable content outbox 原子收口，迁移历史伪 `WAITING_AI`；callback 在读取步骤输入前复核授权，撤权时不消费模型输出、不进入 repair，但结算可验证的真实 Token/费用元数据并记录 `AI_RUNTIME_AUTHORIZATION_DENIED`。同时修复 runtime probe 的 PostgreSQL 时间参数类型和模型目录映射，使 Owner 页面准确区分“已配置”“运行健康”和“最近真实 Schema 成功”。
+- 新增 ADR-0003 和显式双验收 profile：`ENGINEERING_CLOSEOUT` 使用 1 小时 AI/来源窗口、一次真实 Schema 成功和无人工标注的 200 条服务端 Feed 结构审计；`PRODUCTION_CLOSEOUT` 完整保留原 24 小时、Owner gold、人工 Feed precision、72 小时/14 天门槛。两者均保留合规硬门禁、补偿验收和只读归档预检。
+- `make intelligence-v2-closeout ACCEPTANCE_PROFILE=engineering|production` 现在必须显式选择 profile；readiness manifest 记录独立规则版本，同一小时证据只能使 engineering 通过，不能使 production 通过。
+- 追加 `0035_intelligence_v2_closeout`，以 append-only 事实保存 Owner 复核重处理 Outbox、AI 运行观察、AI 补偿运行和来源准入评估；有事实时阻断破坏性降级。
+- Owner 决定改为按 `command` 判别的严格联合契约，接口在同一事务中追加决定与 Outbox，返回可幂等重试的 `202/QUEUED` receipt；Worker 只传递 Outbox ID，最终统一进入 `PublicationService.refresh_v2_projection`。
+- v2 Feed、搜索和热点补齐 surface-bound、版本化的不透明 keyset cursor；复核 list/detail 使用正式契约，v2 错误统一为带稳定原因码的 Problem Details。
+- 迁移 10 个旧阅读 Playwright spec 到 `/api/v2/feed|search|hotspots|events`，合法的 saved/daily、引用、版本 diff 和关系纠正仍保持 v1，被替代的 v1 reader 保留 404 回归。
+- 新增 30 秒无网络 AI runtime probe、6 小时固定公开文本 SHADOW canary、真实成功/外部余额观察、5/15/45 分钟且两小时封顶的补偿策略与持久事实；canary 只在验收类环境、当前来源/DocVersion/raw CLEAN/预算门禁全部通过时调用，结果不进入发布链。Secret 已配置不再被界面误报为真实可用。
+- 将生成的 `GoldCorpus` 更名为结构回放语料；新增 360 条 Owner qualification、200 条 Feed 抽检和 20 源准入的私有证据校验器，强制 `HUMAN_OWNER`、内容/原始对象哈希、固定规则版本、波次时间和服务端重算阈值。
+- 新增 `make intelligence-v2-closeout`，生成经 Schema 校验和 SHA-256 封签的 readiness manifest；当 24 小时、人工标注、来源观察或只读归档预检证据缺失时稳定非零退出并输出 `NO_GO`。
+- 新增土木工程直接相关性、三主类型、十一工程对象、隧道瓦斯监测与施工机械 facets 的 v2 严格契约；R3 只能返回安全元数据，R4 和未决内容在普通读取面不可见。
+- 采集处理改为 raw-first 与 MIME 分流，分类门禁先于事实抽取和 Event 创建；旧 personal signal 不再复活 Event 或向 R3 注入 claims、证据和自动处理结果。
+- 新增空的 v2 投影代际、append-only Owner review、版本化 AI summary、永久热点授予、媒体权利和证据优先搜索迁移，以及 `/api/v2` 阅读与复核 API。
+- 正式 Nuxt 首页改为“今日精选”并前置搜索，新增行业视图、无可见总分的热点榜单、阅读优先详情和折叠附录；Feed、Timeline 与 Card 继续复用。
+- 生产环境禁止 mock AI provider，HTML/PDF 按 MIME 解析；DeepSeek 的“已配置”与真实可用性仍须由运行态 heartbeat 和 24 小时真实成功证据判定。
+- 建立四个 bounded context、CONTEXT-MAP 与 ADR-0002；不自动启用新来源，不把生成样本冒充人工 gold corpus。
+
 ## 2026-07-19（Agent skills 仓库配置）
 
 - 为 `flyingTurkey/codex` 固化 GitHub Issues 工作流、默认五项 triage 标签和 multi-context 领域文档消费规则，并验证仓库端五项标签全部可用，供 `to-spec`、`to-tickets`、`triage`、`qa`、`grill-with-docs` 与相关工程 Skills 复用。

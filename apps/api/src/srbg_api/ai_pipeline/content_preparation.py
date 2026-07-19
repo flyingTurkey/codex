@@ -18,7 +18,7 @@ from srbg_api.ai_pipeline.ai_judgments import (
     validate_used_claim_ids,
     verification_reason_codes,
 )
-from srbg_api.ai_pipeline.contracts import AiStep, ModelRequest, ModelResponse
+from srbg_api.ai_pipeline.contracts import AiStep, ClassificationOutput, ModelRequest, ModelResponse
 from srbg_api.ai_pipeline.gateway import (
     MockProvider,
     ModelOutputRejected,
@@ -32,6 +32,7 @@ from srbg_api.ai_pipeline.preparation import (
 )
 from srbg_api.ai_pipeline.runtime import AttemptKind
 from srbg_api.ai_pipeline.security import PromptInjectionScanner
+from srbg_api.intelligence_v2.qualification import classification_allows_extraction
 from srbg_api.observability import PERSONAL_AI_JUDGMENT_RESULTS, PERSONAL_AI_REPAIR_ATTEMPTS
 
 
@@ -56,6 +57,8 @@ class PreparationResult:
 
 class PreparationRepository(Protocol):
     async def begin(self, run_id: UUID) -> PreparationDocument: ...
+
+    async def authorize_real_run(self, document: PreparationDocument) -> bool: ...
 
     async def record_security(self, document: PreparationDocument, detected: bool) -> None: ...
 
@@ -82,6 +85,10 @@ class PreparationRepository(Protocol):
         extraction: dict[str, Any],
     ) -> int: ...
 
+    async def queue_qualification_review(
+        self, document: PreparationDocument, classification: dict[str, Any]
+    ) -> UUID: ...
+
     async def load_judgment_facts(
         self, document: PreparationDocument
     ) -> list[EvidenceFactInput]: ...
@@ -103,15 +110,6 @@ class PreparationModel(Protocol):
 
 
 class AiContentPreparationService:
-    PILOT_SOURCE = "GOV-003"
-    PILOT_URL = "https://xxgk.mot.gov.cn/2020/jigou/glj/202311/P020250514396309964949.pdf"
-
-    @classmethod
-    def is_pilot_document(cls, source_code: str, canonical_url: str) -> bool:
-        """Fail closed to the one reachable, official R-AI01 pilot attachment."""
-
-        return source_code == cls.PILOT_SOURCE and canonical_url == cls.PILOT_URL
-
     def __init__(
         self,
         *,
@@ -125,9 +123,9 @@ class AiContentPreparationService:
 
     async def run(self, run_id: UUID) -> PreparationResult:
         document = await self._repository.begin(run_id)
-        if not self.is_pilot_document(document.source_code, document.canonical_url):
-            await self._repository.fail(run_id, "FAILED", "AI01_PILOT_SCOPE_DENIED")
-            raise PermissionError("AI01_PILOT_SCOPE_DENIED")
+        if not await self._repository.authorize_real_run(document):
+            await self._repository.fail(run_id, "FAILED", "AI_RUNTIME_AUTHORIZATION_DENIED")
+            raise PermissionError("AI_RUNTIME_AUTHORIZATION_DENIED")
         classify_input = prepare_document_input(
             document_version_id=document.document_version_id,
             title=document.title,
@@ -156,6 +154,17 @@ class AiContentPreparationService:
         except Exception as error:
             await self._repository.fail(run_id, "FAILED", _error_code(error))
             raise
+        classification = ClassificationOutput.model_validate(classification_response.output)
+        if not classification_allows_extraction(classification):
+            await self._repository.queue_qualification_review(
+                document, classification.model_dump(mode="json")
+            )
+            return PreparationResult(
+                run_id=run_id,
+                input_text=extract_input.text,
+                input_sha256=extract_input.input_sha256,
+                candidate_count=0,
+            )
         try:
             await self._repository.transition(run_id, "EXTRACTING")
             extraction_response = await self._execute_step(

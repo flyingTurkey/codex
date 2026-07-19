@@ -19,12 +19,59 @@ from pydantic import (
 
 API_VERSION: Final[Literal["v1"]] = "v1"
 CONTENT_SCHEMA_VERSION: Final[Literal["1.1.0"]] = "1.1.0"
+V2_PROJECTION_VERSION: Final[Literal["2.0.0"]] = "2.0.0"
 
 
 class ContractModel(BaseModel):
     """Base class that rejects fields not declared by the public contract."""
 
     model_config = ConfigDict(extra="forbid")
+
+
+class PrimaryIntelligenceType(StrEnum):
+    DIGITAL_TRANSFORMATION = "DIGITAL_TRANSFORMATION"
+    SAFETY_INTELLIGENCE = "SAFETY_INTELLIGENCE"
+    INDUSTRY_UPDATE = "INDUSTRY_UPDATE"
+
+
+class EngineeringObject(StrEnum):
+    HIGHWAY = "HIGHWAY"
+    RAILWAY = "RAILWAY"
+    BRIDGE = "BRIDGE"
+    TUNNEL = "TUNNEL"
+    BUILDING = "BUILDING"
+    MINING = "MINING"
+    MUNICIPAL = "MUNICIPAL"
+    WATER_CONSERVANCY = "WATER_CONSERVANCY"
+    PORT_WATERWAY = "PORT_WATERWAY"
+    AIRPORT = "AIRPORT"
+    ENERGY = "ENERGY"
+
+
+class SpecialtyFacet(StrEnum):
+    TUNNEL_GAS_MONITORING = "TUNNEL_GAS_MONITORING"
+
+
+class EquipmentFacet(StrEnum):
+    CONSTRUCTION_MACHINERY = "CONSTRUCTION_MACHINERY"
+
+
+class ClaimBasisV2(StrEnum):
+    MANUFACTURER_CLAIM = "MANUFACTURER_CLAIM"
+    RESEARCH_CONCLUSION = "RESEARCH_CONCLUSION"
+    PROJECT_FIRST_PARTY_RECORD = "PROJECT_FIRST_PARTY_RECORD"
+    INDEPENDENT_VERIFICATION = "INDEPENDENT_VERIFICATION"
+    AUTHORITY_FINDING = "AUTHORITY_FINDING"
+
+
+class AiSummaryStatusV2(StrEnum):
+    NOT_GENERATED = "NOT_GENERATED"
+    PROCESSING = "PROCESSING"
+    TEMPORARILY_UNAVAILABLE = "TEMPORARILY_UNAVAILABLE"
+    SCHEMA_REJECTED = "SCHEMA_REJECTED"
+    INSUFFICIENT_EVIDENCE = "INSUFFICIENT_EVIDENCE"
+    SUCCEEDED = "SUCCEEDED"
+    STALE = "STALE"
 
 
 def _validate_governance_reason(value: str) -> str:
@@ -537,6 +584,7 @@ class ProblemDetails(ContractModel):
     detail: str | None = None
     instance: str | None = None
     request_id: str
+    code: str | None = Field(default=None, pattern="^[A-Z0-9_]+$", max_length=100)
 
 
 class CursorPage[T](ContractModel):
@@ -1211,8 +1259,7 @@ class DigitalCaseDetail(ContractModel):
         ):
             raise ValueError("claimed outcomes must use CLAIMED verification")
         if any(
-            item.verification is not OutcomeVerification.VERIFIED
-            for item in self.verified_outcomes
+            item.verification is not OutcomeVerification.VERIFIED for item in self.verified_outcomes
         ):
             raise ValueError("verified outcomes must use VERIFIED verification")
         return self
@@ -1897,6 +1944,235 @@ class EventAutomaticResultView(ContractModel):
     original_url: HttpUrlString = Field(pattern="^https?://[^\\s]+$", max_length=2048)
     judgment: AiJudgmentSignal | None = None
     failure_reason_codes: list[str] = Field(default_factory=list, max_length=20)
+
+
+class IntelligenceFacetsV2(ContractModel):
+    engineering_objects: list[EngineeringObject] = Field(min_length=1, max_length=11)
+    specialties: list[SpecialtyFacet] = Field(default_factory=list, max_length=1)
+    equipment_domains: list[EquipmentFacet] = Field(default_factory=list, max_length=1)
+    cross_type_tags: list[PrimaryIntelligenceType] = Field(default_factory=list, max_length=2)
+
+
+class SourceAttributionV2(ContractModel):
+    name: str = Field(min_length=1, max_length=200)
+    official: bool
+
+
+class SourceExcerptV2(ContractModel):
+    text: str = Field(min_length=1, max_length=500)
+    claim_ids: list[UUID] = Field(min_length=1, max_length=100)
+    evidence_locators: list[str] = Field(min_length=1, max_length=100)
+
+
+class AiSummaryV2(ContractModel):
+    status: AiSummaryStatusV2
+    body: str | None = Field(default=None, min_length=30, max_length=500)
+    claim_ids: list[UUID] = Field(default_factory=list, max_length=100)
+    judgment_paragraphs: list[int] = Field(default_factory=list, max_length=3)
+    model: str | None = Field(default=None, max_length=100)
+    generated_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def enforce_status_payload(self) -> "AiSummaryV2":
+        if self.status == AiSummaryStatusV2.SUCCEEDED:
+            if (
+                self.body is None
+                or not self.claim_ids
+                or self.model is None
+                or self.generated_at is None
+            ):
+                raise ValueError(
+                    "a successful AI summary requires body, accepted claims and provenance"
+                )
+        elif self.body is not None or self.claim_ids:
+            raise ValueError("an unavailable AI summary cannot expose generated content")
+        return self
+
+
+class MediaViewV2(ContractModel):
+    media_id: UUID
+    name: str = Field(min_length=1, max_length=300)
+    preview_url: HttpUrlString | None = Field(default=None, pattern="^/api/v2/media/")
+    rights_basis: Literal["PUBLIC_DOMAIN", "EXPLICIT_LICENSE", "SOURCE_AUTHORIZED", "OWNER_OWNED"]
+
+
+class AttachmentViewV2(ContractModel):
+    media_id: UUID | None = None
+    name: str = Field(min_length=1, max_length=300)
+    download_url: HttpUrlString | None = Field(default=None, pattern="^/api/v2/media/")
+    source_url: HttpUrlString = Field(pattern="^https?://[^\\s]+$", max_length=2048)
+    redistribution_allowed: bool
+
+
+class HotspotReasonV2(ContractModel):
+    trigger: Literal["MULTI_SOURCE_7D", "AUTHORITY_SCORE"]
+    independent_source_count: int = Field(ge=1)
+    reasons: list[str] = Field(min_length=1, max_length=5)
+
+
+class EventMetadataProjectionV2(ContractModel):
+    projection_kind: Literal["R3_METADATA"] = "R3_METADATA"
+    event_id: UUID
+    title: str = Field(min_length=1, max_length=500)
+    primary_type: PrimaryIntelligenceType
+    official_source: bool
+    source_name: str = Field(min_length=1, max_length=200)
+    source_published_at: datetime | None
+    first_discovered_at: datetime
+    original_url: HttpUrlString = Field(pattern="^https?://[^\\s]+$", max_length=2048)
+    review_state: Literal["PENDING_OWNER_REVIEW"] = "PENDING_OWNER_REVIEW"
+
+
+class EventFullProjectionV2(ContractModel):
+    projection_kind: Literal["FULL"] = "FULL"
+    event_id: UUID
+    title: str = Field(min_length=1, max_length=500)
+    primary_type: PrimaryIntelligenceType
+    facets: IntelligenceFacetsV2
+    source: SourceAttributionV2
+    source_published_at: datetime | None
+    first_discovered_at: datetime
+    source_excerpt: SourceExcerptV2
+    ai_summary: AiSummaryV2
+    original_url: HttpUrlString = Field(pattern="^https?://[^\\s]+$", max_length=2048)
+    claim_basis: list[ClaimBasisV2] = Field(min_length=1, max_length=5)
+    hotspot: HotspotReasonV2 | None = None
+    media: list[MediaViewV2] = Field(default_factory=list, max_length=50)
+    attachments: list[AttachmentViewV2] = Field(default_factory=list, max_length=100)
+    correction_alert: str | None = Field(default=None, max_length=500)
+
+
+EventProjectionV2 = Annotated[
+    EventMetadataProjectionV2 | EventFullProjectionV2,
+    Field(discriminator="projection_kind"),
+]
+
+
+class FeedPageV2(ContractModel):
+    items: list[EventProjectionV2]
+    next_cursor: str | None = None
+    generated_at: datetime
+    projection_generation: Literal["v2"] = "v2"
+
+
+class EventAppendixV2(ContractModel):
+    event_id: UUID
+    claims: list[ClaimView] = Field(default_factory=list, max_length=500)
+    evidence: list["EvidenceView"] = Field(default_factory=list, max_length=500)
+    automatic_results: list[EventAutomaticResultView] = Field(default_factory=list, max_length=100)
+    relationships: list[EventRelationView] = Field(default_factory=list, max_length=500)
+    corrections: list[str] = Field(default_factory=list, max_length=100)
+
+
+class ReviewDecisionCommandV2(ContractModel):
+    command: Literal[
+        "CONFIRM_RELEVANCE",
+        "EXCLUDE_RELEVANCE",
+        "CORRECT_PRIMARY_TYPE",
+        "CORRECT_FACETS",
+        "ACCEPT_CLAIM",
+        "REJECT_CLAIM",
+        "REPLACE_CLAIM",
+        "APPROVE_AI_SUMMARY",
+        "REJECT_AI_SUMMARY",
+        "REGENERATE_AI_SUMMARY",
+        "DECIDE_RISK",
+        "REEVALUATE",
+    ]
+    reason: str = Field(min_length=1, max_length=1000)
+    expected_version: int = Field(ge=1)
+    payload: dict[str, str | int | bool | list[str]] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def enforce_command_payload(self) -> "ReviewDecisionCommandV2":
+        payload = self.payload
+        empty_payload_commands = {
+            "CONFIRM_RELEVANCE",
+            "EXCLUDE_RELEVANCE",
+            "APPROVE_AI_SUMMARY",
+            "REJECT_AI_SUMMARY",
+            "REGENERATE_AI_SUMMARY",
+            "REEVALUATE",
+        }
+        if self.command in empty_payload_commands:
+            if payload:
+                raise ValueError(f"{self.command} does not accept payload fields")
+            return self
+        if self.command == "CORRECT_PRIMARY_TYPE":
+            if set(payload) != {"primary_type"}:
+                raise ValueError("CORRECT_PRIMARY_TYPE requires only primary_type")
+            PrimaryIntelligenceType(str(payload["primary_type"]))
+            return self
+        if self.command == "CORRECT_FACETS":
+            allowed = {"engineering_objects", "specialties", "equipment_domains"}
+            if not set(payload) <= allowed or "engineering_objects" not in payload:
+                raise ValueError("CORRECT_FACETS requires engineering_objects and known facets")
+            objects = payload["engineering_objects"]
+            if not isinstance(objects, list) or not objects:
+                raise ValueError("CORRECT_FACETS requires at least one engineering object")
+            for value in objects:
+                EngineeringObject(value)
+            optional_facets = (
+                ("specialties", SpecialtyFacet),
+                ("equipment_domains", EquipmentFacet),
+            )
+            for field_name, facet_type in optional_facets:
+                values = payload.get(field_name, [])
+                if not isinstance(values, list):
+                    raise ValueError(f"{field_name} must be a list")
+                for value in values:
+                    facet_type(value)
+            return self
+        if self.command in {"ACCEPT_CLAIM", "REJECT_CLAIM"}:
+            if set(payload) != {"claim_id"}:
+                raise ValueError(f"{self.command} requires only claim_id")
+            UUID(str(payload["claim_id"]))
+            return self
+        if self.command == "REPLACE_CLAIM":
+            if set(payload) != {"claim_id", "value", "evidence_ids"}:
+                raise ValueError("REPLACE_CLAIM requires claim_id, value and evidence_ids")
+            UUID(str(payload["claim_id"]))
+            if not str(payload["value"]).strip():
+                raise ValueError("replacement claim value cannot be empty")
+            evidence_ids = payload["evidence_ids"]
+            if not isinstance(evidence_ids, list) or not evidence_ids:
+                raise ValueError("replacement claim requires evidence_ids")
+            for value in evidence_ids:
+                UUID(value)
+            return self
+        if self.command == "DECIDE_RISK":
+            if set(payload) != {"risk_tier"} or payload["risk_tier"] not in {
+                "R1",
+                "R2",
+                "R3",
+                "R4",
+            }:
+                raise ValueError("DECIDE_RISK requires one valid risk_tier")
+            return self
+        raise ValueError("unsupported review command")
+
+
+class ReviewDecisionReceiptV2(ContractModel):
+    decision_id: UUID
+    case_id: UUID
+    version: int = Field(ge=1)
+    recorded_at: datetime
+    reprocessing_outbox_id: UUID
+    reprocessing_state: Literal["QUEUED"] = "QUEUED"
+
+
+class ReviewCaseV2(ContractModel):
+    case_id: UUID
+    event_id: UUID | None = None
+    document_version_id: UUID
+    reason: str = Field(min_length=1, max_length=80)
+    risk_tier: Literal["R1", "R2", "R3", "R4"]
+    safe_metadata: dict[str, object]
+    state: Literal["OPEN", "RESOLVED", "QUARANTINED"]
+    processing_state: Literal["IDLE", "QUEUED", "PROCESSING", "FAILED"] = "IDLE"
+    version: int = Field(ge=1)
+    created_at: datetime
+    updated_at: datetime
 
 
 class EventDetail(ContractModel):

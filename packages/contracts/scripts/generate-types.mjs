@@ -12,6 +12,21 @@ const schemaFiles = (await readdir(schemaDir))
   .sort()
 
 const publicExports = {
+  'ai-summary-v2.schema.json': ['AiSummaryV2', 'AiSummaryStatusV2'],
+  'event-appendix-v2.schema.json': ['EventAppendixV2'],
+  'event-full-projection-v2.schema.json': [
+    'EventFullProjectionV2',
+    'PrimaryIntelligenceType',
+    'EngineeringObject',
+    'SpecialtyFacet',
+    'EquipmentFacet',
+    'ClaimBasisV2',
+  ],
+  'event-metadata-projection-v2.schema.json': ['EventMetadataProjectionV2'],
+  'feed-page-v2.schema.json': ['FeedPageV2'],
+  'review-decision-command-v2.schema.json': ['ReviewDecisionCommandV2'],
+  'review-decision-receipt-v2.schema.json': ['ReviewDecisionReceiptV2'],
+  'review-case-v2.schema.json': ['ReviewCaseV2'],
   'collection-create-request.schema.json': ['CollectionCreateRequest'],
   'collection-patch-request.schema.json': ['CollectionPatchRequest'],
   'collection-summary.schema.json': ['CollectionSummary'],

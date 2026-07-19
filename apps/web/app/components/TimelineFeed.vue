@@ -1,14 +1,11 @@
 <script setup lang="ts">
-import type { FeedPage, ItemDetail, ItemSummary } from '@srbg/contracts'
-import { computed, ref } from 'vue'
+import type { FeedPage, ItemSummary } from '@srbg/contracts'
+import { computed } from 'vue'
 
-import EvidenceDrawer from './EvidenceDrawer.vue'
 import IntelligenceCard from './IntelligenceCard.vue'
 
 const props = defineProps<{ items: FeedPage['items'] }>()
 
-const detail = ref<ItemDetail | null>(null)
-const evidenceOpen = ref(false)
 const dateFormatter = new Intl.DateTimeFormat('zh-CN', {
   dateStyle: 'long',
   timeZone: 'Asia/Shanghai',
@@ -26,8 +23,7 @@ const groups = computed(() => {
 })
 
 async function openEvidence(itemId: string): Promise<void> {
-  detail.value = await $fetch<ItemDetail>(`/api/v1/items/${itemId}`)
-  evidenceOpen.value = true
+  await navigateTo(`/events/${itemId}`)
 }
 </script>
 
@@ -43,14 +39,6 @@ async function openEvidence(itemId: string): Promise<void> {
       </ol>
     </section>
   </div>
-
-  <EvidenceDrawer
-    :open="evidenceOpen"
-    :item-id="detail?.item.id"
-    :claims="detail?.claims ?? []"
-    :evidence="detail?.evidence ?? []"
-    @close="evidenceOpen = false"
-  />
 </template>
 
 <style scoped>

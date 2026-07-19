@@ -1,6 +1,6 @@
 """PostgreSQL-backed append-only AI configuration service."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID
 
@@ -29,6 +29,16 @@ class PostgresAiAdminService:
                 {"environment": self._environment},
             )
             activations = {str(row.provider): bool(row.active) for row in active_rows}
+            runtime_rows = await connection.execute(
+                text(
+                    "SELECT DISTINCT ON (provider) provider,model,worker_heartbeat_at,"
+                    "queue_healthy,budget_healthy,last_real_schema_success_at "
+                    "FROM ai_runtime_health_v2 WHERE environment=:environment "
+                    "ORDER BY provider,observed_at DESC,id DESC"
+                ),
+                {"environment": self._environment},
+            )
+            runtime = {str(row.provider): row for row in runtime_rows}
         views: list[dict[str, object]] = []
         for capability in provider_catalog():
             key_configured = self._secrets.is_configured(capability.code)
@@ -39,6 +49,23 @@ class PostgresAiAdminService:
                 reasons.append("CONFIGURATION_NOT_ACTIVE")
             if not capability.real_call_enabled:
                 reasons.append("MOCK_ONLY")
+            configured = key_configured and activations.get(capability.code.value, False)
+            health = runtime.get(capability.code.value)
+            now = datetime.now(UTC)
+            if health is None or health.worker_heartbeat_at < now - timedelta(seconds=60):
+                reasons.append("WORKER_HEARTBEAT_STALE")
+            elif health.model not in capability.models:
+                reasons.append("PROVIDER_CONFIG_MISMATCH")
+            else:
+                if not health.queue_healthy:
+                    reasons.append("QUEUE_UNAVAILABLE")
+                if not health.budget_healthy:
+                    reasons.append("BUDGET_UNAVAILABLE")
+                if (
+                    health.last_real_schema_success_at is None
+                    or health.last_real_schema_success_at < now - timedelta(hours=24)
+                ):
+                    reasons.append("NO_RECENT_REAL_SCHEMA_SUCCESS")
             views.append(
                 {
                     "code": capability.code.value,
@@ -47,7 +74,11 @@ class PostgresAiAdminService:
                     "models": list(capability.models),
                     "real_call_enabled": capability.real_call_enabled,
                     "key_configured": key_configured,
-                    "runtime_status": "READY" if not reasons else "MODEL_DISABLED",
+                    "configured": configured,
+                    "available": configured and not reasons,
+                    "runtime_status": "AVAILABLE"
+                    if configured and not reasons
+                    else ("CONFIGURED_UNAVAILABLE" if configured else "NOT_CONFIGURED"),
                     "blocking_reasons": reasons,
                     "token_limits": {
                         "CLASSIFY": 1200,

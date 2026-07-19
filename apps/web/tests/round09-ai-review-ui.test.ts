@@ -66,6 +66,7 @@ describe('round 09 governed AI review UI', () => {
     expect(existsSync(resolve(process.cwd(), 'app/components/ReviewWorkbench.vue'))).toBe(false)
     expect(existsSync(resolve(process.cwd(), 'app/pages/admin/review/[id].vue'))).toBe(false)
     const detail = readFileSync(resolve(process.cwd(), 'app/pages/events/[id].vue'), 'utf8')
-    expect(detail).toContain('EvidenceDrawer')
+    expect(detail).toContain('Accepted claims')
+    expect(detail).toContain('/appendix')
   })
 })

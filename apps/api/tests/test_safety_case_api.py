@@ -54,16 +54,10 @@ def _client() -> TestClient:
     )
 
 
-def test_owner_event_projection_hides_conflicting_values() -> None:
+def test_replaced_v1_event_projection_is_unavailable() -> None:
     response = _client().get(f"/api/v1/events/{EVENT_ID}")
 
-    assert response.status_code == 200
-    fact = response.json()["unverified_facts"][0]
-    assert fact["value"] is None
-    assert fact["claim_id"] is None
-    assert fact["evidence_ids"] == []
-    assert "current_value" not in response.text
-    assert "candidate_value" not in response.text
+    assert response.status_code == 404
 
 
 def test_claim_conflict_review_apis_are_retired_for_every_legacy_role() -> None:

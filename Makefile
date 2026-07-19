@@ -33,6 +33,7 @@ TRIVY_IMAGE = aquasec/trivy:0.69.3
 UV_CACHE_DIR ?= $(CURDIR)/.cache/uv
 UV_PYTHON_INSTALL_DIR ?= $(CURDIR)/.tools/python
 PLAYWRIGHT_BROWSERS_PATH ?= $(CURDIR)/.cache/ms-playwright
+V2_CLOSEOUT_EVIDENCE_ROOT ?= $(CURDIR)/.cache/intelligence-v2-evidence
 
 export UV_CACHE_DIR
 export UV_PYTHON_INSTALL_DIR
@@ -45,7 +46,7 @@ export PLAYWRIGHT_BROWSERS_PATH
 	round11-test observability-test golden-replay load-test recovery-drill runbook-test \
 	round11-evidence-test readiness-evidence slo-weekly-report \
 	phase2-round13-test phase2-round14-test ai-content-preparation-test pers01-test personal-source-test personal-pilot-control-test \
-	personal-content-test personal-migration-test
+	personal-content-test personal-migration-test intelligence-v2-closeout
 
 setup:
 	$(UV) sync --frozen --all-packages
@@ -106,6 +107,16 @@ test:
 contract-test:
 	$(UV) run python scripts/check_contract_generation.py
 	$(UV) run python -m pytest packages/contracts/tests tests/contract -q
+
+intelligence-v2-closeout:
+	$(UV) run python -m pytest \
+		apps/api/tests/test_v2_closeout_domain.py \
+		apps/api/tests/test_v2_source_rollout.py \
+		tests/infrastructure/test_intelligence_v2_closeout.py -q
+	$(UV) run python scripts/intelligence_v2_closeout.py \
+		--acceptance-profile "$(ACCEPTANCE_PROFILE)" \
+		--evidence-root "$(V2_CLOSEOUT_EVIDENCE_ROOT)" \
+		--output "$(V2_CLOSEOUT_EVIDENCE_ROOT)/readiness.json"
 
 security-check:
 	$(UV) run pip-audit

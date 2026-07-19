@@ -148,19 +148,10 @@ def _client() -> tuple[TestClient, FakePortalService, FakePublicationService]:
     )
 
 
-def test_search_supports_etag_and_conditional_get() -> None:
+def test_replaced_v1_search_is_unavailable() -> None:
     client, _, _ = _client()
     response = client.get("/api/v1/search", params={"q": "隧道+监测预警+四川"})
-    assert response.status_code == 200
-    assert response.headers["etag"].startswith('"sha256:')
-
-    cached = client.get(
-        "/api/v1/search",
-        params={"q": "隧道+监测预警+四川"},
-        headers={"If-None-Match": response.headers["etag"]},
-    )
-    assert cached.status_code == 304
-    assert cached.content == b""
+    assert response.status_code == 404
 
 
 def test_saved_item_requires_idempotency_key_and_uses_current_principal() -> None:

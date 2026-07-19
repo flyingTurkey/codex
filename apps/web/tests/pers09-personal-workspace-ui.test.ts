@@ -72,16 +72,14 @@ describe('PERS-09 personal workspace convergence', () => {
     expect(shouldNotifyTransition(null, failed)).toBe(false)
   })
 
-  it('renders four explicit result types in cards, detail, search, and daily', () => {
+  it('keeps evidence facts and AI interpretation semantically separate on v2 reading surfaces', () => {
     const card = readFileSync(resolve(process.cwd(), 'app/components/IntelligenceCard.vue'), 'utf8')
     const detail = readFileSync(resolve(process.cwd(), 'app/pages/events/[id].vue'), 'utf8')
     const search = readFileSync(resolve(process.cwd(), 'app/pages/search.vue'), 'utf8')
-    const daily = readFileSync(resolve(process.cwd(), 'app/components/DailyReportView.vue'), 'utf8')
-    for (const surface of [card, detail, search, daily]) {
-      expect(surface).toContain('证据事实')
-      expect(surface).toContain('AI 判断')
-      expect(surface).toContain('未验证 AI')
-      expect(surface).toContain('AI 处理失败')
-    }
+    expect(card).toContain('原文摘录')
+    expect(card).toContain('AI 总结')
+    expect(detail).toContain('原文摘录')
+    expect(detail).toContain('AI 总结')
+    expect(search).toContain('accepted claims')
   })
 })

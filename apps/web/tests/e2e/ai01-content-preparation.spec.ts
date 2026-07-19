@@ -38,7 +38,7 @@ async function mockAiSettings(page: Page, providerState: ProviderState = {
   }))
 }
 
-test('saving a Secret shows a success popup and a ready runtime status', async ({ page }) => {
+test('saving a Secret confirms configuration without manufacturing runtime readiness', async ({ page }) => {
   const providerState: ProviderState = {
     keyConfigured: false,
     runtimeStatus: 'MODEL_DISABLED',
@@ -47,8 +47,8 @@ test('saving a Secret shows a success popup and a ready runtime status', async (
   await mockAiSettings(page, providerState)
   await page.route('**/api/v1/settings/ai/providers/deepseek/secret', (route) => {
     providerState.keyConfigured = true
-    providerState.runtimeStatus = 'READY'
-    providerState.blockingReasons = []
+    providerState.runtimeStatus = 'UNKNOWN'
+    providerState.blockingReasons = ['AI_RUNTIME_WINDOW_INCOMPLETE']
     return route.fulfill({ status: 204 })
   })
   await page.goto('/settings/ai')
@@ -56,7 +56,8 @@ test('saving a Secret shows a success popup and a ready runtime status', async (
   await page.getByRole('button', { name: '保存 Secret' }).click()
   await expect(page.getByRole('status')).toContainText('配置成功')
   await expect(page.getByLabel('写入 Secret')).toHaveValue('')
-  await expect(page.getByRole('definition').filter({ hasText: '就绪（READY）' })).toBeVisible()
+  await expect(page.getByRole('definition').filter({ hasText: '已配置' })).toBeVisible()
+  await expect(page.getByRole('definition').filter({ hasText: '不可用（UNKNOWN）' })).toBeVisible()
 })
 
 test('a failed Secret save shows an error popup and keeps the value for retry', async ({ page }) => {

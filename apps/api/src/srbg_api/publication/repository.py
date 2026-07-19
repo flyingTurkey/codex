@@ -2,17 +2,22 @@
 import json
 import logging
 from collections.abc import Awaitable, Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from hashlib import sha256
 from typing import Any, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
+from pydantic import TypeAdapter
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 from srbg_contracts import (
+    EventAppendixV2,
+    EventMetadataProjectionV2,
+    EventProjectionV2,
     OwnerRelationshipCorrectionRequest,
     OwnerRelationshipCorrectionResponse,
+    PrimaryIntelligenceType,
 )
 
 from srbg_api.identifiers import uuid7
@@ -33,6 +38,19 @@ from srbg_api.publication.personal_signals import (
 from srbg_api.publication.service import PublicationDenied
 
 logger = logging.getLogger(__name__)
+_V2_PROJECTION_ADAPTER: TypeAdapter[EventProjectionV2] = TypeAdapter(EventProjectionV2)
+
+
+def _primary_type(value: str) -> PrimaryIntelligenceType:
+    aliases = {
+        "DIGITAL": PrimaryIntelligenceType.DIGITAL_TRANSFORMATION,
+        "SAFETY": PrimaryIntelligenceType.SAFETY_INTELLIGENCE,
+        "BOTH": PrimaryIntelligenceType.INDUSTRY_UPDATE,
+    }
+    try:
+        return PrimaryIntelligenceType(value)
+    except ValueError:
+        return aliases.get(value, PrimaryIntelligenceType.INDUSTRY_UPDATE)
 
 
 class PostgresPublicationRepository:
@@ -68,6 +86,339 @@ class PostgresPublicationRepository:
             "last_anchor_success_timestamp": float(row["anchor_timestamp"]),
         }
 
+    async def upsert_v2_projection(
+        self,
+        *,
+        document_version_id: UUID,
+        projection: EventProjectionV2,
+        appendix: EventAppendixV2,
+        risk_tier: str,
+        projected_at: datetime,
+    ) -> None:
+        """Write reader and search projections in one publisher transaction."""
+
+        if projection.projection_kind == "FULL":
+            source_name = projection.source.name
+            excerpt = projection.source_excerpt.text
+            ai_text = projection.ai_summary.body
+        else:
+            source_name = projection.source_name
+            excerpt = ""
+            ai_text = None
+        claim_text = " ".join(
+            claim.value for claim in appendix.claims if claim.decision_status == "ACCEPTED"
+        )
+        searchable = " ".join((projection.title, source_name, claim_text, excerpt)).strip()
+        async with self._engine.begin() as connection:
+            generation = await connection.scalar(
+                text(
+                    "SELECT COALESCE(max(generation),0)+1 "
+                    "FROM intelligence_projection_v2 WHERE event_id=:event_id"
+                ),
+                {"event_id": projection.event_id},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO intelligence_projection_v2("
+                    "event_id,document_version_id,projection_kind,primary_type,risk_tier,"
+                    "payload,appendix_payload,generation,projected_at) VALUES("
+                    ":event_id,:document_version_id,:projection_kind,:primary_type,:risk_tier,"
+                    "CAST(:payload AS jsonb),CAST(:appendix AS jsonb),:generation,:projected_at) "
+                    "ON CONFLICT(event_id) DO UPDATE SET "
+                    "document_version_id=EXCLUDED.document_version_id,"
+                    "projection_kind=EXCLUDED.projection_kind,primary_type=EXCLUDED.primary_type,"
+                    "risk_tier=EXCLUDED.risk_tier,payload=EXCLUDED.payload,"
+                    "appendix_payload=EXCLUDED.appendix_payload,generation=EXCLUDED.generation,"
+                    "projected_at=EXCLUDED.projected_at"
+                ),
+                {
+                    "event_id": projection.event_id,
+                    "document_version_id": document_version_id,
+                    "projection_kind": projection.projection_kind,
+                    "primary_type": projection.primary_type.value,
+                    "risk_tier": risk_tier,
+                    "payload": projection.model_dump_json(),
+                    "appendix": appendix.model_dump_json(),
+                    "generation": generation,
+                    "projected_at": projected_at,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO search_projection_v2("
+                    "event_id,title_source_claims_excerpt,ai_summary_low_weight,search_vector,"
+                    "generation,updated_at) VALUES("
+                    ":event_id,:searchable,:ai_text,"
+                    "setweight(to_tsvector('simple',:searchable),'A') || "
+                    "setweight(to_tsvector('simple',COALESCE(:ai_text,'')),'D'),"
+                    ":generation,:updated_at) ON CONFLICT(event_id) DO UPDATE SET "
+                    "title_source_claims_excerpt=EXCLUDED.title_source_claims_excerpt,"
+                    "ai_summary_low_weight=EXCLUDED.ai_summary_low_weight,"
+                    "search_vector=EXCLUDED.search_vector,generation=EXCLUDED.generation,"
+                    "updated_at=EXCLUDED.updated_at"
+                ),
+                {
+                    "event_id": projection.event_id,
+                    "searchable": searchable,
+                    "ai_text": ai_text,
+                    "generation": generation,
+                    "updated_at": projected_at,
+                },
+            )
+
+    async def refresh_v2_projection(
+        self,
+        *,
+        event_id: UUID,
+        document_version_id: UUID,
+        projected_at: datetime,
+    ) -> None:
+        """Load current server facts and refresh without accepting caller-built content."""
+
+        async with self._engine.connect() as connection:
+            row = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT item.title,item.original_url,item.channel,item.risk_level,"
+                            "item.source_published_at,item.first_discovered_at,"
+                            "item.current_document_version_id,source.name AS source_name,"
+                            "source.source_type,review.state AS review_state,"
+                            "review.risk_tier AS review_risk,review.safe_metadata,"
+                            "raw.scan_status "
+                            "FROM event_identity_binding binding "
+                            "JOIN intelligence_item item ON item.id=binding.item_id "
+                            "JOIN source ON source.id=item.source_id "
+                            "JOIN document_version version ON version.id=:version_id "
+                            "JOIN raw_object raw ON raw.id=version.raw_object_id "
+                            "LEFT JOIN owner_review_case_v2 review "
+                            "ON review.document_version_id=:version_id "
+                            "WHERE binding.event_id=:event_id "
+                            "AND version.id=item.current_document_version_id "
+                            "ORDER BY review.updated_at DESC NULLS LAST LIMIT 1"
+                        ),
+                        {"event_id": event_id, "version_id": document_version_id},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            existing = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT payload,appendix_payload,risk_tier "
+                            "FROM intelligence_projection_v2 "
+                            "WHERE event_id=:event_id AND document_version_id=:version_id"
+                        ),
+                        {"event_id": event_id, "version_id": document_version_id},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        if row is None or row["current_document_version_id"] != document_version_id:
+            raise PublicationDenied(("V2_DOCUMENT_NOT_CURRENT",))
+        if row["scan_status"] != "CLEAN":
+            raise PublicationDenied(("V2_RAW_NOT_CLEAN",))
+        risk_tier = str(row["review_risk"] or row["risk_level"])
+        if risk_tier == "R4":
+            await self._remove_v2_projection(event_id=event_id)
+            raise PublicationDenied(("R4_CANNOT_ENTER_READER_PROJECTION",))
+        if risk_tier == "R3" and row["review_state"] != "RESOLVED":
+            metadata = dict(row["safe_metadata"] or {})
+            projection = EventMetadataProjectionV2(
+                event_id=event_id,
+                title=str(metadata.get("title") or row["title"]),
+                primary_type=_primary_type(
+                    str(metadata.get("primary_type") or row["channel"])
+                ),
+                official_source=str(row["source_type"]).lower()
+                in {"government", "official", "standards_body"},
+                source_name=str(row["source_name"]),
+                source_published_at=row["source_published_at"],
+                first_discovered_at=row["first_discovered_at"],
+                original_url=str(row["original_url"]),
+                review_state="PENDING_OWNER_REVIEW",
+            )
+            await self.upsert_v2_projection(
+                document_version_id=document_version_id,
+                projection=projection,
+                appendix=EventAppendixV2(event_id=event_id),
+                risk_tier="R3",
+                projected_at=projected_at,
+            )
+            return
+        if existing is None:
+            raise PublicationDenied(("V2_FULL_AUTHORITATIVE_FACTS_INCOMPLETE",))
+        full_projection = _V2_PROJECTION_ADAPTER.validate_python(existing["payload"])
+        appendix = EventAppendixV2.model_validate(existing["appendix_payload"])
+        if full_projection.projection_kind != "FULL":
+            raise PublicationDenied(("V2_FULL_AUTHORITATIVE_FACTS_INCOMPLETE",))
+        projected_claim_ids = {
+            claim.id for claim in appendix.claims if claim.decision_status == "ACCEPTED"
+        }
+        async with self._engine.connect() as connection:
+            accepted_claim_ids = set(
+                (
+                    await connection.scalars(
+                        text(
+                            "SELECT DISTINCT claim.id FROM claim "
+                            "JOIN event_identity_binding binding ON binding.item_id=claim.item_id "
+                            "JOIN claim_evidence evidence ON evidence.claim_id=claim.id "
+                            "WHERE binding.event_id=:event_id "
+                            "AND claim.document_version_id=:version_id "
+                            "AND claim.verification_status='ACCEPTED' "
+                            "AND (COALESCE(claim.acceptance_method,'HUMAN_REVIEW')"
+                            "<>'AUTOMATED_EVIDENCE_GATE' OR "
+                            "'ACTIVE'=(SELECT state.state "
+                            "FROM automatic_evidence_fact_state_event state "
+                            "WHERE state.claim_id=claim.id "
+                            "ORDER BY state.created_at DESC,state.id DESC LIMIT 1))"
+                        ),
+                        {"event_id": event_id, "version_id": document_version_id},
+                    )
+                ).all()
+            )
+            summary_claim_ids = await connection.scalar(
+                text(
+                    "SELECT claim_ids FROM ai_summary_version_v2 "
+                    "WHERE event_id=:event_id AND document_version_id=:version_id "
+                    "AND status='SUCCEEDED' ORDER BY created_at DESC,id DESC LIMIT 1"
+                ),
+                {"event_id": event_id, "version_id": document_version_id},
+            )
+        if (
+            not accepted_claim_ids
+            or projected_claim_ids != accepted_claim_ids
+            or summary_claim_ids is None
+            or not set(summary_claim_ids).issubset(accepted_claim_ids)
+        ):
+            raise PublicationDenied(("V2_FULL_ACCEPTED_CLAIMS_MISMATCH",))
+        await self.upsert_v2_projection(
+            document_version_id=document_version_id,
+            projection=full_projection,
+            appendix=appendix,
+            risk_tier=risk_tier,
+            projected_at=projected_at,
+        )
+
+    async def _remove_v2_projection(self, *, event_id: UUID) -> None:
+        async with self._engine.begin() as connection:
+            await connection.execute(
+                text("DELETE FROM intelligence_projection_v2 WHERE event_id=:event_id"),
+                {"event_id": event_id},
+            )
+
+    async def process_v2_review_reprocessing(
+        self,
+        *,
+        outbox_id: UUID,
+        processed_at: datetime,
+    ) -> None:
+        """Apply exactly one idempotent review Outbox fact, failing closed."""
+
+        async with self._engine.begin() as connection:
+            work = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT outbox.id,outbox.status,outbox.attempt_count,outbox.updated_at,"
+                            "outbox.document_version_id,decision.command,decision.payload,"
+                            "review.id AS case_id,review.event_id "
+                            "FROM owner_review_reprocessing_outbox_v2 outbox "
+                            "JOIN owner_review_decision_v2 decision "
+                            "ON decision.id=outbox.decision_id "
+                            "JOIN owner_review_case_v2 review ON review.id=outbox.case_id "
+                            "WHERE outbox.id=:id FOR UPDATE OF outbox"
+                        ),
+                        {"id": outbox_id},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if work is None:
+                raise LookupError(f"unknown review reprocessing outbox {outbox_id}")
+            if work["status"] == "COMPLETED":
+                return
+            if work["status"] == "PROCESSING" and processed_at - work[
+                "updated_at"
+            ] <= timedelta(minutes=5):
+                return
+            if work["attempt_count"] >= 3:
+                await connection.execute(
+                    text(
+                        "UPDATE owner_review_reprocessing_outbox_v2 "
+                        "SET status='DEAD_LETTER',updated_at=:now WHERE id=:id"
+                    ),
+                    {"id": outbox_id, "now": processed_at},
+                )
+                return
+            await connection.execute(
+                text(
+                    "UPDATE owner_review_reprocessing_outbox_v2 SET status='PROCESSING',"
+                    "attempt_count=attempt_count+1,last_error_code=NULL,updated_at=:now "
+                    "WHERE id=:id"
+                ),
+                {"id": outbox_id, "now": processed_at},
+            )
+        event_id = work["event_id"]
+        command = str(work["command"])
+        try:
+            if command == "EXCLUDE_RELEVANCE":
+                if event_id is not None:
+                    await self._remove_v2_projection(event_id=event_id)
+                state = "RESOLVED"
+            elif command == "DECIDE_RISK" and dict(work["payload"] or {}).get(
+                "payload", {}
+            ).get("risk_tier") == "R4":
+                if event_id is not None:
+                    await self._remove_v2_projection(event_id=event_id)
+                state = "QUARANTINED"
+            else:
+                if event_id is None:
+                    raise PublicationDenied(("V2_REPROCESSING_EVENT_NOT_MATERIALIZED",))
+                await self.refresh_v2_projection(
+                    event_id=event_id,
+                    document_version_id=work["document_version_id"],
+                    projected_at=processed_at,
+                )
+                state = "RESOLVED"
+        except Exception as exc:
+            error_code = (
+                exc.reasons[0]
+                if isinstance(exc, PublicationDenied) and exc.reasons
+                else "V2_REPROCESSING_FAILED"
+            )
+            async with self._engine.begin() as connection:
+                await connection.execute(
+                    text(
+                        "UPDATE owner_review_reprocessing_outbox_v2 SET status='FAILED',"
+                        "last_error_code=:error,updated_at=:now WHERE id=:id"
+                    ),
+                    {"id": outbox_id, "error": error_code, "now": processed_at},
+                )
+            raise
+        async with self._engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "UPDATE owner_review_case_v2 SET state=:state,updated_at=:now "
+                    "WHERE id=:case_id"
+                ),
+                {
+                    "case_id": work["case_id"],
+                    "state": state,
+                    "now": processed_at,
+                },
+            )
+            await connection.execute(
+                text(
+                    "UPDATE owner_review_reprocessing_outbox_v2 "
+                    "SET status='COMPLETED',updated_at=:now WHERE id=:id"
+                ),
+                {"id": outbox_id, "now": processed_at},
+            )
     async def process_personal_content_once(self, *, processed_at: datetime) -> bool:
         async with self._engine.begin() as connection:
             event = (

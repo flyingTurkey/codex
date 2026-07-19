@@ -71,15 +71,11 @@ describe('round 06 journal paper UI', () => {
     expect(panel).toContain('发表年份')
   })
 
-  it('keeps metadata, abstract, fulltext, citation and similar papers explicit on shared detail', () => {
+  it('keeps paper evidence and source access explicit on the shared v2 reader', () => {
     const page = readFileSync(resolve(process.cwd(), 'app/pages/events/[id].vue'), 'utf8')
 
-    expect(page).toContain('元数据可见')
-    expect(page).toContain('当前发布投影仅含题录，未收录摘要')
-    expect(page).toContain('平台未保存全文')
-    expect(page).toContain('复制 GB/T 7714')
-    expect(page).toContain('导出 RIS')
-    expect(page).toContain('导出 BibTeX')
-    expect(page).toContain('相似论文')
+    expect(page).toContain('查看原文')
+    expect(page).toContain('原文摘录')
+    expect(page).toContain('Accepted claims')
   })
 })

@@ -91,6 +91,19 @@ class S3ObjectStore:
                     content.extend(chunk)
                 raise OSError("object exceeds bounded read limit")
 
+    async def presigned_get(self, key: str, *, max_age_seconds: int) -> str:
+        if max_age_seconds < 1 or max_age_seconds > 300:
+            raise ValueError("signed download lifetime must be between 1 and 300 seconds")
+        async with asyncio.timeout(self._timeout_seconds):
+            async with self._client() as client:
+                return str(
+                    await client.generate_presigned_url(
+                        "get_object",
+                        Params={"Bucket": self._bucket, "Key": key},
+                        ExpiresIn=max_age_seconds,
+                    )
+                )
+
     async def erase(self, object_key: str) -> None:
         """Delete one content-addressed object under the bounded S3 policy."""
         async with asyncio.timeout(self._timeout_seconds):

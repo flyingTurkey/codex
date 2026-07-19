@@ -208,39 +208,15 @@ def _client() -> tuple[TestClient, StubPublicationService]:
     return TestClient(app, headers={"X-SRBG-Local-Step-Up": "true"}), publication
 
 
-def test_viewer_feed_and_detail_receive_only_r3_whitelist() -> None:
+def test_replaced_v1_feed_and_item_detail_are_unavailable() -> None:
     client, _ = _client()
     headers = {"X-SRBG-Local-Roles": "viewer"}
 
     feed = client.get("/api/v1/feed?mode=all&domain=safety", headers=headers)
     detail = client.get(f"/api/v1/items/{ITEM_ID}", headers=headers)
 
-    assert feed.status_code == 200
-    item = feed.json()["items"][0]
-    assert item["publication_revision_id"] is None
-    assert set(item) == {
-        "id",
-        "publication_revision_id",
-        "domain",
-        "content_type",
-        "title",
-        "source_name",
-        "source_published_at",
-        "first_discovered_at",
-        "activity_at",
-        "original_url",
-        "review_status",
-        "event_type",
-        "event_status",
-        "canonical_event_id",
-        "event_version",
-    }
-    assert detail.status_code == 200
-    assert detail.headers["deprecation"].startswith("@")
-    assert f"</api/v1/events/{ITEM_ID}>; rel=\"successor-version\"" in detail.headers["link"]
-    assert "sunset" not in detail.headers
-    assert "claims" not in detail.json()
-    assert "evidence" not in detail.json()
+    assert feed.status_code == 404
+    assert detail.status_code == 404
 
 
 def test_legacy_review_decision_api_is_unavailable() -> None:
@@ -262,7 +238,7 @@ def test_legacy_review_decision_api_is_unavailable() -> None:
     assert smuggled.status_code == 404
 
 
-def test_hot_topics_remain_readable_but_legacy_governance_writes_are_unavailable() -> None:
+def test_v1_hot_topics_and_legacy_governance_writes_are_unavailable() -> None:
     client, publication = _client()
     viewer = {"X-SRBG-Local-Roles": "viewer"}
     reviewer = {
@@ -310,8 +286,7 @@ def test_hot_topics_remain_readable_but_legacy_governance_writes_are_unavailable
         },
     )
 
-    assert hot.status_code == 200
-    assert hot.json()["auto_merge_enabled"] is False
+    assert hot.status_code == 404
     assert denied.status_code == 404
     assert queue.status_code == 404
     assert decided.status_code == 404
@@ -337,10 +312,8 @@ def test_legacy_reviewer_identity_endpoint_is_unavailable() -> None:
     assert publication.reviewer_id is None
 
 
-def test_digital_feed_filters_are_forwarded_to_the_shared_query_service() -> None:
+def test_v1_digital_feed_filters_are_retired() -> None:
     client, _ = _client()
-    query = client.app.state.intelligence_service
-
     response = client.get(
         "/api/v1/feed?domain=digital&content_type=DIGITAL_CASE"
         "&engineering_domain=BRIDGE&scenario=SMART_BEAM_FACTORY"
@@ -349,38 +322,11 @@ def test_digital_feed_filters_are_forwarded_to_the_shared_query_service() -> Non
         headers={"X-SRBG-Local-Roles": "viewer"},
     )
 
-    assert response.status_code == 200
-    assert query.feed_arguments == {
-        "mode": "all",
-        "domain": "digital",
-        "content_type": "DIGITAL_CASE",
-        "engineering_domain": "BRIDGE",
-        "scenario": "SMART_BEAM_FACTORY",
-        "maturity": "SINGLE_PROJECT_PRODUCTION",
-        "source_nature": "ENTERPRISE_SELF_REPORT",
-        "paper_type": None,
-        "technology_tag": None,
-        "access_level": None,
-        "year": None,
-        "product_kind": None,
-        "evidence_level": None,
-            "deployment_mode": None,
-            "region": None,
-            "source_id": None,
-            "source_authority": None,
-            "published_from": None,
-            "published_to": None,
-            "review_status": None,
-            "evidence_status": None,
-            "sort": "relevance",
-        "cursor": None,
-        "limit": 20,
-    }
+    assert response.status_code == 404
 
 
-def test_paper_filters_and_citation_use_existing_item_resource() -> None:
+def test_v1_paper_feed_is_retired_but_citation_remains() -> None:
     client, _ = _client()
-    query = client.app.state.intelligence_service
     headers = {"X-SRBG-Local-Roles": "viewer"}
 
     feed = client.get(
@@ -391,20 +337,13 @@ def test_paper_filters_and_citation_use_existing_item_resource() -> None:
     )
     citation = client.get(f"/api/v1/items/{ITEM_ID}/citation?format=gb-t-7714", headers=headers)
 
-    assert feed.status_code == 200
-    assert query.feed_arguments is not None
-    assert query.feed_arguments["content_type"] == "JOURNAL_PAPER"
-    assert query.feed_arguments["technology_tag"] == "DIGITAL_TWIN"
-    assert query.feed_arguments["paper_type"] == "ARTICLE"
-    assert query.feed_arguments["access_level"] == "METADATA_ONLY"
-    assert query.feed_arguments["year"] == 2025
+    assert feed.status_code == 404
     assert citation.status_code == 200
     assert "桥梁数字孪生研究" in citation.text
 
 
-def test_product_filters_are_forwarded_to_the_unified_feed_service() -> None:
+def test_v1_product_feed_filters_are_retired() -> None:
     client, _ = _client()
-    query = client.app.state.intelligence_service
     response = client.get(
         "/api/v1/feed?domain=digital&content_type=LOW_ALTITUDE_EQUIPMENT"
         "&product_kind=UAV_DOCK&evidence_level=VENDOR_CLAIM_ONLY"
@@ -412,12 +351,7 @@ def test_product_filters_are_forwarded_to_the_unified_feed_service() -> None:
         headers={"X-SRBG-Local-Roles": "viewer"},
     )
 
-    assert response.status_code == 200
-    assert query.feed_arguments is not None
-    assert query.feed_arguments["content_type"] == "LOW_ALTITUDE_EQUIPMENT"
-    assert query.feed_arguments["product_kind"] == "UAV_DOCK"
-    assert query.feed_arguments["evidence_level"] == "VENDOR_CLAIM_ONLY"
-    assert query.feed_arguments["deployment_mode"] == "EDGE"
+    assert response.status_code == 404
 
 
 def test_legacy_digital_case_review_patch_is_unavailable() -> None:

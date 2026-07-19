@@ -8,6 +8,8 @@ type ProviderView = {
   models: string[]
   real_call_enabled: boolean
   key_configured: boolean
+  configured: boolean
+  available: boolean
   runtime_status: string
   blocking_reasons: string[]
   token_limits?: { CLASSIFY: number, EXTRACT: number, SUMMARIZE?: number, VERIFY?: number }
@@ -38,7 +40,7 @@ watch(() => props.secretSavedNonce, () => {
 })
 
 function runtimeStatusLabel(status: string): string {
-  return status === 'READY' ? '就绪（READY）' : `未就绪（${status}）`
+  return status === 'AVAILABLE' ? '可用' : `不可用（${status}）`
 }
 
 function selectProvider(code: string): void {
@@ -79,7 +81,8 @@ function saveSecret(): void {
         <dl>
           <div><dt>固定端点</dt><dd>{{ selected.base_url }}{{ selected.request_path }}</dd></div>
           <div><dt>运行能力</dt><dd>{{ selected.real_call_enabled ? '允许受控调用' : '仅 Mock' }}</dd></div>
-          <div><dt>运行状态</dt><dd class="ai-config__runtime" :data-status="selected.runtime_status">{{ runtimeStatusLabel(selected.runtime_status) }}</dd></div>
+          <div><dt>配置状态</dt><dd>{{ selected.configured ? '已配置' : '未配置' }}</dd></div>
+          <div><dt>真实可用性</dt><dd class="ai-config__runtime" :data-status="selected.runtime_status">{{ runtimeStatusLabel(selected.runtime_status) }}</dd></div>
           <div><dt>Secret</dt><dd>{{ selected.key_configured ? '已配置' : '未配置' }}</dd></div>
           <div><dt>阻断原因</dt><dd>{{ selected.blocking_reasons.join('、') || '无' }}</dd></div>
           <div v-if="selected.token_limits">
@@ -123,6 +126,6 @@ function saveSecret(): void {
 .ai-config__form dl div, .ai-config__form label { display: grid; gap: var(--spacing-1); }
 .ai-config__form dt, .ai-config__form label { color: var(--color-ink-600); font-size: var(--text-sm); }
 .ai-config__form dd { margin: 0; overflow-wrap: anywhere; color: var(--color-ink-900); }
-.ai-config__runtime[data-status='READY'] { color: var(--color-brand-700); }
+.ai-config__runtime[data-status='AVAILABLE'] { color: var(--color-brand-700); }
 @media (max-width: 47.999rem) { .ai-config__layout { grid-template-columns: 1fr; } }
 </style>

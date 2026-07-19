@@ -1,0 +1,495 @@
+{
+  "$defs": {
+    "AiSummaryStatusV2": {
+      "enum": [
+        "NOT_GENERATED",
+        "PROCESSING",
+        "TEMPORARILY_UNAVAILABLE",
+        "SCHEMA_REJECTED",
+        "INSUFFICIENT_EVIDENCE",
+        "SUCCEEDED",
+        "STALE"
+      ],
+      "title": "AiSummaryStatusV2",
+      "type": "string"
+    },
+    "AiSummaryV2": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "minLength": 30,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Body"
+        },
+        "claim_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Claim Ids",
+          "type": "array"
+        },
+        "generated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Generated At"
+        },
+        "judgment_paragraphs": {
+          "items": {
+            "type": "integer"
+          },
+          "maxItems": 3,
+          "title": "Judgment Paragraphs",
+          "type": "array"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "status": {
+          "$ref": "#/$defs/AiSummaryStatusV2"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "AiSummaryV2",
+      "type": "object"
+    },
+    "AttachmentViewV2": {
+      "additionalProperties": false,
+      "properties": {
+        "download_url": {
+          "anyOf": [
+            {
+              "pattern": "^/api/v2/media/",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Download Url"
+        },
+        "media_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Media Id"
+        },
+        "name": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "redistribution_allowed": {
+          "title": "Redistribution Allowed",
+          "type": "boolean"
+        },
+        "source_url": {
+          "maxLength": 2048,
+          "pattern": "^https?://[^\\s]+$",
+          "title": "Source Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "source_url",
+        "redistribution_allowed"
+      ],
+      "title": "AttachmentViewV2",
+      "type": "object"
+    },
+    "ClaimBasisV2": {
+      "enum": [
+        "MANUFACTURER_CLAIM",
+        "RESEARCH_CONCLUSION",
+        "PROJECT_FIRST_PARTY_RECORD",
+        "INDEPENDENT_VERIFICATION",
+        "AUTHORITY_FINDING"
+      ],
+      "title": "ClaimBasisV2",
+      "type": "string"
+    },
+    "EngineeringObject": {
+      "enum": [
+        "HIGHWAY",
+        "RAILWAY",
+        "BRIDGE",
+        "TUNNEL",
+        "BUILDING",
+        "MINING",
+        "MUNICIPAL",
+        "WATER_CONSERVANCY",
+        "PORT_WATERWAY",
+        "AIRPORT",
+        "ENERGY"
+      ],
+      "title": "EngineeringObject",
+      "type": "string"
+    },
+    "EquipmentFacet": {
+      "enum": [
+        "CONSTRUCTION_MACHINERY"
+      ],
+      "title": "EquipmentFacet",
+      "type": "string"
+    },
+    "HotspotReasonV2": {
+      "additionalProperties": false,
+      "properties": {
+        "independent_source_count": {
+          "minimum": 1,
+          "title": "Independent Source Count",
+          "type": "integer"
+        },
+        "reasons": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 5,
+          "minItems": 1,
+          "title": "Reasons",
+          "type": "array"
+        },
+        "trigger": {
+          "enum": [
+            "MULTI_SOURCE_7D",
+            "AUTHORITY_SCORE"
+          ],
+          "title": "Trigger",
+          "type": "string"
+        }
+      },
+      "required": [
+        "trigger",
+        "independent_source_count",
+        "reasons"
+      ],
+      "title": "HotspotReasonV2",
+      "type": "object"
+    },
+    "IntelligenceFacetsV2": {
+      "additionalProperties": false,
+      "properties": {
+        "cross_type_tags": {
+          "items": {
+            "$ref": "#/$defs/PrimaryIntelligenceType"
+          },
+          "maxItems": 2,
+          "title": "Cross Type Tags",
+          "type": "array"
+        },
+        "engineering_objects": {
+          "items": {
+            "$ref": "#/$defs/EngineeringObject"
+          },
+          "maxItems": 11,
+          "minItems": 1,
+          "title": "Engineering Objects",
+          "type": "array"
+        },
+        "equipment_domains": {
+          "items": {
+            "$ref": "#/$defs/EquipmentFacet"
+          },
+          "maxItems": 1,
+          "title": "Equipment Domains",
+          "type": "array"
+        },
+        "specialties": {
+          "items": {
+            "$ref": "#/$defs/SpecialtyFacet"
+          },
+          "maxItems": 1,
+          "title": "Specialties",
+          "type": "array"
+        }
+      },
+      "required": [
+        "engineering_objects"
+      ],
+      "title": "IntelligenceFacetsV2",
+      "type": "object"
+    },
+    "MediaViewV2": {
+      "additionalProperties": false,
+      "properties": {
+        "media_id": {
+          "format": "uuid",
+          "title": "Media Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "preview_url": {
+          "anyOf": [
+            {
+              "pattern": "^/api/v2/media/",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Preview Url"
+        },
+        "rights_basis": {
+          "enum": [
+            "PUBLIC_DOMAIN",
+            "EXPLICIT_LICENSE",
+            "SOURCE_AUTHORIZED",
+            "OWNER_OWNED"
+          ],
+          "title": "Rights Basis",
+          "type": "string"
+        }
+      },
+      "required": [
+        "media_id",
+        "name",
+        "rights_basis"
+      ],
+      "title": "MediaViewV2",
+      "type": "object"
+    },
+    "PrimaryIntelligenceType": {
+      "enum": [
+        "DIGITAL_TRANSFORMATION",
+        "SAFETY_INTELLIGENCE",
+        "INDUSTRY_UPDATE"
+      ],
+      "title": "PrimaryIntelligenceType",
+      "type": "string"
+    },
+    "SourceAttributionV2": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "official": {
+          "title": "Official",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "official"
+      ],
+      "title": "SourceAttributionV2",
+      "type": "object"
+    },
+    "SourceExcerptV2": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Claim Ids",
+          "type": "array"
+        },
+        "evidence_locators": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Evidence Locators",
+          "type": "array"
+        },
+        "text": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "claim_ids",
+        "evidence_locators"
+      ],
+      "title": "SourceExcerptV2",
+      "type": "object"
+    },
+    "SpecialtyFacet": {
+      "enum": [
+        "TUNNEL_GAS_MONITORING"
+      ],
+      "title": "SpecialtyFacet",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "ai_summary": {
+      "$ref": "#/$defs/AiSummaryV2"
+    },
+    "attachments": {
+      "items": {
+        "$ref": "#/$defs/AttachmentViewV2"
+      },
+      "maxItems": 100,
+      "title": "Attachments",
+      "type": "array"
+    },
+    "claim_basis": {
+      "items": {
+        "$ref": "#/$defs/ClaimBasisV2"
+      },
+      "maxItems": 5,
+      "minItems": 1,
+      "title": "Claim Basis",
+      "type": "array"
+    },
+    "correction_alert": {
+      "anyOf": [
+        {
+          "maxLength": 500,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Correction Alert"
+    },
+    "event_id": {
+      "format": "uuid",
+      "title": "Event Id",
+      "type": "string"
+    },
+    "facets": {
+      "$ref": "#/$defs/IntelligenceFacetsV2"
+    },
+    "first_discovered_at": {
+      "format": "date-time",
+      "title": "First Discovered At",
+      "type": "string"
+    },
+    "hotspot": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/HotspotReasonV2"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "media": {
+      "items": {
+        "$ref": "#/$defs/MediaViewV2"
+      },
+      "maxItems": 50,
+      "title": "Media",
+      "type": "array"
+    },
+    "original_url": {
+      "maxLength": 2048,
+      "pattern": "^https?://[^\\s]+$",
+      "title": "Original Url",
+      "type": "string"
+    },
+    "primary_type": {
+      "$ref": "#/$defs/PrimaryIntelligenceType"
+    },
+    "projection_kind": {
+      "const": "FULL",
+      "default": "FULL",
+      "title": "Projection Kind",
+      "type": "string"
+    },
+    "source": {
+      "$ref": "#/$defs/SourceAttributionV2"
+    },
+    "source_excerpt": {
+      "$ref": "#/$defs/SourceExcerptV2"
+    },
+    "source_published_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Source Published At"
+    },
+    "title": {
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    }
+  },
+  "required": [
+    "event_id",
+    "title",
+    "primary_type",
+    "facets",
+    "source",
+    "source_published_at",
+    "first_discovered_at",
+    "source_excerpt",
+    "ai_summary",
+    "original_url",
+    "claim_basis"
+  ],
+  "title": "EventFullProjectionV2",
+  "type": "object"
+}

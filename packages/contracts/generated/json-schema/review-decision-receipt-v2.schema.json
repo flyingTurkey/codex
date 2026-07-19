@@ -1,0 +1,45 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "case_id": {
+      "format": "uuid",
+      "title": "Case Id",
+      "type": "string"
+    },
+    "decision_id": {
+      "format": "uuid",
+      "title": "Decision Id",
+      "type": "string"
+    },
+    "recorded_at": {
+      "format": "date-time",
+      "title": "Recorded At",
+      "type": "string"
+    },
+    "reprocessing_outbox_id": {
+      "format": "uuid",
+      "title": "Reprocessing Outbox Id",
+      "type": "string"
+    },
+    "reprocessing_state": {
+      "const": "QUEUED",
+      "default": "QUEUED",
+      "title": "Reprocessing State",
+      "type": "string"
+    },
+    "version": {
+      "minimum": 1,
+      "title": "Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "decision_id",
+    "case_id",
+    "version",
+    "recorded_at",
+    "reprocessing_outbox_id"
+  ],
+  "title": "ReviewDecisionReceiptV2",
+  "type": "object"
+}

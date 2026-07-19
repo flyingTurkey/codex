@@ -363,7 +363,7 @@ function formatLoss(amountMinor: number, currency: string): string {
     </p>
 
     <section v-if="item.ai_judgment" class="intelligence-card__ai-judgment">
-      <h4>为什么值得关注</h4>
+      <h4>AI 总结</h4>
       <p>{{ item.ai_judgment.why_worth_attention }}</p>
       <dl>
         <div v-if="item.ai_judgment.potential_industry_impacts?.length">
@@ -402,7 +402,7 @@ function formatLoss(amountMinor: number, currency: string): string {
       v-if="item.one_sentence_fact && item.ai_assistance?.accepted_claims_only && item.review_status === 'APPROVED'"
       class="intelligence-card__ai-summary"
     >
-      {{ item.one_sentence_fact }}
+      <strong>原文摘录：</strong>{{ item.one_sentence_fact }}
     </p>
 
     <template v-if="!isWithdrawn && item.publication_revision_id && regulationSummary">
@@ -753,6 +753,14 @@ function formatLoss(amountMinor: number, currency: string): string {
   padding: var(--spacing-4);
   gap: var(--spacing-2);
   border-radius: var(--radius-md);
+}
+
+.intelligence-card__ai-judgment > p,
+.intelligence-card__ai-summary {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .intelligence-card__ai-judgment {

@@ -48,6 +48,9 @@ class FakeRepository:
             ),
         )
 
+    async def authorize_real_run(self, document: PreparationDocument) -> bool:
+        return document.document_version_id == "document-v1"
+
     async def record_security(self, document: PreparationDocument, detected: bool) -> None:
         assert detected is False
 
@@ -79,7 +82,7 @@ class FakeRepository:
         classification: dict[str, Any],
         extraction: dict[str, Any],
     ) -> int:
-        assert classification["item_type"] == "DIGITAL_CASE"
+        assert classification["primary_type"] == "DIGITAL_TRANSFORMATION"
         assert extraction["claims"][0]["claim_status"] == "UNVERIFIED"
         self.materialized = 1
         return 1
@@ -122,15 +125,17 @@ class FakeModel:
     async def generate(self, request: ModelRequest) -> ModelResponse:
         if request.step is AiStep.CLASSIFY:
             output: dict[str, Any] = {
-                "channel": "DIGITAL",
-                "item_type": "DIGITAL_CASE",
-                "engineering_domains": ["HIGHWAY"],
-                "lifecycle_stages": ["OPERATION"],
-                "technology_tags": ["DIGITALIZATION"],
-                "application_scenarios": ["MAINTENANCE"],
-                "confidence": 0.9,
-                "needs_human_review": True,
-                "review_reasons": ["SHADOW"],
+                "direct_relevance": "RELEVANT",
+                "core_new_fact": "公路养护采用数字化系统",
+                "primary_type": "DIGITAL_TRANSFORMATION",
+                "engineering_objects": ["HIGHWAY"],
+                "specialty_facets": [],
+                "equipment_domains": [],
+                "content_form": "PROJECT_RECORD",
+                "evidence_locators": ["html:p:1"],
+                "confidence": 0.95,
+                "needs_human_review": False,
+                "review_reasons": [],
                 "security": {
                     "prompt_injection_detected": False,
                     "prompt_injection_status": "NONE",
@@ -230,14 +235,6 @@ def test_one_document_reaches_automatic_evidence_gate_without_claim_review() -> 
     assert sha256(result.input_text.encode()).hexdigest() == result.input_sha256
 
 
-def test_ai01_scope_is_pinned_to_the_reachable_official_attachment() -> None:
-    assert AiContentPreparationService.PILOT_URL == PILOT_URL
-    assert AiContentPreparationService.is_pilot_document("GOV-003", PILOT_URL)
-    assert not AiContentPreparationService.is_pilot_document(
-        "GOV-003",
-        (
-            "https://zizhan.mot.gov.cn/sj2019/gongluj/sihaoncl/dianxingal/202311/"
-            "P020250627753815314372.pdf"
-        ),
-    )
-    assert not AiContentPreparationService.is_pilot_document("GOV-004", PILOT_URL)
+def test_ai01_scope_is_authorized_by_server_facts_not_a_pinned_url() -> None:
+    source = AiContentPreparationService.run.__code__.co_consts
+    assert PILOT_URL not in source

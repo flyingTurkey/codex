@@ -50,6 +50,9 @@ from srbg_api.document_vault.security import UploadRejected
 from srbg_api.document_vault.storage import S3ObjectStore
 from srbg_api.health import HealthChecker, build_default_checkers, run_check
 from srbg_api.identifiers import uuid7
+from srbg_api.intelligence_v2.api import V2IntelligenceService
+from srbg_api.intelligence_v2.api import router as intelligence_v2_router
+from srbg_api.intelligence_v2.service import PostgresV2IntelligenceService
 from srbg_api.internal_projection.reader import PublishedProjectionReader
 from srbg_api.internal_projection.service import PublishedIntelligenceQueryService
 from srbg_api.logging import configure_logging
@@ -91,6 +94,7 @@ def create_app(
     publication_service: PersonalPublicationService | None = None,
     portal_service: PortalService | None = None,
     ai_admin_service: AiAdminService | None = None,
+    v2_intelligence_service: V2IntelligenceService | None = None,
 ) -> FastAPI:
     configure_logging()
     settings = get_settings()
@@ -109,6 +113,7 @@ def create_app(
             publication_service,
             portal_service,
             ai_admin_service,
+            v2_intelligence_service,
         ):
             close = getattr(service, "close", None)
             if close is not None:
@@ -121,7 +126,7 @@ def create_app(
             allow_origins=settings.cors_allowed_origins,
             allow_credentials=False,
             allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-            allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
+            allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "If-Match"],
         )
     app.state.source_service = source_service
     app.state.intelligence_service = intelligence_service
@@ -129,6 +134,7 @@ def create_app(
     app.state.publication_service = publication_service
     app.state.portal_service = portal_service
     app.state.ai_admin_service = ai_admin_service
+    app.state.v2_intelligence_service = v2_intelligence_service
     app.state.publication_gate_denials = Counter()
     logger = logging.getLogger("srbg.api")
 
@@ -165,12 +171,24 @@ def create_app(
 
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        exception_detail = exc.detail
+        if isinstance(exception_detail, Mapping):
+            code_value = exception_detail.get("code")
+            code = str(code_value) if code_value is not None else None
+            title = str(exception_detail.get("title") or code or "Request failed")
+            detail_value = exception_detail.get("detail")
+            detail = str(detail_value) if detail_value is not None else None
+        else:
+            code = None
+            title = str(exception_detail)
+            detail = None
         problem = ProblemDetails(
-            title=str(exc.detail),
+            title=title,
             status=exc.status_code,
-            detail=None,
+            detail=detail,
             instance=str(request.url.path),
             request_id=request.state.request_id,
+            code=code,
         )
         return JSONResponse(
             status_code=exc.status_code,
@@ -421,6 +439,7 @@ def create_app(
 
     app.include_router(source_vault_router)
     app.include_router(intelligence_router)
+    app.include_router(intelligence_v2_router)
     app.include_router(portal_router)
     app.include_router(personal_ai_settings_router)
 
@@ -529,6 +548,11 @@ def build_default_app() -> FastAPI:
             cursor_signing_key=settings.cursor_signing_key.get_secret_value().encode(),
             semantic_enabled=settings.semantic_search_enabled,
             semantic_timeout_seconds=settings.semantic_search_timeout_seconds,
+        ),
+        v2_intelligence_service=PostgresV2IntelligenceService(
+            create_projection_reader_engine(settings),
+            create_publication_engine(settings),
+            S3ObjectStore(settings),
         ),
     )
 

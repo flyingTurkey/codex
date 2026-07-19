@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Intelligence v2 closeout readiness manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "acceptance_profile", "generated_at", "decision", "reasons", "checks", "context", "manifest_sha256"],
+  "properties": {
+    "schema_version": {"const": "intelligence-v2-closeout-1.0.0"},
+    "acceptance_profile": {"enum": ["ENGINEERING_CLOSEOUT", "PRODUCTION_CLOSEOUT"]},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "decision": {"enum": ["GO", "NO_GO"]},
+    "reasons": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[A-Z0-9_]+$"}
+    },
+    "checks": {"type": "object"},
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseline_commit", "migration_head", "environment", "time_window", "rule_versions", "evidence_refs"],
+      "properties": {
+        "baseline_commit": {"type": ["string", "null"], "pattern": "^[a-f0-9]{40}$"},
+        "migration_head": {"const": "0036_ai_content_result_lifecycle"},
+        "environment": {"type": ["string", "null"], "minLength": 1},
+        "time_window": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["start", "end"],
+          "properties": {
+            "start": {"type": "string", "format": "date-time"},
+            "end": {"type": "string", "format": "date-time"}
+          }
+        },
+        "rule_versions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["closeout", "source_rollout", "qualification", "feed_inspection", "runtime"],
+          "properties": {
+            "closeout": {"enum": ["intelligence-v2-closeout-engineering-1.0.0", "intelligence-v2-closeout-production-1.0.0"]},
+            "source_rollout": {"enum": ["civil-source-rollout-v2-engineering-1.0.0", "civil-source-rollout-v2.0.0"]},
+            "qualification": {"enum": ["not-required-engineering-1.0.0", "intelligence-v2-qualification-1.0.0"]},
+            "feed_inspection": {"enum": ["intelligence-v2-feed-structural-engineering-1.0.0", "intelligence-v2-feed-inspection-1.0.0"]},
+            "runtime": {"enum": ["intelligence-v2-runtime-engineering-1.0.0", "intelligence-v2-runtime-production-1.0.0"]}
+          }
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "sha256"],
+            "properties": {
+              "path": {"type": "string", "minLength": 1},
+              "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+            }
+          }
+        }
+      }
+    },
+    "manifest_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"acceptance_profile": {"const": "ENGINEERING_CLOSEOUT"}}},
+      "then": {"properties": {"context": {"properties": {"rule_versions": {"properties": {
+        "closeout": {"const": "intelligence-v2-closeout-engineering-1.0.0"},
+        "source_rollout": {"const": "civil-source-rollout-v2-engineering-1.0.0"},
+        "qualification": {"const": "not-required-engineering-1.0.0"},
+        "feed_inspection": {"const": "intelligence-v2-feed-structural-engineering-1.0.0"},
+        "runtime": {"const": "intelligence-v2-runtime-engineering-1.0.0"}
+      }}}}}}
+    },
+    {
+      "if": {"properties": {"acceptance_profile": {"const": "PRODUCTION_CLOSEOUT"}}},
+      "then": {"properties": {"context": {"properties": {"rule_versions": {"properties": {
+        "closeout": {"const": "intelligence-v2-closeout-production-1.0.0"},
+        "source_rollout": {"const": "civil-source-rollout-v2.0.0"},
+        "qualification": {"const": "intelligence-v2-qualification-1.0.0"},
+        "feed_inspection": {"const": "intelligence-v2-feed-inspection-1.0.0"},
+        "runtime": {"const": "intelligence-v2-runtime-production-1.0.0"}
+      }}}}}}
+    }
+  ]
+}

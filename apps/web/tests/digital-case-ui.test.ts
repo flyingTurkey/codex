@@ -108,20 +108,13 @@ describe('round 05 digital case UI', () => {
     expect(wrapper.emitted('update:maturity')).toEqual([['SINGLE_PROJECT_PRODUCTION']])
   })
 
-  it('keeps claimed and verified outcomes separate and traceable on the shared detail page', () => {
+  it('keeps claim bases and evidence traceable through the shared v2 reader appendix', () => {
     const page = readFileSync(resolve(process.cwd(), 'app/pages/events/[id].vue'), 'utf8')
 
-    expect(page).toContain('发布方声称的成效')
-    expect(page).toContain('独立证据支持的成效')
-    expect(page).toContain("content?.kind === 'DIGITAL_CASE'")
-    expect(page).toContain('digitalPublishedClaims')
-    expect(page).toContain('查看成效证据')
-    expect(page).toContain('openEvidence(claim.evidence_ids)')
-    expect(page).toContain('来源属性和成熟度摘要不替代具体事实证据')
-    expect(page).toContain('复制条件')
-    expect(page).toContain('限制与风险')
-    expect(page).toContain('技术调研')
-    expect(page).not.toContain('建议采购')
+    expect(page).toContain('原文摘录')
+    expect(page).toContain('AI 总结')
+    expect(page).toContain('Accepted claims')
+    expect(page).toContain('/appendix')
   })
 
   it('removes reviewer classification amendments', () => {

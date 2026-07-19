@@ -19,10 +19,11 @@ describe('round 14 Event identity switch', () => {
     expect(source).not.toContain('`/items/${item.id}`')
   })
 
-  it('renders Event detail from one complete Event endpoint', () => {
+  it('renders Event detail from the strict v2 reader and appendix endpoints', () => {
     const source = readFileSync('app/pages/events/[id].vue', 'utf8')
 
-    expect(source).toContain('`/api/v1/events/${eventId}`')
+    expect(source).toContain('`/api/v2/events/${eventId}`')
+    expect(source).toContain('`/api/v2/events/${eventId}/appendix`')
     expect(source).not.toContain('ItemDetail')
     expect(source).not.toContain('/content')
     expect(source).not.toContain('/source-comparison')

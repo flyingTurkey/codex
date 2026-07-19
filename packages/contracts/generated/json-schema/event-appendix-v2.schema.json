@@ -1,0 +1,625 @@
+{
+  "$defs": {
+    "AiJudgmentSignal": {
+      "additionalProperties": false,
+      "properties": {
+        "current_limitations": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Current Limitations",
+          "type": "array"
+        },
+        "potential_engineering_scenarios": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Potential Engineering Scenarios",
+          "type": "array"
+        },
+        "potential_industry_impacts": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Potential Industry Impacts",
+          "type": "array"
+        },
+        "questions_to_verify": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Questions To Verify",
+          "type": "array"
+        },
+        "used_claim_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Used Claim Ids",
+          "type": "array"
+        },
+        "why_worth_attention": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Why Worth Attention",
+          "type": "string"
+        }
+      },
+      "required": [
+        "why_worth_attention",
+        "used_claim_ids"
+      ],
+      "title": "AiJudgmentSignal",
+      "type": "object"
+    },
+    "ClaimView": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_type": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Claim Type",
+          "type": "string"
+        },
+        "decision_status": {
+          "anyOf": [
+            {
+              "enum": [
+                "PENDING",
+                "ACCEPTED",
+                "REJECTED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decision Status"
+        },
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "value": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "claim_type",
+        "label",
+        "value",
+        "evidence_ids"
+      ],
+      "title": "ClaimView",
+      "type": "object"
+    },
+    "EventAutomaticResultView": {
+      "additionalProperties": false,
+      "properties": {
+        "failure_reason_codes": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Failure Reason Codes",
+          "type": "array"
+        },
+        "judgment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AiJudgmentSignal"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "original_url": {
+          "maxLength": 2048,
+          "pattern": "^https?://[^\\s]+$",
+          "title": "Original Url",
+          "type": "string"
+        },
+        "result_type": {
+          "enum": [
+            "EVIDENCE_FACT",
+            "AI_JUDGMENT",
+            "UNVERIFIED_AI",
+            "AI_PROCESSING_FAILED"
+          ],
+          "title": "Result Type",
+          "type": "string"
+        },
+        "signal_id": {
+          "format": "uuid",
+          "title": "Signal Id",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "signal_id",
+        "result_type",
+        "title",
+        "original_url"
+      ],
+      "title": "EventAutomaticResultView",
+      "type": "object"
+    },
+    "EventRelation": {
+      "enum": [
+        "FOLLOW_UP",
+        "INVESTIGATES",
+        "PENALIZES",
+        "RECTIFIES",
+        "CORRECTS"
+      ],
+      "title": "EventRelation",
+      "type": "string"
+    },
+    "EventRelationView": {
+      "additionalProperties": false,
+      "properties": {
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "from_item_id": {
+          "format": "uuid",
+          "title": "From Item Id",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "relation_type": {
+          "$ref": "#/$defs/EventRelation"
+        },
+        "reviewed_at": {
+          "format": "date-time",
+          "title": "Reviewed At",
+          "type": "string"
+        },
+        "reviewed_by": {
+          "format": "uuid",
+          "title": "Reviewed By",
+          "type": "string"
+        },
+        "to_item_id": {
+          "format": "uuid",
+          "title": "To Item Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "event_id",
+        "from_item_id",
+        "to_item_id",
+        "relation_type",
+        "reviewed_by",
+        "reviewed_at"
+      ],
+      "title": "EventRelationView",
+      "type": "object"
+    },
+    "EvidenceView": {
+      "additionalProperties": false,
+      "properties": {
+        "char_end": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Char End"
+        },
+        "char_start": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Char Start"
+        },
+        "claim_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Claim Ids",
+          "type": "array"
+        },
+        "document_version_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Document Version Id"
+        },
+        "excerpt": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Excerpt",
+          "type": "string"
+        },
+        "excerpt_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Excerpt Sha256",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "locator": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "HTML_PARAGRAPH": "#/$defs/HtmlParagraphLocator",
+                  "PDF_OCR": "#/$defs/PdfOcrLocator",
+                  "PDF_TABLE_CELL": "#/$defs/PdfTableCellLocator",
+                  "PDF_TEXT": "#/$defs/PdfTextLocator"
+                },
+                "propertyName": "type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/HtmlParagraphLocator"
+                },
+                {
+                  "$ref": "#/$defs/PdfTextLocator"
+                },
+                {
+                  "$ref": "#/$defs/PdfOcrLocator"
+                },
+                {
+                  "$ref": "#/$defs/PdfTableCellLocator"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Locator"
+        },
+        "original_url": {
+          "maxLength": 2048,
+          "pattern": "^https?://[^\\s]+$",
+          "title": "Original Url",
+          "type": "string"
+        },
+        "paragraph_id": {
+          "anyOf": [
+            {
+              "pattern": "^html-p-\\d{4}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Paragraph Id"
+        }
+      },
+      "required": [
+        "id",
+        "claim_ids",
+        "excerpt",
+        "excerpt_sha256",
+        "original_url"
+      ],
+      "title": "EvidenceView",
+      "type": "object"
+    },
+    "HtmlParagraphLocator": {
+      "additionalProperties": false,
+      "properties": {
+        "char_end": {
+          "exclusiveMinimum": 0,
+          "title": "Char End",
+          "type": "integer"
+        },
+        "char_start": {
+          "minimum": 0,
+          "title": "Char Start",
+          "type": "integer"
+        },
+        "paragraph_id": {
+          "pattern": "^html-p-\\d{4}$",
+          "title": "Paragraph Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "HTML_PARAGRAPH",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "paragraph_id",
+        "char_start",
+        "char_end"
+      ],
+      "title": "HtmlParagraphLocator",
+      "type": "object"
+    },
+    "PageBoundingBox": {
+      "additionalProperties": false,
+      "description": "Rotation-normalized PDF coordinates in integer thousandths of a point.",
+      "properties": {
+        "x0": {
+          "minimum": 0,
+          "title": "X0",
+          "type": "integer"
+        },
+        "x1": {
+          "exclusiveMinimum": 0,
+          "title": "X1",
+          "type": "integer"
+        },
+        "y0": {
+          "minimum": 0,
+          "title": "Y0",
+          "type": "integer"
+        },
+        "y1": {
+          "exclusiveMinimum": 0,
+          "title": "Y1",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "x0",
+        "y0",
+        "x1",
+        "y1"
+      ],
+      "title": "PageBoundingBox",
+      "type": "object"
+    },
+    "PdfOcrLocator": {
+      "additionalProperties": false,
+      "properties": {
+        "bbox": {
+          "$ref": "#/$defs/PageBoundingBox"
+        },
+        "block_id": {
+          "format": "uuid",
+          "title": "Block Id",
+          "type": "string"
+        },
+        "confidence_bps": {
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Confidence Bps",
+          "type": "integer"
+        },
+        "page_number": {
+          "maximum": 10000,
+          "minimum": 1,
+          "title": "Page Number",
+          "type": "integer"
+        },
+        "type": {
+          "const": "PDF_OCR",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "page_number",
+        "block_id",
+        "bbox",
+        "type",
+        "confidence_bps"
+      ],
+      "title": "PdfOcrLocator",
+      "type": "object"
+    },
+    "PdfTableCellLocator": {
+      "additionalProperties": false,
+      "properties": {
+        "bbox": {
+          "$ref": "#/$defs/PageBoundingBox"
+        },
+        "column_index": {
+          "minimum": 0,
+          "title": "Column Index",
+          "type": "integer"
+        },
+        "confidence_bps": {
+          "anyOf": [
+            {
+              "maximum": 10000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence Bps"
+        },
+        "page_number": {
+          "maximum": 10000,
+          "minimum": 1,
+          "title": "Page Number",
+          "type": "integer"
+        },
+        "row_index": {
+          "minimum": 0,
+          "title": "Row Index",
+          "type": "integer"
+        },
+        "table_cell_id": {
+          "format": "uuid",
+          "title": "Table Cell Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "PDF_TABLE_CELL",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "page_number",
+        "table_cell_id",
+        "row_index",
+        "column_index",
+        "bbox"
+      ],
+      "title": "PdfTableCellLocator",
+      "type": "object"
+    },
+    "PdfTextLocator": {
+      "additionalProperties": false,
+      "properties": {
+        "bbox": {
+          "$ref": "#/$defs/PageBoundingBox"
+        },
+        "block_id": {
+          "format": "uuid",
+          "title": "Block Id",
+          "type": "string"
+        },
+        "page_number": {
+          "maximum": 10000,
+          "minimum": 1,
+          "title": "Page Number",
+          "type": "integer"
+        },
+        "type": {
+          "const": "PDF_TEXT",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "page_number",
+        "block_id",
+        "bbox",
+        "type"
+      ],
+      "title": "PdfTextLocator",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "automatic_results": {
+      "items": {
+        "$ref": "#/$defs/EventAutomaticResultView"
+      },
+      "maxItems": 100,
+      "title": "Automatic Results",
+      "type": "array"
+    },
+    "claims": {
+      "items": {
+        "$ref": "#/$defs/ClaimView"
+      },
+      "maxItems": 500,
+      "title": "Claims",
+      "type": "array"
+    },
+    "corrections": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Corrections",
+      "type": "array"
+    },
+    "event_id": {
+      "format": "uuid",
+      "title": "Event Id",
+      "type": "string"
+    },
+    "evidence": {
+      "items": {
+        "$ref": "#/$defs/EvidenceView"
+      },
+      "maxItems": 500,
+      "title": "Evidence",
+      "type": "array"
+    },
+    "relationships": {
+      "items": {
+        "$ref": "#/$defs/EventRelationView"
+      },
+      "maxItems": 500,
+      "title": "Relationships",
+      "type": "array"
+    }
+  },
+  "required": [
+    "event_id"
+  ],
+  "title": "EventAppendixV2",
+  "type": "object"
+}

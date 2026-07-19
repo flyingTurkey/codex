@@ -6,6 +6,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from srbg_contracts.models import (
+    AiSummaryV2,
     AutomaticRelationshipView,
     ClaimView,
     CollectionCreateRequest,
@@ -22,15 +23,19 @@ from srbg_contracts.models import (
     DiscoveryTopicView,
     DocumentDetail,
     DocumentPageView,
+    EventAppendixV2,
     EventAutomaticResultView,
     EventDetail,
+    EventFullProjectionV2,
     EventItem,
+    EventMetadataProjectionV2,
     EventRelationView,
     EventTimeline,
     EvidenceView,
     FeedbackRequest,
     FeedNotice,
     FeedPage,
+    FeedPageV2,
     FingerprintResponse,
     FixtureUploadResponse,
     HotTopicPage,
@@ -52,6 +57,9 @@ from srbg_contracts.models import (
     PublishedEventDetailV1,
     PublishedEventSummaryV1,
     ReadinessResponse,
+    ReviewCaseV2,
+    ReviewDecisionCommandV2,
+    ReviewDecisionReceiptV2,
     SaveItemRequest,
     ScoreSummary,
     SearchContext,
@@ -71,6 +79,14 @@ from srbg_contracts.models import (
 )
 
 SCHEMA_MODELS: dict[str, type[BaseModel]] = {
+    "ai-summary-v2.schema.json": AiSummaryV2,
+    "event-appendix-v2.schema.json": EventAppendixV2,
+    "event-full-projection-v2.schema.json": EventFullProjectionV2,
+    "event-metadata-projection-v2.schema.json": EventMetadataProjectionV2,
+    "feed-page-v2.schema.json": FeedPageV2,
+    "review-decision-command-v2.schema.json": ReviewDecisionCommandV2,
+    "review-decision-receipt-v2.schema.json": ReviewDecisionReceiptV2,
+    "review-case-v2.schema.json": ReviewCaseV2,
     "feedback-request.schema.json": FeedbackRequest,
     "metric-sample.schema.json": MetricSample,
     "personal-source-patch-request.schema.json": PersonalSourcePatchRequest,

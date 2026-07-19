@@ -40,28 +40,41 @@ class CandidateSecurity(StrictModel):
 
 
 class ClassificationOutput(StrictModel):
-    channel: Literal["DIGITAL", "SAFETY", "OUT_OF_SCOPE", "UNKNOWN"]
-    item_type: Literal[
-        "DIGITAL_CASE",
-        "JOURNAL_PAPER",
-        "SOFTWARE_PRODUCT",
-        "IOT_PRODUCT",
-        "LOW_ALTITUDE_EQUIPMENT",
-        "AI_EQUIPMENT",
-        "SAFETY_REGULATION",
-        "SAFETY_CASE",
-        "OUT_OF_SCOPE",
-        "UNKNOWN",
+    direct_relevance: Literal["RELEVANT", "IRRELEVANT", "LOW_CONFIDENCE", "FAILED"]
+    core_new_fact: str | None = Field(default=None, max_length=500)
+    primary_type: Literal[
+        "DIGITAL_TRANSFORMATION", "SAFETY_INTELLIGENCE", "INDUSTRY_UPDATE"
+    ] | None
+    engineering_objects: list[
+        Literal[
+            "HIGHWAY", "RAILWAY", "BRIDGE", "TUNNEL", "BUILDING", "MINING",
+            "MUNICIPAL", "WATER_CONSERVANCY", "PORT_WATERWAY", "AIRPORT", "ENERGY",
+        ]
     ]
-    engineering_domains: list[str]
-    lifecycle_stages: list[str]
-    technology_tags: list[str]
-    application_scenarios: list[str]
-    hazard_types: list[str] | None = None
+    specialty_facets: list[Literal["TUNNEL_GAS_MONITORING"]]
+    equipment_domains: list[Literal["CONSTRUCTION_MACHINERY"]]
+    content_form: Literal[
+        "AUTHORITY_NOTICE", "PROJECT_RECORD", "RESEARCH", "PRODUCT",
+        "ACCIDENT_UPDATE", "STANDARD_GUIDANCE", "OPERATION_UPDATE", "OTHER",
+    ]
+    evidence_locators: list[str]
     confidence: float = Field(ge=0, le=1)
     needs_human_review: bool
     review_reasons: list[str]
     security: CandidateSecurity
+
+    @model_validator(mode="after")
+    def enforce_relevance_boundary(self) -> "ClassificationOutput":
+        if self.direct_relevance == "RELEVANT":
+            if not self.core_new_fact or self.primary_type is None:
+                raise ValueError("relevant content requires a core fact and one primary type")
+            if not self.engineering_objects and not self.equipment_domains:
+                raise ValueError("relevant content requires an in-scope engineering object")
+            if not self.evidence_locators:
+                raise ValueError("relevant content requires evidence location")
+        elif self.primary_type is not None:
+            raise ValueError("unqualified content cannot receive a primary type")
+        return self
 
 
 ClaimField = Literal[

@@ -5,6 +5,7 @@ This process intentionally has no database, object-storage, command-execution, o
 
 import asyncio
 import re
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -28,7 +29,8 @@ class AiWorkerSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SRBG_AI_", extra="ignore")
 
     broker_url: str = "redis://redis:6379/0"
-    provider: str = "mock"
+    provider: str = "deepseek"
+    environment: str = "production"
     api_key: SecretStr | None = None
     api_key_file: Path | None = None
     timeout_seconds: float = 30.0
@@ -45,6 +47,7 @@ celery_app.conf.update(
     task_routes={
         "srbg.ai.generate": {"queue": "ai"},
         "srbg.ai.generate_attempt": {"queue": "ai"},
+        "srbg.ai.runtime_probe": {"queue": "ai"},
     },
 )
 
@@ -68,17 +71,34 @@ def generate_attempt(payload: dict[str, Any]) -> dict[str, Any]:
     return asyncio.run(_generate_attempt(payload))
 
 
+@celery_app.task(name="srbg.ai.runtime_probe")  # type: ignore[untyped-decorator]
+def runtime_probe() -> dict[str, str]:
+    """Prove that the isolated queue runtime is alive without using the network."""
+
+    return {
+        "status": "READY",
+        "provider": settings.provider,
+        "environment": settings.environment,
+        "observed_at": datetime.now(UTC).isoformat(),
+    }
+
+
 async def _generate_attempt(payload: dict[str, Any]) -> dict[str, Any]:
     try:
         request = ModelRequest.model_validate(payload)
         response = await _physical_generate(request)
-        return {"status": "SUCCEEDED", "response": response.model_dump(mode="json")}
+        return {
+            "status": "SUCCEEDED",
+            "response": response.model_dump(mode="json"),
+            "runtime_provider": settings.provider,
+            "runtime_model": request.model_profile,
+        }
     except (TimeoutError, httpx.TimeoutException):
         return _safe_failure("PROVIDER_TIMEOUT", retryable=True)
     except httpx.NetworkError:
         return _safe_failure("PROVIDER_NETWORK_ERROR", retryable=True)
-    except TransientProviderError as exc:
-        return _safe_failure(str(exc), retryable=True)
+    except TransientProviderError:
+        return _safe_failure("TRANSIENT_UNAVAILABLE", retryable=True)
     except ModelOutputRejected as exc:
         return _safe_failure(str(exc), repairable=True)
     except (ValueError, RuntimeError) as exc:
@@ -95,6 +115,8 @@ async def _generate_attempt(payload: dict[str, Any]) -> dict[str, Any]:
 async def _generate(payload: dict[str, Any]) -> dict[str, Any]:
     request = ModelRequest.model_validate(payload)
     if settings.provider == "mock":
+        if settings.environment != "test":
+            raise RuntimeError("MOCK_PROVIDER_FORBIDDEN")
         mock_provider = MockProvider({request.step: _mock_output(request)})
         return (await ControlledModelGateway(mock_provider).generate(request)).model_dump(
             mode="json"
@@ -104,6 +126,8 @@ async def _generate(payload: dict[str, Any]) -> dict[str, Any]:
 
 async def _physical_generate(request: ModelRequest) -> Any:
     if settings.provider == "mock":
+        if settings.environment != "test":
+            raise RuntimeError("MOCK_PROVIDER_FORBIDDEN")
         mock_provider = MockProvider({request.step: _mock_output(request)})
         return await ControlledModelGateway(mock_provider).generate(request)
     if settings.provider != ProviderCode.DEEPSEEK.value:
@@ -163,12 +187,14 @@ def _mock_output(request: ModelRequest) -> dict[str, Any]:
         }
     if request.step is AiStep.CLASSIFY:
         return {
-            "channel": "UNKNOWN",
-            "item_type": "UNKNOWN",
-            "engineering_domains": [],
-            "lifecycle_stages": [],
-            "technology_tags": [],
-            "application_scenarios": [],
+            "direct_relevance": "LOW_CONFIDENCE",
+            "core_new_fact": None,
+            "primary_type": None,
+            "engineering_objects": [],
+            "specialty_facets": [],
+            "equipment_domains": [],
+            "content_form": "OTHER",
+            "evidence_locators": [],
             "confidence": 0,
             "needs_human_review": True,
             "review_reasons": ["MOCK_PROVIDER"],

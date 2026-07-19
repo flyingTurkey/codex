@@ -1,0 +1,97 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "case_id": {
+      "format": "uuid",
+      "title": "Case Id",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "document_version_id": {
+      "format": "uuid",
+      "title": "Document Version Id",
+      "type": "string"
+    },
+    "event_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Event Id"
+    },
+    "processing_state": {
+      "default": "IDLE",
+      "enum": [
+        "IDLE",
+        "QUEUED",
+        "PROCESSING",
+        "FAILED"
+      ],
+      "title": "Processing State",
+      "type": "string"
+    },
+    "reason": {
+      "maxLength": 80,
+      "minLength": 1,
+      "title": "Reason",
+      "type": "string"
+    },
+    "risk_tier": {
+      "enum": [
+        "R1",
+        "R2",
+        "R3",
+        "R4"
+      ],
+      "title": "Risk Tier",
+      "type": "string"
+    },
+    "safe_metadata": {
+      "additionalProperties": true,
+      "title": "Safe Metadata",
+      "type": "object"
+    },
+    "state": {
+      "enum": [
+        "OPEN",
+        "RESOLVED",
+        "QUARANTINED"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    },
+    "version": {
+      "minimum": 1,
+      "title": "Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "case_id",
+    "document_version_id",
+    "reason",
+    "risk_tier",
+    "safe_metadata",
+    "state",
+    "version",
+    "created_at",
+    "updated_at"
+  ],
+  "title": "ReviewCaseV2",
+  "type": "object"
+}

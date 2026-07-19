@@ -3,15 +3,16 @@
   "$id": "https://srbg.example.internal/schemas/classify-output-1.0.0.json",
   "type": "object",
   "additionalProperties": false,
-  "required": ["channel", "item_type", "engineering_domains", "lifecycle_stages", "technology_tags", "application_scenarios", "confidence", "needs_human_review", "review_reasons", "security"],
+  "required": ["direct_relevance", "core_new_fact", "primary_type", "engineering_objects", "specialty_facets", "equipment_domains", "content_form", "evidence_locators", "confidence", "needs_human_review", "review_reasons", "security"],
   "properties": {
-    "channel": {"enum": ["DIGITAL", "SAFETY", "OUT_OF_SCOPE", "UNKNOWN"]},
-    "item_type": {"enum": ["DIGITAL_CASE", "JOURNAL_PAPER", "SOFTWARE_PRODUCT", "IOT_PRODUCT", "LOW_ALTITUDE_EQUIPMENT", "AI_EQUIPMENT", "SAFETY_REGULATION", "SAFETY_CASE", "OUT_OF_SCOPE", "UNKNOWN"]},
-    "engineering_domains": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
-    "lifecycle_stages": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
-    "technology_tags": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
-    "application_scenarios": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
-    "hazard_types": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "direct_relevance": {"enum": ["RELEVANT", "IRRELEVANT", "LOW_CONFIDENCE", "FAILED"]},
+    "core_new_fact": {"type": ["string", "null"], "maxLength": 500},
+    "primary_type": {"type": ["string", "null"], "enum": ["DIGITAL_TRANSFORMATION", "SAFETY_INTELLIGENCE", "INDUSTRY_UPDATE", null]},
+    "engineering_objects": {"type": "array", "items": {"enum": ["HIGHWAY", "RAILWAY", "BRIDGE", "TUNNEL", "BUILDING", "MINING", "MUNICIPAL", "WATER_CONSERVANCY", "PORT_WATERWAY", "AIRPORT", "ENERGY"]}, "uniqueItems": true},
+    "specialty_facets": {"type": "array", "items": {"const": "TUNNEL_GAS_MONITORING"}, "uniqueItems": true},
+    "equipment_domains": {"type": "array", "items": {"const": "CONSTRUCTION_MACHINERY"}, "uniqueItems": true},
+    "content_form": {"enum": ["AUTHORITY_NOTICE", "PROJECT_RECORD", "RESEARCH", "PRODUCT", "ACCIDENT_UPDATE", "STANDARD_GUIDANCE", "OPERATION_UPDATE", "OTHER"]},
+    "evidence_locators": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
     "confidence": {"type": "number", "minimum": 0, "maximum": 1},
     "needs_human_review": {"type": "boolean"},
     "review_reasons": {"type": "array", "items": {"type": "string"}},
@@ -34,4 +35,3 @@
     }
   }
 }
-

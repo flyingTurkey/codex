@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import UTC, datetime
+from base64 import b64decode
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
+from html.parser import HTMLParser
 from typing import Any, cast
 from uuid import UUID
 
@@ -28,9 +30,97 @@ from srbg_api.ai_pipeline.local_evidence import extract_local_evidence_candidate
 from srbg_api.ai_pipeline.preparation import DocumentBlock
 from srbg_api.document_vault.storage import S3ObjectStore
 from srbg_api.identifiers import uuid7
-from srbg_api.pdf_processing.parser import ParsedPdfDocument, PdfDocumentParser
+from srbg_api.intelligence_v2.compensation import compensation_plan
+from srbg_api.pdf_processing.parser import (
+    ParsedPage,
+    ParsedPdfDocument,
+    ParsedTextBlock,
+    PdfDocumentParser,
+)
 
 logger = logging.getLogger("srbg.worker.ai_content_preparation")
+
+
+class _ArticleHtmlParser(HTMLParser):
+    _content_tags = frozenset({"p", "li", "h1", "h2", "h3", "h4", "blockquote"})
+    _ignored_tags = frozenset({"script", "style", "nav", "footer", "form", "noscript"})
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._ignored_depth = 0
+        self._active: list[str] | None = None
+        self.paragraphs: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        del attrs
+        if tag in self._ignored_tags:
+            self._ignored_depth += 1
+        elif self._ignored_depth == 0 and tag in self._content_tags:
+            self._active = []
+
+    def handle_data(self, data: str) -> None:
+        if self._ignored_depth == 0 and self._active is not None:
+            self._active.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in self._ignored_tags and self._ignored_depth:
+            self._ignored_depth -= 1
+        elif self._ignored_depth == 0 and tag in self._content_tags and self._active is not None:
+            value = " ".join("".join(self._active).split())
+            if value:
+                self.paragraphs.append(value)
+            self._active = None
+
+
+def parse_html_document(content: bytes) -> ParsedPdfDocument:
+    """Create stable paragraph-addressed blocks for a bounded public HTML response."""
+
+    parser = _ArticleHtmlParser()
+    parser.feed(content.decode("utf-8", errors="replace"))
+    if not parser.paragraphs:
+        raise ValueError("HTML_BODY_EMPTY")
+    blocks = tuple(
+        ParsedTextBlock(
+            block_index=index,
+            kind="PARAGRAPH",
+            text_source="HTML",
+            text=value,
+            normalized_text=value,
+            text_sha256=sha256(value.encode()).hexdigest(),
+            bbox_mpt=(0, index * 1000, 800_000, (index + 1) * 1000),
+            confidence_bps=10_000,
+        )
+        for index, value in enumerate(parser.paragraphs)
+    )
+    normalized = "\n".join(parser.paragraphs)
+    digest = sha256(normalized.encode()).hexdigest()
+    preview = b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    )
+    page = ParsedPage(
+        page_number=1,
+        width_mpt=800_000,
+        height_mpt=max(len(blocks), 1) * 1000,
+        rotation=0,
+        text_source="HTML",
+        blocks=blocks,
+        table_cells=(),
+        preview_png=preview,
+        preview_sha256=sha256(preview).hexdigest(),
+        normalized_text_sha256=digest,
+    )
+    return ParsedPdfDocument(
+        pages=(page,),
+        normalized_text=normalized,
+        semantic_body=normalized,
+        normalized_text_sha256=digest,
+        semantic_body_sha256=digest,
+        metadata_sha256=sha256(b"html-v1").hexdigest(),
+        ocr_page_count=0,
+        ocr_usable_page_count=0,
+        low_confidence_critical_count=0,
+        parser_version="srbg-html-paragraph-1.0.0",
+    )
 
 
 class PostgresAiPreparationRepository:
@@ -76,7 +166,13 @@ class PostgresAiPreparationRepository:
             )
             if sha256(content).hexdigest() != facts["content_hash"]:
                 raise RuntimeError("RAW_OBJECT_HASH_MISMATCH")
-            parsed = await asyncio.to_thread(self._parser.parse, content)
+            mime_type = str(facts["mime_type"] or "").casefold()
+            if "html" in mime_type or content.lstrip().startswith((b"<html", b"<!doctype")):
+                parsed = await asyncio.to_thread(parse_html_document, content)
+            elif "pdf" in mime_type or content.startswith(b"%PDF-"):
+                parsed = await asyncio.to_thread(self._parser.parse, content)
+            else:
+                raise RuntimeError("UNSUPPORTED_DOCUMENT_MIME")
             await self._persist_parsed(cast(UUID, facts["document_version_id"]), parsed)
             async with self._engine.connect() as connection:
                 blocks = await _load_blocks(connection, cast(UUID, facts["document_version_id"]))
@@ -89,6 +185,198 @@ class PostgresAiPreparationRepository:
             source_name=str(facts["source_name"]),
             blocks=tuple(blocks),
         )
+
+    async def authorize_real_run(self, document: PreparationDocument) -> bool:
+        """Recheck the current version and all server-controlled runtime gates."""
+
+        async with self._engine.connect() as connection:
+            return bool(
+                await connection.scalar(
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM ai_pipeline_run run "
+                        "JOIN document_version version ON version.id=run.document_version_id "
+                        "JOIN raw_object raw ON raw.id=version.raw_object_id "
+                        "JOIN document doc ON doc.id=version.document_id "
+                        "JOIN source src ON src.id=doc.source_id "
+                        "WHERE run.id=:run_id AND version.id=:version_id "
+                        "AND doc.current_version_id=version.id AND raw.scan_status='CLEAN' "
+                        "AND version.execution_domain IN ('TRIAL','PRODUCTION') "
+                        "AND src.desired_enabled AND src.manual_disabled_at IS NULL "
+                        "AND src.runtime_state='RUNNING' "
+                        "AND (SELECT assessment.verdict "
+                        "FROM source_admission_assessment_v2 assessment "
+                        "WHERE assessment.source_id=src.id "
+                        "ORDER BY assessment.assessed_at DESC,assessment.id DESC LIMIT 1)="
+                        "'ADMIT' "
+                        "AND EXISTS(SELECT 1 FROM ai_budget_policy budget "
+                        "WHERE budget.provider='deepseek' AND budget.active))"
+                    ),
+                    {
+                        "run_id": document.run_id,
+                        "version_id": UUID(document.document_version_id),
+                    },
+                )
+            )
+
+    async def create_fixed_canary_run(self, *, input_sha256: str) -> tuple[UUID, UUID] | None:
+        """Create one isolated SHADOW run only when every real-call gate is current."""
+
+        now = datetime.now(UTC)
+        run_id = uuid7()
+        async with self._engine.begin() as connection:
+            row = (
+                (
+                    await connection.execute(
+                        text(
+                            "INSERT INTO ai_pipeline_run("
+                            "id,document_version_id,mode,status,input_sha256,started_at) "
+                            "SELECT :run_id,version.id,'SHADOW','QUEUED',:input_hash,:now "
+                            "FROM document doc JOIN document_version version "
+                            "ON version.id=doc.current_version_id "
+                            "JOIN raw_object raw ON raw.id=version.raw_object_id "
+                            "JOIN source src ON src.id=doc.source_id "
+                            "JOIN LATERAL(SELECT assessment.verdict "
+                            "FROM source_admission_assessment_v2 assessment "
+                            "WHERE assessment.source_id=src.id "
+                            "ORDER BY assessment.assessed_at DESC,assessment.id DESC LIMIT 1) "
+                            "latest_assessment ON latest_assessment.verdict='ADMIT' "
+                            "WHERE raw.scan_status='CLEAN' "
+                            "AND version.execution_domain IN ('TRIAL','PRODUCTION') "
+                            "AND src.desired_enabled AND src.manual_disabled_at IS NULL "
+                            "AND src.runtime_state='RUNNING' "
+                            "AND EXISTS(SELECT 1 FROM ai_budget_policy budget "
+                            "WHERE budget.provider='deepseek' AND budget.active) "
+                            "ORDER BY version.created_at DESC,version.id DESC LIMIT 1 "
+                            "RETURNING id,document_version_id"
+                        ),
+                        {"run_id": run_id, "input_hash": input_sha256, "now": now},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        if row is None:
+            return None
+        return cast(UUID, row["id"]), cast(UUID, row["document_version_id"])
+
+    async def complete_fixed_canary(
+        self,
+        *,
+        run_id: UUID,
+        succeeded: bool,
+        failure_code: str | None = None,
+    ) -> None:
+        async with self._engine.begin() as connection:
+            result = await connection.execute(
+                text(
+                    "UPDATE ai_pipeline_run SET status=:status,completed_at=:now,"
+                    "failure_code=:failure WHERE id=:id AND mode='SHADOW' "
+                    "AND status='QUEUED'"
+                ),
+                {
+                    "id": run_id,
+                    "status": "SUCCEEDED" if succeeded else "FAILED",
+                    "failure": failure_code,
+                    "now": datetime.now(UTC),
+                },
+            )
+            if result.rowcount != 1:
+                raise RuntimeError("AI_CANARY_STATE_CONFLICT")
+
+    async def schedule_compensation(
+        self,
+        *,
+        run_id: UUID,
+        reason_code: str,
+        attempt_count: int,
+    ) -> int | None:
+        """Persist one bounded retry schedule and return its delay in seconds."""
+
+        now = datetime.now(UTC)
+        async with self._engine.begin() as connection:
+            existing = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT id,status,started_at FROM ai_compensation_run_v2 "
+                            "WHERE original_pipeline_run_id=:run_id FOR UPDATE"
+                        ),
+                        {"run_id": run_id},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            started_at = (
+                cast(datetime, existing["started_at"])
+                if existing is not None
+                and existing["status"] in {"PENDING", "PROCESSING"}
+                else now
+            )
+            state, available_at = compensation_plan(
+                reason_code,
+                attempt_count=attempt_count,
+                started_at=started_at,
+                now=now,
+            )
+            if state != "PENDING" or available_at is None:
+                if existing is not None:
+                    await connection.execute(
+                        text(
+                            "UPDATE ai_compensation_run_v2 SET status='DEAD_LETTER',"
+                            "completed_at=:now WHERE id=:id"
+                        ),
+                        {"id": existing["id"], "now": now},
+                    )
+                return None
+            if existing is None:
+                await connection.execute(
+                    text(
+                        "INSERT INTO ai_compensation_run_v2("
+                        "id,original_pipeline_run_id,recovery_pipeline_run_id,reason_code,"
+                        "status,attempt_count,available_at,started_at,completed_at) VALUES("
+                        ":id,:run_id,NULL,:reason,'PENDING',:attempts,:available,:started,NULL)"
+                    ),
+                    {
+                        "id": uuid7(),
+                        "run_id": run_id,
+                        "reason": reason_code,
+                        "attempts": attempt_count + 1,
+                        "available": available_at,
+                        "started": started_at,
+                    },
+                )
+            else:
+                await connection.execute(
+                    text(
+                        "UPDATE ai_compensation_run_v2 SET reason_code=:reason,"
+                        "status='PENDING',attempt_count=:attempts,available_at=:available,"
+                        "started_at=:started,completed_at=NULL WHERE id=:id"
+                    ),
+                    {
+                        "id": existing["id"],
+                        "reason": reason_code,
+                        "attempts": attempt_count + 1,
+                        "available": available_at,
+                        "started": started_at,
+                    },
+                )
+        return max(0, int((available_at - now).total_seconds()))
+
+    async def complete_compensation(self, *, run_id: UUID, succeeded: bool) -> None:
+        async with self._engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "UPDATE ai_compensation_run_v2 SET status=:status,completed_at=:now "
+                    "WHERE original_pipeline_run_id=:run_id "
+                    "AND status IN ('PENDING','PROCESSING')"
+                ),
+                {
+                    "run_id": run_id,
+                    "status": "SUCCEEDED" if succeeded else "DEAD_LETTER",
+                    "now": datetime.now(UTC),
+                },
+            )
 
     async def record_security(self, document: PreparationDocument, detected: bool) -> None:
         joined = "\n".join(block.text for block in document.blocks)
@@ -136,6 +424,18 @@ class PostgresAiPreparationRepository:
                 )
                 if current != status:
                     raise RuntimeError("AI_PIPELINE_STATE_CONFLICT")
+            if status == "SUCCEEDED":
+                await connection.execute(
+                    text(
+                        "SELECT finalize_source_content_ai_run("
+                        ":run_id,:status,NULL,:now)"
+                    ),
+                    {
+                        "run_id": run_id,
+                        "status": status,
+                        "now": datetime.now(UTC),
+                    },
+                )
 
     async def reserve(self, run_id: UUID, step: AiStep, attempt: int) -> object:
         reservation_id = uuid7()
@@ -237,6 +537,175 @@ class PostgresAiPreparationRepository:
             input_sha256=input_sha256,
         )
 
+    async def record_runtime_health(self, *, provider: str, model: str) -> None:
+        if provider != "deepseek":
+            raise RuntimeError("RUNTIME_PROVIDER_MISMATCH")
+        now = datetime.now(UTC)
+        async with self._engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "INSERT INTO ai_runtime_health_v2(id,provider,model,environment,"
+                    "worker_heartbeat_at,queue_healthy,budget_healthy,"
+                    "last_real_schema_success_at,observed_at) "
+                    "VALUES(:id,:provider,:model,:environment,:now,true,true,:now,:now) "
+                    "ON CONFLICT(provider,environment) DO UPDATE SET model=EXCLUDED.model,"
+                    "worker_heartbeat_at=EXCLUDED.worker_heartbeat_at,queue_healthy=true,"
+                    "budget_healthy=true,last_real_schema_success_at=EXCLUDED.last_real_schema_success_at,"
+                    "observed_at=EXCLUDED.observed_at"
+                ),
+                {
+                    "id": uuid7(),
+                    "provider": provider,
+                    "model": model,
+                    "environment": self._environment,
+                    "now": now,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO ai_runtime_observation_v2("
+                    "id,provider,model,environment,worker_heartbeat_at,queue_healthy,"
+                    "budget_healthy,last_real_schema_success_at,external_balance_state,"
+                    "observed_at) VALUES(:id,:provider,:model,:environment,:now,true,true,"
+                    ":now,'SUFFICIENT_AT_LAST_REAL_CALL',:now)"
+                ),
+                {
+                    "id": uuid7(),
+                    "provider": provider,
+                    "model": model,
+                    "environment": self._environment,
+                    "now": now,
+                },
+            )
+
+    async def record_runtime_observation(
+        self,
+        *,
+        provider: str,
+        model: str,
+        worker_heartbeat_at: datetime,
+    ) -> None:
+        """Append one content-free queue/budget observation for closeout evidence."""
+
+        if provider != "deepseek":
+            raise RuntimeError("RUNTIME_PROVIDER_MISMATCH")
+        now = datetime.now(UTC)
+        async with self._engine.begin() as connection:
+            health = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT last_real_schema_success_at FROM ai_runtime_health_v2 "
+                            "WHERE provider=:provider AND environment=:environment"
+                        ),
+                        {"provider": provider, "environment": self._environment},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            budget_healthy = bool(
+                await connection.scalar(
+                    text(
+                        "SELECT COALESCE(bool_and(COALESCE(month.reserved_points,0)+"
+                        "COALESCE(month.settled_points,0)<policy.monthly_points),false) "
+                        "FROM ai_budget_policy policy LEFT JOIN ai_budget_month month "
+                        "ON month.policy_id=policy.id AND month.month_start=date_trunc("
+                        "'month',CAST(:now AS timestamptz))::date WHERE policy.active "
+                        "AND policy.provider=:provider"
+                    ),
+                    {"provider": provider, "now": now},
+                )
+            )
+            last_success = health["last_real_schema_success_at"] if health else None
+            latest_balance = await connection.scalar(
+                text(
+                    "SELECT external_balance_state FROM ai_runtime_observation_v2 "
+                    "WHERE provider=:provider AND environment=:environment "
+                    "ORDER BY observed_at DESC,id DESC LIMIT 1"
+                ),
+                {"provider": provider, "environment": self._environment},
+            )
+            balance = "UNKNOWN"
+            if latest_balance == "INSUFFICIENT":
+                balance = "INSUFFICIENT"
+            elif last_success is not None and now - last_success <= timedelta(hours=24):
+                balance = "SUFFICIENT_AT_LAST_REAL_CALL"
+            await connection.execute(
+                text(
+                    "INSERT INTO ai_runtime_observation_v2("
+                    "id,provider,model,environment,worker_heartbeat_at,queue_healthy,"
+                    "budget_healthy,last_real_schema_success_at,external_balance_state,"
+                    "observed_at) VALUES(:id,:provider,:model,:environment,:heartbeat,true,"
+                    ":budget,:last_success,:balance,:now)"
+                ),
+                {
+                    "id": uuid7(),
+                    "provider": provider,
+                    "model": model,
+                    "environment": self._environment,
+                    "heartbeat": worker_heartbeat_at,
+                    "budget": budget_healthy,
+                    "last_success": last_success,
+                    "balance": balance,
+                    "now": now,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO ai_runtime_health_v2(id,provider,model,environment,"
+                    "worker_heartbeat_at,queue_healthy,budget_healthy,"
+                    "last_real_schema_success_at,observed_at) VALUES("
+                    ":id,:provider,:model,:environment,:heartbeat,true,:budget,"
+                    ":last_success,:now) ON CONFLICT(provider,environment) DO UPDATE SET "
+                    "model=EXCLUDED.model,worker_heartbeat_at=EXCLUDED.worker_heartbeat_at,"
+                    "queue_healthy=true,budget_healthy=EXCLUDED.budget_healthy,"
+                    "observed_at=EXCLUDED.observed_at"
+                ),
+                {
+                    "id": uuid7(),
+                    "provider": provider,
+                    "model": model,
+                    "environment": self._environment,
+                    "heartbeat": worker_heartbeat_at,
+                    "budget": budget_healthy,
+                    "last_success": last_success,
+                    "now": now,
+                },
+            )
+
+    async def record_balance_insufficient(self, *, provider: str, model: str) -> None:
+        """Persist a provider balance rejection from a real attempted call."""
+
+        if provider != "deepseek":
+            raise RuntimeError("RUNTIME_PROVIDER_MISMATCH")
+        now = datetime.now(UTC)
+        async with self._engine.begin() as connection:
+            last_success = await connection.scalar(
+                text(
+                    "SELECT last_real_schema_success_at FROM ai_runtime_health_v2 "
+                    "WHERE provider=:provider AND environment=:environment"
+                ),
+                {"provider": provider, "environment": self._environment},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO ai_runtime_observation_v2("
+                    "id,provider,model,environment,worker_heartbeat_at,queue_healthy,"
+                    "budget_healthy,last_real_schema_success_at,external_balance_state,"
+                    "observed_at) VALUES(:id,:provider,:model,:environment,:now,true,true,"
+                    ":last_success,'INSUFFICIENT',:now)"
+                ),
+                {
+                    "id": uuid7(),
+                    "provider": provider,
+                    "model": model,
+                    "environment": self._environment,
+                    "last_success": last_success,
+                    "now": now,
+                },
+            )
+
     async def append_failed_step(
         self,
         run_id: UUID,
@@ -244,7 +713,8 @@ class PostgresAiPreparationRepository:
         attempt: int,
         kind: str,
         error_code: str,
-        input_sha256: str,
+        input_sha256: str | None,
+        billing_response: ModelResponse | None = None,
     ) -> None:
         await self._append_step_row(
             run_id=run_id,
@@ -255,6 +725,7 @@ class PostgresAiPreparationRepository:
             status="FAILED",
             error_code=error_code,
             input_sha256=input_sha256,
+            billing_response=billing_response,
         )
 
     async def _append_step_row(
@@ -268,6 +739,7 @@ class PostgresAiPreparationRepository:
         status: str,
         error_code: str | None,
         input_sha256: str | None = None,
+        billing_response: ModelResponse | None = None,
     ) -> None:
         async with self._engine.begin() as connection:
             registry = (
@@ -296,7 +768,8 @@ class PostgresAiPreparationRepository:
                 text("SELECT input_sha256 FROM ai_pipeline_run WHERE id=:run_id"),
                 {"run_id": run_id},
             )
-            usage = response.usage if response is not None else None
+            usage_source = response or billing_response
+            usage = usage_source.usage if usage_source is not None else None
             await connection.execute(
                 text(_INSERT_STEP_SQL),
                 {
@@ -317,10 +790,10 @@ class PostgresAiPreparationRepository:
                     "output_tokens": usage.output_tokens if usage else 0,
                     "cache_hit": usage.cache_hit_tokens if usage else 0,
                     "cache_miss": usage.cache_miss_tokens if usage else 0,
-                    "cost": response.cost_microusd if response else 0,
-                    "latency": response.latency_ms if response else 0,
-                    "request_id": response.provider_request_id if response else None,
-                    "finish_reason": response.finish_reason if response else None,
+                    "cost": usage_source.cost_microusd if usage_source else 0,
+                    "latency": usage_source.latency_ms if usage_source else 0,
+                    "request_id": usage_source.provider_request_id if usage_source else None,
+                    "finish_reason": usage_source.finish_reason if usage_source else None,
                     "kind": kind,
                     "error_code": error_code,
                 },
@@ -332,11 +805,11 @@ class PostgresAiPreparationRepository:
         classification: dict[str, Any],
         extraction: dict[str, Any],
     ) -> int:
-        if (
-            classification.get("item_type") != "DIGITAL_CASE"
-            or classification.get("channel") != "DIGITAL"
-        ):
+        primary_type = classification.get("primary_type")
+        if primary_type not in {"DIGITAL_TRANSFORMATION", "SAFETY_INTELLIGENCE", "INDUSTRY_UPDATE"}:
             raise RuntimeError("AI01_CLASSIFICATION_OUT_OF_SCOPE")
+        item_type = "SAFETY_CASE" if primary_type == "SAFETY_INTELLIGENCE" else "DIGITAL_CASE"
+        channel = "SAFETY" if primary_type == "SAFETY_INTELLIGENCE" else "DIGITAL"
         now = datetime.now(UTC)
         async with self._engine.begin() as connection:
             await connection.execute(
@@ -362,8 +835,8 @@ class PostgresAiPreparationRepository:
                         "source_id": facts["source_id"],
                         "document_id": facts["document_id"],
                         "version_id": facts["version_id"],
-                        "item_type": classification["item_type"],
-                        "channel": classification["channel"],
+                        "item_type": item_type,
+                        "channel": channel,
                         "title": document.title,
                         "url": document.canonical_url,
                         "discovered_at": facts["first_discovered_at"],
@@ -371,7 +844,7 @@ class PostgresAiPreparationRepository:
                         "now": now,
                     },
                 )
-                if classification["item_type"] == "DIGITAL_CASE":
+                if item_type == "DIGITAL_CASE":
                     await connection.execute(
                         text(_INSERT_DIGITAL_PROFILE_SQL),
                         {"item_id": item_id, "now": now},
@@ -379,7 +852,7 @@ class PostgresAiPreparationRepository:
             await _ensure_personal_event(
                 connection,
                 item_id=item_id,
-                item_type=str(classification["item_type"]),
+                item_type=item_type,
                 title=document.title,
                 actor_id=_SYSTEM_ACTOR,
                 now=now,
@@ -583,6 +1056,53 @@ class PostgresAiPreparationRepository:
             )
             return accepted_count + judgment_count
 
+    async def queue_qualification_review(
+        self, document: PreparationDocument, classification: dict[str, Any]
+    ) -> UUID:
+        """Create a metadata-only Owner case without creating an Event or Item."""
+
+        case_id = uuid7()
+        now = datetime.now(UTC)
+        reason = str((classification.get("review_reasons") or ["LOW_CONFIDENCE"])[0])[:80]
+        safe_metadata = {
+            "title": document.title,
+            "source_name": document.source_name,
+            "original_url": document.canonical_url,
+            "direct_relevance": classification.get("direct_relevance"),
+        }
+        async with self._engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "INSERT INTO owner_review_case_v2(id,event_id,document_version_id,reason,"
+                    "risk_tier,safe_metadata,state,version,created_at,updated_at) "
+                    "VALUES(:id,NULL,:version_id,:reason,'R3',CAST(:metadata AS jsonb),"
+                    "'OPEN',1,:now,:now) ON CONFLICT(document_version_id) DO UPDATE SET "
+                    "reason=EXCLUDED.reason,safe_metadata=EXCLUDED.safe_metadata,updated_at=EXCLUDED.updated_at"
+                ),
+                {
+                    "id": case_id,
+                    "version_id": UUID(document.document_version_id),
+                    "reason": reason,
+                    "metadata": json.dumps(safe_metadata, ensure_ascii=False),
+                    "now": now,
+                },
+            )
+            await connection.execute(
+                text(
+                    "UPDATE ai_pipeline_run SET status='WAITING_CLAIM_REVIEW',"
+                    "failure_code='QUALIFICATION_REVIEW_REQUIRED' WHERE id=:run_id"
+                ),
+                {"run_id": document.run_id},
+            )
+            await connection.execute(
+                text(
+                    "SELECT finalize_source_content_ai_run("
+                    ":run_id,'WAITING_CLAIM_REVIEW',NULL,:now)"
+                ),
+                {"run_id": document.run_id, "now": now},
+            )
+        return case_id
+
     async def load_judgment_facts(self, document: PreparationDocument) -> list[EvidenceFactInput]:
         async with self._engine.connect() as connection:
             rows = list(
@@ -773,7 +1293,11 @@ class PostgresAiPreparationRepository:
                 },
             )
 
-    async def materialize_local(self, document: PreparationDocument) -> int:
+    async def _legacy_materialize_local(self, document: PreparationDocument) -> int:
+        raise RuntimeError("LEGACY_PREQUALIFICATION_MATERIALIZATION_RETIRED")
+
+        # Kept temporarily only as a migration reference.  The unconditional
+        # guard above makes pre-qualification Event/Feed writes impossible.
         """Persist bounded local facts before any provider call."""
 
         candidates = extract_local_evidence_candidates(
@@ -933,6 +1457,17 @@ class PostgresAiPreparationRepository:
             )
             return accepted
 
+    async def materialize_local(self, document: PreparationDocument) -> int:
+        """Build local candidates without creating Item, Event, claim or projection facts."""
+
+        return len(
+            extract_local_evidence_candidates(
+                title=document.title,
+                source_name=document.source_name,
+                blocks=document.blocks,
+            )
+        )
+
     async def successful_output(self, run_id: UUID, step: AiStep) -> dict[str, Any]:
         async with self._engine.connect() as connection:
             value = await connection.scalar(
@@ -962,6 +1497,18 @@ class PostgresAiPreparationRepository:
                     "code": code[:80],
                     "now": datetime.now(UTC),
                     "run_id": run_id,
+                },
+            )
+            await connection.execute(
+                text(
+                    "SELECT finalize_source_content_ai_run("
+                    ":run_id,:status,:code,:now)"
+                ),
+                {
+                    "run_id": run_id,
+                    "status": status,
+                    "code": code[:80],
+                    "now": datetime.now(UTC),
                 },
             )
 
@@ -1105,10 +1652,23 @@ WITH candidate AS (
   SELECT run.id,run.mode,run.status
     FROM ai_pipeline_run run
     JOIN document_version version ON version.id=run.document_version_id
+    JOIN raw_object raw ON raw.id=version.raw_object_id
     JOIN document doc ON doc.id=version.document_id
     JOIN source src ON src.id=doc.source_id
    WHERE run.id=:run_id
      AND src.desired_enabled=true AND src.manual_disabled_at IS NULL
+     AND src.runtime_state='RUNNING'
+     AND doc.current_version_id=version.id AND raw.scan_status='CLEAN'
+     AND version.execution_domain IN ('TRIAL','PRODUCTION')
+     AND EXISTS(
+       SELECT 1 FROM source_admission_assessment_v2 assessment
+       WHERE assessment.source_id=src.id AND assessment.verdict='ADMIT'
+       ORDER BY assessment.assessed_at DESC LIMIT 1
+     )
+     AND EXISTS(
+       SELECT 1 FROM ai_budget_policy budget
+       WHERE budget.provider='deepseek' AND budget.active
+     )
      AND (
        (run.mode='SHADOW' AND run.status IN (
          'QUEUED','PREPARING','CLASSIFYING','EXTRACTING','WAITING_CLAIM_REVIEW'
@@ -1136,7 +1696,7 @@ LIMIT 1
 _DOCUMENT_SQL = """
 SELECT version.id AS document_version_id,version.content_hash,version.title,
        raw.object_key,document.canonical_url,source.registry_code,
-       source.name AS source_name
+       source.name AS source_name,COALESCE(raw.detected_mime,raw.declared_mime,'') AS mime_type
 FROM ai_pipeline_run run
 JOIN document_version version ON version.id=run.document_version_id
 JOIN raw_object raw ON raw.id=version.raw_object_id

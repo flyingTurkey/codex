@@ -96,34 +96,29 @@ class _DuplicateFeedReader(_MetadataAndPersonalReader):
 
 
 @pytest.mark.asyncio
-async def test_personal_signal_event_has_detail_and_evidence_when_legacy_projection_is_absent():
+async def test_personal_signal_cannot_resurrect_event_when_projection_is_absent():
     service = PublishedIntelligenceQueryService(_PersonalOnlyReader())  # type: ignore[arg-type]
 
-    detail = await service.get_event(EVENT_ID)
-
-    assert detail.id == EVENT_ID
-    assert detail.title == "国务院公开政策"
-    assert [claim.claim_id for claim in detail.claims] == [CLAIM_ID]
-    assert [evidence.evidence_id for evidence in detail.evidence] == [EVIDENCE_ID]
-    assert detail.evidence[0].content_sha256 == "a" * 64
-    assert detail.automatic_results[0].result_type == "EVIDENCE_FACT"
+    with pytest.raises(PublishedEventNotFound):
+        await service.get_event(EVENT_ID)
 
 
 @pytest.mark.asyncio
-async def test_personal_evidence_enriches_metadata_only_projection() -> None:
+async def test_personal_evidence_does_not_enrich_metadata_only_projection() -> None:
     service = PublishedIntelligenceQueryService(_MetadataAndPersonalReader())  # type: ignore[arg-type]
 
     detail = await service.get_event(EVENT_ID)
 
-    assert [claim.claim_id for claim in detail.claims] == [CLAIM_ID]
-    assert [evidence.evidence_id for evidence in detail.evidence] == [EVIDENCE_ID]
+    assert detail.claims == []
+    assert detail.evidence == []
+    assert detail.automatic_results == []
 
 
 @pytest.mark.asyncio
-async def test_feed_collapses_metadata_and_evidence_projection_for_same_event() -> None:
+async def test_feed_ignores_review_only_personal_signal_for_same_event() -> None:
     service = PublishedIntelligenceQueryService(_DuplicateFeedReader())  # type: ignore[arg-type]
 
     feed = await service.get_feed()
 
     assert [item.id for item in feed.items] == [EVENT_ID]
-    assert feed.items[0].automatic_result_type == "EVIDENCE_FACT"
+    assert feed.items[0].automatic_result_type is None

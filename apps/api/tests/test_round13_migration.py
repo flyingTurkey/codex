@@ -7,7 +7,7 @@ from alembic.script import ScriptDirectory
 
 def test_round13_migration_declares_projection_schema_roles_and_tables() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
-    assert script.get_current_head() == "0033_controlled_ai_budget_bridge"
+    assert script.get_current_head() == "0036_ai_content_result_lifecycle"
     revision = script.get_revision("0013_internal_projection")
     assert revision.down_revision == "0012_operations_readiness"
     migration = runpy.run_path("apps/api/migrations/versions/0013_internal_projection.py")
