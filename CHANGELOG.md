@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-07-19（Agent skills 仓库配置）
+
+- 为 `flyingTurkey/codex` 固化 GitHub Issues 工作流、默认五项 triage 标签和 multi-context 领域文档消费规则，并验证仓库端五项标签全部可用，供 `to-spec`、`to-tickets`、`triage`、`qa`、`grill-with-docs` 与相关工程 Skills 复用。
+- 在根 `AGENTS.md` 增加统一入口，并新增 `docs/agents/` 配置文档；未创建空的 `CONTEXT-MAP.md` 或上下文文档，领域术语和决策仍由 `domain-modeling` 在实际确认后按需生成。
+
 ## 2026-07-19（个人界面优化）
 
 - 将已确认的首页、来源中心和情报详情推荐稿落实到正式 Nuxt 界面；继续复用权威设计令牌、Iconoir 和既有共享组件，没有引入第二套组件库或演示数据。

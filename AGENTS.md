@@ -142,3 +142,17 @@ make web-a11y
 - 文档、示例配置和验收记录同步更新；
 - 没有高危安全问题、未解释失败测试或未处理占位实现；
 - Git 提交范围清晰，提交信息说明用户价值。
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs are tracked in GitHub Issues for `flyingTurkey/codex` using the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Triage uses the default five-label vocabulary. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This repository uses a multi-context domain documentation layout rooted at `CONTEXT-MAP.md`. See `docs/agents/domain.md`.
