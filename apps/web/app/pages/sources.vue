@@ -11,7 +11,19 @@ const { data: sources, error, status, refresh } = await useFetch<PersonalSourceV
     timeout: 5_000,
   },
 )
+const healthySourceCount = computed(() => sources.value.filter(source =>
+  source.streams?.some(stream => stream.health_status === 'HEALTHY'),
+).length)
+const abnormalSourceCount = computed(() => sources.value.filter(source =>
+  source.runtime_state === 'ERROR'
+  || source.streams?.some(stream => stream.status === 'PROBE_FAILED'
+    || stream.health_status === 'UNHEALTHY'),
+).length)
+const runningSourceCount = computed(() => sources.value.filter(source =>
+  source.streams?.some(stream => stream.actual_running),
+).length)
 const busySourceIds = ref<string[]>([])
+const hydrated = ref(false)
 const actionError = ref<string | null>(null)
 const actionMessage = ref<string | null>(null)
 const newUrl = ref('')
@@ -32,6 +44,7 @@ const overrideForm = reactive({
 })
 
 onMounted(() => {
+  hydrated.value = true
   probePollTimer = setInterval(() => {
     const probeActive = sources.value.some(source =>
       source.latest_probe_run?.status === 'QUEUED'
@@ -40,6 +53,7 @@ onMounted(() => {
     if (probeActive && status.value !== 'pending') void refresh()
   }, 2_000)
 })
+const sourceLoading = computed(() => !hydrated.value || status.value === 'pending')
 
 onBeforeUnmount(() => {
   if (probePollTimer !== undefined) clearInterval(probePollTimer)
@@ -293,12 +307,10 @@ function activityLabel(kind: PersonalSourceActivityPage['items'][number]['kind']
         <h1 id="personal-sources-title">我的来源</h1>
         <p>启停表示你的研究意图；运行状态来自系统实际状态，两者不会互相冒充。</p>
       </div>
-      <button class="secondary-button" type="button" :disabled="status === 'pending'" @click="refresh()">
+      <button class="secondary-button" type="button" :disabled="sourceLoading" @click="refresh()">
         刷新状态
       </button>
     </header>
-
-    <PersonalDiscoveryPanel />
 
     <p v-if="actionMessage" class="success" role="status">{{ actionMessage }}</p>
     <div v-if="actionError" class="problem" role="alert">
@@ -309,7 +321,7 @@ function activityLabel(kind: PersonalSourceActivityPage['items'][number]['kind']
       来源列表加载失败，请确认本地服务和 Owner 身份可用。
       <button type="button" @click="refresh()">重试</button>
     </div>
-    <p v-else-if="status === 'pending'" class="loading" aria-live="polite">正在读取来源…</p>
+    <p v-else-if="sourceLoading" class="loading" aria-live="polite">正在读取来源…</p>
     <p v-else-if="sources.length === 0" class="empty-state">当前还没有来源。</p>
 
     <form class="add-url" aria-label="添加公开来源 URL" @submit.prevent="addUrl">
@@ -332,7 +344,19 @@ function activityLabel(kind: PersonalSourceActivityPage['items'][number]['kind']
       <p>只需粘贴公开 HTTPS 地址；系统会自动识别 RSS、Sitemap、API、PDF 或公开列表页。</p>
     </form>
 
-    <div v-if="!error && status !== 'pending' && sources.length > 0" class="source-list" aria-label="个人来源列表">
+    <section class="source-overview" aria-label="来源运行概览">
+      <div><span>来源总数</span><strong>{{ sources.length }}</strong></div>
+      <div><span>健康来源</span><strong>{{ healthySourceCount }}</strong></div>
+      <div><span>异常来源</span><strong>{{ abnormalSourceCount }}</strong></div>
+      <div><span>实际运行</span><strong>{{ runningSourceCount }}</strong></div>
+    </section>
+
+    <details class="discovery-disclosure">
+      <summary>自动发现设置</summary>
+      <PersonalDiscoveryPanel />
+    </details>
+
+    <div v-if="!error && !sourceLoading && sources.length > 0" class="source-list" aria-label="个人来源列表">
       <article v-for="source in sources" :key="source.id" class="source-card">
         <div class="source-identity">
           <h2>{{ source.display_name }}</h2>
@@ -527,11 +551,42 @@ function activityLabel(kind: PersonalSourceActivityPage['items'][number]['kind']
 .add-url {
   display: grid;
   padding: var(--spacing-4);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  background: linear-gradient(135deg, var(--color-surface) 0%, var(--color-brand-50) 100%);
+  border: 1px solid var(--color-brand-200);
   border-radius: var(--radius-lg);
   gap: var(--spacing-2);
 }
+
+.source-overview {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: var(--spacing-3);
+  background: linear-gradient(135deg, var(--color-surface) 0%, var(--color-surfaceMuted) 100%);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+.source-overview div { display: grid; padding: var(--spacing-3) var(--spacing-4); gap: var(--spacing-1); }
+.source-overview div + div { border-left: 1px solid var(--color-border); }
+.source-overview span { color: var(--color-ink-600); font-size: var(--text-xs); }
+.source-overview strong { color: var(--color-brand-700); font-size: var(--text-xl); }
+
+.discovery-disclosure {
+  overflow: hidden;
+  background: linear-gradient(135deg, var(--color-surface) 0%, var(--color-brand-50) 100%);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+.discovery-disclosure summary {
+  min-height: var(--spacing-12);
+  padding: var(--spacing-3) var(--spacing-4);
+  color: var(--color-ink-900);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+.discovery-disclosure[open] summary { border-bottom: 1px solid var(--color-border); }
+.discovery-disclosure :deep(.discovery-panel) { margin: 0; border: 0; border-radius: 0; background: transparent; }
 
 .add-url label { color: var(--color-ink-900); font-weight: var(--font-weight-semibold); }
 .add-url > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--spacing-2); }
@@ -604,11 +659,16 @@ function activityLabel(kind: PersonalSourceActivityPage['items'][number]['kind']
   grid-template-columns: minmax(16rem, 1.4fr) minmax(18rem, 1fr) auto;
   align-items: center;
   padding: var(--spacing-4) var(--spacing-5);
-  background: var(--color-surface);
+  background: linear-gradient(135deg, var(--color-surface) 0%, var(--color-brand-50) 100%);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-card);
   gap: var(--spacing-4);
+  transition: border-color var(--srbg-motion-base) var(--srbg-motion-easing), box-shadow var(--srbg-motion-base) var(--srbg-motion-easing), transform var(--srbg-motion-base) var(--srbg-motion-easing);
+}
+
+@media (hover: hover) {
+  .source-card:hover { border-color: var(--color-brand-300); box-shadow: var(--shadow-hover); transform: translateY(-1px); }
 }
 
 .source-identity {
@@ -664,7 +724,7 @@ function activityLabel(kind: PersonalSourceActivityPage['items'][number]['kind']
   align-items: center;
   justify-content: center;
   padding: var(--spacing-2) var(--spacing-3);
-  color: var(--color-brand-700);
+  color: var(--color-ink-700);
   background: var(--color-surface);
   border: 1px solid var(--color-brand-700);
   border-radius: var(--radius-sm);
@@ -763,5 +823,8 @@ button:disabled {
     width: 100%;
   }
   .add-url > div { grid-template-columns: 1fr; }
+  .source-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .source-overview div:nth-child(3) { border-top: 1px solid var(--color-border); border-left: 0; }
+  .source-overview div:nth-child(4) { border-top: 1px solid var(--color-border); }
 }
 </style>

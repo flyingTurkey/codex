@@ -33,6 +33,8 @@ async function refreshAutomaticRelationships(): Promise<void> {
   await Promise.all([refresh(), refreshRelationships()])
 }
 const content = computed(() => detail.value?.type_detail ?? null)
+const isSafetyCase = computed(() => content.value?.kind === 'SAFETY_CASE'
+  || detail.value?.incident_status != null)
 type TypeDetail = NonNullable<EventDetail['type_detail']>
 type ProductTypeDetail = Extract<
   TypeDetail,
@@ -61,6 +63,9 @@ const digitalPublishedClaims = computed(() => {
     claim => claim.field_name.toUpperCase() === 'CLAIMED_OUTCOME',
   )
 })
+const evidenceFactClaims = computed(() => (detail.value?.claims ?? []).filter(
+  claim => claim.fact_kind === 'EVIDENCE_FACT',
+))
 
 const eventStatusMap = {
   CLOSED: { label: '已结案', tone: 'verified' },
@@ -125,6 +130,17 @@ function formatDate(value: string | null | undefined): string {
   return value ? shanghaiDateTime.format(new Date(value)) : '待正式证据补充'
 }
 
+function evidenceFieldLabel(value: string): string {
+  return {
+    published_at: '发布日期',
+    title: '标题',
+  }[value] ?? value
+}
+
+function shortIdentifier(value: string): string {
+  return value.length > 16 ? `${value.slice(0, 8)}…${value.slice(-4)}` : value
+}
+
 function scenarioTagLabel(tag: EventDetail['similar_scenario_tags'][number]): string {
   return {
     BRIDGE_APPROACH_TRANSITION: '桥头过渡段',
@@ -172,8 +188,8 @@ function openEvidence(evidenceIds: string[]): void {
   <section class="event-detail-page">
     <PageHeader
       :title="detail?.title ?? '安全事件详情'"
-      eyebrow="安全案例生命周期"
-      description="初报、续报、正式调查、处罚与整改作为独立材料保留，不以近似去重覆盖。"
+      eyebrow="情报详情与证据"
+      description="原文、证据事实与机器整理状态分层展示；证据不足的字段保持为空。"
     >
       <template v-if="statusPresentation || detail?.unverified_facts.length" #status>
         <StatusBadge
@@ -190,7 +206,7 @@ function openEvidence(evidenceIds: string[]): void {
     </PageHeader>
 
     <aside class="event-detail-page__notice">
-      平台内容仅供内部信息参考，不替代正式制度、专业审查和现场安全决策。事故原因、责任、伤亡和损失仅展示有权机关证据且已人工复核的事实。
+      平台内容仅供个人研究参考，不替代正式制度、专业审查或现场决策。关键数字、日期与责任结论只展示有权机关证据支持的事实。
     </aside>
 
     <aside v-if="detail?.claims?.some(claim => claim.fact_kind === 'EVIDENCE_FACT')" class="event-detail-page__notice">
@@ -300,7 +316,29 @@ function openEvidence(evidenceIds: string[]): void {
         <p>当前事实结论已失效；历史阶段和关系仅为审计保留，请以更正材料为准。</p>
       </section>
 
-      <dl class="event-detail-page__summary">
+      <section v-if="evidenceFactClaims.length" class="event-detail-page__evidence-grid" aria-label="证据事实与证据记录">
+        <section class="event-detail-page__evidence-panel" aria-labelledby="evidence-facts-title">
+          <h2 id="evidence-facts-title">证据事实（{{ evidenceFactClaims.length }}）</h2>
+          <ol>
+            <li v-for="claim in evidenceFactClaims" :key="claim.claim_id">
+              <div><strong>{{ evidenceFieldLabel(claim.field_name) }}</strong><span>{{ claim.value }}</span></div>
+              <button type="button" @click="openEvidence(claim.evidence_ids)">查看证据定位</button>
+            </li>
+          </ol>
+        </section>
+        <section class="event-detail-page__evidence-panel" aria-labelledby="evidence-records-title">
+          <h2 id="evidence-records-title">证据记录（{{ (detail.evidence ?? []).length }}）</h2>
+          <dl>
+            <div v-for="entry in (detail.evidence ?? [])" :key="entry.evidence_id">
+              <dt>Evidence ID</dt><dd>{{ shortIdentifier(entry.evidence_id) }}</dd>
+              <dt>定位方式</dt><dd>{{ entry.locator }}</dd>
+              <dt>内容哈希</dt><dd>{{ shortIdentifier(entry.content_sha256) }}</dd>
+            </div>
+          </dl>
+        </section>
+      </section>
+
+      <dl v-if="isSafetyCase" class="event-detail-page__summary">
         <div>
           <dt>项目</dt>
           <dd>{{ detail.project_name ?? '待正式证据补充' }}</dd>
@@ -323,7 +361,7 @@ function openEvidence(evidenceIds: string[]): void {
         </div>
       </dl>
 
-      <div v-if="detail.incident_status !== 'WITHDRAWN'" class="event-detail-page__facts">
+      <div v-if="isSafetyCase && detail.incident_status !== 'WITHDRAWN'" class="event-detail-page__facts">
         <FactList
           title="已确认事实"
           variant="confirmed"
@@ -411,6 +449,10 @@ function openEvidence(evidenceIds: string[]): void {
   gap: var(--spacing-5);
 }
 
+.event-detail-page > * {
+  min-width: 0;
+}
+
 .event-detail-page__notice,
 .event-detail-page__withdrawn,
 .event-detail-page__evidence-error {
@@ -419,8 +461,9 @@ function openEvidence(evidenceIds: string[]): void {
 }
 
 .event-detail-page__type-detail {
+  min-width: 0;
   padding: var(--spacing-5);
-  background: var(--color-surface);
+  background: linear-gradient(135deg, var(--color-surface) 0%, var(--color-brand-50) 100%);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
 }
@@ -429,7 +472,7 @@ function openEvidence(evidenceIds: string[]): void {
   display: grid;
   gap: var(--spacing-3);
   padding: var(--spacing-5);
-  background: var(--color-surfaceMuted);
+  background: linear-gradient(135deg, var(--color-surfaceMuted) 0%, var(--color-reviewPending-50) 100%);
   border: 1px dashed var(--color-border);
   border-radius: var(--radius-lg);
 }
@@ -473,7 +516,7 @@ function openEvidence(evidenceIds: string[]): void {
 
 .event-detail-page__notice {
   color: var(--color-ink-700);
-  background: var(--color-safetyRegulation-50);
+  background: linear-gradient(90deg, var(--color-safetyRegulation-50) 0%, var(--color-surface) 100%);
   border-left: 3px solid var(--color-safetyRegulation-500);
 }
 
@@ -496,11 +539,36 @@ function openEvidence(evidenceIds: string[]): void {
   grid-template-columns: repeat(5, minmax(0, 1fr));
   margin: 0;
   padding: var(--spacing-5);
-  background: var(--color-safetyCase-50);
+  background: linear-gradient(135deg, var(--color-safetyCase-50) 0%, var(--color-surface) 100%);
   border: 1px solid var(--color-safetyCase-500);
   border-radius: var(--radius-lg);
   gap: var(--spacing-4);
 }
+
+.event-detail-page__evidence-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr);
+  gap: var(--spacing-4);
+}
+
+.event-detail-page__evidence-panel {
+  min-width: 0;
+  padding: var(--spacing-5);
+  background: linear-gradient(135deg, var(--color-surface) 0%, var(--color-brand-50) 100%);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+.event-detail-page__evidence-panel h2 { margin: 0 0 var(--spacing-4); font-size: var(--text-lg); }
+.event-detail-page__evidence-panel ol { display: grid; margin: 0; padding: 0; list-style: none; gap: var(--spacing-3); }
+.event-detail-page__evidence-panel li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; padding: var(--spacing-3); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); gap: var(--spacing-3); }
+.event-detail-page__evidence-panel li div { display: grid; gap: var(--spacing-1); }
+.event-detail-page__evidence-panel li span { color: var(--color-ink-700); }
+.event-detail-page__evidence-panel button { min-height: var(--spacing-10); padding: var(--spacing-2) var(--spacing-3); color: var(--color-brand-700); font-weight: var(--font-weight-semibold); background: var(--color-surface); border: 1px solid var(--color-brand-500); border-radius: var(--radius-sm); cursor: pointer; }
+.event-detail-page__evidence-panel > dl { display: grid; margin: 0; gap: var(--spacing-3); }
+.event-detail-page__evidence-panel > dl > div { display: grid; grid-template-columns: auto minmax(0, 1fr); padding: var(--spacing-3); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); gap: var(--spacing-1) var(--spacing-3); }
+.event-detail-page__evidence-panel dt { color: var(--color-ink-600); font-size: var(--text-xs); }
+.event-detail-page__evidence-panel dd { margin: 0; overflow-wrap: anywhere; color: var(--color-ink-900); font-family: var(--font-mono); font-size: var(--text-xs); }
 
 .event-detail-page__summary dt {
   color: var(--color-ink-600);
@@ -530,7 +598,7 @@ function openEvidence(evidenceIds: string[]): void {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   padding: var(--spacing-5);
-  background: var(--color-surface);
+  background: linear-gradient(135deg, var(--color-surface) 0%, var(--color-brand-50) 100%);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   gap: var(--spacing-5);
@@ -575,9 +643,15 @@ function openEvidence(evidenceIds: string[]): void {
   .event-detail-page__facts {
     grid-template-columns: 1fr;
   }
+
+  .event-detail-page__evidence-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 47.999rem) {
+  .event-detail-page { gap: var(--spacing-4); }
+  .event-detail-page__notice,
+  .event-detail-page__type-detail,
+  .event-detail-page__evidence-panel { overflow-wrap: anywhere; }
   .event-detail-page__summary,
   .event-detail-page__controlled-tags {
     grid-template-columns: 1fr;
@@ -587,5 +661,8 @@ function openEvidence(evidenceIds: string[]): void {
   .event-detail-page__tag-note {
     grid-column: 1;
   }
+
+  .event-detail-page__evidence-panel li { grid-template-columns: 1fr; }
+  .event-detail-page__evidence-panel button { width: 100%; }
 }
 </style>

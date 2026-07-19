@@ -104,9 +104,12 @@ const visibleUpdatedAt = computed(() =>
 
 .srbg-page-header__title {
   color: var(--color-ink-900);
-  font-size: var(--text-2xl);
+  font-size: var(--text-3xl);
   font-weight: var(--font-weight-bold);
   line-height: var(--srbg-font-line-height-heading);
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .srbg-page-header__description {
@@ -147,11 +150,22 @@ const visibleUpdatedAt = computed(() =>
   gap: var(--spacing-2);
 }
 
-@media (max-width: 47.999rem) {
+@media (max-width: 79.999rem) {
   .srbg-page-header {
     align-items: stretch;
     flex-direction: column;
     gap: var(--spacing-4);
+  }
+
+  .srbg-page-header__actions {
+    width: 100%;
+  }
+}
+
+@media (max-width: 47.999rem) {
+  .srbg-page-header__title {
+    font-size: var(--text-2xl);
+    letter-spacing: 0;
   }
 
   .srbg-page-header__updated-at {

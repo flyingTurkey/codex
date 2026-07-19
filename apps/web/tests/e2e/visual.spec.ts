@@ -31,6 +31,17 @@ async function mockVisualIdentity(page: Page): Promise<void> {
 for (const viewport of visualViewports) {
   test(`home visual baseline at ${viewport.name}`, async ({ page }) => {
     await mockVisualIdentity(page)
+    await page.route('**/api/v1/sources', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify(Array.from({ length: 5 }, (_, index) => ({
+        id: `019b0000-0000-7000-8000-0000000000${index}`,
+        streams: index < 3 ? [{ health_status: 'HEALTHY' }] : [],
+      }))),
+    }))
+    await page.route('**/api/v1/source-discovery/settings', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ automation_enabled: false }),
+    }))
     await page.route('**/api/v1/feed**', route => route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
@@ -48,10 +59,11 @@ for (const viewport of visualViewports) {
     await expect(page.locator('.srbg-app-shell[aria-busy="false"]')).toBeVisible({
       timeout: 20_000,
     })
-    await expect(page.getByRole('heading', { level: 1, name: '今日精选' })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 1, name: '今日情报' })).toBeVisible()
     await expect(page.getByText('API v1 · Schema 1.1.0', { exact: true })).toBeVisible()
     await expect(page.getByRole('search')).toBeVisible()
     await expect(page.getByRole('region', { name: '今日重点与数据状态' })).toBeVisible()
+    await expect(page.getByRole('region', { name: '今日重点与数据状态' })).toContainText('3/5')
     await expect(page.getByRole('heading', { level: 2, name: '暂无精选内容' })).toBeVisible()
     await normalizeDynamicPageData(page)
 

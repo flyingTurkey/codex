@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-07-19（个人界面优化）
+
+- 将已确认的首页、来源中心和情报详情推荐稿落实到正式 Nuxt 界面；继续复用权威设计令牌、Iconoir 和既有共享组件，没有引入第二套组件库或演示数据。
+- 首页改为“今日情报”个人研究工作台，首屏展示真实情报数、健康来源、采集投影状态和自动发现状态；窗格使用克制的牛油果低饱和渐变。
+- 来源中心把添加 URL、真实健康概览和来源卡移到首屏，自动发现设置收进原生可访问折叠区；修复 `server:false` 数据加载造成的 hydration mismatch。
+- 情报详情不再把数字化政策误标为安全案例生命周期；两条 accepted claims、Evidence IDs、定位方式和 SHA-256 直接进入证据首屏，安全案例专属字段只在安全案例中显示。
+- 全局交互使用 140–180ms 令牌化颜色、阴影和按压反馈，并继续尊重 `prefers-reduced-motion`；同步更新桌面/移动端截图、视觉基线和 Design QA。
+
 ## 2026-07-19（试点正式重判、AI 费用桥接与界面审查准入）
 
 - 固定五源试点策略版本 `pers10-fixed-five-3of5-v1` 在来源集合精确匹配、真实端到端证据链和全部安全不变量通过时，允许 3/5 作为正式 `PASS`；默认及未来试点仍保持 4/5 正式门槛，3/5 仍为 `LIMITED_PASS`。
@@ -10,7 +18,7 @@
 - 将 `fontless` 的 `esbuild` 定向固定到已修复的 `0.28.1`，`pnpm audit --prod` 漏洞计数为 0。
 - 修复真实个人信号详情仍依赖旧发布投影的问题：metadata-only 详情现在由个人信号补齐 accepted claims、Evidence IDs 和自动处理结果；Feed 按事件合并旧 metadata 与新证据信号，避免同一事件重复展示。
 - 历史测试来源改为显式 `FIXTURE_TEST`/`FIXTURE_REPLAY` 隔离；业务来源列表和 PublicationService backfill 不再读取这些记录，同时不以 `.test` 域名猜测数据性质。修复前数据库备份 SHA-256 为 `D3AE6EC0567D72ED1DC2D261F8E7E50922FE992EDC3D27F403D1E38A040F2065`。
-- 完成首页、来源中心和情报详情的只读界面审查与唯一推荐候选图；审查材料保存于 `D:\SRBGData\reports\ui-review\core-pages-20260719T0225Z`，正式 Nuxt 界面未修改，等待 Owner 确认。
+- 完成首页、来源中心和情报详情的只读界面审查与唯一推荐候选图；原始审查材料保存在 `D:\SRBGData\reports\ui-review\core-pages-20260719T0225Z`，随后经 Owner 确认进入正式实现。
 
 ## 2026-07-18（受控真实试点探测与收尾补强）
 

@@ -40,6 +40,8 @@ Web 与 API 默认只绑定 `127.0.0.1`。不要把固定本地身份头、端�
 
 个人操作说明见[个人使用手册](docs/user-guide/personal-research-platform.md)，架构和边界见[个人研究模式架构](docs/architecture/personal-research-mode.md)。
 
+正式 Web 界面采用低饱和牛油果渐变窗格和高密度证据卡：`/` 首屏汇总真实情报与来源健康，`/sources` 将添加、健康概览和来源操作集中展示，`/events/{id}` 直接呈现 accepted claims、Evidence IDs、定位方式与内容哈希。所有点击反馈使用设计令牌并尊重系统“减少动态效果”设置。
+
 ## 质量门禁
 
 ```bash

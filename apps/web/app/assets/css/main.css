@@ -17,6 +17,11 @@ html {
   overflow-wrap: anywhere;
   color: var(--color-ink-900);
   font-family: var(--font-sans);
+  font-synthesis: none;
+  font-variant-numeric: tabular-nums;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   background: var(--color-canvas);
 }
 
@@ -32,6 +37,29 @@ input,
 select,
 textarea {
   font: inherit;
+}
+
+button,
+a,
+input,
+select,
+textarea,
+[role='button'],
+[role='switch'] {
+  transition:
+    color var(--srbg-motion-base) var(--srbg-motion-easing),
+    background-color var(--srbg-motion-base) var(--srbg-motion-easing),
+    border-color var(--srbg-motion-base) var(--srbg-motion-easing),
+    box-shadow var(--srbg-motion-base) var(--srbg-motion-easing),
+    opacity var(--srbg-motion-fast) var(--srbg-motion-easing),
+    transform var(--srbg-motion-fast) var(--srbg-motion-easing);
+}
+
+button:active:not(:disabled),
+a:active,
+[role='button']:active:not([aria-disabled='true']),
+[role='switch']:active:not([aria-disabled='true']) {
+  transform: scale(0.99);
 }
 
 a {

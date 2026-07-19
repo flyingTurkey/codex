@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ProblemDetails, VersionResponse } from '@srbg/contracts'
+import type { DiscoverySettingView, PersonalSourceView, ProblemDetails, VersionResponse } from '@srbg/contracts'
 
 import IntelligenceFeedPage from '../components/IntelligenceFeedPage.vue'
 import GlobalSearch from '../components/GlobalSearch.vue'
@@ -7,6 +7,17 @@ import { useIntelligenceFeed } from '../composables/useIntelligenceFeed'
 import { createUuidV7 } from '../utils/uuid-v7'
 
 const { data: feed, status, loadMore, loadingMore } = useIntelligenceFeed('selected')
+const { data: homeSources } = useFetch<PersonalSourceView[]>('/api/v1/sources', {
+  server: false,
+  default: () => [],
+  retry: 0,
+  timeout: 5_000,
+})
+const { data: discoverySetting } = useFetch<DiscoverySettingView>('/api/v1/source-discovery/settings', {
+  server: false,
+  retry: 0,
+  timeout: 5_000,
+})
 const versionCheckRequestId = useState('api-version-request-id', () => createUuidV7())
 const versionCheckedAt = useState<string | null>('api-version-checked-at', () => null)
 const { data: version, error: versionError } = await useFetch<VersionResponse>('/api/v1/version', {
@@ -32,6 +43,12 @@ const freshnessLabel = computed(() => {
   if (feed.value?.freshness === 'partial') return '部分来源异常'
   return '数据已更新'
 })
+const healthySourceCount = computed(() => homeSources.value.filter(source =>
+  source.streams?.some(stream => stream.health_status === 'HEALTHY'),
+).length)
+const sourceHealthLabel = computed(() => homeSources.value.length
+  ? `${healthySourceCount.value}/${homeSources.value.length}`
+  : '等待数据')
 
 function search(value: string): void {
   void navigateTo({ path: '/search', query: { q: value } })
@@ -40,9 +57,9 @@ function search(value: string): void {
 
 <template>
   <IntelligenceFeedPage
-    title="今日精选"
-    eyebrow="精选发布"
-    description="只有通过审核与发布门禁并进入精选投影的内容才会出现在这里。"
+    title="今日情报"
+    eyebrow="个人研究工作台"
+    description="个人来源自动采集的题录与证据事实；机器整理和未人工复核状态始终可见。"
     :status-label="freshnessLabel"
     :status-tone="feed?.freshness === 'fresh' ? 'healthy' : 'pending'"
     empty-title="暂无精选内容"
@@ -59,9 +76,10 @@ function search(value: string): void {
     <template #notice>
       <p v-if="problem" role="alert">{{ problem.title }}：{{ problem.detail }}</p>
       <section v-else class="today-summary" aria-label="今日重点与数据状态">
-        <div><strong>{{ feed?.items.length ?? 0 }}</strong><span>今日重点</span></div>
+        <div><strong>{{ feed?.items.length ?? 0 }}</strong><span>条情报</span></div>
+        <div><strong>{{ sourceHealthLabel }}</strong><span>健康来源</span></div>
         <div><strong>{{ freshnessLabel }}</strong><span>采集与投影状态</span></div>
-        <div><strong>{{ feed?.fingerprint ?? '等待数据' }}</strong><span>内容指纹</span></div>
+        <div><strong>{{ discoverySetting?.automation_enabled ? '已开启' : '已关闭' }}</strong><span>自动发现</span></div>
       </section>
     </template>
     <template #status-detail>
@@ -73,15 +91,17 @@ function search(value: string): void {
 <style scoped>
 .today-summary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  padding: var(--spacing-4);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: var(--spacing-3);
+  background: linear-gradient(135deg, var(--color-surface) 0%, var(--color-brand-50) 100%);
+  border: 1px solid var(--color-brand-200);
   border-radius: var(--radius-lg);
-  gap: var(--spacing-4);
+  box-shadow: var(--shadow-card);
 }
-.today-summary div { display: grid; gap: var(--spacing-1); min-width: 0; }
-.today-summary strong { color: var(--color-ink-900); overflow-wrap: anywhere; }
+.today-summary div { display: grid; min-width: 0; padding: var(--spacing-3) var(--spacing-4); gap: var(--spacing-1); }
+.today-summary div + div { border-left: 1px solid var(--color-border); }
+.today-summary strong { color: var(--color-brand-800); overflow-wrap: anywhere; font-size: var(--text-lg); }
 .today-summary span { color: var(--color-ink-600); font-size: var(--text-xs); }
-@media (max-width: 47.999rem) { .today-summary { grid-template-columns: 1fr; } }
+@media (max-width: 63.999rem) { .today-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } .today-summary div:nth-child(3) { border-left: 0; border-top: 1px solid var(--color-border); } .today-summary div:nth-child(4) { border-top: 1px solid var(--color-border); } }
+@media (max-width: 47.999rem) { .today-summary { grid-template-columns: 1fr; } .today-summary div + div { border-top: 1px solid var(--color-border); border-left: 0; } }
 </style>
