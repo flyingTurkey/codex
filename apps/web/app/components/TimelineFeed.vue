@@ -14,7 +14,8 @@ const dateFormatter = new Intl.DateTimeFormat('zh-CN', {
 const groups = computed(() => {
   const result: Array<{ label: string; items: ItemSummary[] }> = []
   for (const item of props.items) {
-    const label = dateFormatter.format(new Date(item.activity_at))
+    const activityAt = item.activity_at as string | null
+    const label = activityAt ? dateFormatter.format(new Date(activityAt)) : '时间待补充'
     const current = result.at(-1)
     if (current?.label === label) current.items.push(item)
     else result.push({ label, items: [item] })

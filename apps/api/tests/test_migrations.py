@@ -22,6 +22,7 @@ def test_migration_seed_rows_match_the_canonical_disabled_candidate_registry() -
         registry = list(csv.DictReader(stream))
     round02_migration = runpy.run_path("apps/api/migrations/versions/0002_source_vault.py")
     round04_migration = runpy.run_path("apps/api/migrations/versions/0005_safety_case_lifecycle.py")
+    round02_codes = {row[0] for row in round02_migration["SEED_SOURCES"]}
     round04_codes = {row[0] for row in round04_migration["ROUND04_SOURCE_SEEDS"]}
 
     def canonical_rows(rows: list[dict[str, str]]) -> tuple[tuple[object, ...], ...]:
@@ -40,7 +41,7 @@ def test_migration_seed_rows_match_the_canonical_disabled_candidate_registry() -
             for row in rows
         )
 
-    round02_registry = [row for row in registry if row["source_id"] not in round04_codes]
+    round02_registry = [row for row in registry if row["source_id"] in round02_codes]
     round04_registry = [row for row in registry if row["source_id"] in round04_codes]
 
     assert len(round02_registry) == 42

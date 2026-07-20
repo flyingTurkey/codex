@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Intelligence v2 private Owner Gold annotation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "case_id", "bucket", "annotator_kind", "content_sha256", "raw_object_sha256",
+    "annotated_at", "rule_version", "model_id", "prompt_version", "evidence_locator",
+    "expected_relevant", "primary_type", "engineering_objects", "specialty_facets",
+    "equipment_domains", "locked_negative"
+  ],
+  "properties": {
+    "case_id": {"type": "string", "minLength": 1},
+    "bucket": {"enum": ["POSITIVE", "BOUNDARY", "NEGATIVE"]},
+    "annotator_kind": {"const": "HUMAN_OWNER"},
+    "content_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "raw_object_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "annotated_at": {"type": "string", "format": "date-time"},
+    "rule_version": {"type": "string", "minLength": 1},
+    "model_id": {"type": "string", "minLength": 1},
+    "prompt_version": {"type": "string", "minLength": 1},
+    "evidence_locator": {"type": "string", "minLength": 1},
+    "expected_relevant": {"type": "boolean"},
+    "primary_type": {
+      "type": ["string", "null"],
+      "enum": ["DIGITAL_TRANSFORMATION", "SAFETY_INTELLIGENCE", "INDUSTRY_UPDATE", null]
+    },
+    "engineering_objects": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"enum": ["HIGHWAY", "RAILWAY", "BRIDGE", "TUNNEL", "BUILDING", "MINING", "MUNICIPAL", "WATER_CONSERVANCY", "PORT_WATERWAY", "AIRPORT", "ENERGY"]}
+    },
+    "specialty_facets": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"const": "TUNNEL_GAS_MONITORING"}
+    },
+    "equipment_domains": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"const": "CONSTRUCTION_MACHINERY"}
+    },
+    "locked_negative": {"type": "boolean"}
+  }
+}

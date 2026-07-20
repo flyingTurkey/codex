@@ -1,0 +1,290 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srbg.local/schemas/t27-source-stream-discovery-v2.schema.json",
+  "title": "T27 China Highway and Tunnel Construction replacement SourceStream research",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "issue_number",
+    "parent_spec_number",
+    "closure_eligible",
+    "owner_gold_evidence",
+    "deepseek_real_schema_success",
+    "runtime_window_evidence",
+    "closeout_go_evidence",
+    "sources"
+  ],
+  "properties": {
+    "schema_version": {"const": "t27-source-stream-discovery-v2"},
+    "issue_number": {"const": 28},
+    "parent_spec_number": {"const": 1},
+    "closure_eligible": {"const": true},
+    "owner_gold_evidence": {"type": "null"},
+    "deepseek_real_schema_success": {"type": "null"},
+    "runtime_window_evidence": {"type": "null"},
+    "closeout_go_evidence": {"type": "null"},
+    "sources": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        {
+          "allOf": [
+            {"$ref": "#/$defs/source"},
+            {
+              "properties": {
+                "registry_code": {"const": "RES-001"},
+                "institution": {"const": "中国公路学会"},
+                "streams": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 1,
+                  "prefixItems": [
+                    {
+                      "allOf": [
+                        {"$ref": "#/$defs/stream"},
+                        {
+                          "properties": {
+                            "stream_key": {"const": "chts-engineering-results"},
+                            "readiness": {"const": "BOUNDED"},
+                            "disposition": {"const": "ADMISSION_READY"},
+                            "blocker_codes": {"maxItems": 0}
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/source"},
+            {
+              "properties": {
+                "registry_code": {"const": "RES-005"},
+                "institution": {"const": "隧道建设（中英文）"},
+                "streams": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 1,
+                  "prefixItems": [
+                    {
+                      "allOf": [
+                        {"$ref": "#/$defs/stream"},
+                        {
+                          "properties": {
+                            "stream_key": {"const": "tunnel-construction-current-issue"},
+                            "collection_url": {
+                              "const": "https://c.wanfangdata.com.cn/magazine/sdjs"
+                            },
+                            "allowed_hosts": {
+                              "const": ["c.wanfangdata.com.cn", "d.wanfangdata.com.cn"]
+                            },
+                            "readiness": {"const": "BOUNDED"},
+                            "disposition": {"const": "ADMISSION_READY"},
+                            "blocker_codes": {"maxItems": 0}
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["registry_code", "institution", "official_origin", "desired_enabled", "streams"],
+      "properties": {
+        "registry_code": {"type": "string", "minLength": 1},
+        "institution": {"type": "string", "minLength": 1},
+        "official_origin": {"type": "string", "format": "uri"},
+        "desired_enabled": {"const": false},
+        "streams": {"type": "array"}
+      }
+    },
+    "stream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stream_key",
+        "collection_url",
+        "collection_path_pattern",
+        "allowed_hosts",
+        "allowed_path_patterns",
+        "connector_type",
+        "expected_mime_types",
+        "poll_interval_minutes",
+        "request_timeout_seconds",
+        "max_redirects",
+        "rate_limit_requests_per_minute",
+        "user_agent",
+        "policy_version",
+        "readiness",
+        "disposition",
+        "blocker_codes",
+        "source_admission",
+        "actual_running",
+        "pause_appended",
+        "coverage_credit_granted",
+        "content_relevance",
+        "claim_basis_policy",
+        "permitted_claim_bases",
+        "reader_fields",
+        "public_full_text_redistribution",
+        "prefilter",
+        "verification"
+      ],
+      "properties": {
+        "stream_key": {"type": "string", "pattern": "^[a-z0-9-]+$"},
+        "collection_url": {"type": "string", "format": "uri"},
+        "collection_path_pattern": {"type": "string", "minLength": 1},
+        "allowed_hosts": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "allowed_path_patterns": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "connector_type": {
+          "enum": ["DYNAMIC_HTML_LIST_DETAIL", "HTML_CURRENT_ISSUE_DETAIL"]
+        },
+        "expected_mime_types": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"const": "text/html"}
+        },
+        "poll_interval_minutes": {"type": "integer", "minimum": 1440, "maximum": 10080},
+        "request_timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 30},
+        "max_redirects": {"type": "integer", "minimum": 0, "maximum": 5},
+        "rate_limit_requests_per_minute": {"type": "integer", "minimum": 1, "maximum": 10},
+        "user_agent": {"type": "string", "minLength": 10},
+        "policy_version": {"type": "string", "pattern": "^t27-"},
+        "readiness": {"enum": ["BOUNDED", "CANDIDATE"]},
+        "disposition": {
+          "enum": ["ADMISSION_READY", "BOUNDARY_DISCOVERY", "MANUAL_SHADOW"]
+        },
+        "blocker_codes": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "source_admission": {"type": "null"},
+        "actual_running": {"const": false},
+        "pause_appended": {"const": false},
+        "coverage_credit_granted": {"const": false},
+        "content_relevance": {"enum": ["DIRECT", "FILTERED"]},
+        "claim_basis_policy": {
+          "enum": [
+            "MANUFACTURER_CLAIM",
+            "RESEARCH_CONCLUSION",
+            "PROJECT_FIRST_PARTY_RECORD",
+            "INDEPENDENT_VERIFICATION",
+            "AUTHORITY_FINDING"
+          ]
+        },
+        "permitted_claim_bases": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "reader_fields": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "public_full_text_redistribution": {"const": false},
+        "prefilter": {"$ref": "#/$defs/prefilter"},
+        "verification": {"$ref": "#/$defs/verification"}
+      }
+    },
+    "prefilter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "engineering_object_terms",
+        "lifecycle_terms",
+        "required_result_terms",
+        "excluded_terms"
+      ],
+      "properties": {
+        "engineering_object_terms": {"$ref": "#/$defs/nonEmptyStrings"},
+        "lifecycle_terms": {"$ref": "#/$defs/nonEmptyStrings"},
+        "required_result_terms": {"$ref": "#/$defs/nonEmptyStrings"},
+        "excluded_terms": {"$ref": "#/$defs/nonEmptyStrings"}
+      }
+    },
+    "nonEmptyStrings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verified_at",
+        "public_network_safe",
+        "redirect_chain_safe",
+        "resolved_public_ips",
+        "collection_get",
+        "detail_get",
+        "robots_evidence",
+        "terms_evidence",
+        "copyright_evidence",
+        "access_boundary_evidence",
+        "transport_evidence"
+      ],
+      "properties": {
+        "verified_at": {"type": "string", "format": "date-time"},
+        "public_network_safe": {"type": "boolean"},
+        "redirect_chain_safe": {"type": "boolean"},
+        "resolved_public_ips": {"$ref": "#/$defs/nonEmptyStrings"},
+        "collection_get": {"$ref": "#/$defs/httpObservation"},
+        "detail_get": {"$ref": "#/$defs/httpObservation"},
+        "robots_evidence": {"$ref": "#/$defs/complianceEvidence"},
+        "terms_evidence": {"$ref": "#/$defs/complianceEvidence"},
+        "copyright_evidence": {"$ref": "#/$defs/complianceEvidence"},
+        "access_boundary_evidence": {"$ref": "#/$defs/complianceEvidence"},
+        "transport_evidence": {"$ref": "#/$defs/transportEvidence"}
+      }
+    },
+    "httpObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "url",
+        "final_url",
+        "method",
+        "status_code",
+        "content_type",
+        "redirect_count",
+        "response_sha256"
+      ],
+      "properties": {
+        "url": {"type": "string", "format": "uri"},
+        "final_url": {"type": "string", "format": "uri"},
+        "method": {"const": "GET"},
+        "status_code": {"type": "integer", "minimum": 100, "maximum": 599},
+        "content_type": {"type": "string", "minLength": 1},
+        "redirect_count": {"type": "integer", "minimum": 0, "maximum": 5},
+        "response_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "complianceEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "status", "response_sha256", "finding"],
+      "properties": {
+        "url": {"type": "string", "format": "uri"},
+        "status": {"enum": ["VERIFIED", "BLOCKED", "UNKNOWN"]},
+        "response_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "finding": {"type": "string", "minLength": 1, "maxLength": 2000}
+      }
+    },
+    "transportEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["https_url", "certificate_valid", "redirect_chain_safe", "finding"],
+      "properties": {
+        "https_url": {"type": "string", "format": "uri", "pattern": "^https://"},
+        "certificate_valid": {"type": "boolean"},
+        "redirect_chain_safe": {"type": "boolean"},
+        "finding": {"type": "string", "minLength": 1, "maxLength": 2000}
+      }
+    }
+  }
+}

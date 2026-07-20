@@ -8,7 +8,7 @@ from time import perf_counter
 from typing import Any, ClassVar, Protocol, cast
 
 from jsonschema import Draft202012Validator
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from referencing import Registry, Resource
 
 from srbg_api.ai_pipeline.contracts import (
@@ -287,7 +287,10 @@ class DeepSeekProvider:
         self._timeout_seconds = timeout_seconds
 
     async def complete(self, request: ModelRequest) -> ProviderResult:
-        if request.model_profile != "deepseek-v4-flash":
+        if request.model_profile not in {
+            "deepseek-v4-flash",
+            "ai01-deepseek-deepseek-v4-flash-v1",
+        }:
             raise ValueError("DeepSeek model is not approved")
         expected_max_tokens = (
             1200
@@ -384,10 +387,23 @@ def validate_step_output(output: dict[str, Any], request: ModelRequest) -> Any:
     """Repeat all local checks on the server side after an isolated-worker callback."""
 
     ControlledModelGateway._validate_json_schema(output, request.response_schema)
+    validated: BaseModel
     try:
-        validated = STEP_OUTPUT_MODELS[request.step].model_validate(output)
+        if request.schema_version == "summarize-v2-output-1.0.0":
+            from srbg_api.intelligence_v2.content_candidates import (
+                StructuredSummaryCandidate,
+            )
+
+            validated = StructuredSummaryCandidate.model_validate(output)
+        else:
+            validated = STEP_OUTPUT_MODELS[request.step].model_validate(output)
     except ValidationError as exc:
-        raise ModelOutputRejected("provider output violates step contract") from exc
+        code = (
+            "SUMMARY_SCHEMA_REJECTED"
+            if request.schema_version == "summarize-v2-output-1.0.0"
+            else "provider output violates step contract"
+        )
+        raise ModelOutputRejected(code) from exc
     if isinstance(validated, ExtractionOutput):
         ControlledModelGateway._validate_evidence(validated, request)
     return validated

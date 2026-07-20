@@ -91,7 +91,7 @@ async def _generate_attempt(payload: dict[str, Any]) -> dict[str, Any]:
             "status": "SUCCEEDED",
             "response": response.model_dump(mode="json"),
             "runtime_provider": settings.provider,
-            "runtime_model": request.model_profile,
+            "runtime_model": provider_capability(ProviderCode.DEEPSEEK).models[0],
         }
     except (TimeoutError, httpx.TimeoutException):
         return _safe_failure("PROVIDER_TIMEOUT", retryable=True)
@@ -100,6 +100,8 @@ async def _generate_attempt(payload: dict[str, Any]) -> dict[str, Any]:
     except TransientProviderError:
         return _safe_failure("TRANSIENT_UNAVAILABLE", retryable=True)
     except ModelOutputRejected as exc:
+        if request.schema_version == "summarize-v2-output-1.0.0":
+            return _safe_failure("SUMMARY_SCHEMA_REJECTED")
         return _safe_failure(str(exc), repairable=True)
     except (ValueError, RuntimeError) as exc:
         code = str(exc)

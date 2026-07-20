@@ -54,6 +54,7 @@ export function v2Projection(item: LegacyReaderItem, options: {
     },
     ai_summary: {
       status: 'NOT_GENERATED',
+      status_message: 'AI 总结尚未生成。已通过证据门禁的原文摘录仍可阅读。',
       body: null,
       claim_ids: [],
       judgment_paragraphs: [],
@@ -84,7 +85,11 @@ export function v2Appendix(eventId: string) {
     evidence: [],
     automatic_results: [],
     relationships: [],
+    automatic_relationships: [],
     corrections: [],
+    review_context: null,
+    review_href: '/review',
+    content_summary: { total_items: 0, heavy_content: false, truncated_sections: [] },
   }
 }
 

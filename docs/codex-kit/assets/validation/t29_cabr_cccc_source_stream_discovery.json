@@ -1,0 +1,190 @@
+{
+  "schema_version": "t29-source-stream-discovery-v1",
+  "issue_number": 30,
+  "parent_spec_number": 1,
+  "sources": [
+    {
+      "registry_code": "RES-003",
+      "institution": "中国建筑科学研究院",
+      "official_origin": "https://www.cabr.cn/",
+      "aliases": ["中国建研院", "中国建筑科学研究院有限公司"],
+      "desired_enabled": false,
+      "streams": [
+        {
+          "stream_key": "cabr-static-research-results",
+          "collection_url": "https://www.cabr.cn/zgjyy/kjbzx/kycg/hjkq/A019003003002Gone1.html",
+          "collection_path_pattern": "^/zgjyy/kjbzx/kycg/hjkq/A019003003002Gone1\\.html$",
+          "allowed_hosts": ["www.cabr.cn"],
+          "allowed_path_patterns": [
+            "^/zgjyy/kjbzx/kycg/(?:hjkq/A019003003002Gone1|kjxm/A019003003001Gone1)\\.html$"
+          ],
+          "connector_type": "STATIC_HTML_MANUAL",
+          "expected_mime_types": ["text/html"],
+          "poll_interval_minutes": null,
+          "request_timeout_seconds": 10,
+          "max_redirects": 5,
+          "rate_limit_requests_per_minute": 1,
+          "user_agent": "SRBG-SourceResearch/1.0 (+personal noncommercial research)",
+          "policy_version": "t29-cabr-research-results-boundary-v1",
+          "readiness": "CANDIDATE",
+          "disposition": "MANUAL_SHADOW",
+          "blocker_codes": ["NO_CONTINUOUS_COLLECTION", "TERMS_PROHIBIT_COPYING"],
+          "source_admission": null,
+          "actual_running": false,
+          "content_relevance": "FILTERED",
+          "claim_basis_policy": "RESEARCH_CONCLUSION",
+          "permitted_claim_bases": ["RESEARCH_CONCLUSION", "MANUFACTURER_CLAIM"],
+          "public_redistribution": false,
+          "prefilter": {
+            "engineering_object_terms": [
+              "公路", "铁路", "桥", "隧道", "房屋建筑", "建筑", "矿山", "市政", "水利", "港", "机场", "能源工程"
+            ],
+            "lifecycle_terms": [
+              "规划", "设计", "施工", "运营", "养护", "安全", "监测", "数字化", "智能建造", "研究", "技术", "装备", "标准"
+            ],
+            "excluded_terms": [
+              "党建", "党委会议", "人事任免", "人才招聘", "品牌宣传", "企业文化", "经营业绩", "资本市场"
+            ]
+          },
+          "verification": {
+            "verified_at": "2026-07-20T03:14:18.0272444Z",
+            "public_network_safe": true,
+            "redirect_chain_safe": true,
+            "resolved_public_ips": ["28.0.0.83"],
+            "collection_get": {
+              "url": "https://www.cabr.cn/zgjyy/kjbzx/kycg/hjkq/A019003003002Gone1.html",
+              "final_url": "https://www.cabr.cn/zgjyy/kjbzx/kycg/hjkq/A019003003002Gone1.html",
+              "method": "BROWSER_NAVIGATION",
+              "status_code": 200,
+              "content_type": "text/html",
+              "redirect_count": 0,
+              "response_sha256": null
+            },
+            "detail_get": {
+              "url": "https://www.cabr.cn/zgjyy/kjbzx/kycg/kjxm/A019003003001Gone1.html",
+              "final_url": "https://www.cabr.cn/zgjyy/kjbzx/kycg/kjxm/A019003003001Gone1.html",
+              "method": "BROWSER_NAVIGATION",
+              "status_code": 200,
+              "content_type": "text/html",
+              "redirect_count": 0,
+              "response_sha256": null
+            },
+            "robots_evidence": {
+              "url": "https://www.cabr.cn/robots.txt",
+              "status": "UNKNOWN",
+              "http_status_code": 404,
+              "response_sha256": null,
+              "finding": "robots.txt returned a branded 404 page; absence is recorded and is not treated as automated-access permission."
+            },
+            "terms_evidence": {
+              "url": "https://www.cabr.cn/zgjyy/flsm/A019009Gone1.html",
+              "status": "BLOCKED",
+              "http_status_code": 200,
+              "response_sha256": null,
+              "finding": "The official legal notice requires prior explicit written permission before site text or images are copied or transmitted, conflicting with mandatory raw-first storage."
+            },
+            "copyright_evidence": {
+              "url": "https://www.cabr.cn/zgjyy/flsm/A019009Gone1.html",
+              "status": "BLOCKED",
+              "http_status_code": 200,
+              "response_sha256": null,
+              "finding": "No written permission was found for copying or linking; keep the static pages manual-only and do not redistribute their contents."
+            }
+          }
+        }
+      ]
+    },
+    {
+      "registry_code": "ENT-001",
+      "institution": "中国交建",
+      "official_origin": "https://www.ccccltd.cn/",
+      "aliases": ["中国交通建设集团", "中国交通建设集团有限公司", "中国交通建设股份有限公司"],
+      "desired_enabled": false,
+      "streams": [
+        {
+          "stream_key": "cccc-project-briefs",
+          "collection_url": "https://www.ccccltd.cn/news/jcxw/jx/",
+          "collection_path_pattern": "^/news/jcxw/jx/$",
+          "allowed_hosts": ["www.ccccltd.cn"],
+          "allowed_path_patterns": [
+            "^/news/jcxw/jx/(?:index(?:_[1-9][0-9]*)?\\.html)?$",
+            "^/news/jcxw/jx/[0-9]{6}/t[0-9]{8}_[0-9]+\\.html$"
+          ],
+          "connector_type": "HTML_LIST_DETAIL",
+          "expected_mime_types": ["text/html"],
+          "poll_interval_minutes": 1440,
+          "request_timeout_seconds": 10,
+          "max_redirects": 5,
+          "rate_limit_requests_per_minute": 1,
+          "user_agent": "SRBG-SourceResearch/1.0 (+personal noncommercial research)",
+          "policy_version": "t29-cccc-project-first-party-v1",
+          "readiness": "BOUNDED",
+          "disposition": "ADMISSION_READY",
+          "blocker_codes": [],
+          "source_admission": null,
+          "actual_running": false,
+          "content_relevance": "FILTERED",
+          "claim_basis_policy": "PROJECT_FIRST_PARTY_RECORD",
+          "permitted_claim_bases": ["PROJECT_FIRST_PARTY_RECORD", "MANUFACTURER_CLAIM"],
+          "public_redistribution": false,
+          "prefilter": {
+            "engineering_object_terms": [
+              "公路", "铁路", "桥", "隧道", "房屋建筑", "矿山", "市政", "水利", "港", "航道", "机场", "能源工程"
+            ],
+            "lifecycle_terms": [
+              "规划", "设计", "施工", "建设", "中标", "开工", "贯通", "合龙", "封顶", "完工", "验收", "通车", "投运", "运营", "养护", "安全", "监测", "数字化", "智能建造", "装备"
+            ],
+            "excluded_terms": [
+              "经营业绩", "资本市场", "股价", "年度报告", "党建", "党委会议", "人事任免", "人才招聘", "会议会见", "品牌宣传"
+            ]
+          },
+          "verification": {
+            "verified_at": "2026-07-20T03:14:18.0272444Z",
+            "public_network_safe": true,
+            "redirect_chain_safe": true,
+            "resolved_public_ips": ["28.0.0.79"],
+            "collection_get": {
+              "url": "https://www.ccccltd.cn/news/jcxw/jx/",
+              "final_url": "https://www.ccccltd.cn/news/jcxw/jx/",
+              "method": "BROWSER_NAVIGATION",
+              "status_code": 200,
+              "content_type": "text/html",
+              "redirect_count": 0,
+              "response_sha256": null
+            },
+            "detail_get": {
+              "url": "https://www.ccccltd.cn/news/jcxw/jx/202607/t20260717_227766.html",
+              "final_url": "https://www.ccccltd.cn/news/jcxw/jx/202607/t20260717_227766.html",
+              "method": "BROWSER_NAVIGATION",
+              "status_code": 200,
+              "content_type": "text/html",
+              "redirect_count": 0,
+              "response_sha256": null
+            },
+            "robots_evidence": {
+              "url": "https://www.ccccltd.cn/robots.txt",
+              "status": "VERIFIED",
+              "http_status_code": 404,
+              "response_sha256": null,
+              "finding": "The browser observed a 404 response. This verifies absence at the observed URL but grants no permission; SourceAdmission must re-probe and fail closed."
+            },
+            "terms_evidence": {
+              "url": "https://www.ccccltd.cn/dbnr/dbnr_bqsm/",
+              "status": "VERIFIED",
+              "http_status_code": 200,
+              "response_sha256": null,
+              "finding": "The official copyright notice was publicly readable and did not state a separate automated-use grant or prohibition; later admission must re-evaluate the exact private raw-first use."
+            },
+            "copyright_evidence": {
+              "url": "https://www.ccccltd.cn/dbnr/dbnr_bqsm/",
+              "status": "VERIFIED",
+              "http_status_code": 200,
+              "response_sha256": null,
+              "finding": "All site rights are reserved. Research policy permits no public redistribution and limits any future projection to metadata, accepted claims, necessary excerpts, and the original link."
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

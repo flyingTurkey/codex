@@ -17,8 +17,12 @@ import { computed, ref, watch } from 'vue'
 import { safetyEngineeringLabel, safetyHazardLabel } from '../utils/safety-case-labels'
 import ScoreBreakdownDrawer from './ScoreBreakdownDrawer.vue'
 import { createUuidV7 } from '../utils/uuid-v7'
+import type { V2CardItemExtras } from '../composables/useIntelligenceFeed'
 
-const props = withDefaults(defineProps<{ item: ItemSummary, headingLevel?: 2 | 3 }>(), {
+const props = withDefaults(defineProps<{
+  item: ItemSummary & V2CardItemExtras
+  headingLevel?: 2 | 3
+}>(), {
   headingLevel: 3,
 })
 
@@ -152,6 +156,13 @@ const failureReasonLabels: Record<string, string> = {
 function failureReasonLabel(value: string): string {
   return failureReasonLabels[value] ?? value
 }
+
+const searchEvidenceFieldLabels = {
+  TITLE: '标题',
+  SOURCE: '来源',
+  ACCEPTED_CLAIMS: 'Accepted claims',
+  SOURCE_EXCERPT: '原文摘录',
+} as const
 
 const typeLabel = computed(() => {
   if (props.item.content_type === 'DIGITAL_CASE') return '数字化案例'
@@ -361,8 +372,24 @@ function formatLoss(amountMinor: number, currency: string): string {
       <strong>{{ item.search_context.match_kind === 'SEMANTIC' ? '语义召回' : '关键词命中' }}</strong>
       {{ (item.search_context.matched_fields ?? []).join('、') }}
     </p>
+    <p v-if="item.search_explanation" class="intelligence-card__search-match">
+      <span v-if="item.search_explanation.matched_evidence_fields.length">
+        <strong>证据字段命中：</strong>{{ item.search_explanation.matched_evidence_fields.map(field => searchEvidenceFieldLabels[field]).join('、') }}
+      </span>
+      <span v-if="item.search_explanation.ai_summary_assisted">
+        <strong>AI 总结低权重辅助召回</strong>
+      </span>
+    </p>
 
-    <section v-if="item.ai_judgment" class="intelligence-card__ai-judgment">
+    <p
+      v-if="item.tags?.includes('HOTSPOT_AWARDED') && item.relevance_reason"
+      class="intelligence-card__search-match"
+    >
+      <strong>热点依据</strong>
+      {{ item.relevance_reason }}
+    </p>
+
+    <section v-if="item.ai_judgment && !item.ai_summary_preview" class="intelligence-card__ai-judgment">
       <h4>AI 总结</h4>
       <p>{{ item.ai_judgment.why_worth_attention }}</p>
       <dl>
@@ -399,11 +426,16 @@ function formatLoss(amountMinor: number, currency: string): string {
     </section>
 
     <p
-      v-if="item.one_sentence_fact && item.ai_assistance?.accepted_claims_only && item.review_status === 'APPROVED'"
+      v-if="item.one_sentence_fact && item.review_status === 'APPROVED' && (item.ai_summary_preview || item.ai_assistance?.accepted_claims_only)"
       class="intelligence-card__ai-summary"
     >
       <strong>原文摘录：</strong>{{ item.one_sentence_fact }}
     </p>
+
+    <section v-if="item.ai_summary_preview" class="intelligence-card__v2-ai-summary">
+      <h4>AI 总结</h4>
+      <p>{{ item.ai_summary_preview.body ?? item.ai_summary_preview.status_message }}</p>
+    </section>
 
     <template v-if="!isWithdrawn && item.publication_revision_id && regulationSummary">
       <dl class="intelligence-card__facts">
@@ -756,11 +788,16 @@ function formatLoss(amountMinor: number, currency: string): string {
 }
 
 .intelligence-card__ai-judgment > p,
-.intelligence-card__ai-summary {
+.intelligence-card__ai-summary,
+.intelligence-card__v2-ai-summary > p {
   display: -webkit-box;
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+.intelligence-card__v2-ai-summary {
+  background: var(--color-digital-50);
 }
 
 .intelligence-card__ai-judgment {

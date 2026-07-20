@@ -9,6 +9,12 @@
 - `quality_gates.json`：质量指标及最低阈值。
 - `source_onboarding_checklist.json`：来源从候选到启用的检查清单。
 - `readiness_evidence.schema.json`：临近生产发布时由 CI 生成的就绪证据清单。
+- `t14_source_stream_research.schema.json`：有界 SourceStream 发现记录的研究关闭契约；`ADMISSION_READY` 不授予实际准入或运行权。
+- `t14_mohurd_source_stream_research.json`：Issue #15 的住建部点时研究证据；只表达研究处置，不授予准入或运行权。
+- `t27_source_stream_discovery.schema.json`：Issue #28 两个机构 Source 的 v2 研究契约，固定万方替代期刊集合、两流关闭资格、无运行证据和逐机构处置语义。
+- `t27_chts_tunnel_construction_source_stream_discovery.json`：中国公路学会工程成果集合与万方 ISSN `2096-4498` 期刊替代流的点时证据；官方站阻断被保留，但替代流使本票满足研究关闭条件，仍不授予准入或运行权。
+- `t29r_jace_cccc_source_stream_discovery.schema.json`：Issue #39 替代流的失败关闭契约，固定 JACE 当前刊期 API/query、研究结论 ClaimBasis 与两流无运行权限。
+- `t29r_jace_cccc_source_stream_discovery.json`：《建筑科学与工程学报》与中国交建的点时研究记录；未固化的浏览器响应哈希保持 `null`，`ADMISSION_READY` 不代表已准入或运行。
 
 ## 哈希的边界
 

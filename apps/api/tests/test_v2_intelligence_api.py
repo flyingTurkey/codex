@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi.testclient import TestClient
+from srbg_api.intelligence_v2.service import MediaDeliveryUnavailable, ProjectionNotFound
 from srbg_api.main import create_app
 from srbg_contracts import FeedPageV2
 
@@ -27,8 +28,6 @@ class FakeV2Service:
         return FeedPageV2(items=[], generated_at=NOW)
 
     async def event(self, event_id: UUID):
-        from srbg_api.intelligence_v2.service import ProjectionNotFound
-
         raise ProjectionNotFound(str(event_id))
 
     async def appendix(self, event_id: UUID):
@@ -52,6 +51,20 @@ class FakeV2Service:
             "version": 1,
             "created_at": NOW,
             "updated_at": NOW,
+        }
+
+    async def quarantine(self, case_id: UUID):
+        return {
+            "projection_kind": "QUARANTINE",
+            "case_id": case_id,
+            "event_id": EVENT_ID,
+            "title": "隔离内容",
+            "primary_type": "SAFETY_INTELLIGENCE",
+            "official_source": False,
+            "source_published_at": None,
+            "first_discovered_at": None,
+            "original_url": "https://example.com/source/1",
+            "isolation_reason": "UNRESOLVED_PROMPT_INJECTION",
         }
 
     async def decide(self, **_: object):
@@ -84,6 +97,26 @@ def test_unprojected_event_is_404_not_review_content() -> None:
     with TestClient(create_app(v2_intelligence_service=FakeV2Service())) as client:
         response = client.get(f"/api/v2/events/{EVENT_ID}")
     assert response.status_code == 404
+
+
+def test_owner_quarantine_surface_returns_only_safe_metadata() -> None:
+    case_id = UUID("019f7c00-0000-7000-8000-000000000098")
+    with TestClient(create_app(v2_intelligence_service=FakeV2Service())) as client:
+        response = client.get(f"/api/v2/review/quarantine/{case_id}")
+
+    assert response.status_code == 200
+    assert set(response.json()) == {
+        "projection_kind",
+        "case_id",
+        "event_id",
+        "title",
+        "primary_type",
+        "official_source",
+        "source_published_at",
+        "first_discovered_at",
+        "original_url",
+        "isolation_reason",
+    }
 
 
 def test_review_decision_requires_concurrency_and_idempotency_headers() -> None:
@@ -124,6 +157,22 @@ def test_v2_media_preview_is_private_and_download_is_short_redirect() -> None:
     assert download.status_code == 302
     assert download.headers["cache-control"] == "no-store"
     assert download.headers["location"].endswith("expires=300")
+
+
+def test_v2_media_storage_failure_is_problem_details_without_exposing_storage_error() -> None:
+    class UnavailableMediaService(FakeV2Service):
+        async def media_preview(self, media_id: UUID):
+            del media_id
+            raise MediaDeliveryUnavailable("s3 access key must never leak")
+
+    media_id = UUID("019f7c00-0000-7000-8000-000000000096")
+    with TestClient(create_app(v2_intelligence_service=UnavailableMediaService())) as client:
+        response = client.get(f"/api/v2/media/{media_id}/preview")
+
+    assert response.status_code == 503
+    assert response.headers["content-type"].startswith("application/problem+json")
+    assert response.json()["code"] == "MEDIA_TEMPORARILY_UNAVAILABLE"
+    assert "access key" not in response.text
 
 
 def test_invalid_v2_cursor_returns_problem_details_with_stable_code() -> None:

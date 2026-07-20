@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srbg.local/schemas/t18-source-stream-discovery-w4.schema.json",
+  "title": "T18 W4 SourceStream discovery research record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["issue", "parent_spec", "rule_version", "verified_at", "streams"],
+  "properties": {
+    "issue": {"const": 19},
+    "parent_spec": {"const": 1},
+    "rule_version": {"const": "t18-stream-discovery-w4-v1"},
+    "verified_at": {"type": "string", "format": "date-time"},
+    "streams": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/stream",
+          "properties": {
+            "source_code": {"const": "GOV-014"},
+            "institution": {"const": "中国民用航空局"},
+            "stream_key": {"const": "CAAC_AIRPORT_DEPARTMENT_DISCLOSURE"},
+            "collection_url": {"const": "https://www.caac.gov.cn/was5/web/search?page=1&channelid=211383&fl=60"},
+            "allowed_hosts": {"const": ["www.caac.gov.cn"]},
+            "claim_basis": {"const": "AUTHORITY_FINDING"},
+            "redistribution": {"const": "METADATA_EXCERPT_LINK_ONLY"}
+          }
+        },
+        {
+          "$ref": "#/$defs/stream",
+          "properties": {
+            "source_code": {"const": "RES-004"},
+            "institution": {"const": "中国公路学报"},
+            "stream_key": {"const": "CJHT_CURRENT_ISSUE"},
+            "collection_url": {"const": "https://zgglxb.chd.edu.cn/CN/current"},
+            "allowed_hosts": {"const": ["zgglxb.chd.edu.cn"]},
+            "claim_basis": {"const": "RESEARCH_CONCLUSION"},
+            "redistribution": {"const": "METADATA_ABSTRACT_LINK_ONLY"}
+          }
+        }
+      ],
+      "items": false
+    }
+  },
+  "$defs": {
+    "boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["collection_path_pattern", "required_query", "detail_path_pattern", "pagination_parameters", "detail_url_policy"],
+      "properties": {
+        "collection_path_pattern": {"type": "string", "minLength": 1},
+        "required_query": {"type": "object", "additionalProperties": {"type": "string"}},
+        "detail_path_pattern": {"type": "string", "minLength": 1},
+        "pagination_parameters": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "detail_url_policy": {"type": "string", "minLength": 1, "maxLength": 1000}
+      }
+    },
+    "compliance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["check", "status", "observed_at", "evidence_urls", "finding"],
+      "properties": {
+        "check": {
+          "enum": ["PUBLIC_NETWORK", "REDIRECTS", "ROBOTS", "TERMS", "COPYRIGHT", "ACCESS_BOUNDARY", "PUBLIC_REACHABILITY"]
+        },
+        "status": {
+          "enum": ["VERIFIED_ALLOWED", "VERIFIED_NO_REDIRECT", "VERIFIED_NO_SEPARATE_TERMS", "VERIFIED_PUBLIC", "VERIFIED_RESTRICTED"]
+        },
+        "observed_at": {"type": "string", "format": "date-time"},
+        "evidence_urls": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "pattern": "^https://"}
+        },
+        "finding": {"type": "string", "minLength": 1, "maxLength": 1000}
+      }
+    },
+    "stream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_code", "institution", "stream_key", "name", "source_status",
+        "collection_url", "allowed_hosts", "collection_boundary", "connector_type",
+        "expected_mime_types", "poll_interval_minutes", "policy_version", "readiness",
+        "content_relevance", "disposition", "accepted_topics", "excluded_topics",
+        "claim_basis", "redistribution", "fulltext_redistribution_allowed",
+        "desired_enabled", "source_admission", "actual_running", "pause_appended",
+        "coverage_credit_granted", "compliance", "research_notes"
+      ],
+      "properties": {
+        "source_code": {"type": "string", "pattern": "^(GOV|RES)-[0-9]{3}$"},
+        "institution": {"type": "string", "minLength": 1, "maxLength": 200},
+        "stream_key": {"type": "string", "pattern": "^[A-Z0-9_]{3,100}$"},
+        "name": {"type": "string", "minLength": 1, "maxLength": 200},
+        "source_status": {"const": "CANDIDATE"},
+        "collection_url": {"type": "string", "pattern": "^https://"},
+        "allowed_hosts": {"type": "array", "minItems": 1, "maxItems": 4, "items": {"type": "string"}, "uniqueItems": true},
+        "collection_boundary": {"$ref": "#/$defs/boundary"},
+        "connector_type": {"const": "LIST_DETAIL"},
+        "expected_mime_types": {"type": "array", "minItems": 1, "items": {"type": "string"}, "uniqueItems": true},
+        "poll_interval_minutes": {"type": "integer", "minimum": 15, "maximum": 10080},
+        "policy_version": {"const": "t18-stream-discovery-w4-v1"},
+        "readiness": {"const": "BOUNDED"},
+        "content_relevance": {"enum": ["DIRECT", "FILTERED"]},
+        "disposition": {"const": "ADMISSION_READY"},
+        "accepted_topics": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "excluded_topics": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "claim_basis": {"enum": ["AUTHORITY_FINDING", "RESEARCH_CONCLUSION"]},
+        "redistribution": {"enum": ["METADATA_EXCERPT_LINK_ONLY", "METADATA_ABSTRACT_LINK_ONLY"]},
+        "fulltext_redistribution_allowed": {"const": false},
+        "desired_enabled": {"const": false},
+        "source_admission": {"type": "null"},
+        "actual_running": {"const": false},
+        "pause_appended": {"const": false},
+        "coverage_credit_granted": {"const": false},
+        "compliance": {"type": "array", "minItems": 7, "maxItems": 7, "items": {"$ref": "#/$defs/compliance"}},
+        "research_notes": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+      }
+    }
+  }
+}

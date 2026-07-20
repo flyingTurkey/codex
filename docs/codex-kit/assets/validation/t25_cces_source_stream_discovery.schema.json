@@ -1,0 +1,490 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srbg.local/schemas/t25-cces-source-stream-discovery.schema.json",
+  "title": "T25 China Civil Engineering Society SourceStream discovery record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "rule_version",
+    "ticket",
+    "verified_at",
+    "source",
+    "research_outcome",
+    "replacement",
+    "control_state_mutations",
+    "verification",
+    "streams",
+    "rejected_candidates",
+    "w2_pair"
+  ],
+  "properties": {
+    "rule_version": {"const": "t25-cces-source-stream-discovery-v2"},
+    "ticket": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["issue", "parent_spec", "blocked_by", "closure_eligible"],
+      "properties": {
+        "issue": {"const": 26},
+        "parent_spec": {"const": 1},
+        "blocked_by": {
+          "const": [{"issue": 8, "state": "CLOSED"}]
+        },
+        "closure_eligible": {"const": true}
+      }
+    },
+    "verified_at": {"type": "string", "format": "date-time"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_code",
+        "institution",
+        "official_origin",
+        "source_count_credit",
+        "registry_status",
+        "desired_enabled"
+      ],
+      "properties": {
+        "source_code": {"const": "RES-011"},
+        "institution": {"const": "中国土木工程学会"},
+        "official_origin": {"const": "https://www.cces.net.cn/"},
+        "source_count_credit": {"const": 1},
+        "registry_status": {"const": "CANDIDATE"},
+        "desired_enabled": {"const": false}
+      }
+    },
+    "research_outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stream_readiness",
+        "source_research_disposition",
+        "admission_ready",
+        "blocking_reason_codes"
+      ],
+      "properties": {
+        "stream_readiness": {"const": "BOUNDED"},
+        "source_research_disposition": {"const": "ADMISSION_READY"},
+        "admission_ready": {"const": true},
+        "blocking_reason_codes": {"const": []}
+      }
+    },
+    "replacement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "superseded_blocker",
+        "superseded_collection_url",
+        "replacement_operator",
+        "replacement_platform",
+        "replacement_stream_id",
+        "publisher_identity"
+      ],
+      "properties": {
+        "superseded_blocker": {"const": "HTTPS_UNAVAILABLE"},
+        "superseded_collection_url": {"const": "http://cces.net.cn/html/tm/98/102/102.html"},
+        "replacement_operator": {"const": "中国标准化研究院"},
+        "replacement_platform": {"const": "全国团体标准信息平台"},
+        "replacement_stream_id": {"const": "RES-011-STANDARD-RELEASES"},
+        "publisher_identity": {"const": "中国土木工程学会"}
+      }
+    },
+    "control_state_mutations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desired_enabled_changed",
+        "source_admission_written",
+        "runtime_state_changed",
+        "pause_appended",
+        "real_collection_executed"
+      ],
+      "properties": {
+        "desired_enabled_changed": {"const": false},
+        "source_admission_written": {"const": false},
+        "runtime_state_changed": {"const": false},
+        "pause_appended": {"const": false},
+        "real_collection_executed": {"const": false}
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "resolved_public_ips", "checks", "http_observations"],
+      "properties": {
+        "method": {"type": "string", "minLength": 1, "maxLength": 500},
+        "resolved_public_ips": {
+          "type": "array",
+          "const": ["28.0.0.98"]
+        },
+        "checks": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "items": {"$ref": "#/$defs/compliance_check"}
+        },
+        "http_observations": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": {"$ref": "#/$defs/http_observation"}
+        }
+      }
+    },
+    "streams": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        {
+          "allOf": [
+            {"$ref": "#/$defs/stream"},
+            {
+              "properties": {
+                "stream_id": {"const": "RES-011-STANDARD-RELEASES"},
+                "name": {"const": "全国团体标准信息平台中的中国土木工程学会标准发布"},
+                "collection_url": {"const": "https://www.ttbz.org.cn/standard.html#org_bHFxbDM4aDZ6YTR3NzN0ZzBmYWp1NnNraml1YjhjYg=="},
+                "collection_path_pattern": {"const": "^/standard\\.html$"},
+                "api_url": {"const": "https://www.ttbz.org.cn/cms-proxy/ms/portal/standardInfo/getPortalStandardList"},
+                "request_method": {"const": "POST"},
+                "request_body": {
+                  "const": {
+                    "pageNo": 1,
+                    "pageSize": 20,
+                    "organUniqueId": "lqql38h6za4w73tg0faju6skjiub8cb",
+                    "standardStatus": 1
+                  }
+                },
+                "detail_path_pattern": {"const": "^/standardDetail/[a-z0-9]{31}\\.html$"},
+                "allowed_hosts": {"const": ["www.ttbz.org.cn"]},
+                "connector_type": {"const": "JSON_POST_FILTER_HTML_DETAIL"},
+                "expected_mime_types": {"const": ["application/json", "text/html"]},
+                "source_research_disposition": {"const": "ADMISSION_READY"},
+                "blocking_reason_codes": {"const": []}
+              },
+              "required": ["api_url", "request_method", "request_body"]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/stream"},
+            {
+              "properties": {
+                "stream_id": {"const": "RES-011-ZHANTIANYOU-AWARDS"},
+                "name": {"const": "中国土木工程詹天佑奖"},
+                "collection_url": {"const": "http://cces.net.cn/html/tm/29/38/38.html"},
+                "collection_path_pattern": {"const": "^/html/tm/29/38/38(?:_[2-9]|_[1-9][0-9]+)?\\.html$"},
+                "detail_path_pattern": {"const": "^/html/tm/29/38/(?:67|68|599|615)/content/[0-9]+\\.html$"},
+                "allowed_hosts": {"const": ["cces.net.cn"]},
+                "connector_type": {"const": "HTML_LIST_DETAIL"},
+                "expected_mime_types": {"const": ["text/html"]},
+                "source_research_disposition": {"const": "BOUNDARY_DISCOVERY"},
+                "blocking_reason_codes": {"const": ["HTTPS_UNAVAILABLE"]}
+              }
+            }
+          ]
+        }
+      ],
+      "items": false
+    },
+    "rejected_candidates": {
+      "type": "array",
+      "minItems": 5,
+      "items": {"$ref": "#/$defs/rejected_candidate"}
+    },
+    "w2_pair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "wave",
+        "existing_stream_id",
+        "institution",
+        "collection_entry",
+        "existing_research_ref",
+        "research_repeated",
+        "source_admission_granted"
+      ],
+      "properties": {
+        "wave": {"const": "SECOND_BATCH_W2"},
+        "existing_stream_id": {"const": "GOV-008-STANDARD-METADATA-CANDIDATE"},
+        "institution": {"const": "全国标准信息公共服务平台"},
+        "collection_entry": {"const": "https://std.samr.gov.cn/search/std"},
+        "existing_research_ref": {
+          "const": "docs/research/2026-07-19-civil-engineering-authoritative-source-expansion.md#s05-全国标准信息公共服务平台"
+        },
+        "research_repeated": {"const": false},
+        "source_admission_granted": {"const": false}
+      }
+    }
+  },
+  "$defs": {
+    "compliance_check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["check", "status", "observed_at", "evidence_urls", "finding"],
+      "allOf": [
+        {
+          "if": {"properties": {"check": {"const": "PUBLIC_NETWORK"}}},
+          "then": {"properties": {"status": {"const": "VERIFIED_PUBLIC"}}}
+        },
+        {
+          "if": {"properties": {"check": {"const": "REDIRECTS"}}},
+          "then": {"properties": {"status": {"const": "VERIFIED_NO_REDIRECT"}}}
+        },
+        {
+          "if": {"properties": {"check": {"const": "TLS"}}},
+          "then": {"properties": {"status": {"const": "VERIFIED_VALID"}}}
+        },
+        {
+          "if": {"properties": {"check": {"const": "ROBOTS"}}},
+          "then": {"properties": {"status": {"const": "VERIFIED_ALLOWED"}}}
+        },
+        {
+          "if": {"properties": {"check": {"const": "TERMS"}}},
+          "then": {"properties": {"status": {"const": "VERIFIED_PUBLIC_SERVICE_SCOPE"}}}
+        },
+        {
+          "if": {"properties": {"check": {"const": "COPYRIGHT"}}},
+          "then": {"properties": {"status": {"const": "VERIFIED_METADATA_ONLY"}}}
+        },
+        {
+          "if": {"properties": {"check": {"const": "ACCESS_BOUNDARY"}}},
+          "then": {"properties": {"status": {"const": "VERIFIED_PUBLIC_NO_BYPASS"}}}
+        },
+        {
+          "if": {"properties": {"check": {"const": "PUBLIC_REACHABILITY"}}},
+          "then": {"properties": {"status": {"const": "VERIFIED_PUBLIC"}}}
+        }
+      ],
+      "properties": {
+        "check": {
+          "enum": [
+            "PUBLIC_NETWORK",
+            "REDIRECTS",
+            "TLS",
+            "ROBOTS",
+            "TERMS",
+            "COPYRIGHT",
+            "ACCESS_BOUNDARY",
+            "PUBLIC_REACHABILITY"
+          ]
+        },
+        "status": {
+          "enum": [
+            "VERIFIED_PUBLIC",
+            "VERIFIED_NO_REDIRECT",
+            "VERIFIED_VALID",
+            "VERIFIED_ALLOWED",
+            "VERIFIED_PUBLIC_SERVICE_SCOPE",
+            "VERIFIED_METADATA_ONLY",
+            "VERIFIED_PUBLIC_NO_BYPASS"
+          ]
+        },
+        "observed_at": {"type": "string", "format": "date-time"},
+        "evidence_urls": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "pattern": "^https?://"}
+        },
+        "finding": {"type": "string", "minLength": 1, "maxLength": 1500}
+      }
+    },
+    "http_observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "url",
+        "final_url",
+        "method",
+        "status_code",
+        "content_type",
+        "redirect_count",
+        "response_sha256"
+      ],
+      "allOf": [
+        {
+          "if": {"properties": {"role": {"const": "ROBOTS"}}},
+          "then": {
+            "properties": {
+              "url": {"const": "https://www.ttbz.org.cn/robots.txt"},
+              "final_url": {"const": "https://www.ttbz.org.cn/robots.txt"},
+              "method": {"const": "GET"},
+              "content_type": {"const": "text/plain"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"role": {"const": "PLATFORM_ABOUT"}}},
+          "then": {
+            "properties": {
+              "url": {"const": "https://www.ttbz.org.cn/aboutus.html"},
+              "final_url": {"const": "https://www.ttbz.org.cn/aboutus.html"},
+              "method": {"const": "GET"},
+              "content_type": {"const": "text/html"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"role": {"const": "COLLECTION_PAGE"}}},
+          "then": {
+            "properties": {
+              "method": {"const": "GET"},
+              "content_type": {"const": "text/html"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"role": {"const": "STANDARD_API"}}},
+          "then": {
+            "properties": {
+              "url": {"const": "https://www.ttbz.org.cn/cms-proxy/ms/portal/standardInfo/getPortalStandardList"},
+              "final_url": {"const": "https://www.ttbz.org.cn/cms-proxy/ms/portal/standardInfo/getPortalStandardList"},
+              "method": {"const": "POST"},
+              "content_type": {"const": "application/json"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"role": {"const": "STANDARD_DETAIL"}}},
+          "then": {
+            "properties": {
+              "method": {"const": "GET"},
+              "content_type": {"const": "text/html"}
+            }
+          }
+        }
+      ],
+      "properties": {
+        "role": {"enum": ["ROBOTS", "PLATFORM_ABOUT", "COLLECTION_PAGE", "STANDARD_API", "STANDARD_DETAIL"]},
+        "url": {"type": "string", "pattern": "^https://www\\.ttbz\\.org\\.cn/"},
+        "final_url": {"type": "string", "pattern": "^https://www\\.ttbz\\.org\\.cn/"},
+        "method": {"enum": ["GET", "POST"]},
+        "status_code": {"const": 200},
+        "content_type": {"enum": ["text/plain", "text/html", "application/json"]},
+        "redirect_count": {"const": 0},
+        "response_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "stream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stream_id",
+        "source_code",
+        "name",
+        "collection_url",
+        "collection_path_pattern",
+        "detail_path_pattern",
+        "allowed_hosts",
+        "connector_type",
+        "expected_mime_types",
+        "poll_interval_minutes",
+        "minimum_request_interval_seconds",
+        "maximum_list_pages_per_run",
+        "request_timeout_seconds",
+        "max_redirects",
+        "frequency_authorized",
+        "policy_version",
+        "stream_readiness",
+        "source_research_disposition",
+        "blocking_reason_codes",
+        "content_relevance",
+        "accepted_topics",
+        "excluded_topics",
+        "claim_basis",
+        "authority_finding_allowed",
+        "independent_verification_allowed",
+        "redistribution",
+        "fulltext_redistribution_allowed",
+        "source_admission",
+        "actual_running",
+        "pause_appended",
+        "coverage_credit_granted",
+        "research_notes"
+      ],
+      "properties": {
+        "stream_id": {"type": "string", "pattern": "^RES-011-[A-Z]+(?:-[A-Z]+)*$"},
+        "source_code": {"const": "RES-011"},
+        "name": {"type": "string", "minLength": 1, "maxLength": 200},
+        "collection_url": {"type": "string", "pattern": "^https?://"},
+        "collection_path_pattern": {"type": "string", "minLength": 1},
+        "api_url": {"type": "string", "pattern": "^https://"},
+        "request_method": {"enum": ["GET", "POST"]},
+        "request_body": {"type": "object"},
+        "detail_path_pattern": {"type": "string", "minLength": 1},
+        "allowed_hosts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "connector_type": {"enum": ["HTML_LIST_DETAIL", "JSON_POST_FILTER_HTML_DETAIL"]},
+        "expected_mime_types": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"enum": ["application/json", "text/html"]}
+        },
+        "poll_interval_minutes": {"const": 1440},
+        "minimum_request_interval_seconds": {"const": 15},
+        "maximum_list_pages_per_run": {"const": 3},
+        "request_timeout_seconds": {"const": 10},
+        "max_redirects": {"const": 5},
+        "frequency_authorized": {"const": false},
+        "policy_version": {"const": "t25-cces-source-stream-discovery-v2"},
+        "stream_readiness": {"const": "BOUNDED"},
+        "source_research_disposition": {"enum": ["ADMISSION_READY", "BOUNDARY_DISCOVERY"]},
+        "blocking_reason_codes": {
+          "type": "array",
+          "maxItems": 1,
+          "items": {"const": "HTTPS_UNAVAILABLE"}
+        },
+        "content_relevance": {"const": "FILTERED"},
+        "accepted_topics": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "excluded_topics": {
+          "type": "array",
+          "minItems": 3,
+          "contains": {"const": "党建"},
+          "items": {"type": "string", "minLength": 1}
+        },
+        "claim_basis": {"const": "PROJECT_FIRST_PARTY_RECORD"},
+        "authority_finding_allowed": {"const": false},
+        "independent_verification_allowed": {"const": false},
+        "redistribution": {"const": "METADATA_NECESSARY_EXCERPT_ORIGINAL_LINK_ONLY"},
+        "fulltext_redistribution_allowed": {"const": false},
+        "source_admission": {"type": "null"},
+        "actual_running": {"const": false},
+        "pause_appended": {"const": false},
+        "coverage_credit_granted": {"const": false},
+        "research_notes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "rejected_candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "url", "selected_as_stream", "reason"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "ROOT",
+            "SEARCH",
+            "SINGLE_DOCUMENT",
+            "ACADEMIC_RESULTS_STALE",
+            "CONFERENCE_PROMOTION"
+          ]
+        },
+        "url": {"type": "string", "pattern": "^https?://"},
+        "selected_as_stream": {"const": false},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 1000}
+      }
+    }
+  }
+}

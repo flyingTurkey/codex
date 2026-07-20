@@ -30,6 +30,42 @@ def test_runtime_probe_projects_the_catalog_model_name() -> None:
     assert 'model="deepseek-v4-flash"' in source
 
 
+def test_fixed_canary_orders_versions_by_the_real_acquisition_column() -> None:
+    source = inspect.getsource(PostgresAiPreparationRepository.create_fixed_canary_run)
+
+    assert "version.acquired_at" in source
+    assert "version.created_at" not in source
+
+
+def test_every_physical_model_dispatch_reauthorizes_before_budget_reservation() -> None:
+    source = inspect.getsource(worker._dispatch_ai_attempt)
+
+    assert source.index("authorize_model_call") < source.index("repository.reserve")
+    assert source.index("authorize_model_call") < source.index("celery_app.send_task")
+
+
+def test_success_persistence_reauthorizes_before_writing_model_content() -> None:
+    append_source = inspect.getsource(PostgresAiPreparationRepository._append_step_row)
+    success_source = inspect.getsource(
+        PostgresAiPreparationRepository.record_approved_content_success
+    )
+
+    assert append_source.index("authorize_model_call") < append_source.index("raw_output")
+    for token in (
+        "raw.scan_status='CLEAN'",
+        "source_admission_assessment_v2",
+        "version.execution_domain IN ('TRIAL','PRODUCTION')",
+        "ai_budget_policy",
+    ):
+        assert token in success_source
+
+    callback_source = inspect.getsource(worker._handle_ai_content_result)
+    success_branch = callback_source.rsplit('if result.get("status") == "SUCCEEDED":', 1)[1]
+    assert success_branch.index("authorize_model_call") < success_branch.index(
+        "repository.settle"
+    )
+
+
 @dataclass
 class RevokedAuthorizationRepository:
     settled: list[ModelResponse | None] = field(default_factory=list)
@@ -97,6 +133,13 @@ class RevokedAuthorizationRepository:
 
     def __getattr__(self, name: str) -> Any:
         raise AssertionError(f"revoked callback must not call repository.{name}")
+
+
+@dataclass
+class RevokedBeforeReadRepository(RevokedAuthorizationRepository):
+    async def begin(self, run_id: UUID) -> PreparationDocument:
+        assert run_id == RUN_ID
+        raise RuntimeError("AI01_SHADOW_AUTHORITY_INVALID")
 
 
 def _successful_classification_result() -> dict[str, object]:
@@ -174,6 +217,29 @@ async def test_revoked_authorization_settles_real_usage_and_terminalizes_callbac
         ("FAILED", "AI_RUNTIME_AUTHORIZATION_DENIED")
     ]
     assert repository.closed is True
+
+
+@pytest.mark.asyncio
+async def test_revoked_before_source_read_only_settles_verifiable_usage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = RevokedBeforeReadRepository()
+    monkeypatch.setattr(worker, "_ai_repository", lambda: repository)
+
+    result = await worker._handle_ai_content_result(
+        result=_successful_classification_result(),
+        run_id=RUN_ID,
+        step=AiStep.CLASSIFY,
+        attempt=1,
+        kind=AttemptKind.PRIMARY,
+        network_retries=0,
+        repair_used=False,
+        reservation_id=RESERVATION_ID,
+    )
+
+    assert result["failure_code"] == "AI_RUNTIME_AUTHORIZATION_DENIED"
+    assert repository.failed_step_usage == [(21, 17)]
+    assert repository.failures == [("FAILED", "AI_RUNTIME_AUTHORIZATION_DENIED")]
 
 
 @pytest.mark.asyncio

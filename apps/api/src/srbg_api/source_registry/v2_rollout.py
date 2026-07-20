@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from srbg_api.intelligence_v2.gold_calibration import AutoPassCalibrationGrant
+
 
 @dataclass(frozen=True)
 class SourceAdmissionMetrics:
@@ -17,6 +19,7 @@ class SourceAdmissionMetrics:
     useful_yield_bps: int
     duplicate_bps: int
     hard_negative_leaks: int
+    hard_negative_evaluated: bool = True
 
     def __post_init__(self) -> None:
         if self.sample_size < 0 or self.sample_size > 30:
@@ -82,6 +85,7 @@ def admission_verdict(value: SourceAdmissionMetrics) -> str:
             value.terms_allowed,
             value.copyright_reviewed,
             value.public_network_safe,
+            value.hard_negative_evaluated,
         )
     ):
         return "PAUSE"
@@ -97,3 +101,16 @@ def admission_verdict(value: SourceAdmissionMetrics) -> str:
         and value.duplicate_bps <= 3000
     )
     return "ADMIT" if soft_pass else "OBSERVE"
+
+
+def production_admission_verdict(
+    value: SourceAdmissionMetrics,
+    *,
+    calibration: AutoPassCalibrationGrant | None,
+) -> str:
+    """Apply the production-only classifier prerequisite after all source hard gates."""
+
+    verdict = admission_verdict(value)
+    if verdict == "ADMIT" and calibration is None:
+        return "PAUSE"
+    return verdict

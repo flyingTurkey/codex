@@ -59,6 +59,241 @@
       "title": "AiJudgmentSignal",
       "type": "object"
     },
+    "AppendixContentSummaryV2": {
+      "additionalProperties": false,
+      "properties": {
+        "heavy_content": {
+          "default": false,
+          "title": "Heavy Content",
+          "type": "boolean"
+        },
+        "total_items": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Total Items",
+          "type": "integer"
+        },
+        "truncated_sections": {
+          "items": {
+            "enum": [
+              "CLAIMS",
+              "EVIDENCE",
+              "AUTOMATIC_RESULTS",
+              "REVIEWED_RELATIONSHIPS",
+              "AUTOMATIC_RELATIONSHIPS",
+              "CORRECTIONS"
+            ],
+            "type": "string"
+          },
+          "maxItems": 6,
+          "title": "Truncated Sections",
+          "type": "array"
+        }
+      },
+      "title": "AppendixContentSummaryV2",
+      "type": "object"
+    },
+    "AppendixCorrectionV2": {
+      "additionalProperties": false,
+      "properties": {
+        "affects": {
+          "items": {
+            "enum": [
+              "SOURCE_EXCERPT",
+              "AI_SUMMARY",
+              "RELATIONSHIPS"
+            ],
+            "type": "string"
+          },
+          "maxItems": 3,
+          "minItems": 1,
+          "title": "Affects",
+          "type": "array"
+        },
+        "description": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "document_version_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Document Version Id"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "DOCUMENT_VERSION_CHANGED",
+            "ACCEPTED_CLAIMS_CHANGED",
+            "SOURCE_WITHDRAWN",
+            "SOURCE_CORRECTED",
+            "RELATION_CORRECTED"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "description",
+        "occurred_at",
+        "affects"
+      ],
+      "title": "AppendixCorrectionV2",
+      "type": "object"
+    },
+    "AppendixReviewContextV2": {
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "format": "uuid",
+          "title": "Case Id",
+          "type": "string"
+        },
+        "href": {
+          "maxLength": 80,
+          "pattern": "^/review\\?case_id=[0-9a-f-]{36}$",
+          "title": "Href",
+          "type": "string"
+        }
+      },
+      "required": [
+        "case_id",
+        "href"
+      ],
+      "title": "AppendixReviewContextV2",
+      "type": "object"
+    },
+    "AutomaticRelationshipKind": {
+      "enum": [
+        "DUPLICATE",
+        "SAME_EVENT",
+        "FOLLOW_UP_OF",
+        "INVESTIGATES",
+        "MODEL_ALIAS",
+        "VERSION_SUCCESSOR",
+        "TOPIC",
+        "RELATED_CONTENT"
+      ],
+      "title": "AutomaticRelationshipKind",
+      "type": "string"
+    },
+    "AutomaticRelationshipView": {
+      "additionalProperties": false,
+      "properties": {
+        "algorithm_version": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Algorithm Version",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "input_fingerprint_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Input Fingerprint Sha256",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/AutomaticRelationshipKind"
+        },
+        "model_version": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Version"
+        },
+        "reason_codes": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Reason Codes",
+          "type": "array"
+        },
+        "relationship_key": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Relationship Key",
+          "type": "string"
+        },
+        "score_bps": {
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Score Bps",
+          "type": "integer"
+        },
+        "source_item_id": {
+          "format": "uuid",
+          "title": "Source Item Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "ACTIVE",
+            "INVALIDATED",
+            "WITHDRAWN",
+            "SUPERSEDED"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "target_item_id": {
+          "format": "uuid",
+          "title": "Target Item Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "relationship_key",
+        "kind",
+        "source_item_id",
+        "target_item_id",
+        "status",
+        "score_bps",
+        "reason_codes",
+        "algorithm_version",
+        "input_fingerprint_sha256",
+        "created_at"
+      ],
+      "title": "AutomaticRelationshipView",
+      "type": "object"
+    },
     "ClaimView": {
       "additionalProperties": false,
       "properties": {
@@ -191,55 +426,6 @@
       ],
       "title": "EventRelation",
       "type": "string"
-    },
-    "EventRelationView": {
-      "additionalProperties": false,
-      "properties": {
-        "event_id": {
-          "format": "uuid",
-          "title": "Event Id",
-          "type": "string"
-        },
-        "from_item_id": {
-          "format": "uuid",
-          "title": "From Item Id",
-          "type": "string"
-        },
-        "id": {
-          "format": "uuid",
-          "title": "Id",
-          "type": "string"
-        },
-        "relation_type": {
-          "$ref": "#/$defs/EventRelation"
-        },
-        "reviewed_at": {
-          "format": "date-time",
-          "title": "Reviewed At",
-          "type": "string"
-        },
-        "reviewed_by": {
-          "format": "uuid",
-          "title": "Reviewed By",
-          "type": "string"
-        },
-        "to_item_id": {
-          "format": "uuid",
-          "title": "To Item Id",
-          "type": "string"
-        }
-      },
-      "required": [
-        "id",
-        "event_id",
-        "from_item_id",
-        "to_item_id",
-        "relation_type",
-        "reviewed_by",
-        "reviewed_at"
-      ],
-      "title": "EventRelationView",
-      "type": "object"
     },
     "EvidenceView": {
       "additionalProperties": false,
@@ -567,10 +753,107 @@
       ],
       "title": "PdfTextLocator",
       "type": "object"
+    },
+    "ReviewedRelationshipV2": {
+      "additionalProperties": false,
+      "properties": {
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "from_item_id": {
+          "format": "uuid",
+          "title": "From Item Id",
+          "type": "string"
+        },
+        "from_stage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SafetyCaseReportStage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "relation_type": {
+          "$ref": "#/$defs/EventRelation"
+        },
+        "reviewed_at": {
+          "format": "date-time",
+          "title": "Reviewed At",
+          "type": "string"
+        },
+        "reviewed_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reviewed By"
+        },
+        "to_item_id": {
+          "format": "uuid",
+          "title": "To Item Id",
+          "type": "string"
+        },
+        "to_stage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SafetyCaseReportStage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "event_id",
+        "from_item_id",
+        "to_item_id",
+        "relation_type",
+        "reviewed_at"
+      ],
+      "title": "ReviewedRelationshipV2",
+      "type": "object"
+    },
+    "SafetyCaseReportStage": {
+      "enum": [
+        "INITIAL_REPORT",
+        "FOLLOW_UP_REPORT",
+        "FINAL_INVESTIGATION",
+        "ENFORCEMENT",
+        "RECTIFICATION"
+      ],
+      "title": "SafetyCaseReportStage",
+      "type": "string"
     }
   },
   "additionalProperties": false,
   "properties": {
+    "automatic_relationships": {
+      "items": {
+        "$ref": "#/$defs/AutomaticRelationshipView"
+      },
+      "maxItems": 500,
+      "title": "Automatic Relationships",
+      "type": "array"
+    },
     "automatic_results": {
       "items": {
         "$ref": "#/$defs/EventAutomaticResultView"
@@ -587,9 +870,12 @@
       "title": "Claims",
       "type": "array"
     },
+    "content_summary": {
+      "$ref": "#/$defs/AppendixContentSummaryV2"
+    },
     "corrections": {
       "items": {
-        "type": "string"
+        "$ref": "#/$defs/AppendixCorrectionV2"
       },
       "maxItems": 100,
       "title": "Corrections",
@@ -610,11 +896,28 @@
     },
     "relationships": {
       "items": {
-        "$ref": "#/$defs/EventRelationView"
+        "$ref": "#/$defs/ReviewedRelationshipV2"
       },
       "maxItems": 500,
       "title": "Relationships",
       "type": "array"
+    },
+    "review_context": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AppendixReviewContextV2"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "review_href": {
+      "const": "/review",
+      "default": "/review",
+      "title": "Review Href",
+      "type": "string"
     }
   },
   "required": [

@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srbg.example/schemas/t14-source-stream-research-v1.json",
+  "title": "T14 source stream research record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "rule_version",
+    "ticket",
+    "verified_at",
+    "source",
+    "research_outcome",
+    "control_state_mutations",
+    "verification",
+    "streams",
+    "w2_pair"
+  ],
+  "properties": {
+    "rule_version": {"const": "t14-mohurd-source-stream-research-v1.0.0"},
+    "ticket": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["issue", "parent_spec", "blocked_by", "closure_eligible"],
+      "properties": {
+        "issue": {"const": 15},
+        "parent_spec": {"const": 1},
+        "blocked_by": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["issue", "state"],
+            "properties": {
+              "issue": {"type": "integer", "minimum": 1},
+              "state": {"const": "CLOSED"}
+            }
+          }
+        },
+        "closure_eligible": {"const": true}
+      }
+    },
+    "verified_at": {"type": "string", "format": "date-time"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_code",
+        "institution",
+        "official_origin",
+        "source_count_credit",
+        "registry_status",
+        "enabled"
+      ],
+      "properties": {
+        "source_code": {"const": "GOV-005"},
+        "institution": {"const": "住房和城乡建设部"},
+        "official_origin": {"const": "https://www.mohurd.gov.cn/"},
+        "source_count_credit": {"const": 1},
+        "registry_status": {"const": "CANDIDATE"},
+        "enabled": {"const": false}
+      }
+    },
+    "research_outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stream_readiness",
+        "source_research_disposition",
+        "admission_ready",
+        "blocking_reason_codes"
+      ],
+      "properties": {
+        "stream_readiness": {"const": "BOUNDED"},
+        "source_research_disposition": {"const": "ADMISSION_READY"},
+        "admission_ready": {"const": true},
+        "blocking_reason_codes": {
+          "type": "array",
+          "maxItems": 0,
+          "uniqueItems": true,
+          "items": false
+        }
+      }
+    },
+    "control_state_mutations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desired_enabled_changed",
+        "source_admission_written",
+        "runtime_state_changed",
+        "pause_appended",
+        "real_collection_executed"
+      ],
+      "properties": {
+        "desired_enabled_changed": {"const": false},
+        "source_admission_written": {"const": false},
+        "runtime_state_changed": {"const": false},
+        "pause_appended": {"const": false},
+        "real_collection_executed": {"const": false}
+      }
+    },
+    "verification": {"type": "object"},
+    "streams": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/stream"}
+    },
+    "w2_pair": {"type": "object"}
+  },
+  "$defs": {
+    "stream": {
+      "type": "object",
+      "required": [
+        "stream_id",
+        "source_code",
+        "name",
+        "collection_entry",
+        "theme_filter",
+        "connector_type",
+        "allowed_hosts",
+        "path_boundaries",
+        "expected_mime_types",
+        "access_frequency",
+        "content_relevance",
+        "stream_readiness",
+        "source_research_disposition",
+        "admission_ready",
+        "in_scope",
+        "excluded"
+      ],
+      "properties": {
+        "stream_id": {"type": "string", "pattern": "^GOV-005-[FGK]$"},
+        "source_code": {"const": "GOV-005"},
+        "name": {"type": "string", "minLength": 1},
+        "collection_entry": {"type": "string", "format": "uri"},
+        "theme_filter": {"enum": ["F", "G", "K"]},
+        "connector_type": {"const": "LIST_DETAIL"},
+        "allowed_hosts": {
+          "type": "array",
+          "const": ["www.mohurd.gov.cn"]
+        },
+        "path_boundaries": {"type": "object"},
+        "expected_mime_types": {
+          "type": "array",
+          "const": ["text/html", "application/json", "application/pdf"]
+        },
+        "access_frequency": {
+          "type": "object",
+          "required": [
+            "policy_version",
+            "candidate_poll_interval_hours",
+            "minimum_request_interval_seconds",
+            "maximum_list_pages_per_run",
+            "authorized"
+          ],
+          "properties": {
+            "policy_version": {"const": "t14-mohurd-candidate-frequency-v1"},
+            "candidate_poll_interval_hours": {"type": "integer", "minimum": 24},
+            "minimum_request_interval_seconds": {"type": "integer", "minimum": 15},
+            "maximum_list_pages_per_run": {"type": "integer", "minimum": 1, "maximum": 3},
+            "authorized": {"const": false}
+          }
+        },
+        "content_relevance": {"enum": ["DIRECT", "FILTERED"]},
+        "stream_readiness": {"const": "BOUNDED"},
+        "source_research_disposition": {"const": "ADMISSION_READY"},
+        "admission_ready": {"const": true},
+        "in_scope": {"type": "array", "minItems": 1},
+        "excluded": {"type": "array", "minItems": 1}
+      }
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "rule_version": "civil-engineering-campaign-v2.0.0",
+  "acceptance_profile": "ENGINEERING_CLOSEOUT",
+  "registration_policy": "DISCOVERY_ONLY_NOT_ENABLED",
+  "sources": [
+    {"institution": "交通运输部", "official_origin": "https://www.mot.gov.cn/", "registration_mode": "CANDIDATE_ONLY"},
+    {"institution": "住房和城乡建设部", "official_origin": "https://www.mohurd.gov.cn/", "registration_mode": "CANDIDATE_ONLY"},
+    {"institution": "国家铁路局", "official_origin": "https://www.nra.gov.cn/", "registration_mode": "CANDIDATE_ONLY"},
+    {"institution": "国家矿山安全监察局", "official_origin": "https://www.chinamine-safety.gov.cn/", "registration_mode": "CANDIDATE_ONLY"},
+    {"institution": "水利部", "official_origin": "https://www.mwr.gov.cn/", "registration_mode": "CANDIDATE_ONLY"},
+    {"institution": "国家能源局", "official_origin": "https://www.nea.gov.cn/", "registration_mode": "CANDIDATE_ONLY"},
+    {"institution": "中国民用航空局", "official_origin": "https://www.caac.gov.cn/", "registration_mode": "CANDIDATE_ONLY"},
+    {"institution": "中国公路学报", "official_origin": "https://zgglxb.chd.edu.cn/", "registration_mode": "CANDIDATE_ONLY"},
+    {"institution": "中国建筑", "official_origin": "https://www.cscec.com/", "registration_mode": "CANDIDATE_ONLY"},
+    {"institution": "徐工集团", "official_origin": "https://www.xcmg.com/", "registration_mode": "CANDIDATE_ONLY"},
+    {"institution": "四川省交通运输厅", "official_origin": "https://jtt.sc.gov.cn/", "registration_mode": "CANDIDATE_ONLY"},
+    {"institution": "应急管理部", "official_origin": "https://www.mem.gov.cn/", "registration_mode": "CANDIDATE_ONLY"},
+    {"institution": "全国标准信息公共服务平台", "official_origin": "https://std.samr.gov.cn/", "registration_mode": "CANDIDATE_ONLY"},
+    {"institution": "中国土木工程学会", "official_origin": "https://www.cces.net.cn/", "registration_mode": "CANDIDATE_ONLY"},
+    {"institution": "中国公路学会", "official_origin": "https://www.chts.cn/", "registration_mode": "CANDIDATE_ONLY"},
+    {"institution": "隧道建设（中英文）", "official_origin": "https://www.suidaojs.com/", "registration_mode": "CANDIDATE_ONLY"},
+    {"institution": "建筑科学与工程学报", "official_origin": "https://jace.chd.edu.cn/", "registration_mode": "CANDIDATE_ONLY"},
+    {"institution": "中国交通建设集团", "official_origin": "https://www.ccccltd.cn/", "registration_mode": "CANDIDATE_ONLY"},
+    {"institution": "四川省住房和城乡建设厅", "official_origin": "https://jst.sc.gov.cn/", "registration_mode": "CANDIDATE_ONLY"},
+    {"institution": "贵州省能源局", "official_origin": "https://nyj.guizhou.gov.cn/", "registration_mode": "CANDIDATE_ONLY"}
+  ]
+}

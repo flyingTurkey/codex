@@ -35,7 +35,7 @@ test('FULL safety Event reader keeps source fact and AI judgment semantically se
   await expect(page.getByRole('heading', { level: 1, name: event.title })).toBeVisible()
   await expect(page.getByText(event.one_sentence_fact)).toBeVisible()
   await expect(page.getByRole('heading', { name: /AI 总结/ })).toBeVisible()
-  await expect(page.getByText('AI 总结暂不可用', { exact: false })).toBeVisible()
+  await expect(page.getByText('AI 总结尚未生成。已通过证据门禁的原文摘录仍可阅读。')).toBeVisible()
   await expect(page.getByText('官方已核验')).toHaveCount(0)
 })
 

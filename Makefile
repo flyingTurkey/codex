@@ -20,6 +20,7 @@ ANCHOR_MINIO_PORT ?= 9002
 POSTGRES_DB ?= srbg
 POSTGRES_USER ?= srbg
 POSTGRES_PASSWORD ?= srbg_local_only
+V2_CAMPAIGN_DATABASE_URL ?=
 MINIO_ROOT_USER ?= srbg_local
 MINIO_ROOT_PASSWORD ?= srbg_local_storage_only
 SRBG_API_DB_PASSWORD ?= srbg_api_local_only
@@ -46,7 +47,9 @@ export PLAYWRIGHT_BROWSERS_PATH
 	round11-test observability-test golden-replay load-test recovery-drill runbook-test \
 	round11-evidence-test readiness-evidence slo-weekly-report \
 	phase2-round13-test phase2-round14-test ai-content-preparation-test pers01-test personal-source-test personal-pilot-control-test \
-	personal-content-test personal-migration-test intelligence-v2-closeout
+	personal-content-test personal-migration-test intelligence-v2-closeout \
+	intelligence-v2-engineering-campaign t05-publication-test t07-source-shadow-test \
+	t08-evidence-search-test t09-hotspot-test t11-reader-appendix-test t12-media-delivery-test t16-source-discovery-test t20-source-discovery-test t20r-source-discovery-test t27-source-discovery-test t29-source-discovery-test t29r-source-discovery-test t31r-source-discovery-test
 
 setup:
 	$(UV) sync --frozen --all-packages
@@ -117,6 +120,14 @@ intelligence-v2-closeout:
 		--acceptance-profile "$(ACCEPTANCE_PROFILE)" \
 		--evidence-root "$(V2_CLOSEOUT_EVIDENCE_ROOT)" \
 		--output "$(V2_CLOSEOUT_EVIDENCE_ROOT)/readiness.json"
+
+intelligence-v2-engineering-campaign:
+	$(UV) run python scripts/intelligence_v2_engineering_campaign.py \
+		--action "$(ACTION)" \
+		--campaign-id "$(CAMPAIGN_ID)" \
+		--database-url "$(V2_CAMPAIGN_DATABASE_URL)" \
+		--evidence-database-url "$(V2_CAMPAIGN_EVIDENCE_DATABASE_URL)" \
+		--evidence-root "$(V2_CLOSEOUT_EVIDENCE_ROOT)"
 
 security-check:
 	$(UV) run pip-audit
@@ -249,6 +260,111 @@ personal-migration-test:
 		apps/api/tests/test_pers10_product_retirement.py \
 		tests/infrastructure/test_pers10_migration_gate.py -q
 	$(UV) run python scripts/evaluate_pers10.py
+
+t05-publication-test:
+	$(COMPOSE) up --detach --wait postgres minio redis
+	$(UV) run python scripts/run_isolated_integration.py \
+		--migration-verifier verify_t05_migration.py -- \
+		tests/integration/t05_durable_projection_integration.py \
+		apps/api/tests/test_0040_t05_reader_projection_migration.py \
+		apps/api/tests/test_v2_intelligence_api.py \
+		apps/api/tests/test_v2_publication_boundary.py \
+		packages/contracts/tests/test_t05_reader_projection_contracts.py -q
+
+t12-media-delivery-test:
+	$(COMPOSE) up --detach --wait postgres minio redis
+	$(UV) run python scripts/run_isolated_integration.py \
+		--migration-verifier verify_t12_migration.py -- \
+		tests/integration/t05_durable_projection_integration.py \
+		apps/api/tests/test_0045_t12_media_delivery_migration.py \
+		apps/api/tests/test_t12_media_delivery.py \
+		apps/api/tests/test_t12_media_read_service.py \
+		apps/api/tests/test_v2_intelligence_api.py \
+		apps/api/tests/test_round15_object_store_security.py \
+		packages/contracts/tests/test_t05_reader_projection_contracts.py -q
+
+t06-ai-runtime-test:
+	$(COMPOSE) up --detach --wait postgres minio redis
+	$(UV) run python scripts/run_isolated_integration.py \
+		--migration-verifier verify_t06_migration.py -- \
+		apps/api/tests/test_0041_t06_ai_runtime_projection_migration.py \
+		apps/api/tests/test_t06_ai_runtime_domain.py \
+		apps/api/tests/test_t06_content_summary.py \
+		apps/api/tests/test_t06_publication_handoff.py \
+		apps/worker/tests/test_ai_content_result_lifecycle.py \
+		apps/worker/tests/test_ai_worker_isolation.py \
+		tests/infrastructure/test_t06_observability.py \
+		packages/contracts/tests/test_t05_reader_projection_contracts.py -q
+	$(PNPM) --filter @srbg/web test -- t06-ai-summary-states.test.ts
+
+t07-source-shadow-test:
+	$(COMPOSE) up --detach --wait postgres minio redis
+	$(UV) run python scripts/run_isolated_integration.py \
+		--migration-verifier verify_t07_migration.py -- \
+		apps/api/tests/test_0042_t07_controlled_stream_migration.py \
+		apps/api/tests/test_t07_controlled_source_stream.py \
+		apps/api/tests/test_t07_controlled_stream_repository.py \
+		apps/worker/tests/test_t07_shadow_raw_first.py \
+		tests/infrastructure/test_t07_observability.py \
+		tests/integration/t07_controlled_stream_integration.py -q
+
+t16-source-discovery-test:
+	$(UV) run python -m pytest apps/api/tests/test_t16_source_stream_discovery.py apps/api/tests/test_t20_source_stream_discovery.py -q
+
+t20-source-discovery-test:
+	$(UV) run python -m pytest apps/api/tests/test_t20_source_stream_discovery.py -q
+
+t20r-source-discovery-test:
+	$(UV) run python -m pytest tests/infrastructure/test_t20r_replacement_source_stream_discovery.py -q
+
+t29-source-discovery-test:
+	$(UV) run python -m pytest apps/api/tests/test_t29_cabr_cccc_source_stream_discovery.py apps/api/tests/test_t20_source_stream_discovery.py -q
+
+t29r-source-discovery-test:
+	$(UV) run python -m pytest tests/infrastructure/test_t29r_jace_cccc_replacement_source_stream_discovery.py -q
+
+t23-source-discovery-test:
+	$(UV) run python -m pytest tests/infrastructure/test_t23_sichuan_transport_stream_discovery.py -q
+
+t27-source-discovery-test:
+	$(UV) run python -m pytest apps/api/tests/test_t27_source_stream_discovery.py tests/infrastructure/test_t27_source_stream_manifest.py -q
+
+t31-source-discovery-test:
+	$(UV) run python -m pytest tests/infrastructure/test_t31_glodon_ccteg_source_stream_discovery.py -q
+
+t31r-source-discovery-test:
+	$(UV) run python -m pytest tests/infrastructure/test_t31r_replacement_source_stream_discovery.py -q
+
+t08-evidence-search-test:
+	$(COMPOSE) up --detach --wait postgres minio redis
+	$(UV) run python scripts/run_isolated_integration.py \
+		--migration-verifier verify_t09_migration.py -- \
+		tests/integration/t05_durable_projection_integration.py \
+		apps/api/tests/test_v2_intelligence_api.py \
+		apps/api/tests/test_t08_evidence_search_service.py \
+		packages/contracts/tests/test_t05_reader_projection_contracts.py \
+		packages/contracts/tests/test_t08_evidence_search_contracts.py -q
+	$(PNPM) --filter @srbg/web test -- t08-evidence-feed-card.test.ts
+
+t09-hotspot-test:
+	$(COMPOSE) up --detach --wait postgres minio redis
+	$(UV) run python scripts/run_isolated_integration.py \
+		--migration-verifier verify_t09_migration.py -- \
+		tests/integration/t05_durable_projection_integration.py \
+		apps/api/tests/test_0043_t09_hotspot_awards_migration.py \
+		apps/api/tests/test_v2_domain_rules.py \
+		packages/contracts/tests/test_t09_hotspot_contracts.py -q
+
+t11-reader-appendix-test:
+	$(COMPOSE) up --detach --wait postgres minio redis
+	$(UV) run python scripts/run_isolated_integration.py \
+		--migration-verifier verify_t11_migration.py -- \
+		tests/integration/t11_reader_appendix_integration.py \
+		apps/api/tests/test_0044_t11_reader_appendix_migration.py \
+		apps/api/tests/test_t11_reader_appendix_service.py \
+		tests/infrastructure/test_t11_observability.py \
+		packages/contracts/tests/test_t11_reader_appendix_contracts.py -q
+	$(PNPM) --filter @srbg/web exec vitest run tests/ReaderAppendix.test.ts
 
 quality-gate: lint typecheck test contract-test security-check
 

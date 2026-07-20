@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, useId } from 'vue'
 
 const props = withDefaults(defineProps<{ initialQuery?: string }>(), { initialQuery: '' })
 const emit = defineEmits<{ search: [query: string] }>()
 const query = ref(props.initialQuery)
+const searchId = useId()
+const inputId = `${searchId}-input`
+const labelId = `${searchId}-label`
 
 function submit(): void {
   const normalized = query.value.trim()
@@ -12,11 +15,11 @@ function submit(): void {
 </script>
 
 <template>
-  <form class="global-search" role="search" @submit.prevent="submit">
-    <label for="global-search-input">搜索行业情报</label>
+  <form class="global-search" role="search" :aria-labelledby="labelId" @submit.prevent="submit">
+    <label :id="labelId" :for="inputId">搜索行业情报</label>
     <div class="global-search__controls">
       <input
-        id="global-search-input"
+        :id="inputId"
         v-model="query"
         name="q"
         type="search"

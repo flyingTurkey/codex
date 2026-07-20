@@ -1,3 +1,5 @@
+import inspect
+
 import srbg_worker.app as worker
 from srbg_worker.ai_content_preparation import _INSERT_STEP_SQL, _MODEL_PROFILE_VERSION
 from srbg_worker.source_discovery import QUERY_CATALOG
@@ -53,6 +55,18 @@ def test_real_schema_canary_is_scheduled_every_six_hours_and_stays_on_ai_queue()
     assert worker.celery_app.conf.task_routes["srbg.ai.v2_canary_result"] == {
         "queue": "celery"
     }
+
+
+def test_engineering_fault_injection_is_acceptance_only_and_publication_isolated() -> None:
+    source = inspect.getsource(worker._run_v2_campaign_fault_injection)
+
+    assert "acceptance" in source
+    assert "FAULT_TRANSIENT_INJECTED" in source
+    assert "FAULT_PERMANENT_INJECTED" in source
+    assert "PublicationService" not in source
+    assert worker.celery_app.conf.task_routes[
+        "srbg.ai.v2_campaign_fault_injection"
+    ] == {"queue": "celery"}
 
 
 def test_fixed_canary_refuses_unapproved_environment_before_database_access(monkeypatch) -> None:

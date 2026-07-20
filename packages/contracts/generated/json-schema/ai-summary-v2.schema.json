@@ -1,5 +1,98 @@
 {
   "$defs": {
+    "AiSummaryFactParagraphV2": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Claim Ids",
+          "type": "array"
+        },
+        "judgment_type": {
+          "default": null,
+          "title": "Judgment Type",
+          "type": "null"
+        },
+        "kind": {
+          "const": "FACT",
+          "default": "FACT",
+          "title": "Kind",
+          "type": "string"
+        },
+        "section": {
+          "const": "WHAT_HAPPENED",
+          "title": "Section",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "section",
+        "text",
+        "claim_ids"
+      ],
+      "title": "AiSummaryFactParagraphV2",
+      "type": "object"
+    },
+    "AiSummaryJudgmentParagraphV2": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 0,
+          "title": "Claim Ids",
+          "type": "array"
+        },
+        "judgment_type": {
+          "enum": [
+            "ENGINEERING_SIGNIFICANCE",
+            "LIMITATION_AND_FOLLOW_UP"
+          ],
+          "title": "Judgment Type",
+          "type": "string"
+        },
+        "kind": {
+          "const": "JUDGMENT",
+          "default": "JUDGMENT",
+          "title": "Kind",
+          "type": "string"
+        },
+        "section": {
+          "enum": [
+            "ENGINEERING_IMPACT",
+            "LIMITATIONS_AND_FOLLOW_UP"
+          ],
+          "title": "Section",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "section",
+        "text",
+        "judgment_type"
+      ],
+      "title": "AiSummaryJudgmentParagraphV2",
+      "type": "object"
+    },
     "AiSummaryStatusV2": {
       "enum": [
         "NOT_GENERATED",
@@ -73,8 +166,37 @@
       "default": null,
       "title": "Model"
     },
+    "paragraphs": {
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "FACT": "#/$defs/AiSummaryFactParagraphV2",
+            "JUDGMENT": "#/$defs/AiSummaryJudgmentParagraphV2"
+          },
+          "propertyName": "kind"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/AiSummaryFactParagraphV2"
+          },
+          {
+            "$ref": "#/$defs/AiSummaryJudgmentParagraphV2"
+          }
+        ]
+      },
+      "maxItems": 12,
+      "title": "Paragraphs",
+      "type": "array"
+    },
     "status": {
       "$ref": "#/$defs/AiSummaryStatusV2"
+    },
+    "status_message": {
+      "default": "",
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Status Message",
+      "type": "string"
     }
   },
   "required": [

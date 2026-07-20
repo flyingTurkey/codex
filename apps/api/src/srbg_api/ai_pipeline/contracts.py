@@ -65,6 +65,17 @@ class ClassificationOutput(StrictModel):
 
     @model_validator(mode="after")
     def enforce_relevance_boundary(self) -> "ClassificationOutput":
+        list_fields = (
+            "engineering_objects",
+            "specialty_facets",
+            "equipment_domains",
+            "evidence_locators",
+            "review_reasons",
+        )
+        for field_name in list_fields:
+            values = getattr(self, field_name)
+            if len(values) != len(set(values)):
+                raise ValueError(f"{field_name} must not contain duplicates")
         if self.direct_relevance == "RELEVANT":
             if not self.core_new_fact or self.primary_type is None:
                 raise ValueError("relevant content requires a core fact and one primary type")
@@ -74,6 +85,17 @@ class ClassificationOutput(StrictModel):
                 raise ValueError("relevant content requires evidence location")
         elif self.primary_type is not None:
             raise ValueError("unqualified content cannot receive a primary type")
+        objects = set(self.engineering_objects)
+        if self.specialty_facets:
+            valid_transport_tunnel = (
+                "TUNNEL" in objects
+                and bool({"HIGHWAY", "RAILWAY"}.intersection(objects))
+                and "MINING" not in objects
+            )
+            if not valid_transport_tunnel:
+                raise ValueError(
+                    "TUNNEL_GAS_MONITORING requires TUNNEL with HIGHWAY or RAILWAY, not MINING"
+                )
         return self
 
 

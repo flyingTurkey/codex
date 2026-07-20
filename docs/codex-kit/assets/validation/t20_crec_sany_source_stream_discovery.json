@@ -1,0 +1,186 @@
+{
+  "schema_version": "t20-source-stream-discovery-v1",
+  "issue_number": 21,
+  "parent_spec_number": 1,
+  "sources": [
+    {
+      "registry_code": "ENT-003",
+      "institution": "中国中铁",
+      "official_origin": "https://www.crecg.com/",
+      "desired_enabled": false,
+      "streams": [
+        {
+          "stream_key": "crec-subsidiary-project-updates",
+          "collection_url": "https://www.crecg.com/web/xwzx61/zfgsdt39/index.html",
+          "collection_path_pattern": "^/web/xwzx61/zfgsdt39/index\\.html$",
+          "allowed_hosts": ["www.crecg.com"],
+          "allowed_path_patterns": [
+            "^/web/xwzx61/zfgsdt39/index(?:_[1-9][0-9]*)?\\.html$",
+            "^/web/xwzx61/zfgsdt39/[0-9]{19}/index\\.html$"
+          ],
+          "connector_type": "HTML_LIST_DETAIL",
+          "expected_mime_types": ["text/html"],
+          "poll_interval_minutes": 1440,
+          "request_timeout_seconds": 10,
+          "max_redirects": 5,
+          "rate_limit_requests_per_minute": 1,
+          "user_agent": "SRBG-SourceResearch/1.0 (+personal noncommercial research)",
+          "policy_version": "t20-crec-project-first-party-v1",
+          "readiness": "BOUNDED",
+          "disposition": "MANUAL_SHADOW",
+          "blocker_codes": ["TERMS_PROHIBIT_AUTOMATED_STORAGE"],
+          "source_admission": null,
+          "actual_running": false,
+          "content_relevance": "FILTERED",
+          "claim_basis_policy": "PROJECT_FIRST_PARTY_RECORD",
+          "permitted_claim_bases": ["PROJECT_FIRST_PARTY_RECORD"],
+          "public_redistribution": false,
+          "prefilter": {
+            "engineering_object_terms": [
+              "公路", "铁路", "桥", "隧道", "地铁", "轨道交通", "房屋建筑", "矿山", "市政", "水利", "港", "机场", "能源工程"
+            ],
+            "lifecycle_terms": [
+              "规划", "设计", "施工", "建设", "开工", "贯通", "合龙", "封顶", "验收", "通车", "运营", "养护", "安全", "监测", "数字化", "智能建造", "装备", "盾构"
+            ],
+            "excluded_terms": [
+              "党建", "党委会议", "品牌宣传", "经营工作会", "人事任免", "招聘", "利润分配", "股东会", "房地产销售"
+            ]
+          },
+          "verification": {
+            "verified_at": "2026-07-20T02:31:00Z",
+            "public_network_safe": true,
+            "redirect_chain_safe": true,
+            "resolved_public_ips": ["220.194.14.118"],
+            "collection_get": {
+              "url": "https://www.crecg.com/web/xwzx61/zfgsdt39/index.html",
+              "final_url": "https://www.crecg.com/web/xwzx61/zfgsdt39/index.html",
+              "method": "GET",
+              "status_code": 200,
+              "content_type": "text/html",
+              "redirect_count": 0,
+              "response_sha256": "e2b4f6e93417dcbab0655e5faa2cc447a7444d966207dc0789173184e2d55203"
+            },
+            "detail_get": {
+              "url": "https://www.crecg.com/web/xwzx61/zfgsdt39/2026071615173141490/index.html",
+              "final_url": "https://www.crecg.com/web/xwzx61/zfgsdt39/2026071615173141490/index.html",
+              "method": "GET",
+              "status_code": 200,
+              "content_type": "text/html",
+              "redirect_count": 0,
+              "response_sha256": "47197b08cf178cecfe729711d32e3f5d66947075b9f901d45b420283ff56af4f"
+            },
+            "robots_evidence": {
+              "url": "https://www.crecg.com/robots.txt",
+              "status": "VERIFIED",
+              "response_sha256": "376be689b7be40e01a5c2b72a160fc11d454669b82ca10f450e9655aeb53363b",
+              "finding": "GET 200；User-agent: * 明示 Allow: /。HEAD 返回 403，连接器不得用 HEAD 成功冒充 GET 可达性。"
+            },
+            "terms_evidence": {
+              "url": "https://www.crecg.com/web/fzlm6/bqsm70/index.html",
+              "status": "BLOCKED",
+              "response_sha256": "b13b96c1de42710d59da5ae31f8232299e633e06e7ebf9e68d603a2211d1facd",
+              "finding": "版权声明禁止未经书面许可复制、传播、镜像或存入信息检索系统；与平台 raw-first 强制保存冲突。"
+            },
+            "copyright_evidence": {
+              "url": "https://www.crecg.com/web/fzlm6/bqsm70/index.html",
+              "status": "BLOCKED",
+              "response_sha256": "b13b96c1de42710d59da5ae31f8232299e633e06e7ebf9e68d603a2211d1facd",
+              "finding": "未取得书面许可前仅允许人工浏览与原链研究，不保存正文、不自动采集、不公开再分发。"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "registry_code": "ENT-009",
+      "institution": "三一集团",
+      "official_origin": "https://www.sanygroup.com/",
+      "desired_enabled": false,
+      "streams": [
+        {
+          "stream_key": "sany-construction-cases",
+          "collection_url": "https://www.sanygroup.com/case/",
+          "collection_path_pattern": "^/case/$",
+          "allowed_hosts": ["www.sanygroup.com"],
+          "allowed_path_patterns": [
+            "^/case/$",
+            "^/case/dlid-[0-9]*/gongclx-[0-9]*/year-[0-9]*/$",
+            "^/case/[0-9]+\\.html$"
+          ],
+          "connector_type": "HTML_LIST_DETAIL",
+          "expected_mime_types": ["text/html"],
+          "poll_interval_minutes": 1440,
+          "request_timeout_seconds": 10,
+          "max_redirects": 5,
+          "rate_limit_requests_per_minute": 1,
+          "user_agent": "SRBG-SourceResearch/1.0 (+personal noncommercial research)",
+          "policy_version": "t20-sany-construction-machinery-cases-v1",
+          "readiness": "BOUNDED",
+          "disposition": "ADMISSION_READY",
+          "blocker_codes": [],
+          "source_admission": null,
+          "actual_running": false,
+          "content_relevance": "FILTERED",
+          "claim_basis_policy": "MANUFACTURER_CLAIM",
+          "permitted_claim_bases": ["MANUFACTURER_CLAIM"],
+          "public_redistribution": false,
+          "prefilter": {
+            "engineering_object_terms": [
+              "公路", "铁路", "桥", "隧道", "房屋建筑", "矿山", "市政", "水利", "水电", "港口", "机场", "能源设施"
+            ],
+            "lifecycle_terms": [
+              "规划", "设计", "施工", "建设", "运营", "养护", "安全", "监测", "摊铺", "压实", "吊装", "泵送", "开采", "运维", "旋挖", "桩基础"
+            ],
+            "excluded_terms": [
+              "ERP", "灯塔工厂", "生产线", "产线改造", "智能制造", "校园招聘", "股价", "订单金额", "签约仪式"
+            ]
+          },
+          "verification": {
+            "verified_at": "2026-07-20T02:31:00Z",
+            "public_network_safe": true,
+            "redirect_chain_safe": true,
+            "resolved_public_ips": [
+              "155.102.209.201", "155.102.209.202", "155.102.209.203", "155.102.209.204", "155.102.209.205", "155.102.209.206", "155.102.209.207", "155.102.209.208"
+            ],
+            "collection_get": {
+              "url": "https://www.sanygroup.com/case/",
+              "final_url": "https://www.sanygroup.com/case/",
+              "method": "GET",
+              "status_code": 200,
+              "content_type": "text/html",
+              "redirect_count": 0,
+              "response_sha256": "046c4949d00f9f750b6f1250704811f854b8dad9567ef981f2dd09635c6fb64b"
+            },
+            "detail_get": {
+              "url": "https://www.sanygroup.com/case/14600.html",
+              "final_url": "https://www.sanygroup.com/case/14600.html",
+              "method": "GET",
+              "status_code": 200,
+              "content_type": "text/html",
+              "redirect_count": 0,
+              "response_sha256": "3271504fc1271baaa232fe9ffd269bbec87192a6c532472986b4c12398b6f697"
+            },
+            "robots_evidence": {
+              "url": "https://www.sanygroup.com/robots.txt",
+              "status": "VERIFIED",
+              "response_sha256": "d8f0f8a9eb1ee2b789001e716ecb34eb68ac87b1914a31ee5455ea1858dc6afc",
+              "finding": "GET 200；未禁止 /case/ 或 /case/{id}.html，仅禁止 /case/null?imageMogr2/ 等异常资源路径。"
+            },
+            "terms_evidence": {
+              "url": "https://www.sanygroup.com/law/",
+              "status": "VERIFIED",
+              "response_sha256": "54ebe7835455b20d52c057e20fb082148fe27f809ca664d2338ec3bbcbf5fbcc",
+              "finding": "法律声明允许个人非商业使用；准入仍须限定单一 Owner 私有研究用途并在运行前重新核验。"
+            },
+            "copyright_evidence": {
+              "url": "https://www.sanygroup.com/law/",
+              "status": "VERIFIED",
+              "response_sha256": "54ebe7835455b20d52c057e20fb082148fe27f809ca664d2338ec3bbcbf5fbcc",
+              "finding": "禁止公开展示、公布或分发；策略限定 Owner 私有题录、必要短摘与原链，public_redistribution=false。"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

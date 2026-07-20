@@ -1,0 +1,108 @@
+{
+  "$defs": {
+    "PrimaryIntelligenceType": {
+      "enum": [
+        "DIGITAL_TRANSFORMATION",
+        "SAFETY_INTELLIGENCE",
+        "INDUSTRY_UPDATE"
+      ],
+      "title": "PrimaryIntelligenceType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "case_id": {
+      "format": "uuid",
+      "title": "Case Id",
+      "type": "string"
+    },
+    "event_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Event Id"
+    },
+    "first_discovered_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "First Discovered At"
+    },
+    "isolation_reason": {
+      "maxLength": 80,
+      "minLength": 1,
+      "title": "Isolation Reason",
+      "type": "string"
+    },
+    "official_source": {
+      "title": "Official Source",
+      "type": "boolean"
+    },
+    "original_url": {
+      "maxLength": 2048,
+      "pattern": "^https?://[^\\s]+$",
+      "title": "Original Url",
+      "type": "string"
+    },
+    "primary_type": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PrimaryIntelligenceType"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "projection_kind": {
+      "const": "QUARANTINE",
+      "default": "QUARANTINE",
+      "title": "Projection Kind",
+      "type": "string"
+    },
+    "source_published_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Source Published At"
+    },
+    "title": {
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    }
+  },
+  "required": [
+    "case_id",
+    "title",
+    "official_source",
+    "source_published_at",
+    "first_discovered_at",
+    "original_url",
+    "isolation_reason"
+  ],
+  "title": "QuarantineProjectionV2",
+  "type": "object"
+}

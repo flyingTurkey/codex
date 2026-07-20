@@ -47,7 +47,7 @@ test('v2 exact search can save an Event and reach the retained v1 daily report',
   await page.goto('/search?q=%E5%B7%9D%E4%BA%A4%E8%A7%84')
 
   await expect(page.getByRole('heading', { level: 1, name: '搜索' })).toBeVisible()
-  await expect(page.getByText(event.title)).toBeVisible()
+  await expect(page.getByRole('link', { name: event.title, exact: true })).toBeVisible()
   await expect(page.getByText(event.source_name)).toBeVisible()
   const save = page.getByRole('button', { name: '收藏', exact: true })
   await save.click()

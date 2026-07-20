@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srbg.local/schemas/t29r-jace-cccc-source-stream-discovery.schema.json",
+  "title": "T29R JACE and CCCC replacement SourceStream discovery record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["issue", "supersedes_issue", "parent_spec", "rule_version", "streams"],
+  "properties": {
+    "issue": {"const": 39},
+    "supersedes_issue": {"const": 30},
+    "parent_spec": {"const": 1},
+    "rule_version": {"const": "t29r-replacement-stream-discovery-v1"},
+    "streams": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/stream",
+          "properties": {
+            "source_code": {"const": "RES-013"},
+            "institution": {"const": "建筑科学与工程学报"},
+            "official_origin": {"const": "https://jace.chd.edu.cn/"},
+            "connector_type": {"const": "JSON_CURRENT_ISSUE"},
+            "expected_mime_types": {"const": ["application/json"]},
+            "claim_basis": {"const": "RESEARCH_CONCLUSION"},
+            "permitted_claim_bases": {"const": ["RESEARCH_CONCLUSION"]},
+            "query_contract": {
+              "const": {
+                "collection": {"publicationIndexId": "1474"},
+                "detail": {"size_max": 50, "showCover": "true"}
+              }
+            }
+          }
+        },
+        {
+          "$ref": "#/$defs/stream",
+          "properties": {
+            "source_code": {"const": "ENT-001"},
+            "institution": {"const": "中国交建"},
+            "official_origin": {"const": "https://www.ccccltd.cn/"},
+            "connector_type": {"const": "HTML_LIST_DETAIL"},
+            "expected_mime_types": {"const": ["text/html"]},
+            "claim_basis": {"const": "PROJECT_FIRST_PARTY_RECORD"},
+            "permitted_claim_bases": {"const": ["PROJECT_FIRST_PARTY_RECORD", "MANUFACTURER_CLAIM"]},
+            "query_contract": {"const": null}
+          }
+        }
+      ],
+      "items": false
+    }
+  },
+  "$defs": {
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "method", "status_code", "mime_type", "redirect_count", "response_sha256"],
+      "properties": {
+        "url": {"type": "string", "pattern": "^https://"},
+        "method": {"enum": ["BROWSER_NAVIGATION", "BROWSER_FETCH"]},
+        "status_code": {"const": 200},
+        "mime_type": {"enum": ["application/json", "text/html"]},
+        "redirect_count": {"type": "integer", "minimum": 0, "maximum": 5},
+        "response_sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "compliance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["check", "status", "evidence_url", "finding", "response_sha256"],
+      "properties": {
+        "check": {"enum": ["PUBLIC_NETWORK", "REDIRECTS", "ROBOTS", "TERMS", "COPYRIGHT", "ACCESS_BOUNDARY", "PUBLIC_REACHABILITY"]},
+        "status": {"enum": ["VERIFIED_ALLOWED", "VERIFIED_PUBLIC", "VERIFIED_NO_REDIRECT", "VERIFIED_NOT_PUBLISHED", "VERIFIED_RESTRICTED"]},
+        "evidence_url": {"type": "string", "pattern": "^https://"},
+        "finding": {"type": "string", "minLength": 1, "maxLength": 1200},
+        "response_sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "stream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_code", "institution", "aliases", "official_origin", "stream_key",
+        "collection_url", "detail_url_template", "allowed_hosts", "allowed_path_patterns",
+        "query_contract", "connector_type", "expected_mime_types", "poll_interval_minutes",
+        "request_timeout_seconds", "max_redirects", "rate_limit_requests_per_minute", "user_agent",
+        "policy_version", "verified_at", "resolved_public_ips", "observations", "readiness",
+        "disposition", "blocker_codes", "accepted_topics", "excluded_topics", "claim_basis",
+        "permitted_claim_bases", "desired_enabled", "source_admission", "actual_running",
+        "pause_appended", "coverage_credit_granted", "attachments_allowed", "public_redistribution",
+        "compliance"
+      ],
+      "properties": {
+        "source_code": {"type": "string", "pattern": "^(?:RES|ENT)-[0-9]{3}$"},
+        "institution": {"type": "string", "minLength": 1},
+        "aliases": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "official_origin": {"type": "string", "pattern": "^https://[^?]+/$"},
+        "stream_key": {"type": "string", "pattern": "^[a-z0-9-]+$"},
+        "collection_url": {"type": "string", "pattern": "^https://.+/.+"},
+        "detail_url_template": {"type": "string", "pattern": "^https://"},
+        "allowed_hosts": {"type": "array", "minItems": 1, "items": {"type": "string"}, "uniqueItems": true},
+        "allowed_path_patterns": {"type": "array", "minItems": 2, "items": {"type": "string", "minLength": 1}},
+        "query_contract": {"type": ["object", "null"]},
+        "connector_type": {"enum": ["JSON_CURRENT_ISSUE", "HTML_LIST_DETAIL"]},
+        "expected_mime_types": {"type": "array", "minItems": 1, "maxItems": 1, "items": {"enum": ["application/json", "text/html"]}},
+        "poll_interval_minutes": {"type": "integer", "minimum": 1440, "maximum": 10080},
+        "request_timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 30},
+        "max_redirects": {"type": "integer", "minimum": 0, "maximum": 5},
+        "rate_limit_requests_per_minute": {"const": 1},
+        "user_agent": {"type": "string", "pattern": "^SRBG-SourceResearch/"},
+        "policy_version": {"type": "string", "pattern": "^t29r-"},
+        "verified_at": {"type": "string", "format": "date-time"},
+        "resolved_public_ips": {"type": "array", "minItems": 1, "items": {"type": "string"}, "uniqueItems": true},
+        "observations": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/observation"}},
+        "readiness": {"const": "BOUNDED"},
+        "disposition": {"const": "ADMISSION_READY"},
+        "blocker_codes": {"const": []},
+        "accepted_topics": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "excluded_topics": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "claim_basis": {"enum": ["RESEARCH_CONCLUSION", "PROJECT_FIRST_PARTY_RECORD"]},
+        "permitted_claim_bases": {"type": "array", "minItems": 1, "items": {"enum": ["RESEARCH_CONCLUSION", "PROJECT_FIRST_PARTY_RECORD", "MANUFACTURER_CLAIM"]}},
+        "desired_enabled": {"const": false},
+        "source_admission": {"type": "null"},
+        "actual_running": {"const": false},
+        "pause_appended": {"const": false},
+        "coverage_credit_granted": {"const": false},
+        "attachments_allowed": {"const": false},
+        "public_redistribution": {"const": false},
+        "compliance": {"type": "array", "minItems": 7, "maxItems": 7, "items": {"$ref": "#/$defs/compliance"}}
+      }
+    }
+  }
+}

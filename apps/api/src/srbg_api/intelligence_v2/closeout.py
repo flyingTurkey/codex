@@ -165,3 +165,37 @@ def evaluate_feed(
     if any(value.unsupported_facts for value in values):
         reasons.append("FEED_UNSUPPORTED_FACT_LEAKAGE")
     return FeedResult(not reasons, tuple(reasons), precision)
+
+
+@dataclass(frozen=True)
+class CompensationInspection:
+    injected_transient_count: int
+    recovered_count: int
+    injected_permanent_count: int
+    permanent_error_observed_count: int
+    duplicate_side_effects: int
+    stale_version_recoveries: int
+    permanent_error_retries: int
+
+
+@dataclass(frozen=True)
+class CompensationResult:
+    passed: bool
+    reasons: tuple[str, ...]
+
+
+def evaluate_compensation(value: CompensationInspection) -> CompensationResult:
+    reasons: list[str] = []
+    if value.injected_transient_count < 1 or value.injected_permanent_count < 1:
+        reasons.append("AI_COMPENSATION_NOT_EXERCISED")
+    if value.recovered_count != value.injected_transient_count:
+        reasons.append("AI_COMPENSATION_BACKLOG_INCOMPLETE")
+    if value.permanent_error_observed_count != value.injected_permanent_count:
+        reasons.append("AI_PERMANENT_ERROR_EVIDENCE_INCOMPLETE")
+    if value.duplicate_side_effects:
+        reasons.append("AI_COMPENSATION_DUPLICATE_SIDE_EFFECT")
+    if value.stale_version_recoveries:
+        reasons.append("AI_COMPENSATION_STALE_VERSION_RECOVERY")
+    if value.permanent_error_retries:
+        reasons.append("AI_PERMANENT_ERROR_RETRIED")
+    return CompensationResult(not reasons, tuple(reasons))

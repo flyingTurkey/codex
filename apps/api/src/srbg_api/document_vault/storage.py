@@ -72,7 +72,13 @@ class S3ObjectStore:
     async def get_bytes(self, key: str, *, max_bytes: int | None = None) -> bytes:
         async with asyncio.timeout(self._timeout_seconds):
             async with self._client() as client:
-                result = await client.get_object(Bucket=self._bucket, Key=key)
+                try:
+                    result = await client.get_object(Bucket=self._bucket, Key=key)
+                except ClientError as exc:
+                    error = exc.response.get("Error", {})
+                    if str(error.get("Code")) in {"404", "NoSuchKey", "NotFound"}:
+                        raise FileNotFoundError(key) from exc
+                    raise OSError("private object read failed") from exc
                 content_length = result.get("ContentLength")
                 if (
                     max_bytes is not None
@@ -103,6 +109,20 @@ class S3ObjectStore:
                         ExpiresIn=max_age_seconds,
                     )
                 )
+
+    async def object_exists(self, key: str) -> bool:
+        """Check the private object before issuing a signed redirect."""
+
+        async with asyncio.timeout(self._timeout_seconds):
+            async with self._client() as client:
+                try:
+                    await client.head_object(Bucket=self._bucket, Key=key)
+                except ClientError as exc:
+                    error = exc.response.get("Error", {})
+                    if str(error.get("Code")) in {"404", "NoSuchKey", "NotFound"}:
+                        return False
+                    raise OSError("private object lookup failed") from exc
+        return True
 
     async def erase(self, object_key: str) -> None:
         """Delete one content-addressed object under the bounded S3 policy."""

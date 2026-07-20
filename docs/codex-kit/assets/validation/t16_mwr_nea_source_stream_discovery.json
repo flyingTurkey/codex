@@ -1,0 +1,173 @@
+{
+  "schema_version": "t16-source-stream-discovery-v2",
+  "issue_number": 17,
+  "parent_spec_number": 1,
+  "sources": [
+    {
+      "registry_code": "GOV-MWR",
+      "institution": "中华人民共和国水利部",
+      "official_origin": "https://www.mwr.gov.cn/",
+      "desired_enabled": false,
+      "streams": [
+        {
+          "stream_key": "mwr-engineering-service-notices",
+          "collection_url": "https://spjc.mwr.gov.cn/spjc/hallg/notices.jsp",
+          "collection_path_pattern": "^/spjc/hallg/notices\\.jsp$",
+          "allowed_hosts": ["spjc.mwr.gov.cn"],
+          "allowed_path_patterns": ["^/spjc/hallg/notices\\.jsp$"],
+          "connector_type": "HTML_LIST_METADATA_LINK",
+          "expected_mime_types": ["text/html"],
+          "poll_interval_minutes": 1440,
+          "request_timeout_seconds": 10,
+          "max_redirects": 0,
+          "rate_limit_requests_per_minute": 1,
+          "user_agent": "SRBG-SourceResearch/1.0 (+personal noncommercial research)",
+          "policy_version": "t16-mwr-service-engineering-metadata-v2",
+          "readiness": "BOUNDED",
+          "disposition": "ADMISSION_READY",
+          "blocker_codes": [],
+          "source_admission": null,
+          "actual_running": false,
+          "content_relevance": "FILTERED_METADATA_ONLY",
+          "claim_basis_policy": "PROJECT_FIRST_PARTY_RECORD",
+          "permitted_claim_bases": ["PROJECT_FIRST_PARTY_RECORD"],
+          "public_redistribution": false,
+          "prefilter": {
+            "engineering_object_terms": [
+              "水利工程", "水利水电工程", "水库", "水闸", "堤防", "灌区", "引调水", "泵站", "水电站", "水工隧洞", "水利科技"
+            ],
+            "lifecycle_terms": [
+              "规划", "设计", "施工", "建设", "监理", "质量检测", "验收", "运行", "养护", "安全", "监测", "数字化", "智慧水利", "科技成果", "装备"
+            ],
+            "excluded_terms": [
+              "节水宣传", "机关党建", "人事任免", "培训会议", "预算公开", "政府采购", "工资分配", "举报方式", "统计督察"
+            ]
+          },
+          "verification": {
+            "verified_at": "2026-07-20T03:30:00Z",
+            "public_network_safe": true,
+            "redirect_chain_safe": true,
+            "resolved_public_ips": ["28.0.0.95"],
+            "collection_get": {
+              "url": "https://spjc.mwr.gov.cn/spjc/hallg/notices.jsp",
+              "final_url": "https://spjc.mwr.gov.cn/spjc/hallg/notices.jsp",
+              "method": "GET",
+              "status_code": 200,
+              "content_type": "text/html;charset=UTF-8",
+              "redirect_count": 0,
+              "response_sha256": "46ad99e76fd97b380107892d762e0b4d3fe7d8d8da1a42c55e4dfdf2e1a74977"
+            },
+            "detail_get": null,
+            "robots_evidence": {
+              "url": "https://spjc.mwr.gov.cn/robots.txt",
+              "status": "VERIFIED",
+              "response_sha256": "4f201670c2b88c14046d98b9f6dad2c7e1412fd50788072d55b04f02fa64f0cf",
+              "finding": "GET 返回 404；RFC 9309 2.3.1.3 将 4xx 定义为 unavailable，并允许访问。该结论不是访问授权，仍受条款、版权、限速和运行门禁约束。"
+            },
+            "terms_evidence": {
+              "url": "https://www.audit.gov.cn/n11/n1765/c140380/content.html",
+              "status": "VERIFIED",
+              "response_sha256": "d7c5155fb849fda68cab2a2685235dd412eae9472f5f9a2a57932fa5cf53a2c1",
+              "finding": "国务院令第711号保障依法获取政府信息；本流仅访问主动公开题录，每日一次且不跟随外部详情，不把法定获取权扩大为公开再分发权。"
+            },
+            "copyright_evidence": {
+              "url": "https://www.ncac.gov.cn/xxfb/flfg/flfg_532/202103/t20210309_50530.html",
+              "status": "VERIFIED",
+              "response_sha256": "6f0d62a793d840b5d4a88df60147d7d2c1f4b1239f24104f3a140a978442272f",
+              "finding": "著作权法第二十四条允许个人学习研究使用已发表作品，但须署名且不得影响正常使用或不合理损害权益；仅限单一 Owner 私有研究、题录事实和原链，禁止公开再分发。"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "registry_code": "GOV-NEA",
+      "institution": "国家能源局",
+      "official_origin": "https://www.nea.gov.cn/",
+      "desired_enabled": false,
+      "streams": [
+        {
+          "stream_key": "nea-coal-department-updates",
+          "collection_url": "https://www.nea.gov.cn/sjzz/mts/index.htm",
+          "collection_path_pattern": "^/sjzz/mts/index\\.htm$",
+          "allowed_hosts": ["www.nea.gov.cn"],
+          "allowed_path_patterns": [
+            "^/sjzz/mts/index(?:_[1-9][0-9]*)?\\.htm$",
+            "^/[0-9]{8}/[a-f0-9]{32}/c\\.html$",
+            "^/[0-9]{4}-[0-9]{2}/[0-9]{2}/c_[0-9]+\\.htm$"
+          ],
+          "connector_type": "HTML_LIST_DETAIL",
+          "expected_mime_types": ["text/html"],
+          "poll_interval_minutes": 1440,
+          "request_timeout_seconds": 10,
+          "max_redirects": 0,
+          "rate_limit_requests_per_minute": 1,
+          "user_agent": "SRBG-SourceResearch/1.0 (+personal noncommercial research)",
+          "policy_version": "t16-nea-coal-engineering-v2",
+          "readiness": "BOUNDED",
+          "disposition": "ADMISSION_READY",
+          "blocker_codes": [],
+          "source_admission": null,
+          "actual_running": false,
+          "content_relevance": "FILTERED",
+          "claim_basis_policy": "PROJECT_FIRST_PARTY_RECORD",
+          "permitted_claim_bases": ["PROJECT_FIRST_PARTY_RECORD"],
+          "public_redistribution": false,
+          "prefilter": {
+            "engineering_object_terms": [
+              "能源工程", "煤矿", "矿山", "矿井", "煤电", "电站", "输电", "新能源项目", "工程装备", "施工机械"
+            ],
+            "lifecycle_terms": [
+              "规划", "设计", "施工", "建设", "投产", "运行", "运营", "养护", "安全", "监测", "智能化", "数字化", "装备", "改造"
+            ],
+            "excluded_terms": [
+              "建议提案", "答复", "培训会议", "产量", "价格", "市场运行", "机关党建", "人事任免", "新闻发布会"
+            ]
+          },
+          "verification": {
+            "verified_at": "2026-07-20T03:30:00Z",
+            "public_network_safe": true,
+            "redirect_chain_safe": true,
+            "resolved_public_ips": ["28.0.0.49"],
+            "collection_get": {
+              "url": "https://www.nea.gov.cn/sjzz/mts/index.htm",
+              "final_url": "https://www.nea.gov.cn/sjzz/mts/index.htm",
+              "method": "GET",
+              "status_code": 200,
+              "content_type": "text/html",
+              "redirect_count": 0,
+              "response_sha256": "a9853e3179a76e4ff3750a008f691bea7217fb0dc5f60392e263c140b31f5e69"
+            },
+            "detail_get": {
+              "url": "https://www.nea.gov.cn/20260209/ea5b9bede4764590bff3c62244f6f57c/c.html",
+              "final_url": "https://www.nea.gov.cn/20260209/ea5b9bede4764590bff3c62244f6f57c/c.html",
+              "method": "GET",
+              "status_code": 200,
+              "content_type": "text/html",
+              "redirect_count": 0,
+              "response_sha256": "9d4801648a1054f0de2ee8c418a1ddc1fa6a2e0767f1e8ef00faf55bffb99c7c"
+            },
+            "robots_evidence": {
+              "url": "https://www.nea.gov.cn/robots.txt",
+              "status": "VERIFIED",
+              "response_sha256": "55f7d9e99b8e2d4e0e193b2f0275501e6d9c1ebd29cadbea6a0da48a8587e3e0",
+              "finding": "GET 返回 404；RFC 9309 2.3.1.3 将 4xx 定义为 unavailable，并允许访问。该结论不是访问授权，仍受条款、版权、限速和运行门禁约束。"
+            },
+            "terms_evidence": {
+              "url": "https://www.audit.gov.cn/n11/n1765/c140380/content.html",
+              "status": "VERIFIED",
+              "response_sha256": "d7c5155fb849fda68cab2a2685235dd412eae9472f5f9a2a57932fa5cf53a2c1",
+              "finding": "国务院令第711号保障依法获取政府信息；本流仅访问主动公开煤炭司信息，每日一次，不把法定获取权扩大为公开再分发权。"
+            },
+            "copyright_evidence": {
+              "url": "https://www.ncac.gov.cn/xxfb/flfg/flfg_532/202103/t20210309_50530.html",
+              "status": "VERIFIED",
+              "response_sha256": "6f0d62a793d840b5d4a88df60147d7d2c1f4b1239f24104f3a140a978442272f",
+              "finding": "著作权法第二十四条允许个人学习研究使用已发表作品，但须署名且不得影响正常使用或不合理损害权益；仅限单一 Owner 私有研究、必要短摘和原链，禁止公开再分发。"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

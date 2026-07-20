@@ -2,9 +2,11 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from srbg_api.intelligence_v2.closeout import (
+    CompensationInspection,
     FeedInspection,
     QualificationInspection,
     RuntimeObservation,
+    evaluate_compensation,
     evaluate_feed,
     evaluate_qualification,
     evaluate_runtime_window,
@@ -142,3 +144,14 @@ def test_closeout_inputs_reject_duplicates() -> None:
     )
     with pytest.raises(ValueError, match="duplicate qualification case"):
         evaluate_qualification([duplicate, duplicate])
+
+
+def test_compensation_requires_both_controlled_fault_classes_and_clean_recovery() -> None:
+    empty = CompensationInspection(0, 0, 0, 0, 0, 0, 0)
+    assert evaluate_compensation(empty).reasons == ("AI_COMPENSATION_NOT_EXERCISED",)
+
+    passing = CompensationInspection(1, 1, 1, 1, 0, 0, 0)
+    assert evaluate_compensation(passing).passed is True
+
+    duplicate = CompensationInspection(1, 1, 1, 1, 1, 0, 0)
+    assert "AI_COMPENSATION_DUPLICATE_SIDE_EFFECT" in evaluate_compensation(duplicate).reasons

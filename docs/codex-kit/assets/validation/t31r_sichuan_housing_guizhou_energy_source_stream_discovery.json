@@ -1,0 +1,150 @@
+{
+  "issue": 38,
+  "supersedes_issue": 32,
+  "parent_spec": 1,
+  "rule_version": "t31r-replacement-stream-discovery-v1",
+  "verified_at": "2026-07-20T03:55:15Z",
+  "closure_eligible": true,
+  "sources": [
+    {
+      "source_key": "GOV-017",
+      "registry_code": "GOV-017",
+      "institution": "四川省住房和城乡建设厅",
+      "official_origin": "https://jst.sc.gov.cn/",
+      "source_status": "CANDIDATE",
+      "desired_enabled": false,
+      "source_admission": null,
+      "actual_running": false,
+      "pause_appended": false,
+      "coverage_credit_granted": false,
+      "streams": [
+        {
+          "stream_key": "SICHUAN_HOUSING_TECHNOLOGY",
+          "name": "四川省住房城乡建设科技",
+          "collection_url": "https://jst.sc.gov.cn/scjst/c101428/article_list.shtml",
+          "allowed_hosts": ["jst.sc.gov.cn"],
+          "collection_boundary": {
+            "collection_path_pattern": "^/scjst/c101428/article_list\\.shtml$",
+            "required_query": {},
+            "detail_path_pattern": "^/scjst/(?:c101428|otherDocument)/[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}/[a-f0-9-]+\\.shtml$",
+            "pagination_policy": "仅访问本栏目 article_list.shtml 与 article_list_{positive-integer}.shtml；不得退化到根站、搜索、其他栏目或附件。",
+            "detail_url_policy": "仅跟随栏目 DOM 中 jst.sc.gov.cn 的 c101428 或 otherDocument HTML 详情；不下载图片、PDF 或附件。"
+          },
+          "connector_type": "HTML_LIST_DETAIL",
+          "expected_mime_types": ["text/html"],
+          "poll_interval_minutes": 1440,
+          "request_timeout_seconds": 10,
+          "max_redirects": 0,
+          "rate_limit_requests_per_minute": 1,
+          "user_agent": "SRBG-SourceResearch/1.0 (+personal noncommercial research)",
+          "policy_version": "t31r-sichuan-housing-technology-v1",
+          "readiness": "BOUNDED",
+          "content_relevance": "FILTERED",
+          "disposition": "ADMISSION_READY",
+          "blocker_codes": [],
+          "engineering_objects": ["BUILDING", "MUNICIPAL"],
+          "specialty_facets": [],
+          "tunnel_gas_policy": "MINING_ONLY_UNLESS_HIGHWAY_OR_RAILWAY_TUNNEL_EVIDENCE",
+          "permitted_claim_bases": ["AUTHORITY_FINDING"],
+          "public_redistribution": false,
+          "prefilter": {
+            "engineering_object_terms": ["房屋建筑", "建筑", "城市生命线", "市政", "基础设施", "工程项目"],
+            "lifecycle_terms": ["规划", "设计", "施工", "建设", "运营", "养护", "安全", "监测", "智能建造", "BIM", "CIM", "数字化", "新型基础设施"],
+            "excluded_terms": ["资质", "注册", "证书", "房地产交易", "招聘", "人事", "党建", "会议", "采购", "招标", "政策解读"]
+          },
+          "verification": {
+            "verified_at": "2026-07-20T03:55:15Z",
+            "public_network_safe": true,
+            "redirect_chain_safe": true,
+            "resolved_hosts": {"jst.sc.gov.cn": ["103.203.218.118"]},
+            "http_observations": [
+              {"purpose": "COLLECTION", "url": "https://jst.sc.gov.cn/scjst/c101428/article_list.shtml", "final_url": "https://jst.sc.gov.cn/scjst/c101428/article_list.shtml", "status_code": 200, "content_type": "text/html", "redirect_count": 0, "response_sha256": "3d51b9f76047cf50511c30487a13cd0980283ed747ca0400ebc41424d9cf77c0"},
+              {"purpose": "DETAIL", "url": "https://jst.sc.gov.cn/scjst/otherDocument/2025/8/29/036a953d6367412ba93edde54546359a.shtml", "final_url": "https://jst.sc.gov.cn/scjst/otherDocument/2025/8/29/036a953d6367412ba93edde54546359a.shtml", "status_code": 200, "content_type": "text/html", "redirect_count": 0, "response_sha256": "976cc2d91a975c3f74423989ddb026719e45a70572a7885b68a82fae8eba91b0"},
+              {"purpose": "ROBOTS", "url": "https://jst.sc.gov.cn/robots.txt", "final_url": "https://jst.sc.gov.cn/robots.txt", "status_code": 404, "content_type": "text/html", "redirect_count": 0, "response_sha256": "55f7d9e99b8e2d4e0e193b2f0275501e6d9c1ebd29cadbea6a0da48a8587e3e0"},
+              {"purpose": "TERMS", "url": "https://jst.sc.gov.cn/scjst/sitemap/sitemap.shtml", "final_url": "https://jst.sc.gov.cn/scjst/sitemap/sitemap.shtml", "status_code": 200, "content_type": "text/html", "redirect_count": 0, "response_sha256": "6600fde93ddda6bced78942b2f4826847fe0511a940eeb277f7c3cbfb07465bc"}
+            ]
+          },
+          "compliance": [
+            {"check": "PUBLIC_NETWORK", "status": "VERIFIED_PUBLIC", "observed_at": "2026-07-20T03:55:15Z", "evidence_urls": ["https://dns.google/resolve?name=jst.sc.gov.cn&type=A"], "finding": "点时 DNS 解析为公网 IPv4 103.203.218.118；该事实不构成后续请求授权。"},
+            {"check": "REDIRECTS", "status": "VERIFIED_NO_REDIRECT", "observed_at": "2026-07-20T03:55:15Z", "evidence_urls": ["https://jst.sc.gov.cn/scjst/c101428/article_list.shtml"], "finding": "集合与详情样本均 HTTPS 200 且零重定向；后续准入仍须逐跳复核。"},
+            {"check": "ROBOTS", "status": "VERIFIED_NOT_PUBLISHED", "observed_at": "2026-07-20T03:55:15Z", "evidence_urls": ["https://jst.sc.gov.cn/robots.txt"], "finding": "robots.txt 返回 404；未发布规则不解释为自动采集许可，准入探针必须重查。"},
+            {"check": "TERMS", "status": "VERIFIED_NO_SEPARATE_TERMS", "observed_at": "2026-07-20T03:55:15Z", "evidence_urls": ["https://jst.sc.gov.cn/scjst/sitemap/sitemap.shtml"], "finding": "站点地图与公开导航未发现单独自动化访问条款；这不是授权，仅保留政府公开信息、单 Owner 非商业研究的窄边界。"},
+            {"check": "COPYRIGHT", "status": "VERIFIED_RESTRICTED", "observed_at": "2026-07-20T03:55:15Z", "evidence_urls": ["https://jst.sc.gov.cn/scjst/c101428/article_list.shtml"], "finding": "只允许 Owner 私有 raw 保存和事实核验；公开投影限题录、accepted claims、必要短摘与原文链接，禁止图片、附件和全文再分发。"},
+            {"check": "ACCESS_BOUNDARY", "status": "VERIFIED_RESTRICTED", "observed_at": "2026-07-20T03:55:15Z", "evidence_urls": ["https://jst.sc.gov.cn/scjst/c101428/article_list.shtml"], "finding": "仅限科技栏目分页与同站 HTML 详情，排除搜索、其他栏目、附件、登录及任何访问控制绕过。"},
+            {"check": "PUBLIC_REACHABILITY", "status": "VERIFIED_PUBLIC", "observed_at": "2026-07-20T03:55:15Z", "evidence_urls": ["https://jst.sc.gov.cn/scjst/c101428/article_list.shtml", "https://jst.sc.gov.cn/scjst/otherDocument/2025/8/29/036a953d6367412ba93edde54546359a.shtml"], "finding": "公开浏览器会话无需登录即可读取集合与详情样本；可达性不授予 SourceAdmission、运行或发布权限。"}
+          ]
+        }
+      ]
+    },
+    {
+      "source_key": "GOV-023",
+      "registry_code": "GOV-023",
+      "institution": "贵州省能源局",
+      "official_origin": "https://nyj.guizhou.gov.cn/",
+      "source_status": "CANDIDATE",
+      "desired_enabled": false,
+      "source_admission": null,
+      "actual_running": false,
+      "pause_appended": false,
+      "coverage_credit_granted": false,
+      "streams": [
+        {
+          "stream_key": "GUIZHOU_ENERGY_TECHNOLOGY",
+          "name": "贵州省能源科技管理",
+          "collection_url": "https://nyj.guizhou.gov.cn/zwgk/xxgkml/zdlyxx/nykjgl/",
+          "allowed_hosts": ["nyj.guizhou.gov.cn"],
+          "collection_boundary": {
+            "collection_path_pattern": "^/zwgk/xxgkml/zdlyxx/nykjgl/$",
+            "required_query": {},
+            "detail_path_pattern": "^/zwgk/xxgkml/zdlyxx/nykjgl/[0-9]{6}/t[0-9]{8}_[0-9]+\\.html$",
+            "pagination_policy": "仅访问栏目根页和同路径 index_{zero-based-integer}.html；不得扩展到能源局其他栏目、搜索或附件。",
+            "detail_url_policy": "仅跟随栏目 DOM 中 nyj.guizhou.gov.cn 的 nykjgl HTML 详情；HTTP 链接规范化为同主机 HTTPS，不下载图片或附件。"
+          },
+          "connector_type": "HTML_LIST_DETAIL",
+          "expected_mime_types": ["text/html"],
+          "poll_interval_minutes": 1440,
+          "request_timeout_seconds": 10,
+          "max_redirects": 0,
+          "rate_limit_requests_per_minute": 1,
+          "user_agent": "SRBG-SourceResearch/1.0 (+personal noncommercial research)",
+          "policy_version": "t31r-guizhou-energy-technology-v1",
+          "readiness": "BOUNDED",
+          "content_relevance": "FILTERED",
+          "disposition": "ADMISSION_READY",
+          "blocker_codes": [],
+          "engineering_objects": ["MINING"],
+          "specialty_facets": [],
+          "tunnel_gas_policy": "MINING_ONLY_UNLESS_HIGHWAY_OR_RAILWAY_TUNNEL_EVIDENCE",
+          "permitted_claim_bases": ["AUTHORITY_FINDING"],
+          "public_redistribution": false,
+          "prefilter": {
+            "engineering_object_terms": ["煤矿", "矿山", "矿井", "井下", "采煤", "掘进", "矿用", "煤矸石"],
+            "lifecycle_terms": ["建设", "开采", "运营", "安全", "监测", "验收", "评定", "装备", "机器人", "智能化", "智能采掘", "工程技术"],
+            "excluded_terms": ["党建", "党组", "会议", "风电", "光伏", "电价", "石油", "天然气", "节能报告", "采购", "招标", "人事", "招聘"]
+          },
+          "verification": {
+            "verified_at": "2026-07-20T03:55:15Z",
+            "public_network_safe": true,
+            "redirect_chain_safe": true,
+            "resolved_hosts": {"nyj.guizhou.gov.cn": ["101.206.185.116", "110.249.209.201", "223.86.123.228", "120.192.84.244", "120.192.84.245", "101.206.185.117", "110.249.209.200", "223.86.123.229"]},
+            "http_observations": [
+              {"purpose": "COLLECTION", "url": "https://nyj.guizhou.gov.cn/zwgk/xxgkml/zdlyxx/nykjgl/", "final_url": "https://nyj.guizhou.gov.cn/zwgk/xxgkml/zdlyxx/nykjgl/", "status_code": 200, "content_type": "text/html", "redirect_count": 0, "response_sha256": "6b7ecd9f27d8819d3e9dc0b5644324dc3832bffbcfd66010632d2236166694d3"},
+              {"purpose": "DETAIL", "url": "https://nyj.guizhou.gov.cn/zwgk/xxgkml/zdlyxx/nykjgl/202606/t20260603_90475180.html", "final_url": "https://nyj.guizhou.gov.cn/zwgk/xxgkml/zdlyxx/nykjgl/202606/t20260603_90475180.html", "status_code": 200, "content_type": "text/html", "redirect_count": 0, "response_sha256": "2bdd315f818108578398f0d3d342ba0727696151b63b767b783ec06015e1e519"},
+              {"purpose": "ROBOTS", "url": "https://nyj.guizhou.gov.cn/robots.txt", "final_url": "https://nyj.guizhou.gov.cn/robots.txt", "status_code": 404, "content_type": "text/html", "redirect_count": 0, "response_sha256": "55f7d9e99b8e2d4e0e193b2f0275501e6d9c1ebd29cadbea6a0da48a8587e3e0"},
+              {"purpose": "TERMS", "url": "https://nyj.guizhou.gov.cn/syqt/gywm/", "final_url": "https://nyj.guizhou.gov.cn/syqt/gywm/", "status_code": 200, "content_type": "text/html", "redirect_count": 0, "response_sha256": "c6521fad96fe0fb8b70c0348bfda0bd6a7b12e20f65570c8d0804b5093f8bb6d"}
+            ]
+          },
+          "compliance": [
+            {"check": "PUBLIC_NETWORK", "status": "VERIFIED_PUBLIC", "observed_at": "2026-07-20T03:55:15Z", "evidence_urls": ["https://dns.google/resolve?name=nyj.guizhou.gov.cn&type=A"], "finding": "点时 DNS 经 WAF CNAME 解析为八个公网 IPv4；该事实不构成后续请求授权。"},
+            {"check": "REDIRECTS", "status": "VERIFIED_NO_REDIRECT", "observed_at": "2026-07-20T03:55:15Z", "evidence_urls": ["https://nyj.guizhou.gov.cn/zwgk/xxgkml/zdlyxx/nykjgl/"], "finding": "规范化 HTTPS 集合与详情样本均 200 且零重定向；清单只允许 HTTPS。"},
+            {"check": "ROBOTS", "status": "VERIFIED_NOT_PUBLISHED", "observed_at": "2026-07-20T03:55:15Z", "evidence_urls": ["https://nyj.guizhou.gov.cn/robots.txt"], "finding": "robots.txt 返回 404；未发布规则不解释为自动采集许可，准入探针必须重查。"},
+            {"check": "TERMS", "status": "VERIFIED_NO_SEPARATE_TERMS", "observed_at": "2026-07-20T03:55:15Z", "evidence_urls": ["https://nyj.guizhou.gov.cn/syqt/gywm/"], "finding": "关于我们说明门户承担官方信息发布与交流，公开导航未发现单独自动化访问条款；这不是授权。"},
+            {"check": "COPYRIGHT", "status": "VERIFIED_RESTRICTED", "observed_at": "2026-07-20T03:55:15Z", "evidence_urls": ["https://nyj.guizhou.gov.cn/syqt/gywm/"], "finding": "只允许 Owner 私有 raw 保存和事实核验；公开投影限题录、accepted claims、必要短摘与原文链接，禁止图片、附件和全文再分发。"},
+            {"check": "ACCESS_BOUNDARY", "status": "VERIFIED_RESTRICTED", "observed_at": "2026-07-20T03:55:15Z", "evidence_urls": ["https://nyj.guizhou.gov.cn/zwgk/xxgkml/zdlyxx/nykjgl/"], "finding": "仅限能源科技管理栏目分页与同路径 HTML 详情，排除搜索、其他能源栏目、附件、登录及任何访问控制绕过。"},
+            {"check": "PUBLIC_REACHABILITY", "status": "VERIFIED_PUBLIC", "observed_at": "2026-07-20T03:55:15Z", "evidence_urls": ["https://nyj.guizhou.gov.cn/zwgk/xxgkml/zdlyxx/nykjgl/", "https://nyj.guizhou.gov.cn/zwgk/xxgkml/zdlyxx/nykjgl/202606/t20260603_90475180.html"], "finding": "公开浏览器会话无需登录即可读取集合与详情样本；可达性不授予 SourceAdmission、运行或发布权限。"}
+          ]
+        }
+      ]
+    }
+  ]
+}

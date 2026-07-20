@@ -4,10 +4,13 @@ from typing import Any, Protocol
 from uuid import UUID
 
 from srbg_contracts import (
+    HotspotCandidateV2,
     OwnerRelationshipCorrectionRequest,
     OwnerRelationshipCorrectionResponse,
 )
 
+from srbg_api.intelligence_v2.domain import EvaluatedHotspotAward
+from srbg_api.intelligence_v2.gold_calibration import AutoPassCalibrationGrant
 from srbg_api.observability import PERSONAL_RELATIONSHIP_CORRECTIONS
 from srbg_api.publication.gate import PublicationGate
 
@@ -20,6 +23,31 @@ class PublicationDenied(PermissionError):
 
 class PublicationRepository(Protocol):
     async def close(self) -> None: ...
+
+    async def load_auto_pass_calibration(
+        self, *, rule_version: str, model_id: str, prompt_version: str
+    ) -> AutoPassCalibrationGrant | None: ...
+
+    async def append_hotspot_candidate(
+        self,
+        *,
+        event_id: UUID,
+        document_version_id: UUID,
+        candidate: HotspotCandidateV2,
+        model: str,
+        prompt_version: str,
+        schema_version: str,
+        input_sha256: str,
+        created_at: datetime,
+    ) -> UUID: ...
+
+    async def evaluate_hotspot(
+        self,
+        *,
+        event_id: UUID,
+        document_version_id: UUID,
+        evaluated_at: datetime,
+    ) -> EvaluatedHotspotAward: ...
 
     async def build_internal_projection(self, *, actor_id: UUID, generated_at: datetime) -> Any: ...
 
@@ -41,6 +69,8 @@ class PublicationRepository(Protocol):
         outbox_id: UUID,
         processed_at: datetime,
     ) -> None: ...
+
+    async def process_ai_projection_refresh_once(self, *, processed_at: datetime) -> bool: ...
 
     async def correct_automatic_relationship(
         self,
@@ -78,6 +108,60 @@ class PublicationService:
     async def close(self) -> None:
         await self._repository.close()
 
+    async def load_auto_pass_calibration(
+        self, *, rule_version: str, model_id: str, prompt_version: str
+    ) -> AutoPassCalibrationGrant | None:
+        """Read the exact qualification grant without changing publication state."""
+
+        return await self._repository.load_auto_pass_calibration(
+            rule_version=rule_version,
+            model_id=model_id,
+            prompt_version=prompt_version,
+        )
+
+    async def append_hotspot_candidate(
+        self,
+        *,
+        event_id: UUID,
+        document_version_id: UUID,
+        candidate: HotspotCandidateV2,
+        model: str,
+        prompt_version: str,
+        schema_version: str,
+        input_sha256: str,
+    ) -> UUID:
+        """Persist a non-authoritative, claim-bound model proposal."""
+
+        return await self._repository.append_hotspot_candidate(
+            event_id=event_id,
+            document_version_id=document_version_id,
+            candidate=candidate,
+            model=model,
+            prompt_version=prompt_version,
+            schema_version=schema_version,
+            input_sha256=input_sha256,
+            created_at=self._now(),
+        )
+
+    async def evaluate_hotspot(
+        self, *, event_id: UUID, document_version_id: UUID
+    ) -> EvaluatedHotspotAward:
+        """Derive and persist hotspot facts at the sole publication boundary."""
+
+        evaluated_at = self._now()
+        result = await self._repository.evaluate_hotspot(
+            event_id=event_id,
+            document_version_id=document_version_id,
+            evaluated_at=evaluated_at,
+        )
+        if result.awarded:
+            await self._repository.refresh_v2_projection(
+                event_id=event_id,
+                document_version_id=document_version_id,
+                projected_at=evaluated_at,
+            )
+        return result
+
     async def build_internal_projection(self, *, actor_id: UUID) -> Any:
         """Build the shadow projection only through the sole publication boundary."""
         return await self._repository.build_internal_projection(
@@ -112,6 +196,11 @@ class PublicationService:
             outbox_id=outbox_id,
             processed_at=self._now(),
         )
+
+    async def process_ai_projection_refresh_once(self) -> bool:
+        """Consume one AI state handoff through the sole projection writer."""
+
+        return await self._repository.process_ai_projection_refresh_once(processed_at=self._now())
 
     async def correct_automatic_relationship(
         self, event_id: UUID, *, payload: OwnerRelationshipCorrectionRequest, owner_id: UUID

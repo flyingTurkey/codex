@@ -21,3 +21,5 @@ readiness manifest 必须记录 profile 及其独立规则版本。同一份工�
 ## 影响
 
 `ENGINEERING_CLOSEOUT/GO` 只表示当前工程基线通过，不表示可以切换生产。生产授权仍以 `PRODUCTION_CLOSEOUT/GO` 为前置条件。任何真实环境、DeepSeek、来源、Feed、补偿或归档证据缺失时，对应 profile 均失败关闭。
+
+具体 campaign 命令、活动生命周期、故障注入、采样 cutoff 和当前运行结果属于可逆的验收实现与操作证据，不由本 ADR 冻结；它们记录在本轮验收记录和工程收口 handoff 中。未来可替换这些机制，但不得弱化本 ADR 对两个 profile 的语义隔离和失败关闭要求。

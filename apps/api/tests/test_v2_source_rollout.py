@@ -1,10 +1,21 @@
 from datetime import UTC, datetime, timedelta
 
+from srbg_api.intelligence_v2.gold_calibration import AutoPassCalibrationGrant
 from srbg_api.source_registry.v2_rollout import (
     SourceAdmissionMetrics,
     SourceSampleCandidate,
     admission_verdict,
+    production_admission_verdict,
     select_admission_sample,
+)
+
+TEST_CALIBRATION = AutoPassCalibrationGrant(
+    threshold_bps=9300,
+    corpus_version="TEST_FIXTURE_ONLY",
+    rule_version="intelligence-v2-qualification-1.0.0",
+    model_id="protocol-equivalent-test-stub",
+    prompt_version="qualification-test-v1",
+    fact_sha256="0" * 64,
 )
 
 
@@ -25,6 +36,12 @@ def test_source_admission_requires_hard_compliance_and_quality_thresholds() -> N
     assert admission_verdict(passing) == "ADMIT"
     assert (
         admission_verdict(passing.__class__(**(passing.__dict__ | {"hard_negative_leaks": 1})))
+        == "PAUSE"
+    )
+    assert (
+        admission_verdict(
+            passing.__class__(**(passing.__dict__ | {"hard_negative_evaluated": False}))
+        )
         == "PAUSE"
     )
     assert (
@@ -54,3 +71,22 @@ def test_source_sample_is_recent_deduplicated_and_deterministic() -> None:
             reverse=True,
         )
     )
+
+
+def test_production_source_admission_requires_a_calibrated_classifier() -> None:
+    passing = SourceAdmissionMetrics(
+        sample_size=30,
+        robots_allowed=True,
+        terms_allowed=True,
+        copyright_reviewed=True,
+        public_network_safe=True,
+        fetch_success_bps=9800,
+        parse_evidence_success_bps=9500,
+        metadata_success_bps=9800,
+        useful_yield_bps=5000,
+        duplicate_bps=3000,
+        hard_negative_leaks=0,
+    )
+
+    assert production_admission_verdict(passing, calibration=None) == "PAUSE"
+    assert production_admission_verdict(passing, calibration=TEST_CALIBRATION) == "ADMIT"

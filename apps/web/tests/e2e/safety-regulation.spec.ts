@@ -88,7 +88,7 @@ test('FULL reader appendix is collapsed, keyboard operable, and loaded from v2',
   await button.focus()
   await page.keyboard.press('Enter')
   await expect(button).toHaveAttribute('aria-expanded', 'true')
-  await expect(page.getByText('证据：0')).toBeVisible()
+  await expect(page.getByText('附录当前没有治理记录。')).toBeVisible()
 })
 
 test('@a11y safety feed and FULL reader have no axe violations', async ({ page }) => {

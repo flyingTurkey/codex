@@ -4,7 +4,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
 from hashlib import sha256
-from typing import Any, cast
+from typing import Any, Never, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -12,12 +12,23 @@ from pydantic import TypeAdapter
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 from srbg_contracts import (
+    AiSummaryStatusV2,
+    AiSummaryV2,
+    AttachmentViewV2,
+    ClaimView,
     EventAppendixV2,
+    EventFullProjectionV2,
     EventMetadataProjectionV2,
     EventProjectionV2,
+    HotspotCandidateV2,
+    HotspotReasonV2,
+    IntelligenceFacetsV2,
+    MediaViewV2,
     OwnerRelationshipCorrectionRequest,
     OwnerRelationshipCorrectionResponse,
     PrimaryIntelligenceType,
+    SourceAttributionV2,
+    SourceExcerptV2,
 )
 
 from srbg_api.identifiers import uuid7
@@ -27,9 +38,26 @@ from srbg_api.intelligence_resolution.automatic_relationships import (
     RelationshipSuppression,
     decide_automatic_relationship,
 )
+from srbg_api.intelligence_v2.content_candidate_repository import (
+    PostgresContentCandidateRepository,
+)
+from srbg_api.intelligence_v2.content_candidates import accepted_claim_set_sha256
+from srbg_api.intelligence_v2.domain import (
+    EvaluatedHotspotAward,
+    HotspotCandidate,
+    HotspotCandidateReason,
+    HotspotComponentEvidence,
+    HotspotSourceEvidence,
+    evaluate_hotspot_candidate,
+)
+from srbg_api.intelligence_v2.gold_calibration import AutoPassCalibrationGrant
+from srbg_api.intelligence_v2.media import projectable_download, projectable_preview
 from srbg_api.observability import (
+    INTELLIGENCE_V2_HOTSPOT_EVALUATIONS,
+    INTELLIGENCE_V2_PUBLICATION_DECISIONS,
     PERSONAL_AUTOMATIC_RELATIONSHIPS,
     PERSONAL_RELATIONSHIP_CORRECTIONS,
+    T06_AI_PROJECTION_REFRESH,
 )
 from srbg_api.publication.personal_signals import (
     PersonalSignalInput,
@@ -39,6 +67,13 @@ from srbg_api.publication.service import PublicationDenied
 
 logger = logging.getLogger(__name__)
 _V2_PROJECTION_ADAPTER: TypeAdapter[EventProjectionV2] = TypeAdapter(EventProjectionV2)
+_V2_SAFETY_FAILURE_REASONS = frozenset(
+    {
+        "V2_RAW_NOT_CLEAN",
+        "V2_FULL_ACCEPTED_CLAIMS_MISMATCH",
+        "V2_SUMMARY_ACCEPTED_CLAIMS_MISMATCH",
+    }
+)
 
 
 def _primary_type(value: str) -> PrimaryIntelligenceType:
@@ -61,6 +96,366 @@ class PostgresPublicationRepository:
 
     async def close(self) -> None:
         await self._engine.dispose()
+
+    async def load_auto_pass_calibration(
+        self, *, rule_version: str, model_id: str, prompt_version: str
+    ) -> AutoPassCalibrationGrant | None:
+        async with self._engine.connect() as connection:
+            row = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT auto_pass_threshold_bps,corpus_version,rule_version,"
+                            "model_id,prompt_version,fact_sha256 "
+                            "FROM owner_gold_calibration_v2 "
+                            "WHERE decision='GO' AND authorizes_auto_pass=true "
+                            "AND rule_version=:rule_version AND model_id=:model_id "
+                            "AND prompt_version=:prompt_version "
+                            "ORDER BY calibrated_at DESC LIMIT 1"
+                        ),
+                        {
+                            "rule_version": rule_version,
+                            "model_id": model_id,
+                            "prompt_version": prompt_version,
+                        },
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        if row is None:
+            return None
+        return AutoPassCalibrationGrant(
+            threshold_bps=int(row["auto_pass_threshold_bps"]),
+            corpus_version=str(row["corpus_version"]),
+            rule_version=str(row["rule_version"]),
+            model_id=str(row["model_id"]),
+            prompt_version=str(row["prompt_version"]),
+            fact_sha256=str(row["fact_sha256"]),
+        )
+
+    async def append_hotspot_candidate(
+        self,
+        *,
+        event_id: UUID,
+        document_version_id: UUID,
+        candidate: HotspotCandidateV2,
+        model: str,
+        prompt_version: str,
+        schema_version: str,
+        input_sha256: str,
+        created_at: datetime,
+    ) -> UUID:
+        candidate_id = uuid7()
+        async with self._engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "INSERT INTO hotspot_candidate_v2("
+                    "id,event_id,document_version_id,claim_ids,reasons,model,prompt_version,"
+                    "schema_version,input_sha256,created_at) VALUES("
+                    ":id,:event_id,:version_id,:claim_ids,CAST(:reasons AS jsonb),:model,"
+                    ":prompt_version,:schema_version,:input_sha256,:created_at)"
+                ),
+                {
+                    "id": candidate_id,
+                    "event_id": event_id,
+                    "version_id": document_version_id,
+                    "claim_ids": candidate.claim_ids,
+                    "reasons": json.dumps(
+                        [reason.model_dump(mode="json") for reason in candidate.reasons],
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                    "model": model,
+                    "prompt_version": prompt_version,
+                    "schema_version": schema_version,
+                    "input_sha256": input_sha256,
+                    "created_at": created_at,
+                },
+            )
+        return candidate_id
+
+    async def evaluate_hotspot(
+        self,
+        *,
+        event_id: UUID,
+        document_version_id: UUID,
+        evaluated_at: datetime,
+    ) -> EvaluatedHotspotAward:
+        """Append one evaluation and optional award from current PostgreSQL facts."""
+
+        params = {
+            "event_id": event_id,
+            "version_id": document_version_id,
+            "evaluated_at": evaluated_at,
+        }
+        async with self._engine.connect() as connection:
+            candidate_row = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT candidate.id,candidate.claim_ids,candidate.reasons "
+                            "FROM hotspot_candidate_v2 candidate "
+                            "JOIN qualification_acceptance_v2 qualification "
+                            "ON qualification.event_id=candidate.event_id "
+                            "AND qualification.document_version_id=candidate.document_version_id "
+                            "JOIN intelligence_item item "
+                            "ON item.current_document_version_id=candidate.document_version_id "
+                            "JOIN event_identity_binding binding ON binding.item_id=item.id "
+                            "AND binding.event_id=candidate.event_id "
+                            "WHERE candidate.event_id=:event_id "
+                            "AND candidate.document_version_id=:version_id "
+                            "ORDER BY candidate.created_at DESC,candidate.id DESC LIMIT 1"
+                        ),
+                        params,
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            qualification_row = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT primary_type FROM qualification_acceptance_v2 "
+                            "WHERE event_id=:event_id AND document_version_id=:version_id "
+                            "ORDER BY accepted_at DESC,id DESC LIMIT 1"
+                        ),
+                        params,
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            score_rows = list(
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT dimension.dimension,COALESCE(override.score,"
+                            "dimension.raw_score) AS raw_score,score.rule_version "
+                            "FROM event_identity_binding binding "
+                            "JOIN intelligence_item item ON item.id=binding.item_id "
+                            "JOIN score_set score ON score.item_id=item.id AND score.is_current "
+                            "JOIN score_dimension dimension ON dimension.score_set_id=score.id "
+                            "LEFT JOIN LATERAL(SELECT value.score FROM score_override value "
+                            "WHERE value.score_dimension_id=dimension.id "
+                            "ORDER BY value.reviewed_at DESC,value.id DESC LIMIT 1) override ON true "
+                            "WHERE binding.event_id=:event_id "
+                            "AND item.current_document_version_id=:version_id"
+                        ),
+                        params,
+                    )
+                ).mappings()
+            )
+            source_rows = list(
+                (
+                    await connection.execute(
+                        text(
+                            "WITH members AS ("
+                            "SELECT item_id FROM event_item WHERE event_id=:event_id UNION "
+                            "SELECT item_id FROM event_identity_binding WHERE event_id=:event_id) "
+                            "SELECT item.source_id,"
+                            "COALESCE(affiliation.organization_key,item.source_id::text) "
+                            "AS organization_key,"
+                            "COALESCE(lineage.lineage_root,item.source_id::text) AS lineage_root,"
+                            "COALESCE(lineage.role,'INDEPENDENT_REPORT') AS role,"
+                            "item.source_published_at,source.source_type,"
+                            "COALESCE(array_agg(DISTINCT claim.id) FILTER (WHERE claim.id IS NOT NULL),"
+                            "ARRAY[]::uuid[]) AS accepted_claim_ids,"
+                            "EXISTS(SELECT 1 FROM qualification_acceptance_v2 qualification "
+                            "WHERE qualification.event_id=:event_id "
+                            "AND qualification.document_version_id=item.current_document_version_id) "
+                            "AND COALESCE((SELECT assessment.verdict='ADMIT' "
+                            "FROM source_admission_assessment_v2 assessment "
+                            "WHERE assessment.source_id=item.source_id "
+                            "AND assessment.assessed_at<=:evaluated_at "
+                            "ORDER BY assessment.assessed_at DESC,assessment.id DESC LIMIT 1),false) "
+                            "AS qualified "
+                            "FROM members JOIN intelligence_item item ON item.id=members.item_id "
+                            "JOIN source ON source.id=item.source_id "
+                            "LEFT JOIN source_affiliation affiliation ON affiliation.source_id=item.source_id "
+                            "LEFT JOIN source_lineage lineage ON lineage.item_id=item.id "
+                            "LEFT JOIN claim ON claim.item_id=item.id "
+                            "AND claim.document_version_id=item.current_document_version_id "
+                            "AND claim.verification_status='ACCEPTED' "
+                            "AND EXISTS(SELECT 1 FROM claim_evidence evidence "
+                            "WHERE evidence.claim_id=claim.id "
+                            "AND evidence.document_version_id=item.current_document_version_id) "
+                            "GROUP BY item.id,item.source_id,affiliation.organization_key,"
+                            "lineage.lineage_root,lineage.role,source.source_type"
+                        ),
+                        params,
+                    )
+                ).mappings()
+            )
+
+        if candidate_row is None or qualification_row is None:
+            raise PublicationDenied(("HOTSPOT_CURRENT_QUALIFIED_CANDIDATE_REQUIRED",))
+        scores = {str(row["dimension"]): int(row["raw_score"]) for row in score_rows}
+        required_scores = {"IMPACT", "RELEVANCE", "NOVELTY", "TIMELINESS"}
+        if not required_scores.issubset(scores) or not {"AUTHORITY", "EVIDENCE"}.intersection(
+            scores
+        ):
+            raise PublicationDenied(("HOTSPOT_CURRENT_SERVER_SCORE_FACTS_REQUIRED",))
+        claim_ids = frozenset(candidate_row["claim_ids"])
+        candidate = HotspotCandidate(
+            claim_ids=claim_ids,
+            reasons=tuple(
+                HotspotCandidateReason(
+                    text=str(reason["text"]),
+                    claim_ids=frozenset(UUID(str(value)) for value in reason["claim_ids"]),
+                )
+                for reason in candidate_row["reasons"]
+            ),
+        )
+
+        def scaled(dimension: str, cap: int) -> int:
+            return (scores[dimension] * cap + 50) // 100
+
+        authority_score = max(scores.get("AUTHORITY", 0), scores.get("EVIDENCE", 0))
+        component_evidence = (
+            HotspotComponentEvidence("impact_scope", scaled("IMPACT", 25), claim_ids),
+            HotspotComponentEvidence("engineering_materiality", scaled("RELEVANCE", 25), claim_ids),
+            HotspotComponentEvidence("novelty", scaled("NOVELTY", 20), claim_ids),
+            HotspotComponentEvidence("urgency", scaled("TIMELINESS", 15), claim_ids),
+            HotspotComponentEvidence(
+                "evidence_authority", (authority_score * 15 + 50) // 100, claim_ids
+            ),
+        )
+        sources = tuple(
+            HotspotSourceEvidence(
+                source_id=row["source_id"],
+                organization_key=str(row["organization_key"]),
+                lineage_root=str(row["lineage_root"]),
+                role=row["role"],
+                published_at=row["source_published_at"],
+                accepted_claim_ids=frozenset(row["accepted_claim_ids"]),
+                qualified=bool(row["qualified"]),
+                authoritative_first_party=str(row["source_type"]).lower()
+                in {"government", "official", "standards_body"},
+            )
+            for row in source_rows
+            if row["source_published_at"] is not None
+        )
+        result = evaluate_hotspot_candidate(
+            candidate=candidate,
+            component_evidence=component_evidence,
+            sources=sources,
+            primary_type=_primary_type(str(qualification_row["primary_type"])),
+            evaluated_at=evaluated_at,
+        )
+        evidence_payload = {
+            "candidate_id": str(candidate_row["id"]),
+            "candidate_claim_ids": sorted(str(value) for value in candidate.claim_ids),
+            "raw_scores": dict(sorted(scores.items())),
+            "score_rule_versions": sorted({str(row["rule_version"]) for row in score_rows}),
+            "components": {
+                fact.component: {
+                    "points": fact.points,
+                    "claim_ids": sorted(map(str, fact.claim_ids)),
+                }
+                for fact in component_evidence
+            },
+            "sources": [
+                {
+                    "source_id": str(source.source_id),
+                    "organization_key": source.organization_key,
+                    "lineage_root": source.lineage_root,
+                    "role": source.role,
+                    "published_at": source.published_at.isoformat(),
+                    "accepted_claim_ids": sorted(map(str, source.accepted_claim_ids)),
+                    "qualified": source.qualified,
+                    "authoritative_first_party": source.authoritative_first_party,
+                }
+                for source in sources
+            ],
+        }
+        evidence_sha256 = sha256(
+            json.dumps(
+                evidence_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            ).encode()
+        ).hexdigest()
+        evaluation_id = uuid7()
+        components_payload = {
+            "impact_scope": result.components.impact_scope,
+            "engineering_materiality": result.components.engineering_materiality,
+            "novelty": result.components.novelty,
+            "urgency": result.components.urgency,
+            "evidence_authority": result.components.evidence_authority,
+        }
+        async with self._engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "INSERT INTO hotspot_evaluation_v2("
+                    "id,candidate_id,event_id,document_version_id,primary_type,outcome,"
+                    "trigger_path,independent_source_count,components,evaluation_inputs,score,reasons,"
+                    "reason_codes,rule_version,evidence_sha256,evaluated_at) VALUES("
+                    ":id,:candidate_id,:event_id,:version_id,:primary_type,:outcome,:trigger,"
+                    ":source_count,CAST(:components AS jsonb),CAST(:evaluation_inputs AS jsonb),"
+                    ":score,:reasons,:reason_codes,"
+                    ":rule_version,:evidence_sha256,:evaluated_at)"
+                ),
+                {
+                    "id": evaluation_id,
+                    "candidate_id": candidate_row["id"],
+                    "event_id": event_id,
+                    "version_id": document_version_id,
+                    "primary_type": result.primary_type.value,
+                    "outcome": "AWARDED" if result.awarded else "REJECTED",
+                    "trigger": result.trigger,
+                    "source_count": result.independent_source_count,
+                    "components": json.dumps(components_payload, sort_keys=True),
+                    "evaluation_inputs": json.dumps(
+                        evidence_payload, sort_keys=True, separators=(",", ":")
+                    ),
+                    "score": result.score,
+                    "reasons": list(result.reasons),
+                    "reason_codes": list(result.reason_codes),
+                    "rule_version": result.rule_version,
+                    "evidence_sha256": evidence_sha256,
+                    "evaluated_at": evaluated_at,
+                },
+            )
+            if result.awarded:
+                await connection.execute(
+                    text(
+                        "INSERT INTO hotspot_award_v2("
+                        "id,event_id,trigger_path,independent_source_count,components,score,"
+                        "reasons,rule_version,awarded_at,revoked_at,revocation_reason,"
+                        "evaluation_id,document_version_id,evidence_sha256) VALUES("
+                        ":id,:event_id,:trigger,:source_count,CAST(:components AS jsonb),:score,"
+                        ":reasons,:rule_version,:evaluated_at,NULL,NULL,:evaluation_id,"
+                        ":version_id,:evidence_sha256)"
+                    ),
+                    {
+                        "id": uuid7(),
+                        "event_id": event_id,
+                        "trigger": result.trigger,
+                        "source_count": result.independent_source_count,
+                        "components": json.dumps(components_payload, sort_keys=True),
+                        "score": result.score,
+                        "reasons": list(result.reasons),
+                        "rule_version": result.rule_version,
+                        "evaluated_at": evaluated_at,
+                        "evaluation_id": evaluation_id,
+                        "version_id": document_version_id,
+                        "evidence_sha256": evidence_sha256,
+                    },
+                )
+        INTELLIGENCE_V2_HOTSPOT_EVALUATIONS.labels(
+            outcome="AWARDED" if result.awarded else "REJECTED"
+        ).inc()
+        logger.info(
+            "hotspot evaluation persisted",
+            extra={
+                "event_id": str(event_id),
+                "evaluation_id": str(evaluation_id),
+                "outcome": "AWARDED" if result.awarded else "REJECTED",
+                "rule_version": result.rule_version,
+            },
+        )
+        return result
 
     async def build_internal_projection(self, *, actor_id: UUID, generated_at: datetime) -> Any:
         from srbg_api.internal_projection.backfill import backfill_internal_projection
@@ -173,68 +568,119 @@ class PostgresPublicationRepository:
         document_version_id: UUID,
         projected_at: datetime,
     ) -> None:
-        """Load current server facts and refresh without accepting caller-built content."""
+        """Rebuild a strict projection only from current authoritative database facts."""
 
+        params = {"event_id": event_id, "version_id": document_version_id}
         async with self._engine.connect() as connection:
             row = (
                 (
                     await connection.execute(
                         text(
-                            "SELECT item.title,item.original_url,item.channel,item.risk_level,"
-                            "item.source_published_at,item.first_discovered_at,"
+                            "SELECT item.id AS item_id,item.title,item.original_url,"
+                            "item.risk_level,item.source_published_at,item.first_discovered_at,"
                             "item.current_document_version_id,source.name AS source_name,"
                             "source.source_type,review.state AS review_state,"
-                            "review.risk_tier AS review_risk,review.safe_metadata,"
-                            "raw.scan_status "
+                            "review.risk_tier AS review_risk,review.safe_metadata,raw.scan_status,"
+                            "(EXISTS(SELECT 1 FROM raw_object_security_fact security "
+                            "WHERE security.raw_object_id=raw.id AND security.status='CLEAN') "
+                            "AND NOT EXISTS(SELECT 1 FROM raw_object_security_fact security "
+                            "WHERE security.raw_object_id=raw.id AND security.status IN "
+                            "('REJECTED','QUARANTINED'))) AS raw_security_clean,"
+                            "qualification.primary_type,qualification.engineering_objects,"
+                            "qualification.specialty_facets,qualification.equipment_domains,"
+                            "qualification.cross_type_tags,candidate.id AS candidate_id,"
+                            "COALESCE(excerpt.accepted_claim_set_sha256,"
+                            "candidate.accepted_claim_set_sha256) AS accepted_claim_set_sha256,"
+                            "COALESCE(excerpt.source_excerpt,candidate.source_excerpt) AS source_excerpt,"
+                            "COALESCE(excerpt.source_excerpt_claim_ids,"
+                            "candidate.source_excerpt_claim_ids) AS source_excerpt_claim_ids,"
+                            "COALESCE(excerpt.evidence_locators,candidate.evidence_locators) "
+                            "AS evidence_locators,COALESCE(excerpt.accepted_claim_ids,"
+                            "candidate.claim_ids) AS accepted_claim_ids,candidate.claim_ids "
+                            "AS candidate_claim_ids,COALESCE(excerpt.claim_basis,"
+                            "candidate.claim_basis) AS claim_basis,candidate.claims_payload,"
+                            "candidate.summary_payload,candidate.model,candidate.created_at,"
+                            "COALESCE(summary_state.status,CASE WHEN candidate.id IS NOT NULL "
+                            "THEN 'SUCCEEDED' ELSE 'NOT_GENERATED' END) AS summary_status,"
+                            "summary_state.reason_code AS summary_reason "
                             "FROM event_identity_binding binding "
                             "JOIN intelligence_item item ON item.id=binding.item_id "
                             "JOIN source ON source.id=item.source_id "
                             "JOIN document_version version ON version.id=:version_id "
                             "JOIN raw_object raw ON raw.id=version.raw_object_id "
+                            "LEFT JOIN qualification_acceptance_v2 qualification "
+                            "ON qualification.event_id=:event_id "
+                            "AND qualification.document_version_id=:version_id "
                             "LEFT JOIN owner_review_case_v2 review "
                             "ON review.document_version_id=:version_id "
+                            "LEFT JOIN LATERAL(SELECT prepared.* "
+                            "FROM content_preparation_candidate_v2 prepared "
+                            "LEFT JOIN content_preparation_invalidation_v2 invalidation "
+                            "ON invalidation.candidate_id=prepared.id "
+                            "WHERE prepared.event_id=:event_id "
+                            "AND prepared.document_version_id=:version_id "
+                            "AND invalidation.id IS NULL "
+                            "ORDER BY prepared.created_at DESC,prepared.id DESC LIMIT 1"
+                            ") candidate ON true "
+                            "LEFT JOIN LATERAL(SELECT prepared.* "
+                            "FROM source_excerpt_version_v2 prepared "
+                            "WHERE prepared.event_id=:event_id "
+                            "AND prepared.document_version_id=:version_id "
+                            "ORDER BY prepared.created_at DESC,prepared.id DESC LIMIT 1"
+                            ") excerpt ON true "
+                            "LEFT JOIN LATERAL(SELECT state.status,state.reason_code "
+                            "FROM ai_summary_state_event_v2 state "
+                            "WHERE state.event_id=:event_id "
+                            "AND state.document_version_id=:version_id "
+                            "ORDER BY state.created_at DESC,state.id DESC LIMIT 1"
+                            ") summary_state ON true "
                             "WHERE binding.event_id=:event_id "
                             "AND version.id=item.current_document_version_id "
                             "ORDER BY review.updated_at DESC NULLS LAST LIMIT 1"
                         ),
-                        {"event_id": event_id, "version_id": document_version_id},
-                    )
-                )
-                .mappings()
-                .one_or_none()
-            )
-            existing = (
-                (
-                    await connection.execute(
-                        text(
-                            "SELECT payload,appendix_payload,risk_tier "
-                            "FROM intelligence_projection_v2 "
-                            "WHERE event_id=:event_id AND document_version_id=:version_id"
-                        ),
-                        {"event_id": event_id, "version_id": document_version_id},
+                        params,
                     )
                 )
                 .mappings()
                 .one_or_none()
             )
         if row is None or row["current_document_version_id"] != document_version_id:
-            raise PublicationDenied(("V2_DOCUMENT_NOT_CURRENT",))
-        if row["scan_status"] != "CLEAN":
-            raise PublicationDenied(("V2_RAW_NOT_CLEAN",))
+            await self._deny_v2_projection(
+                event_id, document_version_id, "NOT_FOUND", "V2_DOCUMENT_NOT_CURRENT", projected_at
+            )
+        if row["scan_status"] != "CLEAN" or not row["raw_security_clean"]:
+            await self._deny_v2_projection(
+                event_id, document_version_id, "NOT_FOUND", "V2_RAW_NOT_CLEAN", projected_at
+            )
+        if row["primary_type"] is None:
+            await self._deny_v2_projection(
+                event_id,
+                document_version_id,
+                "NOT_FOUND",
+                "V2_QUALIFICATION_NOT_ACCEPTED",
+                projected_at,
+            )
         risk_tier = str(row["review_risk"] or row["risk_level"])
         if risk_tier == "R4":
-            await self._remove_v2_projection(event_id=event_id)
-            raise PublicationDenied(("R4_CANNOT_ENTER_READER_PROJECTION",))
+            await self._deny_v2_projection(
+                event_id,
+                document_version_id,
+                "QUARANTINE",
+                "R4_CANNOT_ENTER_READER_PROJECTION",
+                projected_at,
+            )
+        official_source = str(row["source_type"]).lower() in {
+            "government",
+            "official",
+            "standards_body",
+        }
         if risk_tier == "R3" and row["review_state"] != "RESOLVED":
             metadata = dict(row["safe_metadata"] or {})
             projection = EventMetadataProjectionV2(
                 event_id=event_id,
                 title=str(metadata.get("title") or row["title"]),
-                primary_type=_primary_type(
-                    str(metadata.get("primary_type") or row["channel"])
-                ),
-                official_source=str(row["source_type"]).lower()
-                in {"government", "official", "standards_body"},
+                primary_type=_primary_type(str(row["primary_type"])),
+                official_source=official_source,
                 source_name=str(row["source_name"]),
                 source_published_at=row["source_published_at"],
                 first_discovered_at=row["first_discovered_at"],
@@ -248,22 +694,31 @@ class PostgresPublicationRepository:
                 risk_tier="R3",
                 projected_at=projected_at,
             )
+            await self._record_v2_publication_decision(
+                event_id=event_id,
+                document_version_id=document_version_id,
+                outcome="R3_METADATA",
+                reason_codes=("R3_PENDING_OWNER_REVIEW",),
+                projection=projection,
+                created_at=projected_at,
+            )
             return
-        if existing is None:
-            raise PublicationDenied(("V2_FULL_AUTHORITATIVE_FACTS_INCOMPLETE",))
-        full_projection = _V2_PROJECTION_ADAPTER.validate_python(existing["payload"])
-        appendix = EventAppendixV2.model_validate(existing["appendix_payload"])
-        if full_projection.projection_kind != "FULL":
-            raise PublicationDenied(("V2_FULL_AUTHORITATIVE_FACTS_INCOMPLETE",))
-        projected_claim_ids = {
-            claim.id for claim in appendix.claims if claim.decision_status == "ACCEPTED"
-        }
+        if row["source_excerpt"] is None:
+            await self._deny_v2_projection(
+                event_id,
+                document_version_id,
+                "NOT_FOUND",
+                "V2_CURRENT_SOURCE_EXCERPT_REQUIRED",
+                projected_at,
+            )
         async with self._engine.connect() as connection:
-            accepted_claim_ids = set(
+            claim_rows = list(
                 (
-                    await connection.scalars(
+                    await connection.execute(
                         text(
-                            "SELECT DISTINCT claim.id FROM claim "
+                            "SELECT claim.id,claim.claim_type,claim.predicate,"
+                            "claim.literal_value,array_agg(evidence.id ORDER BY evidence.id) "
+                            "AS evidence_ids FROM claim "
                             "JOIN event_identity_binding binding ON binding.item_id=claim.item_id "
                             "JOIN claim_evidence evidence ON evidence.claim_id=claim.id "
                             "WHERE binding.event_id=:event_id "
@@ -274,27 +729,239 @@ class PostgresPublicationRepository:
                             "'ACTIVE'=(SELECT state.state "
                             "FROM automatic_evidence_fact_state_event state "
                             "WHERE state.claim_id=claim.id "
-                            "ORDER BY state.created_at DESC,state.id DESC LIMIT 1))"
+                            "ORDER BY state.created_at DESC,state.id DESC LIMIT 1)) "
+                            "GROUP BY claim.id,claim.claim_type,claim.predicate,claim.literal_value "
+                            "ORDER BY claim.id"
                         ),
-                        {"event_id": event_id, "version_id": document_version_id},
+                        params,
                     )
-                ).all()
+                ).mappings()
             )
-            summary_claim_ids = await connection.scalar(
-                text(
-                    "SELECT claim_ids FROM ai_summary_version_v2 "
-                    "WHERE event_id=:event_id AND document_version_id=:version_id "
-                    "AND status='SUCCEEDED' ORDER BY created_at DESC,id DESC LIMIT 1"
-                ),
-                {"event_id": event_id, "version_id": document_version_id},
+            human_reviewed = bool(
+                await connection.scalar(
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM owner_review_decision_v2 decision "
+                        "JOIN owner_review_case_v2 review ON review.id=decision.case_id "
+                        "WHERE review.document_version_id=:version_id "
+                        "AND decision.command IN ('ACCEPT_CLAIM','REPLACE_CLAIM'))"
+                    ),
+                    params,
+                )
             )
+            hotspot_row = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT trigger_path,independent_source_count,reasons "
+                            "FROM hotspot_award_v2 WHERE event_id=:event_id "
+                            "AND evaluation_id IS NOT NULL "
+                            "ORDER BY awarded_at DESC,id DESC LIMIT 1"
+                        ),
+                        params,
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            media_rows = list(
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT media.id,media.name,media.source_url,media.mime_type,"
+                            "media.rights_basis,media.redistribution_allowed,media.scan_status,"
+                            "media.object_key,media.preview_object_key,media.preview_mime_type,"
+                            "media.attachment_scan_status,media.raw_scan_status "
+                            "FROM media_delivery_reader_v2 media "
+                            "WHERE media.document_version_id=:version_id "
+                            "ORDER BY media.created_at,media.id"
+                        ),
+                        params,
+                    )
+                ).mappings()
+            )
+        try:
+            current_claims = await PostgresContentCandidateRepository(
+                self._engine
+            ).load_active_claims(document_version_id)
+        except (RuntimeError, ValueError):
+            await self._deny_v2_projection(
+                event_id,
+                document_version_id,
+                "NOT_FOUND",
+                "V2_FULL_ACCEPTED_CLAIMS_MISMATCH",
+                projected_at,
+            )
+        current_claim_hash = accepted_claim_set_sha256(current_claims)
+        accepted_claim_ids = {claim["id"] for claim in claim_rows}
+        excerpt_accepted_claim_ids = set(row["accepted_claim_ids"] or ())
+        excerpt_claim_ids = set(row["source_excerpt_claim_ids"] or ())
         if (
             not accepted_claim_ids
-            or projected_claim_ids != accepted_claim_ids
-            or summary_claim_ids is None
-            or not set(summary_claim_ids).issubset(accepted_claim_ids)
+            or row["accepted_claim_set_sha256"] != current_claim_hash
+            or excerpt_accepted_claim_ids != accepted_claim_ids
+            or not excerpt_claim_ids
+            or not excerpt_claim_ids.issubset(accepted_claim_ids)
         ):
-            raise PublicationDenied(("V2_FULL_ACCEPTED_CLAIMS_MISMATCH",))
+            await self._deny_v2_projection(
+                event_id,
+                document_version_id,
+                "NOT_FOUND",
+                "V2_FULL_ACCEPTED_CLAIMS_MISMATCH",
+                projected_at,
+            )
+        summary_status = AiSummaryStatusV2(str(row["summary_status"]))
+        paragraphs: list[dict[str, Any]] = []
+        summary_claim_ids: set[UUID] = set()
+        if summary_status is AiSummaryStatusV2.SUCCEEDED:
+            candidate_claim_ids = set(row["candidate_claim_ids"] or ())
+            if row["candidate_id"] is None:
+                summary_status = AiSummaryStatusV2.STALE
+            else:
+                summary_payload = dict(row["summary_payload"] or {})
+                paragraphs = list(summary_payload.get("paragraphs") or ())
+                summary_claim_ids = {
+                    UUID(str(claim_id))
+                    for paragraph in paragraphs
+                    if paragraph.get("kind") == "FACT"
+                    for claim_id in paragraph.get("claim_ids", ())
+                }
+                if (
+                    candidate_claim_ids != accepted_claim_ids
+                    or not summary_claim_ids
+                    or not summary_claim_ids.issubset(accepted_claim_ids)
+                ):
+                    await self._deny_v2_projection(
+                        event_id,
+                        document_version_id,
+                        "NOT_FOUND",
+                        "V2_SUMMARY_ACCEPTED_CLAIMS_MISMATCH",
+                        projected_at,
+                    )
+        appendix = EventAppendixV2(
+            event_id=event_id,
+            claims=[
+                ClaimView(
+                    id=claim["id"],
+                    claim_type=str(claim["claim_type"]),
+                    label=str(claim["predicate"]),
+                    value=(
+                        claim["literal_value"]
+                        if isinstance(claim["literal_value"], str)
+                        else json.dumps(claim["literal_value"], ensure_ascii=False)
+                    ),
+                    evidence_ids=list(claim["evidence_ids"]),
+                    decision_status="ACCEPTED",
+                )
+                for claim in claim_rows
+            ],
+        )
+        hotspot = (
+            HotspotReasonV2(
+                trigger=hotspot_row["trigger_path"],
+                independent_source_count=hotspot_row["independent_source_count"],
+                reasons=list(hotspot_row["reasons"]),
+            )
+            if hotspot_row is not None
+            else None
+        )
+        media = [
+            MediaViewV2(
+                media_id=media_row["id"],
+                name=str(media_row["name"]),
+                preview_url=f"/api/v2/media/{media_row['id']}/preview",
+                rights_basis=media_row["rights_basis"],
+            )
+            for media_row in media_rows
+            if str(media_row["mime_type"]).startswith("image/")
+            and projectable_preview(
+                rights_basis=media_row["rights_basis"],
+                scan_status=str(media_row["scan_status"]),
+                attachment_scan_status=str(media_row["attachment_scan_status"]),
+                raw_scan_status=str(media_row["raw_scan_status"]),
+                preview_object_key=media_row["preview_object_key"],
+                preview_mime_type=media_row["preview_mime_type"],
+            )
+        ]
+        attachments = [
+            AttachmentViewV2(
+                media_id=(
+                    media_row["id"]
+                    if projectable_download(
+                        rights_basis=media_row["rights_basis"],
+                        scan_status=str(media_row["scan_status"]),
+                        attachment_scan_status=str(media_row["attachment_scan_status"]),
+                        raw_scan_status=str(media_row["raw_scan_status"]),
+                        redistribution_allowed=bool(media_row["redistribution_allowed"]),
+                        object_key=media_row["object_key"],
+                    )
+                    else None
+                ),
+                name=str(media_row["name"]),
+                download_url=(
+                    f"/api/v2/media/{media_row['id']}/download"
+                    if projectable_download(
+                        rights_basis=media_row["rights_basis"],
+                        scan_status=str(media_row["scan_status"]),
+                        attachment_scan_status=str(media_row["attachment_scan_status"]),
+                        raw_scan_status=str(media_row["raw_scan_status"]),
+                        redistribution_allowed=bool(media_row["redistribution_allowed"]),
+                        object_key=media_row["object_key"],
+                    )
+                    else None
+                ),
+                source_url=str(media_row["source_url"]),
+                redistribution_allowed=bool(media_row["redistribution_allowed"]),
+            )
+            for media_row in media_rows
+            if not str(media_row["mime_type"]).startswith("image/")
+        ]
+        full_projection = EventFullProjectionV2(
+            event_id=event_id,
+            title=str(row["title"]),
+            primary_type=row["primary_type"],
+            facets=IntelligenceFacetsV2(
+                engineering_objects=list(row["engineering_objects"] or ()),
+                specialties=list(row["specialty_facets"] or ()),
+                equipment_domains=list(row["equipment_domains"] or ()),
+                cross_type_tags=list(row["cross_type_tags"] or ()),
+            ),
+            source=SourceAttributionV2(name=str(row["source_name"]), official=official_source),
+            human_reviewed=human_reviewed,
+            source_published_at=row["source_published_at"],
+            first_discovered_at=row["first_discovered_at"],
+            source_excerpt=SourceExcerptV2(
+                text=str(row["source_excerpt"]),
+                claim_ids=list(row["source_excerpt_claim_ids"]),
+                evidence_locators=list(row["evidence_locators"]),
+            ),
+            ai_summary=AiSummaryV2.model_validate(
+                {
+                    "status": summary_status,
+                    "body": (
+                        "\n".join(str(paragraph["text"]) for paragraph in paragraphs)
+                        if summary_status is AiSummaryStatusV2.SUCCEEDED
+                        else None
+                    ),
+                    "paragraphs": paragraphs,
+                    "claim_ids": sorted(summary_claim_ids, key=str),
+                    "model": (
+                        str(row["model"])
+                        if summary_status is AiSummaryStatusV2.SUCCEEDED
+                        else None
+                    ),
+                    "generated_at": (
+                        row["created_at"]
+                        if summary_status is AiSummaryStatusV2.SUCCEEDED
+                        else None
+                    ),
+                }
+            ),
+            original_url=str(row["original_url"]),
+            claim_basis=list(row["claim_basis"]),
+            hotspot=hotspot,
+            media=media,
+            attachments=attachments,
+        )
         await self.upsert_v2_projection(
             document_version_id=document_version_id,
             projection=full_projection,
@@ -302,6 +969,157 @@ class PostgresPublicationRepository:
             risk_tier=risk_tier,
             projected_at=projected_at,
         )
+        await self._record_v2_publication_decision(
+            event_id=event_id,
+            document_version_id=document_version_id,
+            outcome="FULL",
+            reason_codes=("CURRENT_ACCEPTED_CLAIMS", f"AI_SUMMARY_{summary_status.value}"),
+            projection=full_projection,
+            created_at=projected_at,
+        )
+
+    async def process_ai_projection_refresh_once(self, *, processed_at: datetime) -> bool:
+        """Claim one durable AI result and rebuild only at the publisher boundary."""
+
+        async with self._engine.begin() as connection:
+            work = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT id,event_id,document_version_id,attempt_count "
+                            "FROM ai_projection_refresh_outbox_v2 WHERE status IN "
+                            "('PENDING','FAILED') AND available_at<=:now AND attempt_count<3 "
+                            "ORDER BY available_at,id FOR UPDATE SKIP LOCKED LIMIT 1"
+                        ),
+                        {"now": processed_at},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if work is None:
+                return False
+            await connection.execute(
+                text(
+                    "UPDATE ai_projection_refresh_outbox_v2 SET status='PROCESSING',"
+                    "attempt_count=attempt_count+1,updated_at=:now WHERE id=:id"
+                ),
+                {"id": work["id"], "now": processed_at},
+            )
+        try:
+            await self.refresh_v2_projection(
+                event_id=work["event_id"],
+                document_version_id=work["document_version_id"],
+                projected_at=processed_at,
+            )
+        except Exception as error:
+            code = (
+                error.reasons[0]
+                if isinstance(error, PublicationDenied) and error.reasons
+                else type(error).__name__.upper()
+            )[:80]
+            next_attempt = int(work["attempt_count"]) + 1
+            async with self._engine.begin() as connection:
+                await connection.execute(
+                    text(
+                        "UPDATE ai_projection_refresh_outbox_v2 SET status=:status,"
+                        "last_error_code=:code,available_at=:available,updated_at=:now "
+                        "WHERE id=:id AND status='PROCESSING'"
+                    ),
+                    {
+                        "id": work["id"],
+                        "status": "DEAD_LETTER" if next_attempt >= 3 else "FAILED",
+                        "code": code,
+                        "available": processed_at
+                        + timedelta(seconds=(5, 15, 45)[min(next_attempt - 1, 2)]),
+                        "now": processed_at,
+                    },
+                )
+            T06_AI_PROJECTION_REFRESH.labels(
+                outcome="dead_letter" if next_attempt >= 3 else "failed"
+            ).inc()
+            return True
+        async with self._engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "UPDATE ai_projection_refresh_outbox_v2 SET status='COMPLETED',"
+                    "last_error_code=NULL,updated_at=:now WHERE id=:id "
+                    "AND status='PROCESSING'"
+                ),
+                {"id": work["id"], "now": processed_at},
+            )
+        T06_AI_PROJECTION_REFRESH.labels(outcome="completed").inc()
+        return True
+
+    async def _record_v2_publication_decision(
+        self,
+        *,
+        event_id: UUID | None,
+        document_version_id: UUID,
+        outcome: str,
+        reason_codes: tuple[str, ...],
+        projection: EventProjectionV2 | None,
+        created_at: datetime,
+    ) -> None:
+        projection_hash = (
+            sha256(projection.model_dump_json().encode()).hexdigest()
+            if projection is not None
+            else None
+        )
+        metric_outcome = (
+            "SAFETY_FAILURE" if _V2_SAFETY_FAILURE_REASONS.intersection(reason_codes) else outcome
+        )
+        async with self._engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "SELECT pg_advisory_xact_lock("
+                    "hashtextextended(CAST(:version_id AS text),0))"
+                ),
+                {"version_id": str(document_version_id)},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO publication_decision_v2("
+                    "id,event_id,document_version_id,outcome,reason_codes,projection_sha256,"
+                    "created_at) SELECT :id,:event_id,:version_id,"
+                    "CAST(:outcome AS varchar(30)),CAST(:reasons AS varchar(80)[]),"
+                    "CAST(:hash AS varchar(64)),:now "
+                    "WHERE NOT EXISTS(SELECT 1 FROM publication_decision_v2 "
+                    "WHERE document_version_id=:version_id "
+                    "AND outcome=CAST(:outcome AS varchar(30)) "
+                    "AND reason_codes=CAST(:reasons AS varchar(80)[]) "
+                    "AND projection_sha256 IS NOT DISTINCT FROM :hash)"
+                ),
+                {
+                    "id": uuid7(),
+                    "event_id": event_id,
+                    "version_id": document_version_id,
+                    "outcome": outcome,
+                    "reasons": list(reason_codes),
+                    "hash": projection_hash,
+                    "now": created_at,
+                },
+            )
+        INTELLIGENCE_V2_PUBLICATION_DECISIONS.labels(outcome=metric_outcome).inc()
+
+    async def _deny_v2_projection(
+        self,
+        event_id: UUID,
+        document_version_id: UUID,
+        outcome: str,
+        reason: str,
+        created_at: datetime,
+    ) -> Never:
+        await self._remove_v2_projection(event_id=event_id)
+        await self._record_v2_publication_decision(
+            event_id=event_id,
+            document_version_id=document_version_id,
+            outcome=outcome,
+            reason_codes=(reason,),
+            projection=None,
+            created_at=created_at,
+        )
+        raise PublicationDenied((reason,))
 
     async def _remove_v2_projection(self, *, event_id: UUID) -> None:
         async with self._engine.begin() as connection:
@@ -342,9 +1160,9 @@ class PostgresPublicationRepository:
                 raise LookupError(f"unknown review reprocessing outbox {outbox_id}")
             if work["status"] == "COMPLETED":
                 return
-            if work["status"] == "PROCESSING" and processed_at - work[
-                "updated_at"
-            ] <= timedelta(minutes=5):
+            if work["status"] == "PROCESSING" and processed_at - work["updated_at"] <= timedelta(
+                minutes=5
+            ):
                 return
             if work["attempt_count"] >= 3:
                 await connection.execute(
@@ -370,9 +1188,10 @@ class PostgresPublicationRepository:
                 if event_id is not None:
                     await self._remove_v2_projection(event_id=event_id)
                 state = "RESOLVED"
-            elif command == "DECIDE_RISK" and dict(work["payload"] or {}).get(
-                "payload", {}
-            ).get("risk_tier") == "R4":
+            elif (
+                command == "DECIDE_RISK"
+                and dict(work["payload"] or {}).get("payload", {}).get("risk_tier") == "R4"
+            ):
                 if event_id is not None:
                     await self._remove_v2_projection(event_id=event_id)
                 state = "QUARANTINED"
@@ -403,8 +1222,7 @@ class PostgresPublicationRepository:
         async with self._engine.begin() as connection:
             await connection.execute(
                 text(
-                    "UPDATE owner_review_case_v2 SET state=:state,updated_at=:now "
-                    "WHERE id=:case_id"
+                    "UPDATE owner_review_case_v2 SET state=:state,updated_at=:now WHERE id=:case_id"
                 ),
                 {
                     "case_id": work["case_id"],
@@ -419,6 +1237,7 @@ class PostgresPublicationRepository:
                 ),
                 {"id": outbox_id, "now": processed_at},
             )
+
     async def process_personal_content_once(self, *, processed_at: datetime) -> bool:
         async with self._engine.begin() as connection:
             event = (
@@ -653,6 +1472,30 @@ class PostgresPublicationRepository:
                                 },
                             )
             else:
+                await connection.execute(
+                    text(
+                        """
+                        INSERT INTO content_preparation_invalidation_v2(
+                          id,candidate_id,reason,created_at
+                        )
+                        SELECT :id,candidate.id,
+                          CASE WHEN :action='INVALIDATE'
+                            THEN 'SOURCE_WITHDRAWN' ELSE 'SOURCE_CORRECTED' END,:now
+                        FROM content_preparation_candidate_v2 candidate
+                        JOIN event_identity_binding binding
+                          ON binding.event_id=candidate.event_id
+                        WHERE binding.item_id=:item_id
+                        ORDER BY candidate.created_at DESC,candidate.id DESC LIMIT 1
+                        ON CONFLICT(candidate_id) DO NOTHING
+                        """
+                    ),
+                    {
+                        "id": uuid7(),
+                        "action": event["action"],
+                        "item_id": event["item_id"],
+                        "now": processed_at,
+                    },
+                )
                 await connection.execute(
                     text(
                         "UPDATE personal_content_projection SET visible=false,generation=generation+1,updated_at=:now WHERE item_id=:item_id"

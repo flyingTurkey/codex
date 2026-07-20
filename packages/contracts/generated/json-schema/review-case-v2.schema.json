@@ -1,10 +1,337 @@
 {
+  "$defs": {
+    "ClaimBasisV2": {
+      "enum": [
+        "MANUFACTURER_CLAIM",
+        "RESEARCH_CONCLUSION",
+        "PROJECT_FIRST_PARTY_RECORD",
+        "INDEPENDENT_VERIFICATION",
+        "AUTHORITY_FINDING"
+      ],
+      "title": "ClaimBasisV2",
+      "type": "string"
+    },
+    "ContentPreparationClaimV2": {
+      "additionalProperties": false,
+      "properties": {
+        "basis": {
+          "$ref": "#/$defs/ClaimBasisV2"
+        },
+        "claim_id": {
+          "format": "uuid",
+          "title": "Claim Id",
+          "type": "string"
+        },
+        "evidence_locators": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Evidence Locators",
+          "type": "array"
+        }
+      },
+      "required": [
+        "claim_id",
+        "basis",
+        "evidence_locators"
+      ],
+      "title": "ContentPreparationClaimV2",
+      "type": "object"
+    },
+    "ContentPreparationReviewV2": {
+      "additionalProperties": false,
+      "properties": {
+        "ai_summary_decisions": {
+          "items": {
+            "$ref": "#/$defs/ContentReviewDecisionV2"
+          },
+          "maxItems": 500,
+          "title": "Ai Summary Decisions",
+          "type": "array"
+        },
+        "claims": {
+          "items": {
+            "$ref": "#/$defs/ContentPreparationClaimV2"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Claims",
+          "type": "array"
+        },
+        "fact_decisions": {
+          "items": {
+            "$ref": "#/$defs/ContentReviewDecisionV2"
+          },
+          "maxItems": 500,
+          "title": "Fact Decisions",
+          "type": "array"
+        },
+        "invalidation_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "DOCUMENT_VERSION_CHANGED",
+                "ACCEPTED_CLAIMS_CHANGED",
+                "SOURCE_WITHDRAWN",
+                "SOURCE_CORRECTED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Invalidation Reason"
+        },
+        "source_excerpt": {
+          "$ref": "#/$defs/SourceExcerptV2"
+        },
+        "status": {
+          "enum": [
+            "CURRENT",
+            "STALE"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "summary": {
+          "$ref": "#/$defs/ContentSummaryCandidateV2"
+        }
+      },
+      "required": [
+        "status",
+        "source_excerpt",
+        "summary",
+        "claims"
+      ],
+      "title": "ContentPreparationReviewV2",
+      "type": "object"
+    },
+    "ContentReviewDecisionV2": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "enum": [
+            "ACCEPT_CLAIM",
+            "REJECT_CLAIM",
+            "REPLACE_CLAIM",
+            "APPROVE_AI_SUMMARY",
+            "REJECT_AI_SUMMARY",
+            "REGENERATE_AI_SUMMARY"
+          ],
+          "title": "Command",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "decision_id": {
+          "format": "uuid",
+          "title": "Decision Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "decision_id",
+        "command",
+        "created_at"
+      ],
+      "title": "ContentReviewDecisionV2",
+      "type": "object"
+    },
+    "ContentSummaryCandidateV2": {
+      "additionalProperties": false,
+      "properties": {
+        "paragraphs": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "FACT": "#/$defs/ContentSummaryFactParagraphV2",
+                "JUDGMENT": "#/$defs/ContentSummaryJudgmentParagraphV2"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/ContentSummaryFactParagraphV2"
+              },
+              {
+                "$ref": "#/$defs/ContentSummaryJudgmentParagraphV2"
+              }
+            ]
+          },
+          "maxItems": 12,
+          "minItems": 3,
+          "title": "Paragraphs",
+          "type": "array"
+        },
+        "visible_character_count": {
+          "maximum": 500,
+          "minimum": 300,
+          "title": "Visible Character Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "visible_character_count",
+        "paragraphs"
+      ],
+      "title": "ContentSummaryCandidateV2",
+      "type": "object"
+    },
+    "ContentSummaryFactParagraphV2": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Claim Ids",
+          "type": "array"
+        },
+        "judgment_type": {
+          "default": null,
+          "title": "Judgment Type",
+          "type": "null"
+        },
+        "kind": {
+          "const": "FACT",
+          "default": "FACT",
+          "title": "Kind",
+          "type": "string"
+        },
+        "section": {
+          "const": "WHAT_HAPPENED",
+          "title": "Section",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "section",
+        "text",
+        "claim_ids"
+      ],
+      "title": "ContentSummaryFactParagraphV2",
+      "type": "object"
+    },
+    "ContentSummaryJudgmentParagraphV2": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 0,
+          "title": "Claim Ids",
+          "type": "array"
+        },
+        "judgment_type": {
+          "enum": [
+            "ENGINEERING_SIGNIFICANCE",
+            "LIMITATION_AND_FOLLOW_UP"
+          ],
+          "title": "Judgment Type",
+          "type": "string"
+        },
+        "kind": {
+          "const": "JUDGMENT",
+          "default": "JUDGMENT",
+          "title": "Kind",
+          "type": "string"
+        },
+        "section": {
+          "enum": [
+            "ENGINEERING_IMPACT",
+            "LIMITATIONS_AND_FOLLOW_UP"
+          ],
+          "title": "Section",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "section",
+        "text",
+        "judgment_type"
+      ],
+      "title": "ContentSummaryJudgmentParagraphV2",
+      "type": "object"
+    },
+    "SourceExcerptV2": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Claim Ids",
+          "type": "array"
+        },
+        "evidence_locators": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Evidence Locators",
+          "type": "array"
+        },
+        "text": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "claim_ids",
+        "evidence_locators"
+      ],
+      "title": "SourceExcerptV2",
+      "type": "object"
+    }
+  },
   "additionalProperties": false,
   "properties": {
     "case_id": {
       "format": "uuid",
       "title": "Case Id",
       "type": "string"
+    },
+    "content_preparation": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ContentPreparationReviewV2"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "created_at": {
       "format": "date-time",

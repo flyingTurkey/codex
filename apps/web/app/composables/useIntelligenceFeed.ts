@@ -2,6 +2,21 @@ import type { EventFullProjectionV2, EventMetadataProjectionV2, FeedPage, FeedPa
 import type { MaybeRef } from 'vue'
 import { computed, ref, toValue } from 'vue'
 
+export interface V2CardItemExtras {
+  ai_summary_preview?: {
+    status: string
+    status_message: string
+    body: string | null
+  }
+  search_explanation?: {
+    matched_evidence_fields: Array<'TITLE' | 'SOURCE' | 'ACCEPTED_CLAIMS' | 'SOURCE_EXCERPT'>
+    ai_summary_assisted: boolean
+  }
+}
+
+export type IntelligenceFeedItem = FeedPage['items'][number] & V2CardItemExtras
+export type IntelligenceFeedView = Omit<FeedPage, 'items'> & { items: IntelligenceFeedItem[] }
+
 export type FeedContentTypeFilter = 'all' | 'DIGITAL_TRANSFORMATION' | 'SAFETY_INTELLIGENCE' | 'INDUSTRY_UPDATE'
   | 'DIGITAL_CASE' | 'JOURNAL_PAPER' | 'SOFTWARE_PRODUCT' | 'IOT_PRODUCT'
   | 'LOW_ALTITUDE_EQUIPMENT' | 'AI_EQUIPMENT' | 'SAFETY_REGULATION' | 'SAFETY_CASE'
@@ -21,13 +36,20 @@ export interface DigitalFeedFilters {
 }
 export interface FeedContentTypeOption { readonly label: string, readonly value: FeedContentTypeFilter }
 
-export function toLegacyFeed(page: FeedPageV2): FeedPage {
-  const items = page.items.map((projection): FeedPage['items'][number] => {
+export function toLegacyFeed(page: FeedPageV2): IntelligenceFeedView {
+  const items = page.items.map((projection): IntelligenceFeedItem => {
     const full = projection.projection_kind === 'FULL' ? projection as EventFullProjectionV2 : null
     const metadata = projection as EventMetadataProjectionV2
     const safety = projection.primary_type === 'SAFETY_INTELLIGENCE'
     const excerpt = full?.source_excerpt.text
     const summary = full?.ai_summary.status === 'SUCCEEDED' ? full.ai_summary.body : undefined
+    const hotspotReason = full?.hotspot
+      ? [
+          full.hotspot.trigger === 'MULTI_SOURCE_7D' ? '7 天内多源触发' : '权威一手来源评分触发',
+          `${full.hotspot.independent_source_count} 个独立来源`,
+          ...full.hotspot.reasons,
+        ].join('；')
+      : undefined
     return {
       id: projection.event_id,
       publication_revision_id: null,
@@ -36,20 +58,40 @@ export function toLegacyFeed(page: FeedPageV2): FeedPage {
       title: projection.title,
       source_name: full?.source.name ?? metadata.source_name,
       source_published_at: projection.source_published_at,
-      first_discovered_at: projection.first_discovered_at,
-      activity_at: projection.source_published_at ?? projection.first_discovered_at,
+      // FeedPage v1 froze these as non-null; preserve the v2 null at runtime until its UI retires.
+      first_discovered_at: projection.first_discovered_at as string,
+      activity_at: (projection.source_published_at ?? projection.first_discovered_at) as string,
       original_url: projection.original_url,
       review_status: full ? 'APPROVED' : 'PENDING',
       one_sentence_fact: excerpt,
-      relevance_reason: full?.hotspot?.reasons.join('；'),
+      relevance_reason: hotspotReason,
       detail_available: Boolean(full),
-      tags: full ? [projection.primary_type, ...(full.facets?.engineering_objects ?? [])] : [projection.primary_type],
+      tags: full
+        ? [
+            projection.primary_type,
+            ...(full.facets?.engineering_objects ?? []),
+            ...(full.hotspot ? ['HOTSPOT_AWARDED'] : []),
+          ]
+        : [projection.primary_type],
+      ai_summary_preview: full
+        ? {
+            status: full.ai_summary.status,
+            status_message: full.ai_summary.status_message!,
+            body: full.ai_summary.status === 'SUCCEEDED' ? full.ai_summary.body ?? null : null,
+          }
+        : undefined,
+      search_explanation: full?.search_explanation
+        ? {
+            matched_evidence_fields: full.search_explanation.matched_evidence_fields ?? [],
+            ai_summary_assisted: full.search_explanation.ai_summary_assisted ?? false,
+          }
+        : undefined,
       ai_assistance: full
         ? {
             status: full.ai_summary.status === 'SUCCEEDED' ? 'ASSISTED' : 'DEGRADED',
             model_profile: full.ai_summary.model,
             generated_at: full.ai_summary.generated_at,
-            accepted_claims_only: (full.ai_summary.claim_ids ?? []).length > 0,
+            accepted_claims_only: full.source_excerpt.claim_ids.length > 0,
           }
         : undefined,
       ai_judgment: summary

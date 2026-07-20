@@ -1,0 +1,191 @@
+{
+  "issue": 19,
+  "parent_spec": 1,
+  "rule_version": "t18-stream-discovery-w4-v1",
+  "verified_at": "2026-07-20T02:36:26.634Z",
+  "streams": [
+    {
+      "source_code": "GOV-014",
+      "institution": "中国民用航空局",
+      "stream_key": "CAAC_AIRPORT_DEPARTMENT_DISCLOSURE",
+      "name": "中国民用航空局机场司信息公开集合",
+      "source_status": "CANDIDATE",
+      "collection_url": "https://www.caac.gov.cn/was5/web/search?page=1&channelid=211383&fl=60",
+      "allowed_hosts": ["www.caac.gov.cn"],
+      "collection_boundary": {
+        "collection_path_pattern": "^/was5/web/search$",
+        "required_query": {"channelid": "211383", "fl": "60"},
+        "detail_path_pattern": "^/XXGK/XXGK/[A-Z0-9_]+/[0-9]{6}/t[0-9]{8}_[0-9]+\\.html$",
+        "pagination_parameters": ["page", "perpage", "outlinepage", "orderby", "selST", "was_custom_expr"],
+        "detail_url_policy": "Only same-host detail links from the fl=60 result set; upgrade same-host HTTP links to HTTPS and reject downgrade or cross-host redirects."
+      },
+      "connector_type": "LIST_DETAIL",
+      "expected_mime_types": ["text/html", "text/html;charset=UTF-8"],
+      "poll_interval_minutes": 120,
+      "policy_version": "t18-stream-discovery-w4-v1",
+      "readiness": "BOUNDED",
+      "content_relevance": "FILTERED",
+      "disposition": "ADMISSION_READY",
+      "accepted_topics": [
+        "民用机场规划、设计、新建、改建和扩建",
+        "机场工程施工、招投标、质量、验收和资质",
+        "机场基础设施运行、养护、安全、监测和数字化",
+        "直接用于机场工程或运行安全的专用设备"
+      ],
+      "excluded_topics": ["航班经营", "航班时刻", "旅游消费", "票务服务", "一般航空企业经营新闻", "无工程新事实的行政动态"],
+      "claim_basis": "AUTHORITY_FINDING",
+      "redistribution": "METADATA_EXCERPT_LINK_ONLY",
+      "fulltext_redistribution_allowed": false,
+      "desired_enabled": false,
+      "source_admission": null,
+      "actual_running": false,
+      "pause_appended": false,
+      "coverage_credit_granted": false,
+      "compliance": [
+        {
+          "check": "PUBLIC_NETWORK",
+          "status": "VERIFIED_PUBLIC",
+          "observed_at": "2026-07-20T02:30:07Z",
+          "evidence_urls": ["https://www.caac.gov.cn/dev/jcs/"],
+          "finding": "DNS and HTTPS verification resolved only a globally routable destination during this observation; admission must repeat per-hop SSRF validation."
+        },
+        {
+          "check": "REDIRECTS",
+          "status": "VERIFIED_NO_REDIRECT",
+          "observed_at": "2026-07-20T02:30:07Z",
+          "evidence_urls": ["https://www.caac.gov.cn/dev/jcs/", "https://www.caac.gov.cn/was5/web/search?page=1&channelid=211383&fl=60"],
+          "finding": "Both verified HTTPS collection entry points returned 200 on the same host without a redirect; result links using HTTP are not authorization and must be upgraded to same-host HTTPS before validation."
+        },
+        {
+          "check": "ROBOTS",
+          "status": "VERIFIED_ALLOWED",
+          "observed_at": "2026-07-20T02:30:07Z",
+          "evidence_urls": ["https://www.caac.gov.cn/robots.txt"],
+          "finding": "The wildcard group has an empty Disallow and separately disallows /CAAC/local/ and /image/; the selected collection and detail boundaries are outside those paths."
+        },
+        {
+          "check": "TERMS",
+          "status": "VERIFIED_NO_SEPARATE_TERMS",
+          "observed_at": "2026-07-20T02:36:26.634Z",
+          "evidence_urls": ["https://www.caac.gov.cn/dev/jcs/", "https://www.caac.gov.cn/WZDT/"],
+          "finding": "No separate automated-use terms were linked from the verified official collection or site map. This finding grants no collection permission; SourceAdmission must recheck and fail closed if policy changes or remains insufficient."
+        },
+        {
+          "check": "COPYRIGHT",
+          "status": "VERIFIED_RESTRICTED",
+          "observed_at": "2026-07-20T02:36:26.634Z",
+          "evidence_urls": ["https://www.caac.gov.cn/dev/jcs/"],
+          "finding": "The official footer asserts China Civil Aviation Administration website copyright. The research boundary permits metadata, necessary short evidence excerpts, and original links only; no full-text or attachment redistribution."
+        },
+        {
+          "check": "ACCESS_BOUNDARY",
+          "status": "VERIFIED_ALLOWED",
+          "observed_at": "2026-07-20T02:36:26.634Z",
+          "evidence_urls": ["https://www.caac.gov.cn/was5/web/search?page=1&channelid=211383&fl=60", "https://www.caac.gov.cn/XXGK/XXGK/TZTG/202606/t20260608_230989.html"],
+          "finding": "The institution-filtered list and sampled airport-runway engineering detail were publicly readable without login, CAPTCHA, paywall, or access-control bypass."
+        },
+        {
+          "check": "PUBLIC_REACHABILITY",
+          "status": "VERIFIED_PUBLIC",
+          "observed_at": "2026-07-20T02:36:26.634Z",
+          "evidence_urls": ["https://www.caac.gov.cn/was5/web/search?page=1&channelid=211383&fl=60"],
+          "finding": "The official fl=60 collection returned HTTP 200 and a paginated set of Airport Department records at verification time."
+        }
+      ],
+      "research_notes": [
+        "fl=60 is the official institution classification for 机场司 and is narrower than the CAAC root or general site search.",
+        "Document-level DirectRelevance remains mandatory because the stream also contains administrative and operating material.",
+        "This record updates research disposition only and does not create SourceAdmission, Owner intent, PAUSE, runtime, or coverage credit."
+      ]
+    },
+    {
+      "source_code": "RES-004",
+      "institution": "中国公路学报",
+      "stream_key": "CJHT_CURRENT_ISSUE",
+      "name": "《中国公路学报》正式当期目录",
+      "source_status": "CANDIDATE",
+      "collection_url": "https://zgglxb.chd.edu.cn/CN/current",
+      "allowed_hosts": ["zgglxb.chd.edu.cn"],
+      "collection_boundary": {
+        "collection_path_pattern": "^/CN/current$",
+        "required_query": {},
+        "detail_path_pattern": "^/CN/10\\.19721/j\\.cnki\\.1001-7372\\.[0-9]{4}\\.[0-9]{2}\\.[0-9]{3}$",
+        "pagination_parameters": [],
+        "detail_url_policy": "Only same-host DOI detail links emitted by /CN/current; PDF and download endpoints are outside this SourceStream."
+      },
+      "connector_type": "LIST_DETAIL",
+      "expected_mime_types": ["text/html", "text/html;charset=UTF-8"],
+      "poll_interval_minutes": 1440,
+      "policy_version": "t18-stream-discovery-w4-v1",
+      "readiness": "BOUNDED",
+      "content_relevance": "FILTERED",
+      "disposition": "ADMISSION_READY",
+      "accepted_topics": ["公路工程", "桥梁工程", "隧道工程", "道路工程材料与施工", "公路基础设施安全、监测、养护和数字化", "直接用于工程生命周期的施工机械"],
+      "excluded_topics": ["纯汽车产品研究", "纯驾驶行为研究", "物流与交通经济", "无工程对象新事实的一般交通管理", "受保护论文全文再分发"],
+      "claim_basis": "RESEARCH_CONCLUSION",
+      "redistribution": "METADATA_ABSTRACT_LINK_ONLY",
+      "fulltext_redistribution_allowed": false,
+      "desired_enabled": false,
+      "source_admission": null,
+      "actual_running": false,
+      "pause_appended": false,
+      "coverage_credit_granted": false,
+      "compliance": [
+        {
+          "check": "PUBLIC_NETWORK",
+          "status": "VERIFIED_PUBLIC",
+          "observed_at": "2026-07-20T02:25:51Z",
+          "evidence_urls": ["https://zgglxb.chd.edu.cn/CN/current"],
+          "finding": "DNS and HTTPS verification resolved only a globally routable destination during this observation; admission must repeat per-hop SSRF validation."
+        },
+        {
+          "check": "REDIRECTS",
+          "status": "VERIFIED_NO_REDIRECT",
+          "observed_at": "2026-07-20T02:25:51Z",
+          "evidence_urls": ["https://zgglxb.chd.edu.cn/CN/current"],
+          "finding": "The verified HTTPS collection returned 200 at the same URL without a cross-host redirect."
+        },
+        {
+          "check": "ROBOTS",
+          "status": "VERIFIED_ALLOWED",
+          "observed_at": "2026-07-20T02:25:51Z",
+          "evidence_urls": ["https://zgglxb.chd.edu.cn/robots.txt"],
+          "finding": "The wildcard robots group explicitly allows / and advertises the site sitemap; robots permission is not treated as copyright or terms permission."
+        },
+        {
+          "check": "TERMS",
+          "status": "VERIFIED_NO_SEPARATE_TERMS",
+          "observed_at": "2026-07-20T02:36:26.634Z",
+          "evidence_urls": ["https://zgglxb.chd.edu.cn/CN/column/column3.shtml", "https://zgglxb.chd.edu.cn/CN/column/column4.shtml"],
+          "finding": "The official submission and publication-ethics pages state publication conditions but no separate automated-use terms. This does not grant full-text use; admission must recheck and remain within the conservative metadata/abstract/link boundary."
+        },
+        {
+          "check": "COPYRIGHT",
+          "status": "VERIFIED_RESTRICTED",
+          "observed_at": "2026-07-20T02:36:26.634Z",
+          "evidence_urls": ["https://zgglxb.chd.edu.cn/CN/column/column3.shtml", "https://zgglxb.chd.edu.cn/CN/column/column4.shtml"],
+          "finding": "The journal requires copyright transfer for accepted articles and its site asserts editorial-office copyright. Only bibliographic metadata, the published abstract boundary, and original links may be retained or projected; protected full text is excluded."
+        },
+        {
+          "check": "ACCESS_BOUNDARY",
+          "status": "VERIFIED_ALLOWED",
+          "observed_at": "2026-07-20T02:36:26.634Z",
+          "evidence_urls": ["https://zgglxb.chd.edu.cn/CN/current", "https://zgglxb.chd.edu.cn/CN/10.19721/j.cnki.1001-7372.2026.06.001"],
+          "finding": "The current issue and sampled DOI metadata/abstract page were publicly readable without login, CAPTCHA, paywall bypass, or download automation."
+        },
+        {
+          "check": "PUBLIC_REACHABILITY",
+          "status": "VERIFIED_PUBLIC",
+          "observed_at": "2026-07-20T02:36:26.634Z",
+          "evidence_urls": ["https://zgglxb.chd.edu.cn/CN/current", "https://zgglxb.chd.edu.cn/CN/rss/showRssInfo.do"],
+          "finding": "The formal current-issue page returned HTTP 200 and identified 2026 volume 39 issue 6. The advertised current-issue RSS returned 2023 items and was therefore retained only as evidence, not selected as the update SourceStream."
+        }
+      ],
+      "research_notes": [
+        "The stable /CN/current collection is selected instead of the advertised current-issue RSS because the latter was stale at verification time.",
+        "Every accepted paper claim remains RESEARCH_CONCLUSION and cannot be projected as an authority finding or independent engineering validation.",
+        "This record updates research disposition only and does not create SourceAdmission, Owner intent, PAUSE, runtime, or coverage credit."
+      ]
+    }
+  ]
+}

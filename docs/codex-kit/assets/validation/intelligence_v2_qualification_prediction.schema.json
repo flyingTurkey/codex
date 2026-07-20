@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Intelligence v2 qualification prediction for Owner Gold calibration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["case_id", "content_sha256", "model_id", "prompt_version", "predicted_relevant", "primary_type", "confidence_bps"],
+  "properties": {
+    "case_id": {"type": "string", "minLength": 1},
+    "content_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "model_id": {"type": "string", "minLength": 1},
+    "prompt_version": {"type": "string", "minLength": 1},
+    "predicted_relevant": {"type": "boolean"},
+    "primary_type": {
+      "type": ["string", "null"],
+      "enum": ["DIGITAL_TRANSFORMATION", "SAFETY_INTELLIGENCE", "INDUSTRY_UPDATE", null]
+    },
+    "confidence_bps": {"type": "integer", "minimum": 0, "maximum": 10000}
+  }
+}

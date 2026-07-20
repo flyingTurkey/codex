@@ -1,0 +1,219 @@
+{
+  "rule_version": "t14-mohurd-source-stream-research-v1.0.0",
+  "ticket": {
+    "issue": 15,
+    "parent_spec": 1,
+    "blocked_by": [{"issue": 8, "state": "CLOSED"}],
+    "closure_eligible": true
+  },
+  "verified_at": "2026-07-20T02:30:56Z",
+  "source": {
+    "source_code": "GOV-005",
+    "institution": "住房和城乡建设部",
+    "official_origin": "https://www.mohurd.gov.cn/",
+    "source_count_credit": 1,
+    "registry_status": "CANDIDATE",
+    "enabled": false
+  },
+  "research_outcome": {
+    "stream_readiness": "BOUNDED",
+    "source_research_disposition": "ADMISSION_READY",
+    "admission_ready": true,
+    "blocking_reason_codes": []
+  },
+  "control_state_mutations": {
+    "desired_enabled_changed": false,
+    "source_admission_written": false,
+    "runtime_state_changed": false,
+    "pause_appended": false,
+    "real_collection_executed": false
+  },
+  "verification": {
+    "method": "point-in-time public browser inspection and bounded curl probes",
+    "public_destination": {
+      "result": "OBSERVED_PUBLIC_DESTINATION_NOT_ADMISSION",
+      "resolved_ip": "28.0.0.52",
+      "note": "The address was publicly reachable at verification time; SourceAdapter must repeat DNS, redirect and SSRF checks for every request."
+    },
+    "redirects": [
+      {
+        "request": "http://www.mohurd.gov.cn/",
+        "status": 301,
+        "location": "https://www.mohurd.gov.cn/"
+      },
+      {
+        "request": "attachment gateway sample",
+        "status": 302,
+        "location_boundary": "https://www.mohurd.gov.cn/cms_files/filemanager/1150240553/attach/",
+        "final_status": 200,
+        "final_mime": "application/pdf"
+      }
+    ],
+    "public_reachability": [
+      {
+        "url": "https://www.mohurd.gov.cn/gongkai/fdzdgknr/gkml/index.html",
+        "status": 200,
+        "mime": "text/html"
+      },
+      {
+        "url": "https://www.mohurd.gov.cn/gongkai/zc/wjk/art/2025/art_111a6b58c396447993c76656a42425f7.html",
+        "status": 200,
+        "mime": "text/html"
+      }
+    ],
+    "robots": {
+      "url": "https://www.mohurd.gov.cn/robots.txt",
+      "status": 404,
+      "result": "VERIFIED_NOT_PUBLISHED_NOT_PERMISSION"
+    },
+    "terms": {
+      "result": "VERIFIED_NO_SEPARATE_TERMS",
+      "inspected_urls": [
+        "https://www.mohurd.gov.cn/gongkai/fdzdgknr/gkml/index.html",
+        "https://www.mohurd.gov.cn/wzpz/wzdt/index.html",
+        "https://www.mohurd.gov.cn/"
+      ],
+      "note": "No separate automated-access terms were linked from the verified public catalog, site map or official navigation during this bounded review. This finding grants no collection permission; SourceAdmission must recheck and fail closed if the evidence is insufficient or changes."
+    },
+    "copyright": {
+      "result": "VERIFIED_RESTRICTED",
+      "evidence_url": "https://www.mohurd.gov.cn/",
+      "observed_notice": "住房和城乡建设部 版权所有，如需转载，请注明来源",
+      "full_text_redistribution_allowed": false,
+      "safe_candidate_display": "metadata, accepted claims, necessary short excerpt and original link only"
+    },
+    "access_boundary": {
+      "result": "VERIFIED_PUBLIC_NO_BYPASS",
+      "login_or_captcha_observed": false,
+      "prohibited": [
+        "authentication bypass",
+        "captcha bypass",
+        "unpublished API discovery",
+        "unbounded portal crawling",
+        "personal certificate or personnel enumeration"
+      ]
+    }
+  },
+  "streams": [
+    {
+      "stream_id": "GOV-005-F",
+      "source_code": "GOV-005",
+      "name": "公开目录—建筑市场监管",
+      "collection_entry": "https://www.mohurd.gov.cn/gongkai/fdzdgknr/gkml/index.html",
+      "theme_filter": "F",
+      "connector_type": "LIST_DETAIL",
+      "allowed_hosts": ["www.mohurd.gov.cn"],
+      "path_boundaries": {
+        "list": "/gongkai/fdzdgknr/gkml/",
+        "detail": "/gongkai/zc/wjk/art/",
+        "attachment_gateway": "/api-gateway/jpaas-web-server/front/document/download",
+        "attachment_final": "/cms_files/filemanager/1150240553/attach/"
+      },
+      "expected_mime_types": ["text/html", "application/json", "application/pdf"],
+      "access_frequency": {
+        "policy_version": "t14-mohurd-candidate-frequency-v1",
+        "candidate_poll_interval_hours": 24,
+        "minimum_request_interval_seconds": 15,
+        "maximum_list_pages_per_run": 3,
+        "authorized": false
+      },
+      "content_relevance": "FILTERED",
+      "stream_readiness": "BOUNDED",
+      "source_research_disposition": "ADMISSION_READY",
+      "admission_ready": true,
+      "in_scope": [
+        "房屋建筑或市政工程招投标违法案例与监管新事实",
+        "直接影响工程勘察、设计、施工或监理的制度变化"
+      ],
+      "excluded": [
+        "建造师、监理工程师、造价工程师例行注册名单",
+        "企业资质名录但无新的工程生命周期事实",
+        "房地产市场、房价、物业与一般机构新闻"
+      ]
+    },
+    {
+      "stream_id": "GOV-005-G",
+      "source_code": "GOV-005",
+      "name": "公开目录—工程质量安全监管",
+      "collection_entry": "https://www.mohurd.gov.cn/gongkai/fdzdgknr/gkml/index.html",
+      "theme_filter": "G",
+      "connector_type": "LIST_DETAIL",
+      "allowed_hosts": ["www.mohurd.gov.cn"],
+      "path_boundaries": {
+        "list": "/gongkai/fdzdgknr/gkml/",
+        "detail": "/gongkai/zc/wjk/art/",
+        "attachment_gateway": "/api-gateway/jpaas-web-server/front/document/download",
+        "attachment_final": "/cms_files/filemanager/1150240553/attach/"
+      },
+      "expected_mime_types": ["text/html", "application/json", "application/pdf"],
+      "access_frequency": {
+        "policy_version": "t14-mohurd-candidate-frequency-v1",
+        "candidate_poll_interval_hours": 24,
+        "minimum_request_interval_seconds": 15,
+        "maximum_list_pages_per_run": 3,
+        "authorized": false
+      },
+      "content_relevance": "FILTERED",
+      "stream_readiness": "BOUNDED",
+      "source_research_disposition": "ADMISSION_READY",
+      "admission_ready": true,
+      "in_scope": [
+        "房屋市政工程质量安全规定、指南、通报和事故督办",
+        "市政公用工程设计文件与施工安全要求",
+        "绿色建造、工程安全数字化监管和有证据的试点事实"
+      ],
+      "excluded": [
+        "安全宣传活动但无工程规则或事件新事实",
+        "勘察设计人员荣誉或评选",
+        "泛民生、房地产市场、党建、人事和机构新闻"
+      ]
+    },
+    {
+      "stream_id": "GOV-005-K",
+      "source_code": "GOV-005",
+      "name": "公开目录—标准定额（标准科技）",
+      "collection_entry": "https://www.mohurd.gov.cn/gongkai/fdzdgknr/gkml/index.html",
+      "theme_filter": "K",
+      "connector_type": "LIST_DETAIL",
+      "allowed_hosts": ["www.mohurd.gov.cn"],
+      "path_boundaries": {
+        "list": "/gongkai/fdzdgknr/gkml/",
+        "detail": "/gongkai/zc/wjk/art/",
+        "attachment_gateway": "/api-gateway/jpaas-web-server/front/document/download",
+        "attachment_final": "/cms_files/filemanager/1150240553/attach/"
+      },
+      "expected_mime_types": ["text/html", "application/json", "application/pdf"],
+      "access_frequency": {
+        "policy_version": "t14-mohurd-candidate-frequency-v1",
+        "candidate_poll_interval_hours": 24,
+        "minimum_request_interval_seconds": 15,
+        "maximum_list_pages_per_run": 3,
+        "authorized": false
+      },
+      "content_relevance": "FILTERED",
+      "stream_readiness": "BOUNDED",
+      "source_research_disposition": "ADMISSION_READY",
+      "admission_ready": true,
+      "in_scope": [
+        "适用于十一类 EngineeringObject 的工程建设标准发布、修订与征求意见",
+        "工程测量、设计、施工、验收、安全、监测或数字化标准"
+      ],
+      "excluded": [
+        "造价师等人员注册名单",
+        "没有在域工程对象和生命周期事实的跨行业标准",
+        "标准全文公开不等于允许平台再分发全文"
+      ]
+    }
+  ],
+  "w2_pair": {
+    "mohurd_stream_id": "GOV-005-G",
+    "mine_safety_stream": {
+      "institution": "国家矿山安全监察局",
+      "name": "通知公告",
+      "collection_entry": "https://www.chinamine-safety.gov.cn/zfxxgk/fdzdgknr/tzgg/index.shtml",
+      "existing_research_ref": "docs/research/2026-07-19-civil-engineering-authoritative-source-expansion.md#s19-国家矿山安全监察局通知公告"
+    },
+    "mining_gas_engineering_object": "MINING",
+    "grants_tunnel_gas_monitoring_coverage": false
+  }
+}

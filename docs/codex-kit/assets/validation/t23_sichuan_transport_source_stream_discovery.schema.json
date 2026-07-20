@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srbg.local/schemas/t23-sichuan-transport-source-stream-discovery.schema.json",
+  "title": "T23 Sichuan transport SourceStream discovery record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ticket", "rule_version", "verified_at", "source", "network_verification", "compliance", "streams", "control_state_mutations", "second_batch_w1"],
+  "properties": {
+    "ticket": {
+      "const": {"issue": 24, "parent_spec": 1, "blocked_by": [{"issue": 8, "state": "CLOSED"}], "closure_eligible": true}
+    },
+    "rule_version": {"const": "t23-sichuan-transport-stream-discovery-v1"},
+    "verified_at": {"type": "string", "format": "date-time"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_code", "institution", "official_origin", "source_count_credit", "registry_status", "desired_enabled"],
+      "properties": {
+        "source_code": {"const": "GOV-015"},
+        "institution": {"const": "四川省交通运输厅"},
+        "official_origin": {"const": "https://jtt.sc.gov.cn/"},
+        "source_count_credit": {"const": 1},
+        "registry_status": {"const": "CANDIDATE"},
+        "desired_enabled": {"const": false}
+      }
+    },
+    "network_verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resolved_public_ips", "public_network_safe", "https_redirects_observed", "http_upgrade_observed", "https_only_collection_policy"],
+      "properties": {
+        "resolved_public_ips": {"const": ["28.0.0.69"]},
+        "public_network_safe": {"const": true},
+        "https_redirects_observed": {"const": 0},
+        "http_upgrade_observed": {"const": false},
+        "https_only_collection_policy": {"const": true}
+      }
+    },
+    "compliance": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "items": {"$ref": "#/$defs/compliance"}
+    },
+    "streams": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {"$ref": "#/$defs/stream"}
+    },
+    "control_state_mutations": {
+      "const": {"desired_enabled_changed": false, "source_admission_written": false, "runtime_state_changed": false, "pause_appended": false, "real_admission_wave_executed": false, "coverage_credit_granted": false}
+    },
+    "second_batch_w1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sichuan_transport", "mem_accident_investigation", "cross_jurisdiction_fact_merge_allowed", "wave_admission_executed"],
+      "properties": {
+        "sichuan_transport": {
+          "const": {"source_code": "GOV-015", "jurisdiction": "中国四川", "stream_keys": ["SCJTT_TECH_INFORMATION", "SCJTT_CONSTRUCTION_UPDATES", "SCJTT_QUALITY_SUPERVISION", "SCJTT_SAFETY_SUPERVISION"]}
+        },
+        "mem_accident_investigation": {
+          "const": {"source_code": "GOV-007", "institution": "应急管理部", "jurisdiction": "中国全国", "collection_url": "https://www.mem.gov.cn/gk/sgcc/tbzdsgdcbg/index.shtml", "existing_research_only": true}
+        },
+        "cross_jurisdiction_fact_merge_allowed": {"const": false},
+        "wave_admission_executed": {"const": false}
+      }
+    }
+  },
+  "$defs": {
+    "compliance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["check", "result", "evidence_urls", "observed_at", "finding"],
+      "properties": {
+        "check": {"enum": ["PUBLIC_NETWORK", "REDIRECTS", "ROBOTS", "TERMS", "COPYRIGHT", "ACCESS_BOUNDARY", "PUBLIC_REACHABILITY"]},
+        "result": {"enum": ["VERIFIED_PUBLIC", "VERIFIED_NO_REDIRECT", "VERIFIED_NOT_PUBLISHED_NOT_PERMISSION", "VERIFIED_SITE_STATEMENT", "VERIFIED_RESTRICTED", "VERIFIED_BOUNDED", "VERIFIED_PUBLIC_NO_BYPASS"]},
+        "http_status": {"type": "integer", "minimum": 100, "maximum": 599},
+        "evidence_urls": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^https://"}},
+        "observed_at": {"type": "string", "format": "date-time"},
+        "response_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "finding": {"type": "string", "minLength": 1, "maxLength": 1200}
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "final_url", "status_code", "content_type", "redirect_count", "response_sha256"],
+      "properties": {
+        "url": {"type": "string", "pattern": "^https://jtt\\.sc\\.gov\\.cn/"},
+        "final_url": {"type": "string", "pattern": "^https://jtt\\.sc\\.gov\\.cn/"},
+        "status_code": {"const": 200},
+        "content_type": {"const": "text/html"},
+        "redirect_count": {"type": "integer", "minimum": 0, "maximum": 5},
+        "response_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "stream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_code", "institution", "stream_key", "name", "collection_url", "collection_path_pattern", "allowed_hosts", "allowed_path_patterns", "connector_type", "expected_mime_types", "poll_interval_minutes", "rate_limit_requests_per_minute", "request_timeout_seconds", "max_redirects", "policy_version", "readiness", "disposition", "content_relevance", "accepted_topics", "excluded_topics", "redistribution", "fulltext_redistribution_allowed", "source_admission", "actual_running", "http_observations"],
+      "properties": {
+        "source_code": {"const": "GOV-015"},
+        "institution": {"const": "四川省交通运输厅"},
+        "stream_key": {"enum": ["SCJTT_TECH_INFORMATION", "SCJTT_CONSTRUCTION_UPDATES", "SCJTT_QUALITY_SUPERVISION", "SCJTT_SAFETY_SUPERVISION"]},
+        "name": {"type": "string", "minLength": 1, "maxLength": 100},
+        "collection_url": {"type": "string", "pattern": "^https://jtt\\.sc\\.gov\\.cn/jtt/c[0-9]+/(?:zfxxgk|zhijian)_list\\.shtml$"},
+        "collection_path_pattern": {"type": "string", "minLength": 1},
+        "allowed_hosts": {"const": ["jtt.sc.gov.cn"]},
+        "allowed_path_patterns": {"type": "array", "minItems": 2, "items": {"type": "string", "minLength": 1}},
+        "connector_type": {"const": "HTML_LIST_DETAIL"},
+        "expected_mime_types": {"const": ["text/html"]},
+        "poll_interval_minutes": {"const": 1440},
+        "rate_limit_requests_per_minute": {"const": 1},
+        "request_timeout_seconds": {"const": 10},
+        "max_redirects": {"const": 5},
+        "policy_version": {"type": "string", "pattern": "^t23-"},
+        "readiness": {"const": "BOUNDED"},
+        "disposition": {"const": "ADMISSION_READY"},
+        "content_relevance": {"enum": ["DIRECT", "FILTERED"]},
+        "accepted_topics": {"type": "array", "minItems": 2, "items": {"type": "string", "minLength": 1}},
+        "excluded_topics": {"type": "array", "minItems": 2, "items": {"type": "string", "minLength": 1}},
+        "redistribution": {"const": "METADATA_EXCERPT_LINK_ONLY"},
+        "fulltext_redistribution_allowed": {"const": false},
+        "source_admission": {"type": "null"},
+        "actual_running": {"const": false},
+        "http_observations": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/observation"}}
+      }
+    }
+  }
+}

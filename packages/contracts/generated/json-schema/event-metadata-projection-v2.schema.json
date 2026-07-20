@@ -18,9 +18,16 @@
       "type": "string"
     },
     "first_discovered_at": {
-      "format": "date-time",
-      "title": "First Discovered At",
-      "type": "string"
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "First Discovered At"
     },
     "official_source": {
       "title": "Official Source",

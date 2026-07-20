@@ -155,3 +155,23 @@ groups:
         for: 5m
         labels: {severity: p2}
         annotations: {summary: "Owner relationship correction or projection refresh failed"}
+      - alert: IntelligenceV2ProjectionSafetyFailure
+        expr: increase(srbg_intelligence_v2_publication_decisions_total{outcome="SAFETY_FAILURE"}[15m]) > 0
+        for: 1m
+        labels: {severity: p1}
+        annotations: {summary: "v2 Reader 投影因原文安全或 claim/summary 一致性失败而关闭"}
+      - alert: T06AiApprovedContentSuccessStale
+        expr: srbg_t06_ai_runtime_state{provider="deepseek",state="configured"} == 1 and srbg_t06_ai_runtime_state{provider="deepseek",state="available"} == 0
+        for: 24h
+        labels: {severity: p2}
+        annotations: {summary: "DeepSeek 已配置但 24 小时内没有满足全部门禁的真实内容成功"}
+      - alert: T06AiProjectionRefreshDeadLetter
+        expr: increase(srbg_t06_ai_projection_refresh_total{outcome="dead_letter"}[15m]) > 0
+        for: 1m
+        labels: {severity: p1}
+        annotations: {summary: "T06 AI 结果投影补偿已进入死信"}
+      - alert: IntelligenceV2HotspotEvaluationRejected
+        expr: increase(srbg_intelligence_v2_hotspot_evaluations_total{outcome="REJECTED"}[30m]) > 5
+        for: 5m
+        labels: {severity: p2}
+        annotations: {summary: "v2 热点候选因证据或服务端规则不足连续拒绝"}

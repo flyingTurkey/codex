@@ -78,6 +78,30 @@ EVENT_IDENTITY_ROLLBACKS = Counter(
     "srbg_event_identity_rollbacks_total",
     "Reviewed Event merge/split rollbacks.",
 )
+INTELLIGENCE_QUALIFICATION_DECISIONS = Counter(
+    "srbg_intelligence_qualification_decisions_total",
+    "Civil-engineering qualification decisions by bounded outcome and reason.",
+    ("outcome", "reason"),
+)
+INTELLIGENCE_QUALIFICATION_REVIEW_BACKLOG = Gauge(
+    "srbg_intelligence_qualification_review_backlog",
+    "Open civil-engineering qualification review cases from PostgreSQL authority.",
+)
+INTELLIGENCE_V2_PUBLICATION_DECISIONS = Counter(
+    "srbg_intelligence_v2_publication_decisions_total",
+    "Reader projection decisions by bounded outcome; safety failures are explicit.",
+    ("outcome",),
+)
+INTELLIGENCE_V2_HOTSPOT_EVALUATIONS = Counter(
+    "srbg_intelligence_v2_hotspot_evaluations_total",
+    "Server-derived hotspot evaluations by bounded outcome.",
+    ("outcome",),
+)
+INTELLIGENCE_V2_APPENDIX_READS = Counter(
+    "srbg_intelligence_v2_appendix_reads_total",
+    "ReaderAppendix reads by bounded visibility and content outcome.",
+    ("outcome",),
+)
 SOURCE_LIFECYCLE_STATE = Gauge(
     "srbg_source_lifecycle_state",
     "Sources by authoritative V2 lifecycle state.",
@@ -242,6 +266,31 @@ SOURCE_SLO_VIOLATIONS = Counter(
     "srbg_source_slo_violations_total",
     "Source SLO violations by bounded dimension.",
     ("dimension",),
+)
+SOURCE_STREAM_CONTROL_DECISIONS = Counter(
+    "srbg_source_stream_control_decisions_total",
+    "Stream-level research, intent, admission and runtime decisions by bounded outcome.",
+    ("phase", "outcome"),
+)
+SOURCE_SHADOW_COLLECTION = Counter(
+    "srbg_source_shadow_collection_total",
+    "Controlled shadow collection results by bounded outcome and document kind.",
+    ("outcome", "document_kind"),
+)
+T06_AI_RUNTIME_STATE = Gauge(
+    "srbg_t06_ai_runtime_state",
+    "T06 DeepSeek configured and real-content-backed availability state.",
+    ("provider", "state"),
+)
+T06_AI_SUMMARY_STATE_TRANSITIONS = Counter(
+    "srbg_t06_ai_summary_state_transitions_total",
+    "Durable T06 summary state transitions by bounded state.",
+    ("state",),
+)
+T06_AI_PROJECTION_REFRESH = Counter(
+    "srbg_t06_ai_projection_refresh_total",
+    "PublicationService-owned T06 projection refresh outcomes.",
+    ("outcome",),
 )
 
 

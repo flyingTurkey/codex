@@ -1,0 +1,318 @@
+{
+  "rule_version": "t25-cces-source-stream-discovery-v2",
+  "ticket": {
+    "issue": 26,
+    "parent_spec": 1,
+    "blocked_by": [{"issue": 8, "state": "CLOSED"}],
+    "closure_eligible": true
+  },
+  "verified_at": "2026-07-20T03:40:10.5816790Z",
+  "source": {
+    "source_code": "RES-011",
+    "institution": "中国土木工程学会",
+    "official_origin": "https://www.cces.net.cn/",
+    "source_count_credit": 1,
+    "registry_status": "CANDIDATE",
+    "desired_enabled": false
+  },
+  "research_outcome": {
+    "stream_readiness": "BOUNDED",
+    "source_research_disposition": "ADMISSION_READY",
+    "admission_ready": true,
+    "blocking_reason_codes": []
+  },
+  "replacement": {
+    "superseded_blocker": "HTTPS_UNAVAILABLE",
+    "superseded_collection_url": "http://cces.net.cn/html/tm/98/102/102.html",
+    "replacement_operator": "中国标准化研究院",
+    "replacement_platform": "全国团体标准信息平台",
+    "replacement_stream_id": "RES-011-STANDARD-RELEASES",
+    "publisher_identity": "中国土木工程学会"
+  },
+  "control_state_mutations": {
+    "desired_enabled_changed": false,
+    "source_admission_written": false,
+    "runtime_state_changed": false,
+    "pause_appended": false,
+    "real_collection_executed": false
+  },
+  "verification": {
+    "method": "Point-in-time public browser inspection plus bounded GET, filtered POST, TLS, DNS, robots, service-scope, and copyright probes; no collection run, login, document download, or access-control bypass.",
+    "resolved_public_ips": ["28.0.0.98"],
+    "checks": [
+      {
+        "check": "PUBLIC_NETWORK",
+        "status": "VERIFIED_PUBLIC",
+        "observed_at": "2026-07-20T03:40:10.5816790Z",
+        "evidence_urls": ["https://www.ttbz.org.cn/standard.html"],
+        "finding": "The selected public platform host resolved to 28.0.0.98 and was publicly reachable. SourceAdmission must still repeat DNS pinning and per-hop SSRF validation; this research disposition grants no runtime authority."
+      },
+      {
+        "check": "REDIRECTS",
+        "status": "VERIFIED_NO_REDIRECT",
+        "observed_at": "2026-07-20T03:40:10.5816790Z",
+        "evidence_urls": [
+          "https://www.ttbz.org.cn/standard.html",
+          "https://www.ttbz.org.cn/cms-proxy/ms/portal/standardInfo/getPortalStandardList",
+          "https://www.ttbz.org.cn/standardDetail/m9frjzouoapsswystc7532wg97dkxwu.html"
+        ],
+        "finding": "The platform page, fixed-filter JSON endpoint, and sampled detail returned directly on www.ttbz.org.cn with zero redirects. Downloads, attachments, login paths, and any other host are outside the saved SourceStream boundary."
+      },
+      {
+        "check": "TLS",
+        "status": "VERIFIED_VALID",
+        "observed_at": "2026-07-20T03:40:10.5816790Z",
+        "evidence_urls": ["https://www.ttbz.org.cn/standard.html"],
+        "finding": "The replacement platform completed certificate validation over HTTPS and its public API response included HSTS. The legacy cces.net.cn plaintext transport remains excluded rather than being treated as remediated."
+      },
+      {
+        "check": "ROBOTS",
+        "status": "VERIFIED_ALLOWED",
+        "observed_at": "2026-07-20T03:40:10.5816790Z",
+        "evidence_urls": ["https://www.ttbz.org.cn/robots.txt"],
+        "finding": "robots.txt returned 200 with Allow: / and named disallows for /ms/, /cms/, static, account, login, registration, and PDF-preview paths. The selected /standard.html, /standardDetail/, and /cms-proxy/ms/ endpoint do not match those disallow prefixes; login, account, PDF, /ms/, and /cms/ remain excluded."
+      },
+      {
+        "check": "TERMS",
+        "status": "VERIFIED_PUBLIC_SERVICE_SCOPE",
+        "observed_at": "2026-07-20T03:40:10.5816790Z",
+        "evidence_urls": [
+          "https://www.ttbz.org.cn/aboutus.html",
+          "https://www.ttbz.org.cn/template/1/ttbz/assets/ptbz.pdf"
+        ],
+        "finding": "The platform introduction states that it was organized by the National Standardization Administration and built by the China National Institute of Standardization to publish group-standard information and support public access, evaluation, and supervision. The user-management rules govern registered users; this stream neither registers nor logs in. This service scope is not blanket permission and SourceAdmission must recheck current terms."
+      },
+      {
+        "check": "COPYRIGHT",
+        "status": "VERIFIED_METADATA_ONLY",
+        "observed_at": "2026-07-20T03:40:10.5816790Z",
+        "evidence_urls": [
+          "https://www.ttbz.org.cn/standardDetail/m9frjzouoapsswystc7532wg97dkxwu.html",
+          "https://www.ttbz.org.cn/aboutus.html"
+        ],
+        "finding": "The platform footer assigns copyright to the China National Institute of Standardization and the sampled CCES record marks the standard text as not public. The stream therefore reads only the public metadata JSON and HTML metadata, preserving accepted claims and original links; it never requests or redistributes standard text, PDFs, images, attachments, or account-only content."
+      },
+      {
+        "check": "ACCESS_BOUNDARY",
+        "status": "VERIFIED_PUBLIC_NO_BYPASS",
+        "observed_at": "2026-07-20T03:40:10.5816790Z",
+        "evidence_urls": [
+          "https://www.ttbz.org.cn/standard.html#org_bHFxbDM4aDZ6YTR3NzN0ZzBmYWp1NnNraml1YjhjYg==",
+          "https://www.ttbz.org.cn/standardDetail/m9frjzouoapsswystc7532wg97dkxwu.html"
+        ],
+        "finding": "The collection UI, fixed-filter JSON response, and sampled detail metadata were readable without login, CAPTCHA, paywall, account enrollment, or bypass. The record explicitly marks its standard text not public; document preview, downloads, registration, and account paths are excluded."
+      },
+      {
+        "check": "PUBLIC_REACHABILITY",
+        "status": "VERIFIED_PUBLIC",
+        "observed_at": "2026-07-20T03:40:10.5816790Z",
+        "evidence_urls": [
+          "https://www.ttbz.org.cn/standard.html#org_bHFxbDM4aDZ6YTR3NzN0ZzBmYWp1NnNraml1YjhjYg==",
+          "https://www.ttbz.org.cn/cms-proxy/ms/portal/standardInfo/getPortalStandardList"
+        ],
+        "finding": "The public platform and fixed CCES filter returned HTTP 200 with 73 current standard records, including direct engineering, safety, monitoring, and digitalization metadata. ADMISSION_READY is only a research disposition; it grants neither SourceAdmission nor operating authority."
+      }
+    ],
+    "http_observations": [
+      {
+        "role": "ROBOTS",
+        "url": "https://www.ttbz.org.cn/robots.txt",
+        "final_url": "https://www.ttbz.org.cn/robots.txt",
+        "method": "GET",
+        "status_code": 200,
+        "content_type": "text/plain",
+        "redirect_count": 0,
+        "response_sha256": "b3a55bc1ed3ff4d4cde81917a3192a535c3703002d46f7ba76bb1b92d211baa4"
+      },
+      {
+        "role": "PLATFORM_ABOUT",
+        "url": "https://www.ttbz.org.cn/aboutus.html",
+        "final_url": "https://www.ttbz.org.cn/aboutus.html",
+        "method": "GET",
+        "status_code": 200,
+        "content_type": "text/html",
+        "redirect_count": 0,
+        "response_sha256": "732d89a6c479ce0e93df828b566a8d8e7498b078c5e67f4a629b47fa181affcf"
+      },
+      {
+        "role": "COLLECTION_PAGE",
+        "url": "https://www.ttbz.org.cn/standard.html#org_bHFxbDM4aDZ6YTR3NzN0ZzBmYWp1NnNraml1YjhjYg==",
+        "final_url": "https://www.ttbz.org.cn/standard.html#org_bHFxbDM4aDZ6YTR3NzN0ZzBmYWp1NnNraml1YjhjYg==",
+        "method": "GET",
+        "status_code": 200,
+        "content_type": "text/html",
+        "redirect_count": 0,
+        "response_sha256": "822348d90ff6f5972a64eee9b24841aa1f287ead0ea668bec391c2a64aed01c5"
+      },
+      {
+        "role": "STANDARD_API",
+        "url": "https://www.ttbz.org.cn/cms-proxy/ms/portal/standardInfo/getPortalStandardList",
+        "final_url": "https://www.ttbz.org.cn/cms-proxy/ms/portal/standardInfo/getPortalStandardList",
+        "method": "POST",
+        "status_code": 200,
+        "content_type": "application/json",
+        "redirect_count": 0,
+        "response_sha256": "53b99d1a95a3896376621a16ef24ad45bea75abb552ab6758148943c8a5b54ea"
+      },
+      {
+        "role": "STANDARD_DETAIL",
+        "url": "https://www.ttbz.org.cn/standardDetail/m9frjzouoapsswystc7532wg97dkxwu.html",
+        "final_url": "https://www.ttbz.org.cn/standardDetail/m9frjzouoapsswystc7532wg97dkxwu.html",
+        "method": "GET",
+        "status_code": 200,
+        "content_type": "text/html",
+        "redirect_count": 0,
+        "response_sha256": "8501afbd9fc9991db8a1182c4297dd25911d5f423675d913520edfb51d01e0de"
+      }
+    ]
+  },
+  "streams": [
+    {
+      "stream_id": "RES-011-STANDARD-RELEASES",
+      "source_code": "RES-011",
+      "name": "全国团体标准信息平台中的中国土木工程学会标准发布",
+      "collection_url": "https://www.ttbz.org.cn/standard.html#org_bHFxbDM4aDZ6YTR3NzN0ZzBmYWp1NnNraml1YjhjYg==",
+      "collection_path_pattern": "^/standard\\.html$",
+      "api_url": "https://www.ttbz.org.cn/cms-proxy/ms/portal/standardInfo/getPortalStandardList",
+      "request_method": "POST",
+      "request_body": {
+        "pageNo": 1,
+        "pageSize": 20,
+        "organUniqueId": "lqql38h6za4w73tg0faju6skjiub8cb",
+        "standardStatus": 1
+      },
+      "detail_path_pattern": "^/standardDetail/[a-z0-9]{31}\\.html$",
+      "allowed_hosts": ["www.ttbz.org.cn"],
+      "connector_type": "JSON_POST_FILTER_HTML_DETAIL",
+      "expected_mime_types": ["application/json", "text/html"],
+      "poll_interval_minutes": 1440,
+      "minimum_request_interval_seconds": 15,
+      "maximum_list_pages_per_run": 3,
+      "request_timeout_seconds": 10,
+      "max_redirects": 5,
+      "frequency_authorized": false,
+      "policy_version": "t25-cces-source-stream-discovery-v2",
+      "stream_readiness": "BOUNDED",
+      "source_research_disposition": "ADMISSION_READY",
+      "blocking_reason_codes": [],
+      "content_relevance": "FILTERED",
+      "accepted_topics": [
+        "适用于十一类 EngineeringObject 的学会标准发布、实施或废止新事实",
+        "工程规划、设计、施工、运营、养护、安全、监测或数字化技术要求",
+        "直接用于工程生命周期的施工机械、盾构、监测与安全装备标准"
+      ],
+      "excluded_topics": [
+        "党建",
+        "会议宣传",
+        "会员活动",
+        "无工程对象和生命周期事实的泛标准化动态",
+        "附件全文或标准正文再分发"
+      ],
+      "claim_basis": "PROJECT_FIRST_PARTY_RECORD",
+      "authority_finding_allowed": false,
+      "independent_verification_allowed": false,
+      "redistribution": "METADATA_NECESSARY_EXCERPT_ORIGINAL_LINK_ONLY",
+      "fulltext_redistribution_allowed": false,
+      "source_admission": null,
+      "actual_running": false,
+      "pause_appended": false,
+      "coverage_credit_granted": false,
+      "research_notes": [
+        "The public platform is organized by the National Standardization Administration and built by the China National Institute of Standardization; the fixed response identifies 73 records with publisher identity 中国土木工程学会 and organ code CCES.",
+        "The sampled detail says the record was published on the platform by 中国土木工程学会 and marks standard text as not public, so ClaimBasis remains PROJECT_FIRST_PARTY_RECORD and the connector is metadata-only.",
+        "Document-level DirectRelevance and AcceptedClaims remain mandatory; platform or association identity does not prove technical effects, independent verification, or legal force.",
+        "ADMISSION_READY is a research disposition only. The stream remains disabled with no SourceAdmission, frequency authorization, or collection run."
+      ]
+    },
+    {
+      "stream_id": "RES-011-ZHANTIANYOU-AWARDS",
+      "source_code": "RES-011",
+      "name": "中国土木工程詹天佑奖",
+      "collection_url": "http://cces.net.cn/html/tm/29/38/38.html",
+      "collection_path_pattern": "^/html/tm/29/38/38(?:_[2-9]|_[1-9][0-9]+)?\\.html$",
+      "detail_path_pattern": "^/html/tm/29/38/(?:67|68|599|615)/content/[0-9]+\\.html$",
+      "allowed_hosts": ["cces.net.cn"],
+      "connector_type": "HTML_LIST_DETAIL",
+      "expected_mime_types": ["text/html"],
+      "poll_interval_minutes": 1440,
+      "minimum_request_interval_seconds": 15,
+      "maximum_list_pages_per_run": 3,
+      "request_timeout_seconds": 10,
+      "max_redirects": 5,
+      "frequency_authorized": false,
+      "policy_version": "t25-cces-source-stream-discovery-v2",
+      "stream_readiness": "BOUNDED",
+      "source_research_disposition": "BOUNDARY_DISCOVERY",
+      "blocking_reason_codes": ["HTTPS_UNAVAILABLE"],
+      "content_relevance": "FILTERED",
+      "accepted_topics": [
+        "十一类 EngineeringObject 对应获奖工程及获奖单位的名单事实",
+        "获奖工程公开材料中有证据定位的建设、运营、养护、安全、监测或数字化新事实",
+        "直接用于获奖工程生命周期的施工装备事实"
+      ],
+      "excluded_topics": [
+        "党建",
+        "会议宣传",
+        "会员活动",
+        "申报动员但无获奖或工程新事实",
+        "把获奖自动解释为技术效果、权威认定或独立验证",
+        "获奖名单表格、图片或附件全文再分发"
+      ],
+      "claim_basis": "PROJECT_FIRST_PARTY_RECORD",
+      "authority_finding_allowed": false,
+      "independent_verification_allowed": false,
+      "redistribution": "METADATA_NECESSARY_EXCERPT_ORIGINAL_LINK_ONLY",
+      "fulltext_redistribution_allowed": false,
+      "source_admission": null,
+      "actual_running": false,
+      "pause_appended": false,
+      "coverage_credit_granted": false,
+      "research_notes": [
+        "The association is first party for the award decision only; award status does not independently verify engineering performance claims.",
+        "The list mixes calls, rules, candidate notices, decisions, and final lists, so document-level filtering and explicit award-state claims are required.",
+        "Spreadsheet and other attachment hosts are outside this SourceStream and require separate rights, MIME, scanning, redirect, and public-network verification."
+      ]
+    }
+  ],
+  "rejected_candidates": [
+    {
+      "kind": "ROOT",
+      "url": "http://cces.net.cn/html/tm/",
+      "selected_as_stream": false,
+      "reason": "The portal root mixes party affairs, membership, conferences, notices, institutional news, awards, standards, and general industry material; it is not a bounded engineering-fact collection."
+    },
+    {
+      "kind": "SEARCH",
+      "url": "https://www.bing.com/search?q=site%3Acces.net.cn+中国土木工程学会",
+      "selected_as_stream": false,
+      "reason": "A search-engine result was used only to discover official pages; ranking and cache results are not an institution-operated SourceStream."
+    },
+    {
+      "kind": "SINGLE_DOCUMENT",
+      "url": "http://cces.net.cn/html/tm/98/102/content/8009.html",
+      "selected_as_stream": false,
+      "reason": "The sampled T/CCES 6012-2026 release proves a detail shape and positive example but is not itself a continuous collection."
+    },
+    {
+      "kind": "ACADEMIC_RESULTS_STALE",
+      "url": "http://cces.net.cn/html/tm/19/26/26.html",
+      "selected_as_stream": false,
+      "reason": "The academic-results collection exposed only one item dated 2017 and did not demonstrate a continuing stream at verification time."
+    },
+    {
+      "kind": "CONFERENCE_PROMOTION",
+      "url": "https://hys.cces.net.cn/tmxh-conferenceweb/",
+      "selected_as_stream": false,
+      "reason": "The HTTPS conference system is publicly reachable but advertises meetings and registration; conference promotion without direct engineering new facts is explicitly out of scope."
+    }
+  ],
+  "w2_pair": {
+    "wave": "SECOND_BATCH_W2",
+    "existing_stream_id": "GOV-008-STANDARD-METADATA-CANDIDATE",
+    "institution": "全国标准信息公共服务平台",
+    "collection_entry": "https://std.samr.gov.cn/search/std",
+    "existing_research_ref": "docs/research/2026-07-19-civil-engineering-authoritative-source-expansion.md#s05-全国标准信息公共服务平台",
+    "research_repeated": false,
+    "source_admission_granted": false
+  }
+}

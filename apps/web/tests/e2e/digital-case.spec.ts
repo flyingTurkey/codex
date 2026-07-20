@@ -45,7 +45,7 @@ test('digital FULL reader keeps accepted source excerpt and appendix on v2', asy
   const appendix = page.getByRole('button', { name: /证据、关系、更正与自动处理附录/ })
   await appendix.click()
   await expect(appendix).toHaveAttribute('aria-expanded', 'true')
-  await expect(page.getByText('Accepted claims：0')).toBeVisible()
+  await expect(page.getByText('附录当前没有治理记录。')).toBeVisible()
 })
 
 test('legacy classification approval route remains retired', async ({ page }) => {

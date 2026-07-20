@@ -4,7 +4,12 @@
 from dataclasses import dataclass
 from typing import Literal
 
-from srbg_contracts import EngineeringObject, PrimaryIntelligenceType
+from srbg_contracts import (
+    EngineeringObject,
+    EquipmentFacet,
+    PrimaryIntelligenceType,
+    SpecialtyFacet,
+)
 
 CORPUS_VERSION = "civil-intelligence-structural-replay-v2.0.0"
 
@@ -17,7 +22,27 @@ class StructuralReplayCase:
     directly_relevant: bool | None
     primary_type: PrimaryIntelligenceType | None
     engineering_object: EngineeringObject | None
+    supporting_engineering_object: EngineeringObject | None = None
+    specialty_facet: SpecialtyFacet | None = None
+    equipment_domain: EquipmentFacet | None = None
     locked_negative: bool = False
+
+
+@dataclass(frozen=True)
+class StructuralPrediction:
+    directly_relevant: bool
+    primary_type: PrimaryIntelligenceType | None
+
+
+@dataclass(frozen=True)
+class StructuralReplayReport:
+    corpus_version: str
+    label_authority: Literal["STRUCTURAL_REPLAY"]
+    authorizes_auto_pass: Literal[False]
+    precision_bps: int
+    recall_bps: int
+    locked_negative_leaks: int
+    failed_case_ids: tuple[str, ...]
 
 
 _OBJECTS = tuple(EngineeringObject)
@@ -59,6 +84,19 @@ def build_structural_replay_corpus() -> tuple[StructuralReplayCase, ...]:
                     directly_relevant=True,
                     primary_type=primary_type,
                     engineering_object=engineering_object,
+                    supporting_engineering_object=(
+                        EngineeringObject.HIGHWAY
+                        if index == 3
+                        else EngineeringObject.RAILWAY
+                        if index == 14
+                        else None
+                    ),
+                    specialty_facet=(
+                        SpecialtyFacet.TUNNEL_GAS_MONITORING if index in {3, 14} else None
+                    ),
+                    equipment_domain=(
+                        EquipmentFacet.CONSTRUCTION_MACHINERY if index in {33, 44} else None
+                    ),
                 )
             )
     for index in range(90):
@@ -91,3 +129,46 @@ def build_structural_replay_corpus() -> tuple[StructuralReplayCase, ...]:
 
 
 STRUCTURAL_REPLAY_CORPUS = build_structural_replay_corpus()
+
+
+def _basis_points(numerator: int, denominator: int) -> int:
+    return 0 if denominator == 0 else numerator * 10_000 // denominator
+
+
+def evaluate_structural_replay(
+    predictions: dict[str, StructuralPrediction],
+) -> StructuralReplayReport:
+    """Score structural fixtures without ever authorizing a production confidence gate."""
+
+    true_positives = 0
+    predicted_positives = 0
+    expected_positives = 0
+    locked_negative_leaks = 0
+    failures: list[str] = []
+    for case in STRUCTURAL_REPLAY_CORPUS:
+        prediction = predictions.get(case.case_id)
+        expected_relevant = case.directly_relevant is True
+        expected_positives += int(expected_relevant)
+        if prediction is None:
+            failures.append(case.case_id)
+            continue
+        predicted_positives += int(prediction.directly_relevant)
+        correct = prediction.directly_relevant == expected_relevant
+        if expected_relevant:
+            correct = correct and prediction.primary_type == case.primary_type
+            true_positives += int(correct)
+        elif prediction.primary_type is not None:
+            correct = False
+        if case.locked_negative and prediction.directly_relevant:
+            locked_negative_leaks += 1
+        if not correct:
+            failures.append(case.case_id)
+    return StructuralReplayReport(
+        corpus_version=CORPUS_VERSION,
+        label_authority="STRUCTURAL_REPLAY",
+        authorizes_auto_pass=False,
+        precision_bps=_basis_points(true_positives, predicted_positives),
+        recall_bps=_basis_points(true_positives, expected_positives),
+        locked_negative_leaks=locked_negative_leaks,
+        failed_case_ids=tuple(failures),
+    )

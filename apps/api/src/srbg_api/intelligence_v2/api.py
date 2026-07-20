@@ -10,6 +10,7 @@ from srbg_contracts import (
     EventProjectionV2,
     FeedPageV2,
     PrimaryIntelligenceType,
+    QuarantineProjectionV2,
     ReviewCaseV2,
     ReviewDecisionCommandV2,
     ReviewDecisionReceiptV2,
@@ -17,7 +18,11 @@ from srbg_contracts import (
 
 from srbg_api.auth import Principal, get_current_principal, require_local_owner
 from srbg_api.intelligence_v2.cursor import InvalidV2Cursor
-from srbg_api.intelligence_v2.service import ProjectionNotFound, ReviewConflict
+from srbg_api.intelligence_v2.service import (
+    MediaDeliveryUnavailable,
+    ProjectionNotFound,
+    ReviewConflict,
+)
 
 
 class V2IntelligenceService(Protocol):
@@ -28,6 +33,7 @@ class V2IntelligenceService(Protocol):
     async def appendix(self, event_id: UUID) -> EventAppendixV2: ...
     async def review_cases(self, **filters: object) -> list[ReviewCaseV2]: ...
     async def review_case(self, case_id: UUID) -> ReviewCaseV2: ...
+    async def quarantine(self, case_id: UUID) -> QuarantineProjectionV2: ...
     async def decide(
         self,
         *,
@@ -150,6 +156,19 @@ async def review_case(case_id: UUID, request: Request, _: OwnerPrincipal) -> Rev
         ) from exc
 
 
+@router.get("/review/quarantine/{case_id}", response_model=QuarantineProjectionV2)
+async def quarantine(
+    case_id: UUID, request: Request, _: OwnerPrincipal
+) -> QuarantineProjectionV2:
+    try:
+        return await _service(request).quarantine(case_id)
+    except ProjectionNotFound as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "QUARANTINE_NOT_FOUND", "title": "Quarantine case not found"},
+        ) from exc
+
+
 @router.post(
     "/review/cases/{case_id}/decisions",
     response_model=ReviewDecisionReceiptV2,
@@ -198,6 +217,14 @@ async def media_preview(media_id: UUID, request: Request, _: CurrentPrincipal) -
         content, media_type = await method(media_id)
     except ProjectionNotFound as exc:
         raise HTTPException(status_code=404, detail="Media preview not found") from exc
+    except MediaDeliveryUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "MEDIA_TEMPORARILY_UNAVAILABLE",
+                "title": "Media is temporarily unavailable",
+            },
+        ) from exc
     return Response(
         content=content, media_type=media_type, headers={"Cache-Control": "private, max-age=300"}
     )
@@ -212,4 +239,12 @@ async def media_download(media_id: UUID, request: Request, _: OwnerPrincipal) ->
         url = await method(media_id, max_age_seconds=300)
     except ProjectionNotFound as exc:
         raise HTTPException(status_code=404, detail="Media download not found") from exc
+    except MediaDeliveryUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "MEDIA_TEMPORARILY_UNAVAILABLE",
+                "title": "Media is temporarily unavailable",
+            },
+        ) from exc
     return RedirectResponse(url=url, status_code=302, headers={"Cache-Control": "no-store"})

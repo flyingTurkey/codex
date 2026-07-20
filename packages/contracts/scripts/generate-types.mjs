@@ -27,6 +27,8 @@ const publicExports = {
   'review-decision-command-v2.schema.json': ['ReviewDecisionCommandV2'],
   'review-decision-receipt-v2.schema.json': ['ReviewDecisionReceiptV2'],
   'review-case-v2.schema.json': ['ReviewCaseV2'],
+  'quarantine-projection-v2.schema.json': ['QuarantineProjectionV2'],
+  'hotspot-candidate-v2.schema.json': ['HotspotCandidateV2'],
   'collection-create-request.schema.json': ['CollectionCreateRequest'],
   'collection-patch-request.schema.json': ['CollectionPatchRequest'],
   'collection-summary.schema.json': ['CollectionSummary'],

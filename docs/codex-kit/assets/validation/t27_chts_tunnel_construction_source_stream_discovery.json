@@ -1,0 +1,218 @@
+{
+  "schema_version": "t27-source-stream-discovery-v2",
+  "issue_number": 28,
+  "parent_spec_number": 1,
+  "closure_eligible": true,
+  "owner_gold_evidence": null,
+  "deepseek_real_schema_success": null,
+  "runtime_window_evidence": null,
+  "closeout_go_evidence": null,
+  "sources": [
+    {
+      "registry_code": "RES-001",
+      "institution": "中国公路学会",
+      "official_origin": "https://www.chts.cn/",
+      "desired_enabled": false,
+      "streams": [
+        {
+          "stream_key": "chts-engineering-results",
+          "collection_url": "https://www.chts.cn/cgtg/CGTGTZ/index.html",
+          "collection_path_pattern": "^/cgtg/CGTGTZ/index\\.html$",
+          "allowed_hosts": ["www.chts.cn"],
+          "allowed_path_patterns": [
+            "^/cgtg/CGTGTZ/index(?:_[1-9][0-9]*)?\\.html$",
+            "^/cgtg/CGTGTZ/art/[0-9]{4}/art_[a-f0-9]{32}\\.html$"
+          ],
+          "connector_type": "DYNAMIC_HTML_LIST_DETAIL",
+          "expected_mime_types": ["text/html"],
+          "poll_interval_minutes": 1440,
+          "request_timeout_seconds": 10,
+          "max_redirects": 5,
+          "rate_limit_requests_per_minute": 1,
+          "user_agent": "SRBG-SourceResearch/1.0 (+personal noncommercial research)",
+          "policy_version": "t27-chts-engineering-results-v1",
+          "readiness": "BOUNDED",
+          "disposition": "ADMISSION_READY",
+          "blocker_codes": [],
+          "source_admission": null,
+          "actual_running": false,
+          "pause_appended": false,
+          "coverage_credit_granted": false,
+          "content_relevance": "FILTERED",
+          "claim_basis_policy": "PROJECT_FIRST_PARTY_RECORD",
+          "permitted_claim_bases": ["PROJECT_FIRST_PARTY_RECORD"],
+          "reader_fields": ["BIBLIOGRAPHIC_METADATA", "NECESSARY_SHORT_EXCERPT", "ORIGINAL_LINK"],
+          "public_full_text_redistribution": false,
+          "prefilter": {
+            "engineering_object_terms": [
+              "公路", "道路", "桥", "隧道", "交通工程", "智能装备", "路面", "边坡"
+            ],
+            "lifecycle_terms": [
+              "规划", "设计", "施工", "建设", "养护", "运营", "安全", "监测", "数字化", "智能建造", "成果"
+            ],
+            "required_result_terms": ["公布", "公示", "入库", "获奖名单", "科技成果"],
+            "excluded_terms": [
+              "关于召开", "会议通知", "论坛", "研讨会", "培训班", "现场观摩", "会员", "理事会", "党建", "综合新闻", "行业热点一周回顾", "征集"
+            ]
+          },
+          "verification": {
+            "verified_at": "2026-07-20T03:05:10Z",
+            "public_network_safe": true,
+            "redirect_chain_safe": true,
+            "resolved_public_ips": ["115.127.225.16", "115.127.228.36"],
+            "collection_get": {
+              "url": "https://www.chts.cn/cgtg/CGTGTZ/index.html",
+              "final_url": "https://www.chts.cn/cgtg/CGTGTZ/index.html",
+              "method": "GET",
+              "status_code": 200,
+              "content_type": "text/html; charset=utf-8",
+              "redirect_count": 0,
+              "response_sha256": "06d217c047556f60e9e005e449803b13ef70bacaa8f83ad0f8b751eed3d155ec"
+            },
+            "detail_get": {
+              "url": "https://www.chts.cn/cgtg/CGTGTZ/art/2025/art_a1c8e57396ea4fd687a64bd2792048de.html",
+              "final_url": "https://www.chts.cn/cgtg/CGTGTZ/art/2025/art_a1c8e57396ea4fd687a64bd2792048de.html",
+              "method": "GET",
+              "status_code": 200,
+              "content_type": "text/html; charset=utf-8",
+              "redirect_count": 0,
+              "response_sha256": "29061de08ca4fb88facd8965c7c033dbe1e78dd6b0a4aaf461a0d0a048773dbd"
+            },
+            "robots_evidence": {
+              "url": "https://www.chts.cn/robots.txt",
+              "status": "VERIFIED",
+              "response_sha256": "55f7d9e99b8e2d4e0e193b2f0275501e6d9c1ebd29cadbea6a0da48a8587e3e0",
+              "finding": "GET returned 404. No robots policy was published at the checked path; absence is recorded and is never interpreted as collection permission. SourceAdmission must recheck."
+            },
+            "terms_evidence": {
+              "url": "https://www.chts.cn/CGTG/index.html",
+              "status": "VERIFIED",
+              "response_sha256": "caae70203bd726c49fd843c86fcff4cf4359b269ae8decd54e0a1574481598f5",
+              "finding": "The public Results Promotion navigation and rendered footer linked no separate automated-use terms. This observation grants no collection authority and must be repeated by SourceAdmission."
+            },
+            "copyright_evidence": {
+              "url": "https://www.chts.cn/CGTG/index.html",
+              "status": "VERIFIED",
+              "response_sha256": "caae70203bd726c49fd843c86fcff4cf4359b269ae8decd54e0a1574481598f5",
+              "finding": "No explicit redistribution licence was found in the checked official navigation. The research boundary is metadata, a necessary short excerpt, and the original link; full text and images are excluded."
+            },
+            "access_boundary_evidence": {
+              "url": "https://www.chts.cn/cgtg/CGTGTZ/art/2025/art_a1c8e57396ea4fd687a64bd2792048de.html",
+              "status": "VERIFIED",
+              "response_sha256": "29061de08ca4fb88facd8965c7c033dbe1e78dd6b0a4aaf461a0d0a048773dbd",
+              "finding": "The rendered collection and sampled result notice were publicly readable without login, CAPTCHA, paywall, or access-control bypass. The rendered collection contained 26 mixed notices and therefore requires the saved positive and negative filters."
+            },
+            "transport_evidence": {
+              "https_url": "https://www.chts.cn/cgtg/CGTGTZ/index.html",
+              "certificate_valid": true,
+              "redirect_chain_safe": true,
+              "finding": "HTTPS collection and detail returned 200 on the allowed host without redirects. SourceAdmission must repeat DNS and every redirect hop before runtime."
+            }
+          }
+        }
+      ]
+    },
+    {
+      "registry_code": "RES-005",
+      "institution": "隧道建设（中英文）",
+      "official_origin": "http://www.suidaojs.com/",
+      "desired_enabled": false,
+      "streams": [
+        {
+          "stream_key": "tunnel-construction-current-issue",
+          "collection_url": "https://c.wanfangdata.com.cn/magazine/sdjs",
+          "collection_path_pattern": "^/magazine/sdjs$",
+          "allowed_hosts": ["c.wanfangdata.com.cn", "d.wanfangdata.com.cn"],
+          "allowed_path_patterns": [
+            "^/magazine/sdjs$",
+            "^/periodical/sdjs[0-9]{9}$"
+          ],
+          "connector_type": "DYNAMIC_HTML_LIST_DETAIL",
+          "expected_mime_types": ["text/html"],
+          "poll_interval_minutes": 10080,
+          "request_timeout_seconds": 10,
+          "max_redirects": 5,
+          "rate_limit_requests_per_minute": 1,
+          "user_agent": "SRBG-SourceResearch/1.0 (+personal noncommercial research)",
+          "policy_version": "t27-tunnel-construction-wanfang-v2",
+          "readiness": "BOUNDED",
+          "disposition": "ADMISSION_READY",
+          "blocker_codes": [],
+          "source_admission": null,
+          "actual_running": false,
+          "pause_appended": false,
+          "coverage_credit_granted": false,
+          "content_relevance": "FILTERED",
+          "claim_basis_policy": "RESEARCH_CONCLUSION",
+          "permitted_claim_bases": ["RESEARCH_CONCLUSION"],
+          "reader_fields": ["BIBLIOGRAPHIC_METADATA", "PUBLISHED_ABSTRACT", "ORIGINAL_LINK"],
+          "public_full_text_redistribution": false,
+          "prefilter": {
+            "engineering_object_terms": [
+              "隧道", "盾构", "地下工程", "地铁", "铁路", "公路", "顶管", "管片"
+            ],
+            "lifecycle_terms": [
+              "规划", "设计", "施工", "建设", "运营", "养护", "安全", "监测", "加固", "试验", "研究"
+            ],
+            "required_result_terms": ["DOI", "摘要", "试验", "研究", "工程应用"],
+            "excluded_terms": ["广告", "资讯", "目次", "四封", "征稿", "会议通知"]
+          },
+          "verification": {
+            "verified_at": "2026-07-20T04:21:11Z",
+            "public_network_safe": true,
+            "redirect_chain_safe": true,
+            "resolved_public_ips": ["122.115.55.103"],
+            "collection_get": {
+              "url": "https://c.wanfangdata.com.cn/magazine/sdjs",
+              "final_url": "https://c.wanfangdata.com.cn/magazine/sdjs",
+              "method": "GET",
+              "status_code": 200,
+              "content_type": "text/html",
+              "redirect_count": 0,
+              "response_sha256": "9b2f41612e201adcb610280f200da12b9367c0b1921af951d9caceb791e5074f"
+            },
+            "detail_get": {
+              "url": "https://d.wanfangdata.com.cn/periodical/sdjs202605001",
+              "final_url": "https://d.wanfangdata.com.cn/periodical/sdjs202605001",
+              "method": "GET",
+              "status_code": 200,
+              "content_type": "text/html",
+              "redirect_count": 0,
+              "response_sha256": "70fde50d8a023051c4e40bf8ab70727b67e69232009b0be706d7ffc0e975b5cc"
+            },
+            "robots_evidence": {
+              "url": "https://c.wanfangdata.com.cn/robots.txt",
+              "status": "VERIFIED",
+              "response_sha256": "9b2f41612e201adcb610280f200da12b9367c0b1921af951d9caceb791e5074f",
+              "finding": "The collection host returned the same application shell as the journal page instead of robots directives; the detail host returned 404 with SHA-256 4ff444d1abe117bbe3055e97182351923ce4db715959b733900bb28f72fa0e29. The absence is recorded, never interpreted as permission, and must be rechecked by SourceAdmission."
+            },
+            "terms_evidence": {
+              "url": "https://c.wanfangdata.com.cn/magazine/sdjs",
+              "status": "VERIFIED",
+              "response_sha256": "9b2f41612e201adcb610280f200da12b9367c0b1921af951d9caceb791e5074f",
+              "finding": "The public journal page links Help, customer service and platform ownership but no separate automated-use terms. This verified absence grants no collection authority; runtime still requires a fresh SourceAdmission decision and may not use internal APIs directly."
+            },
+            "copyright_evidence": {
+              "url": "https://c.wanfangdata.com.cn/magazine/sdjs",
+              "status": "VERIFIED",
+              "response_sha256": "9b2f41612e201adcb610280f200da12b9367c0b1921af951d9caceb791e5074f",
+              "finding": "Wanfang identifies its platform copyright and separates public metadata/abstract display from online-reading and download actions. The connector is limited to bibliographic metadata, the publicly displayed abstract and the original detail link; full text, PDF, images and downloads are excluded."
+            },
+            "access_boundary_evidence": {
+              "url": "https://d.wanfangdata.com.cn/periodical/sdjs202605001",
+              "status": "VERIFIED",
+              "response_sha256": "70fde50d8a023051c4e40bf8ab70727b67e69232009b0be706d7ffc0e975b5cc",
+              "finding": "The journal collection publicly rendered 2026 formal issues and article metadata. The sampled 2026 volume 46 issue 5 detail rendered DOI, title, authors, dates, pages and Chinese/English abstracts without login, CAPTCHA or paywall; online reading and download remain outside this stream."
+            },
+            "transport_evidence": {
+              "https_url": "https://c.wanfangdata.com.cn/magazine/sdjs",
+              "certificate_valid": true,
+              "redirect_chain_safe": true,
+              "finding": "The HTTPS collection and sampled HTTPS detail returned 200 without redirects. DNS-over-HTTPS resolved both allowed hosts to public address 122.115.55.103. SourceAdmission must repeat DNS, certificate and redirect-hop checks before runtime."
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

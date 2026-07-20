@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srbg.example.internal/schemas/summarize-v2-output-1.0.0.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["paragraphs"],
+  "properties": {
+    "paragraphs": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 12,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "section", "text", "claim_ids"],
+            "properties": {
+              "kind": {"const": "FACT"},
+              "section": {"const": "WHAT_HAPPENED"},
+              "text": {"type": "string", "minLength": 1, "maxLength": 500},
+              "claim_ids": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 100,
+                "uniqueItems": true,
+                "items": {"type": "string", "format": "uuid"}
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "section", "text", "judgment_type"],
+            "properties": {
+              "kind": {"const": "JUDGMENT"},
+              "section": {
+                "enum": ["ENGINEERING_IMPACT", "LIMITATIONS_AND_FOLLOW_UP"]
+              },
+              "text": {"type": "string", "minLength": 1, "maxLength": 500},
+              "judgment_type": {
+                "enum": ["ENGINEERING_SIGNIFICANCE", "LIMITATION_AND_FOLLOW_UP"]
+              }
+            }
+          }
+        ]
+      },
+      "allOf": [
+        {
+          "contains": {
+            "type": "object",
+            "required": ["kind", "section"],
+            "properties": {"kind": {"const": "FACT"}, "section": {"const": "WHAT_HAPPENED"}}
+          },
+          "minContains": 1
+        },
+        {
+          "contains": {
+            "type": "object",
+            "required": ["kind", "section"],
+            "properties": {"kind": {"const": "JUDGMENT"}, "section": {"const": "ENGINEERING_IMPACT"}}
+          },
+          "minContains": 1
+        },
+        {
+          "contains": {
+            "type": "object",
+            "required": ["kind", "section"],
+            "properties": {"kind": {"const": "JUDGMENT"}, "section": {"const": "LIMITATIONS_AND_FOLLOW_UP"}}
+          },
+          "minContains": 1
+        }
+      ]
+    }
+  }
+}

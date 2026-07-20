@@ -1,7 +1,210 @@
 # Changelog
 
+## 2026-07-20（土木工程情报 v2 工程基线收口）
+
+- 将当前工作区中已完成的 #2–#13 纵向切片、已关闭或 superseded 的 SourceStream discovery/替代研究，以及 0037 campaign 与三份 Spec #1 前置 handoff 映射为单一可回滚工程基线；0037/handoff 不是关票或 GO 证据，父规格 #1 继续开放。
+- 新增基线验收记录，固化文件归属、敏感信息复核、Issue #4 复验、全量/定向/迁移/Web 门禁与未闭环事项。仓库不包含 Owner 私有正文或真实逐条标注，所有研究态来源保持 disabled、无 SourceAdmission、无运行或覆盖信用。
+- 修复累计纵向门禁的两个迁移终点回归：T05/T09 在保留各自升级-回滚-再升级断言后，把一次性测试数据库升至 head 供累计到 T12 的共享集成场景使用；同时将 T06 迁移与运行时必需的 v2 摘要 Schema 纳入 Python 镜像上下文。
+- 全量 quality gate、fixture replay、T05/T06/T07/T08/T09/T11/T12、全部 discovery 定向测试与隔离正式栈 E2E/a11y 通过；未调用真实 AI、未启动公网采集、scheduler 或来源 worker，未产生 ENGINEERING/PRODUCTION GO。
+
+## 2026-07-20（v2 T29R 第二批 W4 替代流发现）
+
+- Issue #30 的中国建研院静态成果页与法律 blocker 证据保持原样，以 `SUPERSEDED` 收口；新 Issue #39 用新增候选 `RES-013`《建筑科学与工程学报》替换该第二批席位，并复用 `ENT-001` 中国交建，总机构数仍为二十个。
+- 锁定期刊 `publicationIndexId=1474` 当前刊期 API、由返回刊期 ID 驱动的文章列表 API、精确 HTTPS 主机/路径/query allowlist，以及中国交建既有工程简讯 list/detail；保存点时公网、重定向、robots、条款、版权、访问边界和公开可达事实，未取得的 raw response SHA-256 保持 `null`。
+- 期刊只产生 `RESEARCH_CONCLUSION`，同行评审或出版不冒充 `INDEPENDENT_VERIFICATION`；两流达到研究态 `BOUNDED + ADMISSION_READY`，但保持候选停用、无 SourceAdmission、无运行、无 PAUSE、无覆盖信用、无附件或公开再分发。
+- 新增版本化 Schema、机器清单、5 项先红后绿测试、研究报告、验收记录和 `make t29r-source-discovery-test`。未产生 Owner Gold、DeepSeek 成功、真实准入、运行窗口或 GO，也未绕过 PublicationService、R3/R4、robots、版权、raw-first 和公网安全边界。
+
+## 2026-07-20（v2 T31R 第二批 W5 替代流发现）
+
+- Issue #32 的广联达与中国煤炭科工集团法律阻断证据保持原样，以 `SUPERSEDED` 收口；新 Issue #38 用既有 `GOV-017` 四川省住房和城乡建设厅与新增 `GOV-023` 贵州省能源局替换两个第二批席位，总机构数仍为二十个。
+- 锁定四川住建科技栏目与贵州能源科技管理栏目，保存精确 HTTPS 集合/分页/详情边界、点时公网地址、零重定向、robots、条款导航、版权边界与真实响应 SHA-256；正向过滤只接受直接工程事实。
+- 两流达到研究态 `BOUNDED + ADMISSION_READY`，但保持 `CANDIDATE + disabled`、无 SourceAdmission、无运行、无 PAUSE、无覆盖信用；`AUTHORITY_FINDING` 只限机关法定发布/评定边界，矿井瓦斯仍只归 `MINING`。
+- 新增版本化 Schema、机器清单、10 项先红后绿测试、研究报告、验收记录和 `make t31r-source-discovery-test`。未产生 Owner Gold、DeepSeek 成功、真实准入、运行窗口或 GO，也未绕过 PublicationService、R3/R4、robots、版权和公网安全边界。
+
+## 2026-07-20（v2 T20R 首批 W5 替代流发现）
+
+- Owner 决定不再使用中国中铁与三一集团作为首批 W5，原 Issue #21 以 `SUPERSEDED` 收口而非伪装成原两流验收通过；首批组合改为既有 `ENT-002` 中国建筑与新增候选 `ENT-010` 徐工集团，总机构数仍为十个。
+- 锁定中国建筑“企业动态”精确列表/分页/详情边界和徐工“施工案例”shell、固定 same-host POST 列表表单及详情边界；保存连接器、MIME、频率、限速、超时、策略版本、公网地址、重定向、robots、条款、版权、访问边界、UTC 核验时间和响应哈希。
+- 中国建筑只产生 `PROJECT_FIRST_PARTY_RECORD`，徐工性能与效果只产生 `MANUFACTURER_CLAIM`；两流均排除无工程新事实内容、附件、图片、视频、全文和公开再分发，并保持 `desired_enabled=false`、`source_admission=null`、`actual_running=false`。
+- 新增版本化研究 Schema、清单、基础设施行为测试和 `make t20r-source-discovery-test`；未执行真实准入或运行，未产生覆盖信用、Owner Gold、DeepSeek 成功、观察窗口或 GO，也未绕过 WAF、PublicationService、R3/R4、robots、版权和公网安全边界。
+
+## 2026-07-20（v2 T29 中国建研院与中国交建流发现）
+
+- 为 GitHub Issue #30 复用既有机构级 Source `RES-003` 与 `ENT-001`，保存 canonical alias、精确集合/静态候选入口、允许主机与路径、连接器、MIME、候选频率、限速、策略版本、内容正负边界、ClaimBasis 和点时合规证据；没有把中国交建简称/全称重复建源，也没有把根站、搜索结果或单篇新闻冒充集合。
+- 中国交建限定为 `/news/jcxw/jx/` 稳定分页“简讯”列表及工程项目详情，达到研究态 `BOUNDED + ADMISSION_READY`；工程节点只允许 `PROJECT_FIRST_PARTY_RECORD`，效果、领先性和效益等企业自述只允许 `MANUFACTURER_CLAIM`，均不得升级为 `INDEPENDENT_VERIFICATION`。
+- 中国建筑科学研究院旧 origin 已迁移到 `cabr.cn`；官网只有停留在十三五/2021 年的静态成果汇总，且法律声明禁止未经书面许可复制、传递或设置链接，与 raw-first 约束冲突，因此保持 `CANDIDATE + MANUAL_SHADOW`，记录 `NO_CONTINUOUS_COLLECTION` 与 `TERMS_PROHIBIT_COPYING`，不安排自动轮询。
+- 研究清单显式保留未取得 raw response SHA-256 为 `null`，没有用浏览器 DOM、截图或 CCCC 边缘层 521 错误体冒充官方 raw 哈希。发现写能力仍只追加 SourceResearchDisposition；`desired_enabled=false`、`source_admission=null`、`actual_running=false`。
+- 因 CABR 未达到 `BOUNDED + ADMISSION_READY`，Issue #30 保持 OPEN 且不解除 #31；本票未产生 Owner Gold、DeepSeek 成功、真实准入、运行窗口、PAUSE、覆盖信用或 GO，也未触碰 PublicationService、R3/R4 或降低 robots、版权和公网安全边界。
+
+## 2026-07-20（v2 T25 中国土木工程学会流发现）
+
+- 完成 GitHub Issue #26 的阻断替换：学会旧站仍因 HTTP-only 排除；标准流改用国家标准委组织、中国标准化研究院建设的全国团体标准信息平台，以 CCES 唯一机构 ID 固定过滤 73 条公开记录；根站、搜索、单篇材料、陈旧学术成果、会议宣传和会员活动均不冒充持续工程事实流。
+- 保存 HTTPS 集合、固定 POST API/请求体、允许主机/路径、JSON/HTML MIME、日频候选值、超时/重定向/限速、策略版本及点时 DNS、TLS、robots、平台服务范围、版权、访问边界和五个响应 SHA-256。替代标准流达到 `BOUNDED + ADMISSION_READY`，使本票满足关闭条件；旧詹天佑奖流继续 `BOUNDARY_DISCOVERY + DISABLED`。
+- 学会标准和奖励事实固定为 `PROJECT_FIRST_PARTY_RECORD`，不因学会身份升级为权威认定或独立验证；全文、表格、PDF、图片和附件不得再分发。第二批 W2 明确引用既有全国标准信息公共服务平台 `GOV-008-STANDARD-METADATA-CANDIDATE`，不重复其研究或授予准入。
+- Schema 与机器清单升级为 v2，9 项失败关闭测试新增固定机构 ID、请求方法、MIME 与替代边界篡改保护；未追加 PAUSE、未授予覆盖信用，也未产生 Owner Gold、DeepSeek 成功、来源准入、运行窗口或 GO 证据，PublicationService、R3/R4、robots、版权与公网安全门槛保持不变。
+
+## 2026-07-20（v2 T31 广联达与中国煤炭科工集团流发现）
+
+- 完成 GitHub Issue #32 当前可诚实交付的研究纵向切片：广联达只锁定数智施工案例集合，中国煤炭科工集团只锁定“煤科硬核”分类集合；根站、搜索、全部案例、综合新闻、采购公告、外部媒体和单篇材料不冒充持续 SourceStream。
+- 保存精确 URL、主机、路径/查询边界、HTML list-detail 连接器、MIME、日频、超时/重定向/限速、策略版本，以及 2026-07-20 的 DNS、HTTP、robots、条款、版权、公开访问和响应 SHA-256。内容门禁排除财报、品牌活动、经营新闻、泛 AI、党建、招聘及与工程无关制造内容。
+- 两个流均达到 `BOUNDED`，但广联达协议禁止未经书面授权的爬虫/复制，中国煤科法律声明要求复制前取得书面许可；两者均与 raw-first 强制保存冲突，故保持 `MANUAL_SHADOW + DISABLED`，不标为 `ADMISSION_READY`，不追加 PAUSE，不授予覆盖信用，Issue #32 不能关闭或解除 #33。
+- 新增版本化 Schema、机器可读研究记录、研究报告、验收记录、9 项失败关闭测试及 `make t31-source-discovery-test`。未产生 Owner Gold、DeepSeek 成功、来源准入、运行窗口或 GO，也未绕过 PublicationService、R3/R4、robots、版权或公网安全边界。
+
+## 2026-07-20（v2 T27 中国公路学会与《隧道建设（中英文）》流发现）
+
+- 完成 GitHub Issue #28 当前可诚实交付的研究纵向切片：在既有 `RES-001` 与 `RES-005` 下分别锁定中国公路学会工程成果动态集合和《隧道建设（中英文）》正式当前期；根站、搜索、单篇材料、会议宣传、会员活动和综合新闻不冒充 SourceStream 或工程事实。
+- 保存精确集合、允许主机/路径、HTML 连接器、MIME、日频、超时/重定向/限速、策略版本及 2026-07-20 的 DNS、HTTP、robots、条款、版权、访问边界和响应 SHA-256。学会流形成 `BOUNDED + ADMISSION_READY` 研究输入，但仍无 SourceAdmission 或运行授权。
+- 期刊官方站 HTTP/HTTPS 阻断事实继续保留并退出候选；替代流锁定万方 ISSN `2096-4498` 期刊专页及精确文章详情，保存有效 HTTPS、零重定向、robots 未发布、平台版权、公开题录/摘要与受限阅读下载边界。Reader 只保留题录、公开摘要和原链，不调用内部 API或再分发全文。
+- Schema 与机器清单升级为 v2；两流现均为 `BOUNDED + ADMISSION_READY`，`closure_eligible=true`，Issue #28 已按 `completed` 关闭。19 项定向测试继续锁定隧道瓦斯 facet 必须同时具备 `TUNNEL` 与 `HIGHWAY` 或 `RAILWAY`；未追加 PAUSE、未授予覆盖信用，也未产生 Owner Gold、DeepSeek 成功、来源准入、运行窗口或 GO 证据。
+
+## 2026-07-20（v2 T23 四川省交通运输厅流发现）
+
+- 完成 GitHub Issue #24 的研究纵向切片：四川省交通运输厅仍只计 `GOV-015` 一个机构 Source，锁定科技与信息化、建设动态、质量监督和安全监督四个精确分页 `HTML_LIST_DETAIL` SourceStream；综合门户、建设管理聚合页、搜索和单篇材料均被排除。
+- 保存 `jtt.sc.gov.cn` 固定路径、HTML MIME、每日一次/每分钟一次候选频率、超时与重定向上限、内容正负过滤、策略版本、UTC+8 核验时间、DNS/HTTP/robots/网站声明/版权证据及列表和样本详情响应 SHA-256。HTTP 未自动升级，故策略只允许 HTTPS；版权边界固定为题录、必要短摘、来源标注和原链，禁止全文再分发。
+- 四流形成 `BOUNDED + ADMISSION_READY` 研究输入，并与既有 `GOV-007` 应急管理部事故调查报告流明确组成第二批 W1；四川地方工程事实与全国事故调查保持来源和法域分离。`GOV-015` 仍为 `CANDIDATE`、`desired_enabled=false`，无 SourceAdmission、运行、PAUSE 或覆盖信用。
+- 新增版本化 JSON Schema、机器可读清单、研究报告、验收记录、六项失败关闭测试和 `make t23-source-discovery-test`。未产生 Owner Gold、DeepSeek 成功、真实来源准入、运行窗口或 GO，也未绕过 PublicationService、R3/R4、robots、版权或公网安全边界。
+
+## 2026-07-20（v2 T16 水利部与国家能源局流发现）
+
+- 完成 GitHub Issue #17 研究纵向切片：水利部改用官方政务服务平台 HTTPS 通知公告集合，只读取列表题录且不追随 HTTP 外链详情；国家能源局锁定煤炭司持续更新栏目。根站、搜索、单篇煤矿智能化文章和一次性汇编均不作为 SourceStream。
+- 两条流保存精确集合、允许主机/路径、metadata-link 或 list-detail 连接器、MIME、日频、超时、零重定向、User-Agent、策略版本、领域预过滤以及 2026-07-20 的公网 IP、响应和法规证据哈希。水利只保留工程建设、监理、质量、安全、数字化和科技成果事实；能源只保留能源、矿山及工程装备生命周期事实。
+- 两站 robots 404 按 RFC 9309 2.3.1.3 的 unavailable 规则核验；访问与保存严格限定为《政府信息公开条例》保障获取的主动公开政府信息及《著作权法》第二十四条允许的单一 Owner 个人非商业研究，禁止公开再分发。两流达到 `BOUNDED + ADMISSION_READY` 研究去向，仍无 Owner 启用、SourceAdmission、实际运行、PAUSE 或覆盖信用。
+- 新增 metadata-only 失败关闭模型：该连接器必须没有详情 GET，`HTML_LIST_DETAIL` 仍强制详情观察；未知合规事实仍不得升级。未产生 Owner Gold、DeepSeek 成功、真实准入、运行窗口或 GO，也未绕过 PublicationService、R3/R4、robots、版权和公网安全边界。
+- T16/T20 专项、全仓 lint/typecheck/test/contract-test/security-check/fixture-replay 与 quality-gate 等价组成项全部通过；完整结果见 T16 验收记录。
+
+## 2026-07-20（v2 T18 中国民用航空局与《中国公路学报》流发现）
+
+- 完成 GitHub Issue #19 的研究纵向切片：在既有 `GOV-014` 和 `RES-004` 机构身份下，分别锁定民航局机场司 `fl=60` 机构分类集合与《中国公路学报》正式当期目录，保存精确入口、主机、查询/路径边界、连接器、MIME、候选频率、内容过滤、策略版本和 UTC 合规证据。
+- 民航局集合只接受机场规划、建设、运行、安全、监测、养护或工程装备事实，排除航班经营、时刻、旅游消费和一般经营新闻；期刊流固定 `RESEARCH_CONCLUSION`，只允许题录、官网公开摘要边界与原文链接，不再分发受保护全文。
+- 官网当期目录显示 2026 年第 39 卷第 6 期，而公开“当期目录” RSS 仍返回 2023 条目，因此未把失真的 RSS 冒充当前更新流。新增版本化研究 Schema、机器可读清单、研究报告和四项基础设施行为测试。
+- 两源均只获得 `BOUNDED + ADMISSION_READY` 研究去向，仍保持 `CANDIDATE`、`desired_enabled=false`、无 SourceAdmission、无运行、无 PAUSE、无覆盖信用；未产生 Owner Gold、DeepSeek 成功、真实准入、运行窗口或 GO 证据，也未绕过 PublicationService、R3/R4、robots、版权和公网安全边界。
+- 本票专项测试与 Ruff 通过；按 Makefile 展开的 lint、strict typecheck、全量测试、contract-test、security-check、fixture-replay 和 quality-gate 组成项全部通过。共享 Trivy 快照的并发重建竞态以校验 1154 文件的冻结同内容快照复跑解决，未调整扫描器、严重级别或退出门槛。
+
+## 2026-07-20（v2 T11 ReaderAppendix 治理附录）
+
+- 完成 GitHub Issue #12 的只读纵向切片：FULL Reader 的底部附录默认折叠且首次展开才请求，覆盖未加载、加载、空、成功、错误、重试和重内容七种状态；折叠后复用已加载数据，错误与重试不遮蔽主阅读内容并恢复键盘焦点。
+- 附录分组呈现 AcceptedClaims／证据、明确标注“不是证据事实”的自动结果、人工审核关系、自动关系、事故阶段和按时间倒序的结构化更正；存在安全 ReviewCase 时深链对应案例，否则回退 Owner 复核列表。阅读页未复制复核表单，v2 未新增纠正写接口，既有 v1 变更边界保持不变。
+- 新增 `0044_t11_reader_appendix` security-barrier 治理视图与低权限授权：只暴露当前 FULL、R1/R2 权威组合，R3/R4、未决、失效及审核备注失败关闭；新增迁移往返验证、真实 PostgreSQL 组合读取/R3 404、严格契约、低基数读取指标、Nuxt 组件和浏览器/a11y 回归，以及 `make t11-reader-appendix-test`。
+- 本票未生成 Owner Gold、未调用或宣称 DeepSeek 成功、未形成真实来源准入、运行窗口或 GO；未绕过 `PublicationService`、R3/R4、robots、版权或公网地址安全边界，也未降低门槛、删除断言或新增 skip。
+
+## 2026-07-20（v2 T20 中国中铁与三一集团流发现）
+
+- 为既有机构级 Source `ENT-003`（中国中铁）和 `ENT-009`（三一集团）分别锁定一个精确 SourceStream；没有把栏目虚增为新机构，也没有把根站、搜索结果或单篇材料冒充持续集合。版本化清单保存集合入口、允许主机/路径、HTML list-detail 连接器、MIME、日频上限、超时、重定向上限、User-Agent、策略版本与真实核验时间/响应哈希。
+- 三一只保留 `/case/` 施工案例集合，要求施工机械同时出现既定工程对象与规划、施工、运营、养护、安全或监测事实，排除制造 ERP、灯塔工厂、产线改造和泛工业数字化；所有厂商参数与成效仅允许 `MANUFACTURER_CLAIM`，禁止提升为独立验证。
+- 中国中铁只限定 `/web/xwzx61/zfgsdt39/` 子分公司动态集合，并以工程对象 + 生命周期正向门禁区分项目第一方工程记录与经营、党建、品牌宣传。但官网版权声明禁止未经许可把内容存入信息检索系统，与 raw-first 约束冲突，因此诚实保持 `BOUNDED + MANUAL_SHADOW + DISABLED`，等待书面许可，不标为 `ADMISSION_READY`，不追加 `PAUSE`。
+- 发现服务的最小写能力只能追加 `SourceResearchDisposition`；清单固定 `desired_enabled=false`、`source_admission=null`、`actual_running=false`。本票未产生 Owner Gold、DeepSeek 成功、真实来源准入、运行窗口或 GO，也未触碰 PublicationService、R3/R4、robots、版权或公网安全门槛。
+
+## 2026-07-20（v2 T14 住房和城乡建设部流发现）
+
+- 实现 GitHub Issue #15 当前可诚实交付的纵向研究行为：把住建部公开目录的建筑市场监管 `F`、工程质量安全监管 `G` 和标准定额 `K` 固化为同一 `GOV-005` Source 下的三个有界 `LIST_DETAIL` SourceStream，记录精确入口、主题过滤、允许主机、路径边界、预期 MIME、候选频率和策略版本；门户首页与无过滤综合目录不作为流。
+- 保存 2026-07-20 点时公网、HTTP→HTTPS、详情与同主机 PDF 重定向证据，并核验站方未发布 `robots.txt`、公开目录/网站地图/官方导航未链接独立自动化访问条款、页脚转载须注明来源。三个精确流达到 `StreamReadiness=BOUNDED`、`SourceResearchDisposition=ADMISSION_READY`，满足 Issue #15 的研究票关闭条件。
+- 明确后续 W2 使用住建部 `GOV-005-G` 与既有国家矿山安全监察局通知公告流配对；矿井瓦斯保持 `MINING`，不授予 `TUNNEL_GAS_MONITORING` 覆盖信用。
+- 新增版本化 Schema、机器可读研究记录和四项基础设施测试；`ADMISSION_READY` 只允许进入后续 SourceAdmission Probe，不把 404 robots、未链接独立条款或转载声明解释成采集许可。未改变 `desired_enabled`、SourceAdmission 或运行状态，未追加 `PAUSE`，未执行真实采集或准入波次，也未产生 Owner Gold、DeepSeek 成功、运行窗口、覆盖信用或 GO 证据。
+- 本票专项 pytest 与 Ruff、全仓 typecheck、contract-test、security-check、fixture-replay 通过；完整门禁结果见 T14 验收记录。
+
+## 2026-07-20（v2 T12 许可媒体与附件安全交付）
+
+- 完成 GitHub Issue #13 的纵向切片：媒体登记只接受服务端从当前 `CLEAN` 附件、raw 对象、成功采集尝试、原始 URL 哈希和许可证据读取的权威事实；客户端上送哈希、扫描状态或许可声明不能成为发布依据。图片在严格字节数、像素数、实际 MIME 和解码边界内重新编码为内容寻址 PNG，Reader 永不把原始媒体对象或任意远程 URL当作预览。
+- `PublicationService` 仅向 FULL 投影当前仍满足许可与三重 `CLEAN` 状态的同源预览和下载动作；R3 不含媒体，R4 普通读取仍为 404。无再分发许可的材料只保留名称和原站链接；有再分发许可的附件也必须在下载时重验当前事实，随后才返回不超过 300 秒的私有对象签名地址。
+- 新增 `0045_t12_media_delivery` 权威读取函数、写入触发器和 security-barrier 阅读视图；对象缺失失败关闭为 404，存储暂时失败返回不泄漏内部信息的 503，扫描状态变化立即撤销预览和下载。新增真实 PostgreSQL/私有 MinIO 纵向回归、迁移往返、桌面/移动端与 axe 回归及 `make t12-media-delivery-test`。
+- 本票未生成 Owner Gold、未调用或宣称 DeepSeek 成功、未形成真实来源准入、运行窗口或 GO；未绕过 `PublicationService`、R3/R4、robots、版权、重定向与公网地址安全边界，也未降低门槛、删除断言或新增 skip。
+
+## 2026-07-20（v2 T08 证据优先搜索与统一 Feed／Card）
+
+- 完成 GitHub Issue #9 的纵向切片：`/api/v2/search` 继续只消费 `PublicationService` 物化的 v2 投影；标题、来源、当前 AcceptedClaims 与 `SourceExcerpt` 使用 A 级主权重，`AISummary` 仅使用 D 级低权重，并增加安全转义的连续中文子串召回。证据子串排名增量为 AI 的 1000 倍，AI 不能冒充主召回来源。
+- FULL 搜索结果新增受控 `search_explanation`，逐项说明标题、来源、AcceptedClaims、原文摘录命中及 AI 低权重辅助；R3 契约未扩展，搜索 Card 仍只显示服务端元数据白名单。首屏空游标显式转换为 PostgreSQL `bigint`，避免 asyncpg 类型推断失败。
+- 正式 Nuxt 的首页、筛选 Feed、热点与搜索继续复用 `IntelligenceFeedPage`、`TimelineFeed`、`IntelligenceCard` 和统一 `/events/{id}` Reader。FULL Card 显示两行原文摘录和两行真实摘要／状态文案；AI 非成功不再隐藏摘录；没有新增演示总结、演示评分、热点总分或模糊“可信度”。
+- 新增契约、服务、真实 PostgreSQL durable search、组件和正式浏览器／axe 回归，以及 `make t08-evidence-search-test`。测试只使用协议等价 fixture；未生成 Owner Gold、未调用或宣称 DeepSeek 成功、未准入来源、未形成运行窗口或 GO，PublicationService、R3/R4、robots、版权与公网安全边界保持不变。
+
+## 2026-07-20（v2 T10 Owner Reader B 统一详情页）
+
+- 完成 GitHub Issue #11 的正式 Nuxt/Vue 详情页纵向切片：标题区横跨页面，1024px 起使用证据正文主栏与无嵌套滚动的 sticky 来源上下文侧栏，窄屏按来源上下文、SourceExcerpt、AISummary、媒体材料、单一 ReaderActions 和折叠附录的固定语义顺序回流。
+- FULL 独立呈现 PrimaryType/facets、ClaimBasis、来源官方性、人工复核状态、两个可空时间、热点触发理由、原文摘录、结构化 AI 事实/判断、许可媒体和更正提醒；热点不显示总分，官方一手来源不与人工复核合并。
+- Reader 使用服务端七态 `status_message`，SUCCEEDED 事实段显示 AcceptedClaim 引用，判断段明确标为“AI 判断”；STALE 与更正提醒关联，任何 AI 降级均不隐藏来源与 SourceExcerpt。R3 只消费安全元数据，R4/未决/claim 失败继续由服务端 404。
+- 新增单一响应式 `ReaderActions` 与正式 Playwright/axe 验收，覆盖 320、640（200% 等价）、768、1024、1280、1440、1920px、超长标题/来源、无横向溢出、键盘焦点、屏幕阅读器语义和减少动画；未引入原型、React、第二组件库或演示分数。
+- 本票未生成 Owner Gold、未调用或宣称真实 DeepSeek 成功、未形成真实来源准入、运行窗口或 GO；PublicationService、R3/R4、robots、版权和公网安全边界未改变。
+
+## 2026-07-20（v2 T06 DeepSeek 运行、摘要状态与自动补偿）
+
+- 完成 GitHub Issue #7 的纵向切片：非测试环境只允许固定 DeepSeek provider；版本化服务端 profile 映射到目录模型 `deepseek-v4-flash`，真实请求与回调分别重验 SourceAdmission、Owner/来源运行意图、当前文档、raw 安全、执行域、激活配置和预算。
+- 将“已配置”与“可用”拆开；可用性要求 60 秒内心跳、队列/预算健康、provider/model 匹配及 24 小时内真实获准内容 Schema 成功。probe、canary、Secret 和 CI stub 均不能写入该成功事实；本轮仅确认本地 Compose Secret 文件存在，未调用或宣称 DeepSeek 成功。
+- 新增独立 SourceExcerpt、七态摘要事实和 PublicationService 专属刷新 outbox；AI 失败不再隐藏已过门禁的来源与摘录，恢复后执行 5/15/45 分钟、两小时封顶的持久补偿。Schema 永久失败不重试，重复 callback/刷新不会重复候选、状态、发布决定或物化投影。
+- 新增 `0041_t06_ai_runtime_projection` 隔离迁移回放、受限原始/结构化结果与成本追踪、低基数指标/告警、确定性服务端文案、Nuxt 状态消费及 `make t06-ai-runtime-test`。未生成 Owner Gold、来源准入、运行窗口或 GO，未绕过 PublicationService、R3/R4、robots、版权或公网安全边界。
+
+## 2026-07-20（v2 T09 永久热点授予）
+
+- 完成 GitHub Issue #10 的热点纵向切片：模型只能提交引用当前 claims 的严格候选；`PublicationService` 从 PostgreSQL 当前分类资格、AcceptedClaims/证据、SourceAdmission、来源机构/转载谱系、发布时间和服务端评分事实计算资格，模型、客户端和后台按钮均不能直接授予热点。
+- 固定 `hotspot-v2.0.0` 五项权重与 70 分门槛；仅“7 天内至少两个去重后的独立合格来源”或“单个权威一手来源且总分至少 70”可追加 Award。三种 `PrimaryType` 均可独立获热点资格，授予不会改写主类型。
+- 新增追加不可变的候选、评估输入快照和永久 Award 事实；重评或规则升级只追加，不覆盖或撤销历史。普通 Feed/热点页仅展示触发路径、独立来源数和由当时 AcceptedClaims 支持的理由，不投影总分。
+- 新增 `0043_t09_hotspot_awards` 隔离迁移回放、真实 PostgreSQL 权限/不可变 seam、低基数指标与拒绝告警，以及 `make t09-hotspot-test`。测试中的 SourceAdmission、评分和模型候选均明确为一次性协议 fixture，不构成 Owner Gold、DeepSeek 成功、真实来源准入、运行窗口或 GO；PublicationService、R3/R4、robots、版权与公网安全边界保持不变。
+
+## 2026-07-20（v2 T07 SourceAdmission 与受控影子采集）
+
+- 完成 GitHub Issue #8 的流级失败关闭切片：`Source` 继续按机构计数，`SourceStream` 表示机构下的有界集合路径；研究 disposition、Owner `desired_enabled` 意图、服务端 SourceAdmission 决定和实际影子运行分别保存为四类追加式事实。
+- SourceAdmission 逐流要求公网安全、robots、条款、版权、访问边界、限速、预算、质量、熔断和运行门禁全部明确通过，并绑定最长 24 小时有效期；任一未知、失败、过期、Owner 撤权、人工停用或流未就绪都会由数据库安全函数保持 `PAUSED`。
+- 新增统一 `SourceAdapter` 受控影子编排：请求前复核授权，响应字节、元数据与服务端 SHA-256 先进入 raw 持久边界，再按实际 MIME 分流 HTML、PDF、RSS；解析失败保留 raw，成功后只交接 DocumentVersion ID 到既有 qualification/outbox 链，未新增 Event、claim 或发布旁路。
+- 新增 `0042_t07_controlled_stream` 的 `0041 → 0042 → 0041 → 0042` 隔离迁移回放、真实 PostgreSQL 流级授权 seam、低基数控制/采集指标和 `make t07-source-shadow-test`。所有准入和运行数据均为一次性测试事实；本票未生成 Owner Gold、未调用或宣称 DeepSeek 成功、未准入或启用真实来源、未形成真实运行窗口或 GO，PublicationService、R3/R4、robots、版权与公网安全门槛保持不变。
+
+## 2026-07-20（v2 T05 Reader 发布投影）
+
+- 完成 GitHub Issue #6 的后端纵向切片：只有已经持久化分类资格、当前文档版本、当前 accepted claims、有效证据和当前内容候选才能由 `PublicationService` 重建 `/api/v2` Reader 投影；普通读取只返回 FULL 或严格 R3 元数据，R4、未决和失效内容保持 404。
+- FULL 投影分开呈现来源官方性与人工复核状态，保留可空原文发布时间/首次发现时间、连续原文摘录、结构化事实/AI 判断摘要、claim basis、热点原因、版权许可媒体、附件与证据附录；R3 响应由严格契约限制为安全白名单。
+- 新增 Owner-only R4 隔离投影、追加式资格/发布决定/v1 逐行归档哈希事实、低基数发布结果指标和安全失败告警，以及 `0039 → 0040 → 0039 → 0040` 隔离迁移回放；真实 PostgreSQL、Redis 和私有 MinIO seam 验证 FULL/R3/404、重试无物化重复、媒体读取和 v1 汇总 SHA-256。
+- 本票不复活 v1 Reader，不允许复核命令写发布状态，也未生成 Owner Gold、调用或宣称 DeepSeek 成功、改变来源准入/运行状态或形成 GO；robots、版权、R3/R4 和公网安全门槛保持不变。
+
+## 2026-07-20（v2 Owner Gold pilot／生产校准拆分）
+
+- 父 Spec #1 将 20 条 Owner 人工试标明确为不授权自动通过的流程 pilot；#3 以 `PILOT / SUPERSEDED` 关闭，不宣称试标完成、DeepSeek 成功、来源准入、运行窗口或 GO。
+- 新建 #36 承接原 360 条生产级 Owner Gold、独立预测、阈值校准、服务端安全入库和耐久消费要求，并将 #14 的原生 blocker 从 #3 迁移到 #36。
+- 既有生产校准器、90% precision/recall、锁定负例零泄漏及失败关闭约束保持不变；20 条 pilot 固定 `authorizes_auto_pass=false`。
+- 完成私有 20 条 HUMAN_OWNER pilot 的 reviewed-artifact、manifest 与结构化 JSONL 交叉校验：20/20 哈希和字节数一致，十一对象、交通隧道瓦斯和施工机械覆盖通过；结果为非生产 `PILOT_PASS`，无自动通过授权，也不形成来源、模型、运行窗口或 closeout GO 证据。
+
+## 2026-07-19（v2 T04 证据化内容准备）
+
+- 从当前文档版本的 active `AcceptedClaim` 生成单段连续、最长 500 字的 `SourceExcerpt`，并通过严格 Schema 接受 300–500 字、分为“发生了什么 / 工程影响 / 局限与后续”的结构化摘要候选；事实段必须双向引用当前 claims，判断段显式标记为 AI 判断。
+- 新增追加式 `0039_t04_content_candidates` 候选与失效事实、Owner-only 复核投影和协议等价 stub 边界；文档版本、accepted claims、撤回或更正变化均使旧候选失效，事实决定与 AI 摘要决定分开保存。
+- 模型调用只接收最小 accepted claims 与证据摘录，并在调用前执行 prompt-injection 与敏感值扫描；模型响应依次通过 JSON Schema 与 Pydantic 校验，失败关闭。该切片不写发布投影，也不改变 `PublicationService`、R3/R4、robots、版权、公网安全或来源运行授权。
+- 仓库未生成 Owner Gold、未调用或宣称 DeepSeek 成功、未形成来源准入、运行窗口或 GO 证据；协议 stub 和固定测试数据只证明契约行为。
+
+## 2026-07-19（v2 T02 Owner Gold 阈值校准）
+
+- 新增私有 Owner Gold 校准入口，严格校验 180 正例、90 边界例、90 锁定负例、三主类型、十一工程对象、隧道瓦斯监测和施工机械覆盖，以及逐条 `HUMAN_OWNER`、UTC 标注时间、双 SHA-256、证据定位、规则/模型/prompt 版本。
+- 自动通过阈值改为从候选预测的实际置信分布搜索；precision/recall 均至少 90% 且锁定负例零泄漏时才生成版本化 `GO` 事实，缺失、篡改、版本错配或指标失败均生成 `NO_GO`，不再把 0.90 常量当成批准门槛。
+- 新增追加式 `0038_owner_gold_calibration` 事实表及最小读取权限；qualification 无校准时进入复核，production SourceAdmission 保持 `PAUSE`，PublicationService 只读精确版本授予，production closeout 校验并记录事实哈希、阈值和版本。
+- 仓库未保存、生成或提交真实 Owner 私有语料或校准 `GO` 文件；协议 fixture 明确为 `TEST_FIXTURE_ONLY`，不能作为 Owner Gold、DeepSeek 成功、来源准入、运行窗口或 closeout GO 证据。
+- 修复并行 T04 改动暴露的严格类型边界并重新生成契约后，全仓 lint、typecheck、test、contract-test、security-check、fixture-replay 与 quality-gate 全部通过；私有数据根、验收 evidence root 和当前 PostgreSQL 仍无 Owner Gold 校准事实，故保持自动通过禁用且不关闭 #3。
+
+## 2026-07-19（Issue #4：首页搜索优先入口）
+
+- 实现土木工程情报 v2 首页搜索纵向切片：搜索区域在 DOM 和视觉顺序上均位于“今日精选”一级标题与时间线之前，且 `/selected`、`/all`、`/digital`、`/safety`、`/industry`、`/hot` 不重复渲染首页搜索。
+- 为搜索 landmark 增加由可见标签提供的唯一可访问名称，并为复用组件生成唯一 label/input 关联；搜索结果加载状态改为明确的“正在加载搜索结果”，既有空结果、Problem Details 错误和排序行为保持不变。
+- 新增正式 Playwright 验收，覆盖非空时间线的 DOM/几何顺序、过滤页唯一性、加载/空/错误状态、键盘焦点、屏幕阅读器名称、200% 等价回流和 axe；未新增 skip，未使用 Owner Gold、真实来源或 DeepSeek 证据。
+- 2026-07-20 在后续共享工作区快照上完成最终复验：全仓 lint/typecheck、全量测试、契约、安全检查、正式 Nuxt 构建、`74` 条 Web E2E 与 `21` 条 a11y 全部通过，原票外 lint 阻塞已消除；GitHub Issue #4 随后关闭。
+
+## 2026-07-19（v2 T01 领域分类失败关闭）
+
+- 完成 GitHub Issue #2 的分类纵向切片：分类契约固定十一类工程对象、唯一主类型、三轴 facets 和受控内容形态，并在服务端统一校验交通隧道瓦斯组合、施工机械生命周期事实和证据块定位。
+- 在现有 AI 内容准备链路增加锁定负例二次门禁；中医药/泛健康、旅游消费、金融行情、泛 AI、无工程事实的港口经营以及工程机械企业 ERP/生产线/泛工业互联网内容即使被模型标为相关，也只形成 metadata-only `QualificationReviewCase`，不会进入抽取、Item/Event 或阅读投影。
+- 新增版本化结构回放报告与 CLI；报告固定标记 `STRUCTURAL_REPLAY` 和 `authorizes_auto_pass=false`，不得作为 HUMAN_OWNER Gold、真实来源、DeepSeek 成功或生产 GO 证据。
+- 增加低基数分类决定与 PostgreSQL OPEN 复核积压指标；复核 case 重试采用冲突不改写并返回既有 case，不绕过 PublicationService、R3/R4 或来源运行边界。
+
+## 2026-07-19（土木工程情报 v2 tracer-bullet tickets）
+
+- 将正式 Spec [#1](https://github.com/flyingTurkey/codex/issues/1) 拆分为 34 张可在全新 Codex 上下文中执行的纵向 tickets [#2](https://github.com/flyingTurkey/codex/issues/2)–[#35](https://github.com/flyingTurkey/codex/issues/35)，统一添加 `ready-for-agent`，并建立与批准依赖图一致的 GitHub 原生 `blockedBy` 关系；未运行 triage，也未修改父 Spec。
+- 来源扩充拆为 SourceStream 边界发现、双源真实准入波次、首十源连续 14 天和二十源组合收口；分类内核与 360 条 Owner Gold 分离，禁止生成语料冒充 `HUMAN_OWNER` 证据。
+- 发布后完成依赖、标签、父引用、UTF-8 正文、来源门禁和 UI 验收的独立回读；修复最初 PowerShell 管道导致的中文正文编码损坏，并将首页搜索顺序校正为“搜索 → 今日精选标题 → 时间线”。
+
 ## 2026-07-19（土木工程情报质量与阅读体验 v2）
 
+- 将完整产品改造 Spec 发布为 GitHub Issue [#1](https://github.com/flyingTurkey/codex/issues/1)，仅添加 `ready-for-agent` 标签；Owner 确认以 Gold Corpus 领域 seam、durable 后端纵向 seam 和正式 Nuxt 浏览器 seam 作为三个顶层测试边界。Spec 明确保持当前 engineering/production `NO_GO`，不把规格就绪误报为来源、AI 或生产切换就绪。
+- 使用三个独立只读审查轴完成共同理解收口：Owner 确认十一类 `EngineeringObject` 为产品边界，六类仅为本轮来源覆盖子矩阵；清除来源报告中的数字成熟度产品门禁和港航误排除，明确 B 方案尚待正式重建，并新增总体与 Owner Reader 两份 `to-spec` 交接成果。产品规格现为 READY，工程与生产 closeout 仍保持 NO_GO。
+- 将 AI 诊断、来源研究和 Owner Reader 原型的已确认结论并入共同理解：Acquisition 增加来源相关性、流成熟度、法域角色和研究处置语言，Evidence & AI 明确运行授权、真实 Schema 成功、AI 可用性与耐久内容交接；验收记录同步 Owner 已确认的 B 方案及其正式重建边界，未新增 ADR 或改动业务代码。
+- 新增 `0037_engineering_closeout_campaign` 及可按 campaign ID 恢复的 `prepare/start/status/finalize` 工程验收活动；活动事实 append-only、有事实时阻断降级，并保存环境切换、来源观察、AI canary、故障注入、Feed 审计、只读归档预检和最终恢复结果。
+- 新增固定 20 个官方公开来源的工程活动清单；缺少的 5 源只登记为 `CANDIDATE_ONLY`，20 源可在隔离 acceptance 环境并行观察，但不会改变 Owner 运行意图、生产 `ACTIVE` 状态或发布边界。
+- 来源工程样本固定使用 campaign 启动 cutoff 和去重后的当前文档版本；新增 `hard_negative_evaluated` 完整性硬门禁，缺少耐久 locked-negative 评估时即使观测泄漏数为零也保持 `PAUSE`。
+- 工程证据导出器从 PostgreSQL、对象存储和真实 v2 投影生成运行、来源、Feed、补偿、历史预算对账、归档及 context 证据；acceptance-only 故障注入在真实调用门禁不成立时失败关闭，不制造 DeepSeek 成功或发布副作用。
+- 完成 campaign `019f79e1-5d04-73e5-880b-ab9ce5fb37f7` 的真实一小时活动及环境恢复：九项仓库门禁和 20/20 来源结论通过，归档预检保持只读；因 observation gap、余额未知、无真实 Schema 成功、无 200 条 Feed 和未完成补偿验收，engineering readiness 如实为 `NO_GO`。
+- 新增并完成对抗性复核的 [土木工程情报平台权威数据源扩充方案研究报告](docs/research/2026-07-19-civil-engineering-authoritative-source-expansion.md)：基于官方一手来源评估 36 条国内与国际候选，在十一类产品对象边界内重点研究六类对象及瓦斯监测/施工机械跨切面，独立记录相关性、流成熟度与法域角色，并把后续工作拆为准入核验、边界发现和人工影子队列；研究子矩阵不缩窄产品范围，也不构成来源准入、启用或采集授权。
 - 修复“DeepSeek 已配置但无内容结果”的真实运行断点：新增 `0036_ai_content_result_lifecycle`，将终态 pipeline 与 durable content outbox 原子收口，迁移历史伪 `WAITING_AI`；callback 在读取步骤输入前复核授权，撤权时不消费模型输出、不进入 repair，但结算可验证的真实 Token/费用元数据并记录 `AI_RUNTIME_AUTHORIZATION_DENIED`。同时修复 runtime probe 的 PostgreSQL 时间参数类型和模型目录映射，使 Owner 页面准确区分“已配置”“运行健康”和“最近真实 Schema 成功”。
 - 新增 ADR-0003 和显式双验收 profile：`ENGINEERING_CLOSEOUT` 使用 1 小时 AI/来源窗口、一次真实 Schema 成功和无人工标注的 200 条服务端 Feed 结构审计；`PRODUCTION_CLOSEOUT` 完整保留原 24 小时、Owner gold、人工 Feed precision、72 小时/14 天门槛。两者均保留合规硬门禁、补偿验收和只读归档预检。
 - `make intelligence-v2-closeout ACCEPTANCE_PROFILE=engineering|production` 现在必须显式选择 profile；readiness manifest 记录独立规则版本，同一小时证据只能使 engineering 通过，不能使 production 通过。

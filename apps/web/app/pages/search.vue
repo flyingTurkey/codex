@@ -36,6 +36,7 @@ async function loadMore(): Promise<void> {
     empty-description="可减少组合词，或核对工程对象和来源名称。"
     :feed="feed"
     :loading="Boolean(query) && (result.status.value === 'idle' || result.status.value === 'pending')"
+    loading-label="正在加载搜索结果"
     :problem="problem"
     :loading-more="loadingMore"
     @load-more="loadMore"

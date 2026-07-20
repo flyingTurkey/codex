@@ -25,6 +25,7 @@ const props = withDefaults(
     emptyIcon?: AppIconName
     feed?: FeedPage | null
     loading?: boolean
+    loadingLabel?: string
     problem?: ProblemDetails | null
     showFilters?: boolean
     showDomainFilter?: boolean
@@ -58,6 +59,7 @@ const props = withDefaults(
     emptyIcon: 'EmptyPage',
     feed: null,
     loading: false,
+    loadingLabel: '正在加载情报',
     problem: null,
     showFilters: false,
     showDomainFilter: true,
@@ -196,7 +198,7 @@ const visibleItems = computed(() => props.feed?.items ?? [])
         v-else-if="loading"
         class="intelligence-feed-page__loading"
         :lines="5"
-        label="正在加载安全情报"
+        :label="loadingLabel"
       />
       <ProblemNotice
         v-else-if="problem"

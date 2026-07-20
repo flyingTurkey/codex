@@ -123,6 +123,29 @@ class _ChunkedReadSession:
         return _ChunkedReadClient()
 
 
+class _MissingObjectClient(_ChunkedReadClient):
+    async def get_object(self, **kwargs: object) -> dict[str, object]:
+        del kwargs
+        raise ClientError(
+            {"Error": {"Code": "NoSuchKey", "Message": "missing"}},
+            "GetObject",
+        )
+
+    async def head_object(self, **kwargs: object) -> dict[str, object]:
+        del kwargs
+        raise ClientError(
+            {"Error": {"Code": "404", "Message": "missing"}},
+            "HeadObject",
+        )
+
+
+class _MissingObjectSession:
+    def client(self, service: str, **kwargs: Any) -> _MissingObjectClient:
+        del kwargs
+        assert service == "s3"
+        return _MissingObjectClient()
+
+
 async def test_s3_operations_have_connect_read_overall_and_retry_bounds(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -175,3 +198,14 @@ async def test_bounded_read_collects_short_async_body_chunks(
     store = S3ObjectStore(Settings(_env_file=None, external_io_timeout_seconds=1))
 
     assert await store.get_bytes("sha256/aa/hash", max_bytes=12) == b"first-second"
+
+
+async def test_private_object_missing_is_a_stable_not_found_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(storage.aioboto3, "Session", _MissingObjectSession)
+    store = S3ObjectStore(Settings(_env_file=None, external_io_timeout_seconds=1))
+
+    with pytest.raises(FileNotFoundError):
+        await store.get_bytes("sha256/aa/missing", max_bytes=12)
+    assert await store.object_exists("sha256/aa/missing") is False

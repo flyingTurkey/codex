@@ -1,5 +1,5 @@
 export type EventId = string
-export type FirstDiscoveredAt = string
+export type FirstDiscoveredAt = string | null
 export type OfficialSource = boolean
 export type OriginalUrl = string
 export type PrimaryIntelligenceType = 'DIGITAL_TRANSFORMATION' | 'SAFETY_INTELLIGENCE' | 'INDUSTRY_UPDATE'

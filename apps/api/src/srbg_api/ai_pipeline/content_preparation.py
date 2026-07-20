@@ -32,8 +32,13 @@ from srbg_api.ai_pipeline.preparation import (
 )
 from srbg_api.ai_pipeline.runtime import AttemptKind
 from srbg_api.ai_pipeline.security import PromptInjectionScanner
-from srbg_api.intelligence_v2.qualification import classification_allows_extraction
-from srbg_api.observability import PERSONAL_AI_JUDGMENT_RESULTS, PERSONAL_AI_REPAIR_ATTEMPTS
+from srbg_api.intelligence_v2.gold_calibration import AutoPassCalibrationGrant
+from srbg_api.intelligence_v2.qualification import qualification_reason
+from srbg_api.observability import (
+    INTELLIGENCE_QUALIFICATION_DECISIONS,
+    PERSONAL_AI_JUDGMENT_RESULTS,
+    PERSONAL_AI_REPAIR_ATTEMPTS,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +65,10 @@ class PreparationRepository(Protocol):
 
     async def authorize_real_run(self, document: PreparationDocument) -> bool: ...
 
+    async def load_auto_pass_calibration(
+        self, *, rule_version: str, model_id: str, prompt_version: str
+    ) -> AutoPassCalibrationGrant | None: ...
+
     async def record_security(self, document: PreparationDocument, detected: bool) -> None: ...
 
     async def transition(self, run_id: UUID, status: str) -> None: ...
@@ -76,7 +85,9 @@ class PreparationRepository(Protocol):
         kind: str,
         response: ModelResponse,
         input_sha256: str,
-    ) -> None: ...
+        prompt_version: str | None = None,
+        schema_version: str | None = None,
+    ) -> UUID: ...
 
     async def materialize(
         self,
@@ -147,17 +158,35 @@ class AiContentPreparationService:
             raise PermissionError("PROMPT_INJECTION_R4")
         try:
             await self._repository.transition(run_id, "CLASSIFYING")
+            classification_request = self.build_request(AiStep.CLASSIFY, classify_input)
             classification_response = await self._execute_step(
                 run_id,
-                self.build_request(AiStep.CLASSIFY, classify_input),
+                classification_request,
             )
         except Exception as error:
             await self._repository.fail(run_id, "FAILED", _error_code(error))
             raise
         classification = ClassificationOutput.model_validate(classification_response.output)
-        if not classification_allows_extraction(classification):
+        calibration = await self._repository.load_auto_pass_calibration(
+            rule_version="intelligence-v2-qualification-1.0.0",
+            model_id=classification_request.model_profile,
+            prompt_version=classification_request.prompt_version,
+        )
+        review_reason = qualification_reason(
+            classification,
+            document_text=classify_input.text,
+            allowed_evidence_locators=frozenset(classify_input.block_ids),
+            calibration=calibration,
+        )
+        INTELLIGENCE_QUALIFICATION_DECISIONS.labels(
+            outcome="AUTO_PASS" if review_reason is None else "REVIEW_REQUIRED",
+            reason="NONE" if review_reason is None else review_reason.value,
+        ).inc()
+        if review_reason is not None:
+            review_payload = classification.model_dump(mode="json")
+            review_payload["review_reasons"] = [review_reason.value]
             await self._repository.queue_qualification_review(
-                document, classification.model_dump(mode="json")
+                document, review_payload
             )
             return PreparationResult(
                 run_id=run_id,

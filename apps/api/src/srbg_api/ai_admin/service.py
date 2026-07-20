@@ -1,6 +1,6 @@
 """PostgreSQL-backed append-only AI configuration service."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
@@ -11,6 +11,11 @@ from srbg_api.ai_pipeline.budget import BudgetPolicy
 from srbg_api.ai_pipeline.catalog import ProviderCode, provider_capability, provider_catalog
 from srbg_api.ai_pipeline.secrets import LocalAiSecretStore
 from srbg_api.identifiers import uuid7
+from srbg_api.intelligence_v2.ai_runtime import (
+    AiAvailabilityFacts,
+    project_ai_availability,
+)
+from srbg_api.observability import T06_AI_RUNTIME_STATE
 
 
 class PostgresAiAdminService:
@@ -23,49 +28,76 @@ class PostgresAiAdminService:
         async with self._engine.connect() as connection:
             active_rows = await connection.execute(
                 text(
-                    "SELECT DISTINCT ON (provider) provider,active FROM ai_provider_activation "
-                    "WHERE environment=:environment ORDER BY provider,created_at DESC,id DESC"
+                    "SELECT DISTINCT ON (activation.provider) activation.provider,"
+                    "activation.active,profile.model FROM ai_provider_activation activation "
+                    "JOIN ai_model_profile profile ON profile.id=activation.model_profile_id "
+                    "WHERE activation.environment=:environment ORDER BY activation.provider,"
+                    "activation.created_at DESC,activation.id DESC"
                 ),
                 {"environment": self._environment},
             )
-            activations = {str(row.provider): bool(row.active) for row in active_rows}
+            activations = {
+                str(row.provider): (bool(row.active), str(row.model)) for row in active_rows
+            }
             runtime_rows = await connection.execute(
                 text(
                     "SELECT DISTINCT ON (provider) provider,model,worker_heartbeat_at,"
                     "queue_healthy,budget_healthy,last_real_schema_success_at "
-                    "FROM ai_runtime_health_v2 WHERE environment=:environment "
+                    "FROM ai_runtime_observation_v2 WHERE environment=:environment "
                     "ORDER BY provider,observed_at DESC,id DESC"
                 ),
                 {"environment": self._environment},
             )
             runtime = {str(row.provider): row for row in runtime_rows}
+            success_rows = await connection.execute(
+                text(
+                    "SELECT provider,model,max(succeeded_at) AS succeeded_at "
+                    "FROM ai_approved_content_success_v2 WHERE environment=:environment "
+                    "AND success_kind='APPROVED_CONTENT' GROUP BY provider,model"
+                ),
+                {"environment": self._environment},
+            )
+            successes = {
+                (str(row.provider), str(row.model)): row.succeeded_at for row in success_rows
+            }
         views: list[dict[str, object]] = []
         for capability in provider_catalog():
             key_configured = self._secrets.is_configured(capability.code)
-            reasons: list[str] = []
-            if capability.code is ProviderCode.DEEPSEEK and not key_configured:
-                reasons.append("SECRET_NOT_CONFIGURED")
-            if not activations.get(capability.code.value, False):
-                reasons.append("CONFIGURATION_NOT_ACTIVE")
-            if not capability.real_call_enabled:
-                reasons.append("MOCK_ONLY")
-            configured = key_configured and activations.get(capability.code.value, False)
+            activation = activations.get(capability.code.value)
+            configuration_active = bool(activation and activation[0])
+            configured_model = activation[1] if activation else capability.models[0]
             health = runtime.get(capability.code.value)
             now = datetime.now(UTC)
-            if health is None or health.worker_heartbeat_at < now - timedelta(seconds=60):
-                reasons.append("WORKER_HEARTBEAT_STALE")
-            elif health.model not in capability.models:
-                reasons.append("PROVIDER_CONFIG_MISMATCH")
-            else:
-                if not health.queue_healthy:
-                    reasons.append("QUEUE_UNAVAILABLE")
-                if not health.budget_healthy:
-                    reasons.append("BUDGET_UNAVAILABLE")
-                if (
-                    health.last_real_schema_success_at is None
-                    or health.last_real_schema_success_at < now - timedelta(hours=24)
-                ):
-                    reasons.append("NO_RECENT_REAL_SCHEMA_SUCCESS")
+            availability = project_ai_availability(
+                AiAvailabilityFacts(
+                    configuration_active=configuration_active,
+                    secret_configured=key_configured,
+                    provider=capability.code.value,
+                    configured_model=configured_model,
+                    worker_provider=(capability.code.value if health is not None else None),
+                    worker_model=(str(health.model) if health is not None else None),
+                    worker_heartbeat_at=(
+                        health.worker_heartbeat_at if health is not None else None
+                    ),
+                    queue_healthy=bool(health and health.queue_healthy),
+                    budget_healthy=bool(health and health.budget_healthy),
+                    last_approved_content_schema_success_at=successes.get(
+                        (capability.code.value, configured_model)
+                    ),
+                ),
+                now=now,
+            )
+            T06_AI_RUNTIME_STATE.labels(
+                provider=capability.code.value, state="configured"
+            ).set(int(availability.configured))
+            T06_AI_RUNTIME_STATE.labels(
+                provider=capability.code.value, state="available"
+            ).set(int(availability.available))
+            reasons = list(availability.blocking_reasons)
+            if not capability.real_call_enabled:
+                reasons.append("MOCK_ONLY")
+            configured = availability.configured
+            available = availability.available and capability.real_call_enabled
             views.append(
                 {
                     "code": capability.code.value,
@@ -75,9 +107,9 @@ class PostgresAiAdminService:
                     "real_call_enabled": capability.real_call_enabled,
                     "key_configured": key_configured,
                     "configured": configured,
-                    "available": configured and not reasons,
+                    "available": available,
                     "runtime_status": "AVAILABLE"
-                    if configured and not reasons
+                    if available
                     else ("CONFIGURED_UNAVAILABLE" if configured else "NOT_CONFIGURED"),
                     "blocking_reasons": reasons,
                     "token_limits": {

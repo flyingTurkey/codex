@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srbg.local/schemas/t20r-cscec-xcmg-source-stream-discovery.schema.json",
+  "title": "T20R replacement SourceStream discovery research record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["issue", "supersedes_issue", "parent_spec", "rule_version", "streams"],
+  "properties": {
+    "issue": {"const": 37},
+    "supersedes_issue": {"const": 21},
+    "parent_spec": {"const": 1},
+    "rule_version": {"const": "t20r-replacement-stream-discovery-v1"},
+    "streams": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/stream",
+          "properties": {
+            "source_code": {"const": "ENT-002"},
+            "institution": {"const": "中国建筑"},
+            "claim_basis": {"const": "PROJECT_FIRST_PARTY_RECORD"}
+          }
+        },
+        {
+          "$ref": "#/$defs/stream",
+          "properties": {
+            "source_code": {"const": "ENT-010"},
+            "institution": {"const": "徐工集团"},
+            "claim_basis": {"const": "MANUFACTURER_CLAIM"}
+          }
+        }
+      ],
+      "items": false
+    }
+  },
+  "$defs": {
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "method", "status_code", "mime_type", "redirect_count", "response_sha256"],
+      "properties": {
+        "url": {"type": "string", "pattern": "^https://"},
+        "method": {"enum": ["GET", "POST"]},
+        "status_code": {"type": "integer", "minimum": 100, "maximum": 599},
+        "mime_type": {"const": "text/html"},
+        "redirect_count": {"type": "integer", "minimum": 0, "maximum": 5},
+        "response_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "compliance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["check", "status", "evidence_url", "finding", "response_sha256"],
+      "properties": {
+        "check": {"enum": ["PUBLIC_NETWORK", "REDIRECTS", "ROBOTS", "TERMS", "COPYRIGHT", "ACCESS_BOUNDARY", "PUBLIC_REACHABILITY"]},
+        "status": {"enum": ["VERIFIED_ALLOWED", "VERIFIED_PUBLIC", "VERIFIED_NO_REDIRECT", "VERIFIED_NOT_PUBLISHED", "VERIFIED_RESTRICTED"]},
+        "evidence_url": {"type": "string", "pattern": "^https://"},
+        "finding": {"type": "string", "minLength": 1, "maxLength": 1200},
+        "response_sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "stream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_code", "institution", "official_origin", "stream_key", "collection_url",
+        "allowed_hosts", "collection_path_pattern", "detail_path_pattern", "list_request",
+        "connector_type", "expected_mime_types", "poll_interval_minutes", "request_timeout_seconds",
+        "max_redirects", "rate_limit_requests_per_minute", "policy_version", "verified_at",
+        "resolved_public_ips", "observations", "readiness", "disposition", "accepted_topics",
+        "excluded_topics", "claim_basis", "desired_enabled", "source_admission", "actual_running",
+        "pause_appended", "coverage_credit_granted", "attachments_allowed", "public_redistribution",
+        "compliance"
+      ],
+      "properties": {
+        "source_code": {"type": "string", "pattern": "^ENT-[0-9]{3}$"},
+        "institution": {"type": "string", "minLength": 1},
+        "official_origin": {"type": "string", "pattern": "^https://"},
+        "stream_key": {"type": "string", "pattern": "^[A-Z0-9_]+$"},
+        "collection_url": {"type": "string", "pattern": "^https://.+/.+"},
+        "allowed_hosts": {"type": "array", "minItems": 1, "items": {"type": "string"}, "uniqueItems": true},
+        "collection_path_pattern": {"type": "string", "minLength": 1},
+        "detail_path_pattern": {"type": "string", "minLength": 1},
+        "list_request": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["method", "url", "form"],
+              "properties": {
+                "method": {"const": "POST"},
+                "url": {"type": "string", "pattern": "^https://"},
+                "form": {"type": "object", "additionalProperties": {"type": "string"}, "minProperties": 1}
+              }
+            }
+          ]
+        },
+        "connector_type": {"enum": ["HTML_LIST_DETAIL", "HTML_SHELL_POST_LIST_DETAIL"]},
+        "expected_mime_types": {"const": ["text/html"]},
+        "poll_interval_minutes": {"type": "integer", "minimum": 1440, "maximum": 10080},
+        "request_timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 30},
+        "max_redirects": {"type": "integer", "minimum": 0, "maximum": 5},
+        "rate_limit_requests_per_minute": {"type": "integer", "minimum": 1, "maximum": 10},
+        "policy_version": {"type": "string", "pattern": "^t20r-"},
+        "verified_at": {"type": "string", "format": "date-time"},
+        "resolved_public_ips": {"type": "array", "minItems": 1, "items": {"type": "string"}, "uniqueItems": true},
+        "observations": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/observation"}},
+        "readiness": {"const": "BOUNDED"},
+        "disposition": {"const": "ADMISSION_READY"},
+        "accepted_topics": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "excluded_topics": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "claim_basis": {"enum": ["PROJECT_FIRST_PARTY_RECORD", "MANUFACTURER_CLAIM"]},
+        "desired_enabled": {"const": false},
+        "source_admission": {"type": "null"},
+        "actual_running": {"const": false},
+        "pause_appended": {"const": false},
+        "coverage_credit_granted": {"const": false},
+        "attachments_allowed": {"const": false},
+        "public_redistribution": {"const": false},
+        "compliance": {"type": "array", "minItems": 7, "maxItems": 7, "items": {"$ref": "#/$defs/compliance"}}
+      }
+    }
+  }
+}

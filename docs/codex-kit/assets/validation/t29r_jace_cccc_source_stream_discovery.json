@@ -1,0 +1,230 @@
+{
+  "issue": 39,
+  "supersedes_issue": 30,
+  "parent_spec": 1,
+  "rule_version": "t29r-replacement-stream-discovery-v1",
+  "streams": [
+    {
+      "source_code": "RES-013",
+      "institution": "建筑科学与工程学报",
+      "aliases": ["Journal of Architecture and Civil Engineering", "JACE"],
+      "official_origin": "https://jace.chd.edu.cn/",
+      "stream_key": "jace-current-issue-research",
+      "collection_url": "https://jace.chd.edu.cn/rc-pub/front/front-period/getFirstTwoPeriods?publicationIndexId=1474",
+      "detail_url_template": "https://jace.chd.edu.cn/rc-pub/front/front-article/getArticlesByPeriodicalIdGroupByColumn/{period_id}?size=50&showCover=true",
+      "allowed_hosts": ["jace.chd.edu.cn"],
+      "allowed_path_patterns": [
+        "^/rc-pub/front/front-period/getFirstTwoPeriods$",
+        "^/rc-pub/front/front-article/getArticlesByPeriodicalIdGroupByColumn/[0-9]+$"
+      ],
+      "query_contract": {
+        "collection": {"publicationIndexId": "1474"},
+        "detail": {"size_max": 50, "showCover": "true"}
+      },
+      "connector_type": "JSON_CURRENT_ISSUE",
+      "expected_mime_types": ["application/json"],
+      "poll_interval_minutes": 1440,
+      "request_timeout_seconds": 10,
+      "max_redirects": 5,
+      "rate_limit_requests_per_minute": 1,
+      "user_agent": "SRBG-SourceResearch/1.0 (+personal noncommercial research)",
+      "policy_version": "t29r-jace-research-conclusion-v1",
+      "verified_at": "2026-07-20T03:52:15.6076920Z",
+      "resolved_public_ips": ["28.0.0.136"],
+      "observations": [
+        {
+          "url": "https://jace.chd.edu.cn/rc-pub/front/front-period/getFirstTwoPeriods?publicationIndexId=1474",
+          "method": "BROWSER_FETCH",
+          "status_code": 200,
+          "mime_type": "application/json",
+          "redirect_count": 0,
+          "response_sha256": null
+        },
+        {
+          "url": "https://jace.chd.edu.cn/rc-pub/front/front-article/getArticlesByPeriodicalIdGroupByColumn/272726?size=50&showCover=true",
+          "method": "BROWSER_FETCH",
+          "status_code": 200,
+          "mime_type": "application/json",
+          "redirect_count": 0,
+          "response_sha256": null
+        }
+      ],
+      "readiness": "BOUNDED",
+      "disposition": "ADMISSION_READY",
+      "blocker_codes": [],
+      "accepted_topics": [
+        "公路", "铁路", "桥梁", "隧道", "房屋建筑", "矿山", "市政", "水利", "港航", "机场", "能源工程",
+        "规划设计施工运营养护安全监测数字化研究结论"
+      ],
+      "excluded_topics": ["纯材料化学且无工程对象", "期刊公告", "征稿", "会议", "排行"],
+      "claim_basis": "RESEARCH_CONCLUSION",
+      "permitted_claim_bases": ["RESEARCH_CONCLUSION"],
+      "desired_enabled": false,
+      "source_admission": null,
+      "actual_running": false,
+      "pause_appended": false,
+      "coverage_credit_granted": false,
+      "attachments_allowed": false,
+      "public_redistribution": false,
+      "compliance": [
+        {
+          "check": "PUBLIC_NETWORK",
+          "status": "VERIFIED_PUBLIC",
+          "evidence_url": "https://jace.chd.edu.cn/homeNav?lang=zh",
+          "finding": "Point-in-time resolution returned 28.0.0.136, which is global and not private, loopback, link-local or metadata space; SourceAdmission must resolve and validate every request and redirect again.",
+          "response_sha256": null
+        },
+        {
+          "check": "REDIRECTS",
+          "status": "VERIFIED_NO_REDIRECT",
+          "evidence_url": "https://jace.chd.edu.cn/rc-pub/front/front-period/getFirstTwoPeriods?publicationIndexId=1474",
+          "finding": "The same-origin browser fetches for the period and article-list JSON endpoints returned 200 without an observed redirect.",
+          "response_sha256": null
+        },
+        {
+          "check": "ROBOTS",
+          "status": "VERIFIED_NOT_PUBLISHED",
+          "evidence_url": "https://jace.chd.edu.cn/robots.txt",
+          "finding": "robots.txt returned 404 at verification time. Absence is not permission; SourceAdmission must re-probe and fail closed if the current fact cannot be established.",
+          "response_sha256": null
+        },
+        {
+          "check": "TERMS",
+          "status": "VERIFIED_RESTRICTED",
+          "evidence_url": "https://jace.chd.edu.cn/docs/AuthorPark/details.aspx?documentid=83",
+          "finding": "The official author guidance reserves publication rights and provides no broad automated-use grant. The candidate is restricted to Owner-private noncommercial research and still requires SourceAdmission review.",
+          "response_sha256": null
+        },
+        {
+          "check": "COPYRIGHT",
+          "status": "VERIFIED_RESTRICTED",
+          "evidence_url": "https://jace.chd.edu.cn/docs/AuthorPark/details.aspx?documentid=83",
+          "finding": "Copyright remains with the journal/editorial office. Future use is limited to private raw-first evidence plus bibliographic metadata, accepted claims, necessary short excerpts and original links; no images, attachments, full text or public redistribution.",
+          "response_sha256": null
+        },
+        {
+          "check": "ACCESS_BOUNDARY",
+          "status": "VERIFIED_ALLOWED",
+          "evidence_url": "https://jace.chd.edu.cn/homeNav?lang=zh",
+          "finding": "The official current-issue page and its same-origin JSON requests were publicly accessible without login, CAPTCHA or paywall. Only the saved host, paths and query allowlist are in scope.",
+          "response_sha256": null
+        },
+        {
+          "check": "PUBLIC_REACHABILITY",
+          "status": "VERIFIED_PUBLIC",
+          "evidence_url": "https://jace.chd.edu.cn/rc-pub/front/front-article/getArticlesByPeriodicalIdGroupByColumn/272726?size=50&showCover=true",
+          "finding": "The official page identified the 2026 volume 43 issue 3 and the bounded same-origin API returned its article records as application/json.",
+          "response_sha256": null
+        }
+      ]
+    },
+    {
+      "source_code": "ENT-001",
+      "institution": "中国交建",
+      "aliases": ["中国交通建设集团", "中国交通建设集团有限公司", "中国交通建设股份有限公司"],
+      "official_origin": "https://www.ccccltd.cn/",
+      "stream_key": "cccc-project-briefs",
+      "collection_url": "https://www.ccccltd.cn/news/jcxw/jx/",
+      "detail_url_template": "https://www.ccccltd.cn/news/jcxw/jx/{yyyymm}/t{yyyymmdd}_{numeric_id}.html",
+      "allowed_hosts": ["www.ccccltd.cn"],
+      "allowed_path_patterns": [
+        "^/news/jcxw/jx/(?:index(?:_[1-9][0-9]*)?\\.html)?$",
+        "^/news/jcxw/jx/[0-9]{6}/t[0-9]{8}_[0-9]+\\.html$"
+      ],
+      "query_contract": null,
+      "connector_type": "HTML_LIST_DETAIL",
+      "expected_mime_types": ["text/html"],
+      "poll_interval_minutes": 1440,
+      "request_timeout_seconds": 10,
+      "max_redirects": 5,
+      "rate_limit_requests_per_minute": 1,
+      "user_agent": "SRBG-SourceResearch/1.0 (+personal noncommercial research)",
+      "policy_version": "t29r-cccc-project-first-party-v1",
+      "verified_at": "2026-07-20T03:14:18.0272444Z",
+      "resolved_public_ips": ["28.0.0.79"],
+      "observations": [
+        {
+          "url": "https://www.ccccltd.cn/news/jcxw/jx/",
+          "method": "BROWSER_NAVIGATION",
+          "status_code": 200,
+          "mime_type": "text/html",
+          "redirect_count": 0,
+          "response_sha256": null
+        },
+        {
+          "url": "https://www.ccccltd.cn/news/jcxw/jx/202607/t20260717_227766.html",
+          "method": "BROWSER_NAVIGATION",
+          "status_code": 200,
+          "mime_type": "text/html",
+          "redirect_count": 0,
+          "response_sha256": null
+        }
+      ],
+      "readiness": "BOUNDED",
+      "disposition": "ADMISSION_READY",
+      "blocker_codes": [],
+      "accepted_topics": ["公路", "铁路", "桥梁", "隧道", "房屋建筑", "矿山", "市政", "水利", "港航", "机场", "能源工程", "工程项目新事实"],
+      "excluded_topics": ["经营业绩", "资本市场", "股价", "年度报告", "党建", "党委会议", "人事任免", "人才招聘", "会议会见", "品牌宣传"],
+      "claim_basis": "PROJECT_FIRST_PARTY_RECORD",
+      "permitted_claim_bases": ["PROJECT_FIRST_PARTY_RECORD", "MANUFACTURER_CLAIM"],
+      "desired_enabled": false,
+      "source_admission": null,
+      "actual_running": false,
+      "pause_appended": false,
+      "coverage_credit_granted": false,
+      "attachments_allowed": false,
+      "public_redistribution": false,
+      "compliance": [
+        {
+          "check": "PUBLIC_NETWORK",
+          "status": "VERIFIED_PUBLIC",
+          "evidence_url": "https://www.ccccltd.cn/news/jcxw/jx/",
+          "finding": "Point-in-time resolution returned public address 28.0.0.79; SourceAdmission must resolve and validate every request and redirect again.",
+          "response_sha256": null
+        },
+        {
+          "check": "REDIRECTS",
+          "status": "VERIFIED_NO_REDIRECT",
+          "evidence_url": "https://www.ccccltd.cn/news/jcxw/jx/",
+          "finding": "The collection and sampled detail returned HTTPS 200 without an observed redirect.",
+          "response_sha256": null
+        },
+        {
+          "check": "ROBOTS",
+          "status": "VERIFIED_NOT_PUBLISHED",
+          "evidence_url": "https://www.ccccltd.cn/robots.txt",
+          "finding": "robots.txt returned 404 at verification time. Absence is not permission; SourceAdmission must re-probe and fail closed.",
+          "response_sha256": null
+        },
+        {
+          "check": "TERMS",
+          "status": "VERIFIED_RESTRICTED",
+          "evidence_url": "https://www.ccccltd.cn/dbnr/dbnr_bqsm/",
+          "finding": "The official copyright notice was readable but provides no separate automated-use grant; admission must re-evaluate exact Owner-private raw-first use.",
+          "response_sha256": null
+        },
+        {
+          "check": "COPYRIGHT",
+          "status": "VERIFIED_RESTRICTED",
+          "evidence_url": "https://www.ccccltd.cn/dbnr/dbnr_bqsm/",
+          "finding": "All rights are reserved. Only private raw evidence, project metadata, accepted claims, necessary short excerpts and original links are allowed; no images, attachments, full text or public redistribution.",
+          "response_sha256": null
+        },
+        {
+          "check": "ACCESS_BOUNDARY",
+          "status": "VERIFIED_ALLOWED",
+          "evidence_url": "https://www.ccccltd.cn/news/jcxw/jx/",
+          "finding": "The public list and details required no login, CAPTCHA or paywall; only the saved same-host list, pagination and detail patterns are in scope.",
+          "response_sha256": null
+        },
+        {
+          "check": "PUBLIC_REACHABILITY",
+          "status": "VERIFIED_PUBLIC",
+          "evidence_url": "https://www.ccccltd.cn/news/jcxw/jx/202607/t20260717_227766.html",
+          "finding": "The collection and sampled project detail were publicly reachable as text/html.",
+          "response_sha256": null
+        }
+      ]
+    }
+  ]
+}

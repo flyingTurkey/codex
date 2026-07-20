@@ -114,6 +114,25 @@ def test_deepseek_payload_is_json_object_thinking_disabled_and_tool_free() -> No
     assert result.finish_reason == "stop"
 
 
+def test_deepseek_accepts_the_versioned_server_profile_but_sends_catalog_model() -> None:
+    client = _Client(
+        {
+            "id": "request-profile",
+            "choices": [
+                {"finish_reason": "stop", "message": {"content": json.dumps(_classification())}}
+            ],
+            "usage": {"prompt_tokens": 20, "completion_tokens": 10},
+        }
+    )
+    request = _request().model_copy(
+        update={"model_profile": "ai01-deepseek-deepseek-v4-flash-v1"}
+    )
+
+    asyncio.run(ControlledModelGateway(DeepSeekProvider(client=client)).generate(request))
+
+    assert client.requests[0]["json"]["model"] == "deepseek-v4-flash"
+
+
 @pytest.mark.parametrize("content", [None, ""])
 def test_deepseek_rejects_empty_content(content: object) -> None:
     client = _Client(

@@ -15,7 +15,7 @@ REQUIRED_TABLES = {
 
 def test_round11_migration_follows_round10_and_declares_operations_tables() -> None:
     script = ScriptDirectory.from_config(Config('apps/api/alembic.ini'))
-    assert script.get_current_head() == "0036_ai_content_result_lifecycle"
+    assert script.get_current_head() == "0045_t12_media_delivery"
     revision = script.get_revision('0012_operations_readiness')
     assert revision.down_revision == '0011_feed_search_daily'
     migration = runpy.run_path('apps/api/migrations/versions/0012_operations_readiness.py')

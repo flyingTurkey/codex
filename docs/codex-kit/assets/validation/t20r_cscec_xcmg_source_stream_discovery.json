@@ -1,0 +1,222 @@
+{
+  "issue": 37,
+  "supersedes_issue": 21,
+  "parent_spec": 1,
+  "rule_version": "t20r-replacement-stream-discovery-v1",
+  "streams": [
+    {
+      "source_code": "ENT-002",
+      "institution": "中国建筑",
+      "official_origin": "https://www.cscec.com/",
+      "stream_key": "CSCEC_SUBSIDIARY_PROJECT_UPDATES",
+      "collection_url": "https://www.cscec.com/xwzx_new/zqydt_new/",
+      "allowed_hosts": ["www.cscec.com"],
+      "collection_path_pattern": "^/xwzx_new/zqydt_new/(?:index_[1-9][0-9]*\\.html)?$",
+      "detail_path_pattern": "^/xwzx_new/zqydt_new/[0-9]{6}/[0-9]+\\.html$",
+      "list_request": null,
+      "connector_type": "HTML_LIST_DETAIL",
+      "expected_mime_types": ["text/html"],
+      "poll_interval_minutes": 1440,
+      "request_timeout_seconds": 10,
+      "max_redirects": 5,
+      "rate_limit_requests_per_minute": 1,
+      "policy_version": "t20r-cscec-project-first-party-v1",
+      "verified_at": "2026-07-20T03:18:08Z",
+      "resolved_public_ips": ["138.113.89.175", "115.127.225.136"],
+      "observations": [
+        {
+          "url": "https://www.cscec.com/xwzx_new/zqydt_new/",
+          "method": "GET",
+          "status_code": 200,
+          "mime_type": "text/html",
+          "redirect_count": 0,
+          "response_sha256": "ce64bd1867ada0815f69f9de69adbee17b901e1f5791a57b70fd1044880d33aa"
+        },
+        {
+          "url": "https://www.cscec.com/xwzx_new/zqydt_new/202607/3950899.html",
+          "method": "GET",
+          "status_code": 200,
+          "mime_type": "text/html",
+          "redirect_count": 0,
+          "response_sha256": "5d85350287177c5aa6b73ab8365c0d2e1047f4f1697bbdddec218b9f03f62482"
+        }
+      ],
+      "readiness": "BOUNDED",
+      "disposition": "ADMISSION_READY",
+      "accepted_topics": ["房屋建筑", "铁路", "公路", "机场", "市政", "水务", "能源工程", "工程规划设计施工运营养护安全监测"],
+      "excluded_topics": ["党建", "人事", "资本市场", "奖项", "纯商业运营", "品牌宣传", "制造基地"],
+      "claim_basis": "PROJECT_FIRST_PARTY_RECORD",
+      "desired_enabled": false,
+      "source_admission": null,
+      "actual_running": false,
+      "pause_appended": false,
+      "coverage_credit_granted": false,
+      "attachments_allowed": false,
+      "public_redistribution": false,
+      "compliance": [
+        {
+          "check": "PUBLIC_NETWORK",
+          "status": "VERIFIED_PUBLIC",
+          "evidence_url": "https://www.cscec.com/xwzx_new/zqydt_new/",
+          "finding": "DoH returned public CDN addresses 138.113.89.175 and 115.127.225.136; SourceAdmission must resolve and validate again before every request.",
+          "response_sha256": null
+        },
+        {
+          "check": "REDIRECTS",
+          "status": "VERIFIED_NO_REDIRECT",
+          "evidence_url": "https://www.cscec.com/xwzx_new/zqydt_new/",
+          "finding": "Collection and sampled detail returned HTTPS 200 with zero redirects.",
+          "response_sha256": "ce64bd1867ada0815f69f9de69adbee17b901e1f5791a57b70fd1044880d33aa"
+        },
+        {
+          "check": "ROBOTS",
+          "status": "VERIFIED_NOT_PUBLISHED",
+          "evidence_url": "https://www.cscec.com/robots.txt",
+          "finding": "robots.txt returned 404 at verification time; this records absence rather than permission and must be rechecked by SourceAdmission.",
+          "response_sha256": "304f5b8a577543a9cca38c8f59851b8768f4c5adf79074e07c20c89dd22873b3"
+        },
+        {
+          "check": "TERMS",
+          "status": "VERIFIED_RESTRICTED",
+          "evidence_url": "https://www.cscec.com/fzlm_new/flsm_new/",
+          "finding": "Official legal statement limits site information to reference and non-commercial use; policy is Owner-private research only.",
+          "response_sha256": "328c3a9dcd83420ca9f7a0bf4bf1988846a0bdd5df398c6a55c00086465b404c"
+        },
+        {
+          "check": "COPYRIGHT",
+          "status": "VERIFIED_RESTRICTED",
+          "evidence_url": "https://www.cscec.com/fzlm_new/flsm_new/",
+          "finding": "Retain only necessary private raw HTML evidence; project metadata, necessary short excerpts and original links may be projected, with no images, attachments, full text or public redistribution.",
+          "response_sha256": "328c3a9dcd83420ca9f7a0bf4bf1988846a0bdd5df398c6a55c00086465b404c"
+        },
+        {
+          "check": "ACCESS_BOUNDARY",
+          "status": "VERIFIED_ALLOWED",
+          "evidence_url": "https://www.cscec.com/xwzx_new/zqydt_new/",
+          "finding": "Public list and details require no login, CAPTCHA or paywall; only saved same-host list/detail patterns are in scope.",
+          "response_sha256": null
+        },
+        {
+          "check": "PUBLIC_REACHABILITY",
+          "status": "VERIFIED_PUBLIC",
+          "evidence_url": "https://www.cscec.com/xwzx_new/zqydt_new/202607/3950899.html",
+          "finding": "Collection and detail are publicly reachable as text/html.",
+          "response_sha256": "5d85350287177c5aa6b73ab8365c0d2e1047f4f1697bbdddec218b9f03f62482"
+        }
+      ]
+    },
+    {
+      "source_code": "ENT-010",
+      "institution": "徐工集团",
+      "official_origin": "https://www.xcmg.com/",
+      "stream_key": "XCMG_CONSTRUCTION_CASES",
+      "collection_url": "https://www.xcmg.com/case/case.htm",
+      "allowed_hosts": ["www.xcmg.com"],
+      "collection_path_pattern": "^/case/case\\.htm$",
+      "detail_path_pattern": "^/case/case-detail-[0-9]+\\.htm$",
+      "list_request": {
+        "method": "POST",
+        "url": "https://www.xcmg.com/ext/ajax_case.jsp",
+        "form": {"flag": "case", "ids": "1,1,", "channelId": "22571"}
+      },
+      "connector_type": "HTML_SHELL_POST_LIST_DETAIL",
+      "expected_mime_types": ["text/html"],
+      "poll_interval_minutes": 1440,
+      "request_timeout_seconds": 10,
+      "max_redirects": 5,
+      "rate_limit_requests_per_minute": 1,
+      "policy_version": "t20r-xcmg-construction-machinery-v1",
+      "verified_at": "2026-07-20T03:13:15Z",
+      "resolved_public_ips": ["115.120.56.205"],
+      "observations": [
+        {
+          "url": "https://www.xcmg.com/case/case.htm",
+          "method": "GET",
+          "status_code": 200,
+          "mime_type": "text/html",
+          "redirect_count": 0,
+          "response_sha256": "24f7a4f35befdca484e3a15f01aef922f5e608669166475925f30f1760d07cf8"
+        },
+        {
+          "url": "https://www.xcmg.com/ext/ajax_case.jsp",
+          "method": "POST",
+          "status_code": 200,
+          "mime_type": "text/html",
+          "redirect_count": 0,
+          "response_sha256": "584e9928ec1a27b4daa14c6a19e4704e058c7dd294838b9d5b7f271bded22b90"
+        },
+        {
+          "url": "https://www.xcmg.com/case/case-detail-11243013.htm",
+          "method": "GET",
+          "status_code": 200,
+          "mime_type": "text/html",
+          "redirect_count": 0,
+          "response_sha256": "5a55be80c588f98a7ef6f0adac6f70d44c633a13e0aca8415a20412343d217ab"
+        }
+      ],
+      "readiness": "BOUNDED",
+      "disposition": "ADMISSION_READY",
+      "accepted_topics": ["公路市政", "桥梁", "隧道", "机场", "矿山", "港口", "房屋建筑", "能源工程", "施工运营养护安全监测"],
+      "excluded_topics": ["ERP", "生产线", "制造工厂", "泛制造数字化", "纯交付", "发运", "销售", "品牌奖项"],
+      "claim_basis": "MANUFACTURER_CLAIM",
+      "desired_enabled": false,
+      "source_admission": null,
+      "actual_running": false,
+      "pause_appended": false,
+      "coverage_credit_granted": false,
+      "attachments_allowed": false,
+      "public_redistribution": false,
+      "compliance": [
+        {
+          "check": "PUBLIC_NETWORK",
+          "status": "VERIFIED_PUBLIC",
+          "evidence_url": "https://www.xcmg.com/case/case.htm",
+          "finding": "DoH returned public address 115.120.56.205; SourceAdmission must resolve and validate again before every request.",
+          "response_sha256": null
+        },
+        {
+          "check": "REDIRECTS",
+          "status": "VERIFIED_NO_REDIRECT",
+          "evidence_url": "https://www.xcmg.com/case/case.htm",
+          "finding": "Shell, POST list and sampled detail returned HTTPS 200 with zero redirects.",
+          "response_sha256": "24f7a4f35befdca484e3a15f01aef922f5e608669166475925f30f1760d07cf8"
+        },
+        {
+          "check": "ROBOTS",
+          "status": "VERIFIED_ALLOWED",
+          "evidence_url": "https://www.xcmg.com/robots.txt",
+          "finding": "User-agent * has an empty Disallow and does not prohibit /case/ or /ext/ajax_case.jsp.",
+          "response_sha256": "2e156fdd375cdc352ca208875f918b366b2a952c0793e92b9f558badaeecca87"
+        },
+        {
+          "check": "TERMS",
+          "status": "VERIFIED_RESTRICTED",
+          "evidence_url": "https://www.xcmg.com/site/legal-notices.htm",
+          "finding": "Legal notice permits electronic copying only to convey or view information; use is restricted to Owner-private non-commercial research.",
+          "response_sha256": "fe5b72ede5f729459ae81b2ce8febf55d69ebaa795528c7643a1e02d0feb3178"
+        },
+        {
+          "check": "COPYRIGHT",
+          "status": "VERIFIED_RESTRICTED",
+          "evidence_url": "https://www.xcmg.com/site/legal-notices.htm",
+          "finding": "No mirroring, modified republication or commercial use; retain private raw HTML only and prohibit images, video, manuals, attachments, full text and public redistribution.",
+          "response_sha256": "fe5b72ede5f729459ae81b2ce8febf55d69ebaa795528c7643a1e02d0feb3178"
+        },
+        {
+          "check": "ACCESS_BOUNDARY",
+          "status": "VERIFIED_ALLOWED",
+          "evidence_url": "https://www.xcmg.com/ext/ajax_case.jsp",
+          "finding": "Public same-host form POST returns the bounded case list without login, CAPTCHA or paywall; only saved form keys and detail pattern are allowed.",
+          "response_sha256": "584e9928ec1a27b4daa14c6a19e4704e058c7dd294838b9d5b7f271bded22b90"
+        },
+        {
+          "check": "PUBLIC_REACHABILITY",
+          "status": "VERIFIED_PUBLIC",
+          "evidence_url": "https://www.xcmg.com/case/case-detail-11243013.htm",
+          "finding": "Shell, list and details are publicly reachable as text/html; the verified list exposed approximately 300 bounded details.",
+          "response_sha256": "5a55be80c588f98a7ef6f0adac6f70d44c633a13e0aca8415a20412343d217ab"
+        }
+      ]
+    }
+  ]
+}

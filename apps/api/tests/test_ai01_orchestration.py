@@ -1,6 +1,6 @@
 import asyncio
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from hashlib import sha256
 from typing import Any
 from uuid import UUID
@@ -13,6 +13,7 @@ from srbg_api.ai_pipeline.content_preparation import (
 from srbg_api.ai_pipeline.contracts import AiStep, ModelRequest, ModelResponse, ModelUsage
 from srbg_api.ai_pipeline.preparation import DocumentBlock
 from srbg_api.ai_pipeline.security import PromptInjectionScanner
+from srbg_api.intelligence_v2.gold_calibration import AutoPassCalibrationGrant
 
 RUN_ID = UUID("019d0000-0000-7000-8000-000000002021")
 PILOT_URL = (
@@ -28,6 +29,7 @@ class FakeRepository:
     reservations: list[AiStep] = field(default_factory=list)
     materialized: int = 0
     judgment_type: str | None = None
+    review_payloads: list[dict[str, Any]] = field(default_factory=list)
 
     async def begin(self, run_id: UUID) -> PreparationDocument:
         self.statuses.append("PREPARING")
@@ -50,6 +52,18 @@ class FakeRepository:
 
     async def authorize_real_run(self, document: PreparationDocument) -> bool:
         return document.document_version_id == "document-v1"
+
+    async def load_auto_pass_calibration(
+        self, *, rule_version: str, model_id: str, prompt_version: str
+    ) -> AutoPassCalibrationGrant | None:
+        return AutoPassCalibrationGrant(
+            threshold_bps=9300,
+            corpus_version="TEST_FIXTURE_ONLY",
+            rule_version=rule_version,
+            model_id=model_id,
+            prompt_version=prompt_version,
+            fact_sha256="0" * 64,
+        )
 
     async def record_security(self, document: PreparationDocument, detected: bool) -> None:
         assert detected is False
@@ -120,6 +134,13 @@ class FakeRepository:
     async def fail(self, run_id: UUID, status: str, code: str) -> None:
         self.statuses.append(status)
 
+    async def queue_qualification_review(
+        self, document: PreparationDocument, classification: dict[str, Any]
+    ) -> UUID:
+        self.review_payloads.append(classification)
+        self.statuses.append("WAITING_CLAIM_REVIEW")
+        return UUID("019d0000-0000-7000-8000-000000002099")
+
 
 class FakeModel:
     async def generate(self, request: ModelRequest) -> ModelResponse:
@@ -132,7 +153,7 @@ class FakeModel:
                 "specialty_facets": [],
                 "equipment_domains": [],
                 "content_form": "PROJECT_RECORD",
-                "evidence_locators": ["html:p:1"],
+                "evidence_locators": ["block-1"],
                 "confidence": 0.95,
                 "needs_human_review": False,
                 "review_reasons": [],
@@ -238,3 +259,36 @@ def test_one_document_reaches_automatic_evidence_gate_without_claim_review() -> 
 def test_ai01_scope_is_authorized_by_server_facts_not_a_pinned_url() -> None:
     source = AiContentPreparationService.run.__code__.co_consts
     assert PILOT_URL not in source
+
+
+def test_locked_negative_only_creates_a_qualification_review_case() -> None:
+    class LockedNegativeRepository(FakeRepository):
+        async def begin(self, run_id: UUID) -> PreparationDocument:
+            document = await super().begin(run_id)
+            return replace(
+                document,
+                blocks=(
+                    DocumentBlock(
+                        block_id="block-1",
+                        page_number=1,
+                        text="旅游消费促销活动启动, 仅涉及景区营销。",
+                        locator_value="page=1&box=1,2,3,4",
+                    ),
+                ),
+            )
+
+    repository = LockedNegativeRepository()
+    service = AiContentPreparationService(
+        repository=repository,
+        model=FakeModel(),
+        scanner=PromptInjectionScanner(),
+    )
+
+    result = asyncio.run(service.run(RUN_ID))
+
+    assert result.candidate_count == 0
+    assert repository.materialized == 0
+    assert repository.judgment_type is None
+    assert len(repository.review_payloads) == 1
+    assert repository.review_payloads[0]["review_reasons"] == ["LOCKED_NEGATIVE"]
+    assert repository.statuses == ["PREPARING", "CLASSIFYING", "WAITING_CLAIM_REVIEW"]

@@ -13,6 +13,8 @@ interface ReviewCase {
 const { data: cases, status, refresh } = await useFetch<ReviewCase[]>('/api/v2/review/cases', {
   server: false, default: () => [], retry: 0, timeout: 5_000,
 })
+const route = useRoute()
+const linkedCaseId = computed(() => typeof route.query.case_id === 'string' ? route.query.case_id : null)
 </script>
 
 <template>
@@ -20,7 +22,13 @@ const { data: cases, status, refresh } = await useFetch<ReviewCase[]>('/api/v2/r
     <PageHeader title="Owner 复核" eyebrow="分类、证据与 AI 解读独立决策" description="低置信、主类并列、R3 与 R4 内容不会进入普通 Feed。" />
     <Skeleton v-if="status === 'idle' || status === 'pending'" :lines="5" label="正在加载复核案例" />
     <ol v-else-if="cases?.length" class="review-page__list">
-      <li v-for="item in cases" :key="item.case_id">
+      <li
+        v-for="item in cases"
+        :id="`review-case-${item.case_id}`"
+        :key="item.case_id"
+        :aria-current="linkedCaseId === item.case_id ? 'true' : undefined"
+        :class="{ 'review-page__case--linked': linkedCaseId === item.case_id }"
+      >
         <div><StatusBadge :tone="item.risk_tier === 'R4' ? 'conflict' : 'pending'" :label="item.risk_tier" /><span>{{ item.reason }}</span></div>
         <h2>{{ item.safe_metadata.title ?? '安全元数据待补充' }}</h2>
         <p>{{ item.safe_metadata.source_name ?? '来源待确认' }} · 版本 {{ item.version }}</p>
@@ -36,5 +44,6 @@ const { data: cases, status, refresh } = await useFetch<ReviewCase[]>('/api/v2/r
 .review-page { display:grid; width:min(100%,var(--srbg-layout-content-max)); margin-inline:auto; gap:var(--spacing-5); }
 .review-page__list { display:grid; padding:0; list-style:none; gap:var(--spacing-3); }
 .review-page__list li { padding:var(--spacing-4); background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg); }
+.review-page__case--linked { outline: 2px solid var(--color-brand-600); outline-offset: var(--spacing-1); }
 .review-page__list li>div { display:flex; align-items:center; gap:var(--spacing-2); }
 </style>

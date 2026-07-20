@@ -74,6 +74,17 @@ class AiSummaryStatusV2(StrEnum):
     STALE = "STALE"
 
 
+AI_SUMMARY_STATUS_MESSAGES_V2: dict[AiSummaryStatusV2, str] = {
+    AiSummaryStatusV2.NOT_GENERATED: "AI 总结尚未生成。已通过证据门禁的原文摘录仍可阅读。",
+    AiSummaryStatusV2.PROCESSING: "AI 总结正在处理。当前先展示来源事实与原文摘录。",
+    AiSummaryStatusV2.TEMPORARILY_UNAVAILABLE: "AI 服务暂时不可用。系统会在受控上限内自动重试。",
+    AiSummaryStatusV2.SCHEMA_REJECTED: "AI 返回未通过结构校验。未采用该输出且不会自动重试。",
+    AiSummaryStatusV2.INSUFFICIENT_EVIDENCE: "当前已接受证据不足。未生成 AI 总结。",
+    AiSummaryStatusV2.SUCCEEDED: "AI 总结已按当前证据版本生成。",
+    AiSummaryStatusV2.STALE: "来源版本或已接受事实已变化。旧 AI 总结不再作为当前内容展示。",
+}
+
+
 def _validate_governance_reason(value: str) -> str:
     lowered = value.casefold()
     if (
@@ -1964,9 +1975,33 @@ class SourceExcerptV2(ContractModel):
     evidence_locators: list[str] = Field(min_length=1, max_length=100)
 
 
+class AiSummaryFactParagraphV2(ContractModel):
+    kind: Literal["FACT"] = "FACT"
+    section: Literal["WHAT_HAPPENED"]
+    text: str = Field(min_length=1, max_length=500)
+    claim_ids: list[UUID] = Field(min_length=1, max_length=100)
+    judgment_type: None = None
+
+
+class AiSummaryJudgmentParagraphV2(ContractModel):
+    kind: Literal["JUDGMENT"] = "JUDGMENT"
+    section: Literal["ENGINEERING_IMPACT", "LIMITATIONS_AND_FOLLOW_UP"]
+    text: str = Field(min_length=1, max_length=500)
+    claim_ids: list[UUID] = Field(default_factory=list, max_length=0)
+    judgment_type: Literal["ENGINEERING_SIGNIFICANCE", "LIMITATION_AND_FOLLOW_UP"]
+
+
+AiSummaryParagraphV2 = Annotated[
+    AiSummaryFactParagraphV2 | AiSummaryJudgmentParagraphV2,
+    Field(discriminator="kind"),
+]
+
+
 class AiSummaryV2(ContractModel):
     status: AiSummaryStatusV2
+    status_message: str = Field(default="", min_length=1, max_length=100)
     body: str | None = Field(default=None, min_length=30, max_length=500)
+    paragraphs: list[AiSummaryParagraphV2] = Field(default_factory=list, max_length=12)
     claim_ids: list[UUID] = Field(default_factory=list, max_length=100)
     judgment_paragraphs: list[int] = Field(default_factory=list, max_length=3)
     model: str | None = Field(default=None, max_length=100)
@@ -1974,17 +2009,39 @@ class AiSummaryV2(ContractModel):
 
     @model_validator(mode="after")
     def enforce_status_payload(self) -> "AiSummaryV2":
+        expected_message = AI_SUMMARY_STATUS_MESSAGES_V2[self.status]
+        if self.status_message and self.status_message != expected_message:
+            raise ValueError("AI summary status message must use deterministic server copy")
+        self.status_message = expected_message
         if self.status == AiSummaryStatusV2.SUCCEEDED:
             if (
-                self.body is None
+                not self.paragraphs
                 or not self.claim_ids
                 or self.model is None
                 or self.generated_at is None
             ):
                 raise ValueError(
-                    "a successful AI summary requires body, accepted claims and provenance"
+                    "a successful AI summary requires structured paragraphs, accepted claims "
+                    "and provenance"
                 )
-        elif self.body is not None or self.claim_ids:
+            sections = {paragraph.section for paragraph in self.paragraphs}
+            if sections != {
+                "WHAT_HAPPENED",
+                "ENGINEERING_IMPACT",
+                "LIMITATIONS_AND_FOLLOW_UP",
+            }:
+                raise ValueError("a successful AI summary must cover all required sections")
+            if not 300 <= sum(len(paragraph.text) for paragraph in self.paragraphs) <= 500:
+                raise ValueError("a successful AI summary must contain 300-500 visible characters")
+            factual_claim_ids = {
+                claim_id
+                for paragraph in self.paragraphs
+                if paragraph.kind == "FACT"
+                for claim_id in paragraph.claim_ids
+            }
+            if factual_claim_ids != set(self.claim_ids):
+                raise ValueError("AI summary claim_ids must equal factual paragraph references")
+        elif self.body is not None or self.paragraphs or self.claim_ids:
             raise ValueError("an unavailable AI summary cannot expose generated content")
         return self
 
@@ -2010,6 +2067,38 @@ class HotspotReasonV2(ContractModel):
     reasons: list[str] = Field(min_length=1, max_length=5)
 
 
+class HotspotCandidateReasonV2(ContractModel):
+    text: str = Field(min_length=1, max_length=300)
+    claim_ids: list[UUID] = Field(min_length=1, max_length=100)
+
+
+class HotspotCandidateV2(ContractModel):
+    claim_ids: list[UUID] = Field(min_length=1, max_length=100)
+    reasons: list[HotspotCandidateReasonV2] = Field(min_length=1, max_length=5)
+
+    @model_validator(mode="after")
+    def enforce_claim_references(self) -> "HotspotCandidateV2":
+        candidate_claims = set(self.claim_ids)
+        if len(candidate_claims) != len(self.claim_ids):
+            raise ValueError("hotspot candidate claim references must be unique")
+        if any(not set(reason.claim_ids).issubset(candidate_claims) for reason in self.reasons):
+            raise ValueError("hotspot reasons may reference only candidate claims")
+        return self
+
+
+class SearchExplanationV2(ContractModel):
+    matched_evidence_fields: list[
+        Literal["TITLE", "SOURCE", "ACCEPTED_CLAIMS", "SOURCE_EXCERPT"]
+    ] = Field(default_factory=list, max_length=4)
+    ai_summary_assisted: bool = False
+
+    @model_validator(mode="after")
+    def require_a_match_source(self) -> "SearchExplanationV2":
+        if not self.matched_evidence_fields and not self.ai_summary_assisted:
+            raise ValueError("search explanation requires an evidence or AI summary match")
+        return self
+
+
 class EventMetadataProjectionV2(ContractModel):
     projection_kind: Literal["R3_METADATA"] = "R3_METADATA"
     event_id: UUID
@@ -2018,7 +2107,7 @@ class EventMetadataProjectionV2(ContractModel):
     official_source: bool
     source_name: str = Field(min_length=1, max_length=200)
     source_published_at: datetime | None
-    first_discovered_at: datetime
+    first_discovered_at: datetime | None
     original_url: HttpUrlString = Field(pattern="^https?://[^\\s]+$", max_length=2048)
     review_state: Literal["PENDING_OWNER_REVIEW"] = "PENDING_OWNER_REVIEW"
 
@@ -2030,8 +2119,9 @@ class EventFullProjectionV2(ContractModel):
     primary_type: PrimaryIntelligenceType
     facets: IntelligenceFacetsV2
     source: SourceAttributionV2
+    human_reviewed: bool
     source_published_at: datetime | None
-    first_discovered_at: datetime
+    first_discovered_at: datetime | None
     source_excerpt: SourceExcerptV2
     ai_summary: AiSummaryV2
     original_url: HttpUrlString = Field(pattern="^https?://[^\\s]+$", max_length=2048)
@@ -2040,6 +2130,7 @@ class EventFullProjectionV2(ContractModel):
     media: list[MediaViewV2] = Field(default_factory=list, max_length=50)
     attachments: list[AttachmentViewV2] = Field(default_factory=list, max_length=100)
     correction_alert: str | None = Field(default=None, max_length=500)
+    search_explanation: SearchExplanationV2 | None = None
 
 
 EventProjectionV2 = Annotated[
@@ -2055,13 +2146,70 @@ class FeedPageV2(ContractModel):
     projection_generation: Literal["v2"] = "v2"
 
 
+class ReviewedRelationshipV2(ContractModel):
+    id: UUID
+    event_id: UUID
+    from_item_id: UUID
+    to_item_id: UUID
+    relation_type: EventRelation
+    from_stage: SafetyCaseReportStage | None = None
+    to_stage: SafetyCaseReportStage | None = None
+    reviewed_by: UUID | None = None
+    reviewed_at: datetime
+
+
+class AppendixCorrectionV2(ContractModel):
+    id: UUID
+    kind: Literal[
+        "DOCUMENT_VERSION_CHANGED",
+        "ACCEPTED_CLAIMS_CHANGED",
+        "SOURCE_WITHDRAWN",
+        "SOURCE_CORRECTED",
+        "RELATION_CORRECTED",
+    ]
+    description: str = Field(min_length=1, max_length=500)
+    occurred_at: datetime
+    affects: list[Literal["SOURCE_EXCERPT", "AI_SUMMARY", "RELATIONSHIPS"]] = Field(
+        min_length=1, max_length=3
+    )
+    document_version_id: UUID | None = None
+
+
+class AppendixReviewContextV2(ContractModel):
+    case_id: UUID
+    href: str = Field(pattern=r"^/review\?case_id=[0-9a-f-]{36}$", max_length=80)
+
+
+class AppendixContentSummaryV2(ContractModel):
+    total_items: int = Field(default=0, ge=0)
+    heavy_content: bool = False
+    truncated_sections: list[
+        Literal[
+            "CLAIMS",
+            "EVIDENCE",
+            "AUTOMATIC_RESULTS",
+            "REVIEWED_RELATIONSHIPS",
+            "AUTOMATIC_RELATIONSHIPS",
+            "CORRECTIONS",
+        ]
+    ] = Field(default_factory=list, max_length=6)
+
+
 class EventAppendixV2(ContractModel):
     event_id: UUID
     claims: list[ClaimView] = Field(default_factory=list, max_length=500)
     evidence: list["EvidenceView"] = Field(default_factory=list, max_length=500)
     automatic_results: list[EventAutomaticResultView] = Field(default_factory=list, max_length=100)
-    relationships: list[EventRelationView] = Field(default_factory=list, max_length=500)
-    corrections: list[str] = Field(default_factory=list, max_length=100)
+    relationships: list[ReviewedRelationshipV2] = Field(default_factory=list, max_length=500)
+    automatic_relationships: list[AutomaticRelationshipView] = Field(
+        default_factory=list, max_length=500
+    )
+    corrections: list[AppendixCorrectionV2] = Field(default_factory=list, max_length=100)
+    review_context: AppendixReviewContextV2 | None = None
+    review_href: Literal["/review"] = "/review"
+    content_summary: AppendixContentSummaryV2 = Field(
+        default_factory=AppendixContentSummaryV2
+    )
 
 
 class ReviewDecisionCommandV2(ContractModel):
@@ -2161,6 +2309,99 @@ class ReviewDecisionReceiptV2(ContractModel):
     reprocessing_state: Literal["QUEUED"] = "QUEUED"
 
 
+class ContentPreparationClaimV2(ContractModel):
+    claim_id: UUID
+    basis: ClaimBasisV2
+    evidence_locators: list[str] = Field(min_length=1, max_length=100)
+
+
+class ContentSummaryFactParagraphV2(ContractModel):
+    kind: Literal["FACT"] = "FACT"
+    section: Literal["WHAT_HAPPENED"]
+    text: str = Field(min_length=1, max_length=500)
+    claim_ids: list[UUID] = Field(min_length=1, max_length=100)
+    judgment_type: None = None
+
+
+class ContentSummaryJudgmentParagraphV2(ContractModel):
+    kind: Literal["JUDGMENT"] = "JUDGMENT"
+    section: Literal["ENGINEERING_IMPACT", "LIMITATIONS_AND_FOLLOW_UP"]
+    text: str = Field(min_length=1, max_length=500)
+    claim_ids: list[UUID] = Field(default_factory=list, max_length=0)
+    judgment_type: Literal["ENGINEERING_SIGNIFICANCE", "LIMITATION_AND_FOLLOW_UP"]
+
+
+ContentSummaryParagraphV2 = Annotated[
+    ContentSummaryFactParagraphV2 | ContentSummaryJudgmentParagraphV2,
+    Field(discriminator="kind"),
+]
+
+
+class QuarantineProjectionV2(ContractModel):
+    projection_kind: Literal["QUARANTINE"] = "QUARANTINE"
+    case_id: UUID
+    event_id: UUID | None = None
+    title: str = Field(min_length=1, max_length=500)
+    primary_type: PrimaryIntelligenceType | None = None
+    official_source: bool
+    source_published_at: datetime | None
+    first_discovered_at: datetime | None
+    original_url: HttpUrlString = Field(pattern="^https?://[^\\s]+$", max_length=2048)
+    isolation_reason: str = Field(min_length=1, max_length=80)
+
+
+class ContentSummaryCandidateV2(ContractModel):
+    visible_character_count: int = Field(ge=300, le=500)
+    paragraphs: list[ContentSummaryParagraphV2] = Field(min_length=3, max_length=12)
+
+    @model_validator(mode="after")
+    def enforce_summary_shape(self) -> "ContentSummaryCandidateV2":
+        actual = sum(len(paragraph.text) for paragraph in self.paragraphs)
+        if actual != self.visible_character_count:
+            raise ValueError("visible character count does not match paragraphs")
+        sections = {paragraph.section for paragraph in self.paragraphs}
+        if sections != {
+            "WHAT_HAPPENED",
+            "ENGINEERING_IMPACT",
+            "LIMITATIONS_AND_FOLLOW_UP",
+        }:
+            raise ValueError("summary must cover all required sections")
+        return self
+
+
+class ContentReviewDecisionV2(ContractModel):
+    decision_id: UUID
+    command: Literal[
+        "ACCEPT_CLAIM",
+        "REJECT_CLAIM",
+        "REPLACE_CLAIM",
+        "APPROVE_AI_SUMMARY",
+        "REJECT_AI_SUMMARY",
+        "REGENERATE_AI_SUMMARY",
+    ]
+    created_at: datetime
+
+
+class ContentPreparationReviewV2(ContractModel):
+    status: Literal["CURRENT", "STALE"]
+    source_excerpt: SourceExcerptV2
+    summary: ContentSummaryCandidateV2
+    claims: list[ContentPreparationClaimV2] = Field(min_length=1, max_length=100)
+    fact_decisions: list[ContentReviewDecisionV2] = Field(default_factory=list, max_length=500)
+    ai_summary_decisions: list[ContentReviewDecisionV2] = Field(
+        default_factory=list, max_length=500
+    )
+    invalidation_reason: (
+        Literal[
+            "DOCUMENT_VERSION_CHANGED",
+            "ACCEPTED_CLAIMS_CHANGED",
+            "SOURCE_WITHDRAWN",
+            "SOURCE_CORRECTED",
+        ]
+        | None
+    ) = None
+
+
 class ReviewCaseV2(ContractModel):
     case_id: UUID
     event_id: UUID | None = None
@@ -2173,6 +2414,7 @@ class ReviewCaseV2(ContractModel):
     version: int = Field(ge=1)
     created_at: datetime
     updated_at: datetime
+    content_preparation: ContentPreparationReviewV2 | None = None
 
 
 class EventDetail(ContractModel):

@@ -1,0 +1,59 @@
+{
+  "$defs": {
+    "HotspotCandidateReasonV2": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Claim Ids",
+          "type": "array"
+        },
+        "text": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "claim_ids"
+      ],
+      "title": "HotspotCandidateReasonV2",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "claim_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "maxItems": 100,
+      "minItems": 1,
+      "title": "Claim Ids",
+      "type": "array"
+    },
+    "reasons": {
+      "items": {
+        "$ref": "#/$defs/HotspotCandidateReasonV2"
+      },
+      "maxItems": 5,
+      "minItems": 1,
+      "title": "Reasons",
+      "type": "array"
+    }
+  },
+  "required": [
+    "claim_ids",
+    "reasons"
+  ],
+  "title": "HotspotCandidateV2",
+  "type": "object"
+}

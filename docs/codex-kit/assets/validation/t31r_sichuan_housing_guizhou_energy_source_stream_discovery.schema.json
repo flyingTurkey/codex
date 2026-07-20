@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srbg.local/schemas/t31r-sichuan-housing-guizhou-energy-source-stream-discovery.schema.json",
+  "title": "T31R Sichuan Housing and Guizhou Energy replacement SourceStream discovery record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["issue", "supersedes_issue", "parent_spec", "rule_version", "verified_at", "closure_eligible", "sources"],
+  "properties": {
+    "issue": {"const": 38},
+    "supersedes_issue": {"const": 32},
+    "parent_spec": {"const": 1},
+    "rule_version": {"const": "t31r-replacement-stream-discovery-v1"},
+    "verified_at": {"type": "string", "format": "date-time"},
+    "closure_eligible": {"const": true},
+    "sources": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/source",
+          "properties": {
+            "source_key": {"const": "GOV-017"},
+            "registry_code": {"const": "GOV-017"},
+            "institution": {"const": "四川省住房和城乡建设厅"},
+            "official_origin": {"const": "https://jst.sc.gov.cn/"}
+          }
+        },
+        {
+          "$ref": "#/$defs/source",
+          "properties": {
+            "source_key": {"const": "GOV-023"},
+            "registry_code": {"const": "GOV-023"},
+            "institution": {"const": "贵州省能源局"},
+            "official_origin": {"const": "https://nyj.guizhou.gov.cn/"}
+          }
+        }
+      ],
+      "items": false
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_key", "registry_code", "institution", "official_origin", "source_status", "desired_enabled", "source_admission", "actual_running", "pause_appended", "coverage_credit_granted", "streams"],
+      "properties": {
+        "source_key": {"type": "string", "minLength": 1},
+        "registry_code": {"type": "string", "minLength": 1},
+        "institution": {"type": "string", "minLength": 1},
+        "official_origin": {"type": "string", "pattern": "^https://"},
+        "source_status": {"const": "CANDIDATE"},
+        "desired_enabled": {"const": false},
+        "source_admission": {"type": "null"},
+        "actual_running": {"const": false},
+        "pause_appended": {"const": false},
+        "coverage_credit_granted": {"const": false},
+        "streams": {"type": "array", "minItems": 1, "maxItems": 1, "items": {"$ref": "#/$defs/stream"}}
+      }
+    },
+    "stream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stream_key", "name", "collection_url", "allowed_hosts", "collection_boundary", "connector_type", "expected_mime_types", "poll_interval_minutes", "request_timeout_seconds", "max_redirects", "rate_limit_requests_per_minute", "user_agent", "policy_version", "readiness", "content_relevance", "disposition", "blocker_codes", "engineering_objects", "specialty_facets", "tunnel_gas_policy", "permitted_claim_bases", "public_redistribution", "prefilter", "verification", "compliance"],
+      "properties": {
+        "stream_key": {"type": "string", "pattern": "^[A-Z0-9_]{3,100}$"},
+        "name": {"type": "string", "minLength": 1},
+        "collection_url": {"type": "string", "pattern": "^https://"},
+        "allowed_hosts": {"type": "array", "minItems": 1, "items": {"type": "string"}, "uniqueItems": true},
+        "collection_boundary": {"$ref": "#/$defs/boundary"},
+        "connector_type": {"const": "HTML_LIST_DETAIL"},
+        "expected_mime_types": {"const": ["text/html"]},
+        "poll_interval_minutes": {"type": "integer", "minimum": 1440, "maximum": 10080},
+        "request_timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 30},
+        "max_redirects": {"type": "integer", "minimum": 0, "maximum": 5},
+        "rate_limit_requests_per_minute": {"type": "integer", "minimum": 1, "maximum": 10},
+        "user_agent": {"type": "string", "minLength": 10},
+        "policy_version": {"type": "string", "pattern": "^t31r-"},
+        "readiness": {"const": "BOUNDED"},
+        "content_relevance": {"const": "FILTERED"},
+        "disposition": {"const": "ADMISSION_READY"},
+        "blocker_codes": {"type": "array", "maxItems": 0},
+        "engineering_objects": {"type": "array", "minItems": 1, "items": {"enum": ["HIGHWAY", "RAILWAY", "BRIDGE", "TUNNEL", "BUILDING", "MINING", "MUNICIPAL", "WATER_CONSERVANCY", "PORT_WATERWAY", "AIRPORT", "ENERGY"]}, "uniqueItems": true},
+        "specialty_facets": {"type": "array", "items": {"const": "TUNNEL_GAS_MONITORING"}, "uniqueItems": true},
+        "tunnel_gas_policy": {"const": "MINING_ONLY_UNLESS_HIGHWAY_OR_RAILWAY_TUNNEL_EVIDENCE"},
+        "permitted_claim_bases": {"const": ["AUTHORITY_FINDING"]},
+        "public_redistribution": {"const": false},
+        "prefilter": {"$ref": "#/$defs/prefilter"},
+        "verification": {"$ref": "#/$defs/verification"},
+        "compliance": {"type": "array", "minItems": 7, "maxItems": 7, "items": {"$ref": "#/$defs/compliance"}}
+      }
+    },
+    "boundary": {
+      "type": "object", "additionalProperties": false,
+      "required": ["collection_path_pattern", "required_query", "detail_path_pattern", "pagination_policy", "detail_url_policy"],
+      "properties": {
+        "collection_path_pattern": {"type": "string", "minLength": 1},
+        "required_query": {"type": "object", "additionalProperties": {"type": "string"}},
+        "detail_path_pattern": {"type": "string", "minLength": 1},
+        "pagination_policy": {"type": "string", "minLength": 1},
+        "detail_url_policy": {"type": "string", "minLength": 1}
+      }
+    },
+    "prefilter": {
+      "type": "object", "additionalProperties": false,
+      "required": ["engineering_object_terms", "lifecycle_terms", "excluded_terms"],
+      "properties": {
+        "engineering_object_terms": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "lifecycle_terms": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "excluded_terms": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+      }
+    },
+    "verification": {
+      "type": "object", "additionalProperties": false,
+      "required": ["verified_at", "public_network_safe", "redirect_chain_safe", "resolved_hosts", "http_observations"],
+      "properties": {
+        "verified_at": {"type": "string", "format": "date-time"},
+        "public_network_safe": {"const": true},
+        "redirect_chain_safe": {"const": true},
+        "resolved_hosts": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "array", "minItems": 1, "items": {"type": "string", "format": "ipv4"}}},
+        "http_observations": {"type": "array", "minItems": 4, "items": {"$ref": "#/$defs/http_observation"}}
+      }
+    },
+    "http_observation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["purpose", "url", "final_url", "status_code", "content_type", "redirect_count", "response_sha256"],
+      "properties": {
+        "purpose": {"enum": ["COLLECTION", "DETAIL", "ROBOTS", "TERMS"]},
+        "url": {"type": "string", "pattern": "^https://"},
+        "final_url": {"type": "string", "pattern": "^https://"},
+        "status_code": {"type": "integer", "minimum": 100, "maximum": 599},
+        "content_type": {"type": "string", "minLength": 1},
+        "redirect_count": {"type": "integer", "minimum": 0, "maximum": 5},
+        "response_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "compliance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["check", "status", "observed_at", "evidence_urls", "finding"],
+      "properties": {
+        "check": {"enum": ["PUBLIC_NETWORK", "REDIRECTS", "ROBOTS", "TERMS", "COPYRIGHT", "ACCESS_BOUNDARY", "PUBLIC_REACHABILITY"]},
+        "status": {"enum": ["VERIFIED_PUBLIC", "VERIFIED_SAFE", "VERIFIED_NO_REDIRECT", "VERIFIED_NOT_PUBLISHED", "VERIFIED_ALLOWED", "VERIFIED_RESTRICTED", "VERIFIED_NO_SEPARATE_TERMS"]},
+        "observed_at": {"type": "string", "format": "date-time"},
+        "evidence_urls": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^https://"}},
+        "finding": {"type": "string", "minLength": 1, "maxLength": 1200}
+      }
+    }
+  }
+}

@@ -13,10 +13,6 @@ from sqlalchemy import text
 from srbg_api.ai_pipeline.ai_judgments import (
     AiJudgmentResultType,
     SummarizeOutput,
-    VerificationOutput,
-    classify_verification,
-    validate_used_claim_ids,
-    verification_reason_codes,
 )
 from srbg_api.ai_pipeline.content_preparation import (
     AiContentPreparationService,
@@ -32,10 +28,15 @@ from srbg_api.database import create_database_engine, create_publication_engine
 from srbg_api.discovery.projections import PostgresDiscoveryProjectionWriter
 from srbg_api.document_vault.storage import S3ObjectStore
 from srbg_api.identifiers import uuid7
-from srbg_api.intelligence_v2.qualification import classification_allows_extraction
+from srbg_api.intelligence_v2.ai_runtime import summary_state_for_failure
+from srbg_api.intelligence_v2.qualification import qualification_reason
+from srbg_api.intelligence_v2.t06_content_summary import (
+    validate_content_summary_output,
+)
 from srbg_api.internal_projection.audit_anchor import anchor_latest_audit_root
 from srbg_api.logging import configure_logging
 from srbg_api.observability import (
+    INTELLIGENCE_QUALIFICATION_DECISIONS,
     PERSONAL_AUTO_ENABLE_RESULTS,
     PERSONAL_DISCOVERY_RESULTS,
     PERSONAL_SOURCE_PROBE_QUEUE,
@@ -197,6 +198,7 @@ celery_app.conf.update(
         "srbg.ai.runtime_observation": {"queue": "celery"},
         "srbg.ai.v2_canary_dispatch": {"queue": "celery"},
         "srbg.ai.v2_canary_result": {"queue": "celery"},
+        "srbg.ai.v2_campaign_fault_injection": {"queue": "celery"},
         "srbg.publication.outbox": {"queue": "publisher"},
         "srbg.publication.projections": {"queue": "publisher"},
         "srbg.intelligence_v2.review_dispatch": {"queue": "publisher"},
@@ -317,6 +319,9 @@ def record_ai_v2_canary_result(
     run_id: str,
     document_version_id: str,
     reservation_id: str,
+    attempt: int = 1,
+    kind: str = AttemptKind.PRIMARY.value,
+    campaign_id: str | None = None,
 ) -> dict[str, str]:
     return asyncio.run(
         _record_ai_v2_canary_result(
@@ -324,6 +329,9 @@ def record_ai_v2_canary_result(
             run_id=UUID(run_id),
             document_version_id=UUID(document_version_id),
             reservation_id=UUID(reservation_id),
+            attempt=attempt,
+            kind=AttemptKind(kind),
+            campaign_id=None if campaign_id is None else UUID(campaign_id),
         )
     )
 
@@ -334,6 +342,9 @@ async def _record_ai_v2_canary_result(
     run_id: UUID,
     document_version_id: UUID,
     reservation_id: UUID,
+    attempt: int = 1,
+    kind: AttemptKind = AttemptKind.PRIMARY,
+    campaign_id: UUID | None = None,
 ) -> dict[str, str]:
     repository = _ai_repository()
     prepared = fixed_canary_input(str(document_version_id))
@@ -349,8 +360,8 @@ async def _record_ai_v2_canary_result(
                 await repository.append_failed_step(
                     run_id,
                     AiStep.CLASSIFY,
-                    1,
-                    AttemptKind.PRIMARY.value,
+                    attempt,
+                    kind.value,
                     code,
                     request.input_sha256,
                 )
@@ -359,6 +370,7 @@ async def _record_ai_v2_canary_result(
                     succeeded=False,
                     failure_code=code,
                 )
+                await repository.complete_compensation(run_id=run_id, succeeded=False)
                 return {"run_id": str(run_id), "status": "FAILED"}
             response = response.model_copy(
                 update={"output": validated.model_dump(mode="json", exclude_none=True)}
@@ -367,16 +379,23 @@ async def _record_ai_v2_canary_result(
             await repository.append_step(
                 run_id,
                 AiStep.CLASSIFY,
-                1,
-                AttemptKind.PRIMARY.value,
+                attempt,
+                kind.value,
                 response,
                 request.input_sha256,
             )
-            await repository.record_runtime_health(
-                provider="deepseek",
-                model=request.model_profile,
-            )
             await repository.complete_fixed_canary(run_id=run_id, succeeded=True)
+            await repository.complete_compensation(run_id=run_id, succeeded=True)
+            if campaign_id is not None:
+                await repository.append_campaign_event(
+                    campaign_id=campaign_id,
+                    event_type="FAULT_TRANSIENT_RECOVERED",
+                    payload={
+                        "run_id": str(run_id),
+                        "publication_isolated": True,
+                        "document_version_id": str(document_version_id),
+                    },
+                )
             return {"run_id": str(run_id), "status": "SUCCEEDED"}
         await repository.settle(reservation_id, None)
         code = str(
@@ -390,22 +409,127 @@ async def _record_ai_v2_canary_result(
         await repository.append_failed_step(
             run_id,
             AiStep.CLASSIFY,
-            1,
-            AttemptKind.PRIMARY.value,
+            attempt,
+            kind.value,
             code,
             request.input_sha256,
         )
         if code == "PROVIDER_BALANCE_INSUFFICIENT":
             await repository.record_balance_insufficient(
                 provider="deepseek",
-                model=request.model_profile,
+                model="deepseek-v4-flash",
             )
         await repository.complete_fixed_canary(
             run_id=run_id,
             succeeded=False,
             failure_code=code,
         )
+        await repository.complete_compensation(run_id=run_id, succeeded=False)
         return {"run_id": str(run_id), "status": "FAILED"}
+    finally:
+        await repository.close()
+
+
+@celery_app.task(name="srbg.ai.v2_campaign_fault_injection")  # type: ignore[untyped-decorator]
+def run_v2_campaign_fault_injection(*, campaign_id: str, fault_kind: str) -> dict[str, object]:
+    return asyncio.run(_run_v2_campaign_fault_injection(UUID(campaign_id), fault_kind=fault_kind))
+
+
+async def _run_v2_campaign_fault_injection(
+    campaign_id: UUID, *, fault_kind: str
+) -> dict[str, object]:
+    if settings.environment.casefold() != "acceptance":
+        return {"dispatched": 0, "reason": "FAULT_INJECTION_ENVIRONMENT_DENIED"}
+    if fault_kind not in {"TRANSIENT", "PERMANENT"}:
+        raise ValueError("FAULT_INJECTION_KIND_INVALID")
+    repository = _ai_repository()
+    try:
+        template = fixed_canary_input("00000000-0000-0000-0000-000000000000")
+        created = await repository.create_fixed_canary_run(input_sha256=template.input_sha256)
+        if created is None:
+            return {"dispatched": 0, "reason": "FAULT_INJECTION_RUNTIME_GATES_DENIED"}
+        run_id, document_version_id = created
+        prepared = fixed_canary_input(str(document_version_id))
+        request = AiContentPreparationService.build_request(AiStep.CLASSIFY, prepared)
+        if fault_kind == "PERMANENT":
+            await repository.complete_fixed_canary(
+                run_id=run_id,
+                succeeded=False,
+                failure_code="SCHEMA_REJECTED",
+            )
+            await repository.append_campaign_event(
+                campaign_id=campaign_id,
+                event_type="FAULT_PERMANENT_INJECTED",
+                payload={
+                    "run_id": str(run_id),
+                    "error_code": "SCHEMA_REJECTED",
+                    "synthetic_fault": True,
+                },
+            )
+            await repository.append_campaign_event(
+                campaign_id=campaign_id,
+                event_type="FAULT_PERMANENT_OBSERVED",
+                payload={
+                    "run_id": str(run_id),
+                    "automatic_retry": False,
+                    "publication_isolated": True,
+                },
+            )
+            return {"dispatched": 1, "fault_kind": fault_kind, "run_id": str(run_id)}
+        delay = await repository.schedule_compensation(
+            run_id=run_id,
+            reason_code="PROVIDER_TIMEOUT",
+            attempt_count=0,
+        )
+        if delay is None:
+            await repository.complete_fixed_canary(
+                run_id=run_id,
+                succeeded=False,
+                failure_code="FAULT_COMPENSATION_SCHEDULE_DENIED",
+            )
+            return {"dispatched": 0, "reason": "FAULT_COMPENSATION_SCHEDULE_DENIED"}
+        await repository.append_campaign_event(
+            campaign_id=campaign_id,
+            event_type="FAULT_TRANSIENT_INJECTED",
+            payload={
+                "run_id": str(run_id),
+                "error_code": "PROVIDER_TIMEOUT",
+                "synthetic_fault": True,
+                "retry_delay_seconds": delay,
+            },
+        )
+        reservation = await repository.reserve(run_id, AiStep.CLASSIFY, 2)
+        callback = celery_app.signature(
+            "srbg.ai.v2_canary_result",
+            kwargs={
+                "run_id": str(run_id),
+                "document_version_id": str(document_version_id),
+                "reservation_id": str(reservation),
+                "attempt": 2,
+                "kind": AttemptKind.NETWORK_RETRY.value,
+                "campaign_id": str(campaign_id),
+            },
+            immutable=False,
+            queue="celery",
+        )
+        try:
+            celery_app.send_task(
+                "srbg.ai.generate_attempt",
+                args=[request.model_dump(mode="json")],
+                queue="ai",
+                link=callback,
+                countdown=delay,
+            )
+        except Exception:
+            await repository.release(reservation)
+            await repository.complete_compensation(run_id=run_id, succeeded=False)
+            await repository.complete_fixed_canary(
+                run_id=run_id,
+                succeeded=False,
+                failure_code="FAULT_RETRY_DISPATCH_FAILED",
+            )
+            raise
+        return {"dispatched": 1, "fault_kind": fault_kind, "run_id": str(run_id)}
     finally:
         await repository.close()
 
@@ -859,72 +983,109 @@ async def _handle_ai_content_result(
 ) -> dict[str, object]:
     repository = _ai_repository()
     try:
-        document = await repository.begin(run_id)
+        try:
+            document = await repository.begin(run_id)
+        except RuntimeError as error:
+            if str(error) != "AI01_SHADOW_AUTHORITY_INVALID":
+                raise
+            return await _terminalize_unauthorized_ai_callback(
+                repository=repository,
+                result=result,
+                run_id=run_id,
+                step=step,
+                attempt=attempt,
+                kind=kind,
+                reservation_id=reservation_id,
+            )
         if not await repository.authorize_real_run(document):
-            billable_response: ModelResponse | None = None
-            if result.get("status") == "SUCCEEDED":
-                try:
-                    billable_response = ModelResponse.model_validate(result.get("response"))
-                except ValueError:
-                    # Authorization denial is terminal. An invalid callback cannot turn it
-                    # into a repair request or prevent reservation/outbox finalization.
-                    billable_response = None
-            await repository.settle(reservation_id, billable_response)
-            await repository.append_failed_step(
-                run_id,
-                step,
-                attempt,
-                kind.value,
-                "AI_RUNTIME_AUTHORIZATION_DENIED",
-                None,
-                billing_response=billable_response,
+            return await _terminalize_unauthorized_ai_callback(
+                repository=repository,
+                result=result,
+                run_id=run_id,
+                step=step,
+                attempt=attempt,
+                kind=kind,
+                reservation_id=reservation_id,
             )
-            await repository.fail(
-                run_id, "FAILED", "AI_RUNTIME_AUTHORIZATION_DENIED"
-            )
-            return {
-                "run_id": str(run_id),
-                "status": "FAILED",
-                "failure_code": "AI_RUNTIME_AUTHORIZATION_DENIED",
-            }
         classify_input, extract_input = _prepare_ai_inputs_for_document(document)
-        prepared = await _prepared_for_step(
-            repository,
-            document=document,
-            run_id=run_id,
-            step=step,
-            classify_input=classify_input,
-            extract_input=extract_input,
-        )
-        request = AiContentPreparationService.build_request(step, prepared)
+        if step is AiStep.SUMMARIZE:
+            request = await repository.prepare_t06_content_summary(
+                document, append_processing=False
+            )
+            prepared = PreparedDocumentInput(
+                text=request.user_prompt,
+                input_sha256=request.input_sha256,
+                anchors={},
+                block_ids=(),
+            )
+        else:
+            prepared = await _prepared_for_step(
+                repository,
+                document=document,
+                run_id=run_id,
+                step=step,
+                classify_input=classify_input,
+                extract_input=extract_input,
+            )
+            request = AiContentPreparationService.build_request(step, prepared)
         if result.get("status") == "SUCCEEDED":
+            runtime_provider = str(result.get("runtime_provider") or "")
+            runtime_model = str(result.get("runtime_model") or "")
+            if runtime_provider != "deepseek" or runtime_model != "deepseek-v4-flash":
+                raise RuntimeError("RUNTIME_PROVIDER_CONFIG_MISMATCH")
             response = ModelResponse.model_validate(result.get("response"))
-            validated = validate_step_output(response.output, request)
+            validated = (
+                validate_content_summary_output(response.output, request=request)
+                if step is AiStep.SUMMARIZE
+                else validate_step_output(response.output, request)
+            )
             response = response.model_copy(
                 update={"output": validated.model_dump(mode="json", exclude_none=True)}
             )
+            if not await repository.authorize_model_call(run_id):
+                unauthorized = await _terminalize_unauthorized_ai_callback(
+                    repository=repository,
+                    result=result,
+                    run_id=run_id,
+                    step=step,
+                    attempt=attempt,
+                    kind=kind,
+                    reservation_id=reservation_id,
+                )
+                return {key: str(value) for key, value in unauthorized.items()}
             await repository.settle(reservation_id, response)
-            await repository.append_step(
+            step_run_id = await repository.append_step(
                 run_id,
                 step,
                 attempt,
                 kind.value,
                 response,
                 request.input_sha256,
+                prompt_version=request.prompt_version,
+                schema_version=request.schema_version,
             )
             await repository.complete_compensation(run_id=run_id, succeeded=True)
-            runtime_provider = result.get("runtime_provider")
-            runtime_model = result.get("runtime_model")
-            if runtime_provider and runtime_model:
-                await repository.record_runtime_health(
-                    provider=str(runtime_provider), model=str(runtime_model)
-                )
             if step is AiStep.CLASSIFY:
                 classification = ClassificationOutput.model_validate(response.output)
-                if not classification_allows_extraction(classification):
-                    case_id = await repository.queue_qualification_review(
-                        document, classification.model_dump(mode="json")
-                    )
+                calibration = await repository.load_auto_pass_calibration(
+                    rule_version="intelligence-v2-qualification-1.0.0",
+                    model_id=request.model_profile,
+                    prompt_version=request.prompt_version,
+                )
+                review_reason = qualification_reason(
+                    classification,
+                    document_text=classify_input.text,
+                    allowed_evidence_locators=frozenset(classify_input.block_ids),
+                    calibration=calibration,
+                )
+                INTELLIGENCE_QUALIFICATION_DECISIONS.labels(
+                    outcome="AUTO_PASS" if review_reason is None else "REVIEW_REQUIRED",
+                    reason="NONE" if review_reason is None else review_reason.value,
+                ).inc()
+                if review_reason is not None:
+                    review_payload = classification.model_dump(mode="json")
+                    review_payload["review_reasons"] = [review_reason.value]
+                    case_id = await repository.queue_qualification_review(document, review_payload)
                     return {
                         "run_id": str(run_id),
                         "status": "WAITING_CLAIM_REVIEW",
@@ -952,57 +1113,65 @@ async def _handle_ai_content_result(
                 )
                 if candidates < 1:
                     raise RuntimeError("NO_VALID_CANDIDATES")
-                facts = await repository.load_judgment_facts(document)
+                summary_request = await repository.prepare_t06_content_summary(
+                    document, append_processing=True
+                )
                 await repository.transition(run_id, "SUMMARIZING")
                 await _dispatch_ai_attempt(
                     repository,
                     run_id=run_id,
                     step=AiStep.SUMMARIZE,
-                    prepared=AiContentPreparationService.prepare_summarize_input(facts),
+                    prepared=extract_input,
                     attempt=1,
                     kind=AttemptKind.PRIMARY,
                     network_retries=0,
                     repair_used=False,
+                    request_override=summary_request,
                 )
                 return {"run_id": str(run_id), "status": "SUMMARIZING"}
             if step is AiStep.SUMMARIZE:
-                summary = SummarizeOutput.model_validate(response.output)
-                facts = await repository.load_judgment_facts(document)
-                validate_used_claim_ids(summary.used_claim_ids, {fact.claim_id for fact in facts})
-                await repository.transition(run_id, "VERIFYING")
-                await _dispatch_ai_attempt(
-                    repository,
-                    run_id=run_id,
-                    step=AiStep.VERIFY,
-                    prepared=AiContentPreparationService.prepare_verify_input(facts, summary),
-                    attempt=1,
-                    kind=AttemptKind.PRIMARY,
-                    network_retries=0,
-                    repair_used=False,
+                await repository.record_approved_content_success(
+                    document,
+                    step_run_id=step_run_id,
+                    provider=runtime_provider,
+                    model=runtime_model,
+                    request=request,
                 )
-                return {"run_id": str(run_id), "status": "VERIFYING"}
-            verification = VerificationOutput.model_validate(response.output)
-            summary_payload = await repository.successful_output(run_id, AiStep.SUMMARIZE)
-            result_type = classify_verification(verification)
-            await repository.materialize_judgment(
-                document,
-                summary_payload,
-                verification.model_dump(mode="json"),
-                result_type.value,
-                verification_reason_codes(verification),
-            )
-            await repository.transition(run_id, "SUCCEEDED")
-            return {"run_id": str(run_id), "status": "SUCCEEDED", "result_type": result_type.value}
+                candidate_id = await repository.materialize_t06_content_summary(
+                    document,
+                    request=request,
+                    summary=validated,
+                )
+                await repository.append_summary_state(
+                    document,
+                    status="SUCCEEDED",
+                    reason_code="SCHEMA_VALID_APPROVED_CONTENT",
+                    candidate_id=candidate_id,
+                )
+                await repository.transition(run_id, "SUCCEEDED")
+                return {
+                    "run_id": str(run_id),
+                    "status": "SUCCEEDED",
+                    "candidate_id": str(candidate_id),
+                }
+            raise RuntimeError("UNEXPECTED_AI_STEP")
 
         await repository.settle(reservation_id, None)
         code = str(result.get("error_code") or "MODEL_ATTEMPT_FAILED")[:80]
         if code == "PROVIDER_BALANCE_INSUFFICIENT":
             await repository.record_balance_insufficient(
                 provider="deepseek",
-                model=request.model_profile,
+                model="deepseek-v4-flash",
             )
         await repository.append_failed_step(
-            run_id, step, attempt, kind.value, code, request.input_sha256
+            run_id,
+            step,
+            attempt,
+            kind.value,
+            code,
+            request.input_sha256,
+            prompt_version=request.prompt_version,
+            schema_version=request.schema_version,
         )
         retryable = result.get("retryable") is True
         repairable = result.get("repairable") is True
@@ -1013,6 +1182,12 @@ async def _handle_ai_content_result(
                 attempt_count=network_retries,
             )
             if delay is not None:
+                if step is AiStep.SUMMARIZE:
+                    await repository.append_summary_state(
+                        document,
+                        status="TEMPORARILY_UNAVAILABLE",
+                        reason_code=code,
+                    )
                 await _dispatch_ai_attempt(
                     repository,
                     run_id=run_id,
@@ -1023,6 +1198,7 @@ async def _handle_ai_content_result(
                     network_retries=network_retries + 1,
                     repair_used=repair_used,
                     countdown_seconds=delay,
+                    request_override=request,
                 )
                 return {"run_id": str(run_id), "status": "RETRYING"}
         if repairable and not repair_used:
@@ -1036,16 +1212,15 @@ async def _handle_ai_content_result(
                 network_retries=network_retries,
                 repair_used=True,
                 repair_code=code,
+                request_override=request,
             )
             return {"run_id": str(run_id), "status": "REPAIRING"}
         failure_status = "FAILED" if step is AiStep.CLASSIFY else "DEGRADED"
         if step in {AiStep.SUMMARIZE, AiStep.VERIFY}:
-            await repository.materialize_judgment(
+            await repository.append_summary_state(
                 document,
-                None,
-                None,
-                AiJudgmentResultType.AI_PROCESSING_FAILED.value,
-                (code,),
+                status=summary_state_for_failure(code, retry_scheduled=False),
+                reason_code=code,
             )
         await repository.fail(run_id, failure_status, code)
         if retryable:
@@ -1055,9 +1230,16 @@ async def _handle_ai_content_result(
         await repository.settle(reservation_id, None)
         code = _safe_ai_error_code(error)
         await repository.append_failed_step(
-            run_id, step, attempt, kind.value, code, request.input_sha256
+            run_id,
+            step,
+            attempt,
+            kind.value,
+            code,
+            request.input_sha256,
+            prompt_version=request.prompt_version,
+            schema_version=request.schema_version,
         )
-        if not repair_used:
+        if not repair_used and step is not AiStep.SUMMARIZE:
             await _dispatch_ai_attempt(
                 repository,
                 run_id=run_id,
@@ -1068,16 +1250,15 @@ async def _handle_ai_content_result(
                 network_retries=network_retries,
                 repair_used=True,
                 repair_code=code,
+                request_override=request,
             )
             return {"run_id": str(run_id), "status": "REPAIRING"}
         failure_status = "FAILED" if step is AiStep.CLASSIFY else "DEGRADED"
         if step in {AiStep.SUMMARIZE, AiStep.VERIFY}:
-            await repository.materialize_judgment(
+            await repository.append_summary_state(
                 document,
-                None,
-                None,
-                AiJudgmentResultType.AI_PROCESSING_FAILED.value,
-                (code,),
+                status=summary_state_for_failure(code, retry_scheduled=False),
+                reason_code=code,
             )
         await repository.fail(run_id, failure_status, code)
         return {"run_id": str(run_id), "status": failure_status}
@@ -1087,6 +1268,42 @@ async def _handle_ai_content_result(
         raise
     finally:
         await repository.close()
+
+
+async def _terminalize_unauthorized_ai_callback(
+    *,
+    repository: PostgresAiPreparationRepository,
+    result: dict[str, object],
+    run_id: UUID,
+    step: AiStep,
+    attempt: int,
+    kind: AttemptKind,
+    reservation_id: UUID,
+) -> dict[str, object]:
+    """Settle verifiable billing without reading or retaining revoked model content."""
+
+    billable_response: ModelResponse | None = None
+    if result.get("status") == "SUCCEEDED":
+        try:
+            billable_response = ModelResponse.model_validate(result.get("response"))
+        except ValueError:
+            billable_response = None
+    await repository.settle(reservation_id, billable_response)
+    await repository.append_failed_step(
+        run_id,
+        step,
+        attempt,
+        kind.value,
+        "AI_RUNTIME_AUTHORIZATION_DENIED",
+        None,
+        billing_response=billable_response,
+    )
+    await repository.fail(run_id, "FAILED", "AI_RUNTIME_AUTHORIZATION_DENIED")
+    return {
+        "run_id": str(run_id),
+        "status": "FAILED",
+        "failure_code": "AI_RUNTIME_AUTHORIZATION_DENIED",
+    }
 
 
 async def _prepare_ai_inputs(
@@ -1158,8 +1375,9 @@ async def _dispatch_ai_attempt(
     repair_used: bool,
     repair_code: str | None = None,
     countdown_seconds: int = 0,
+    request_override: ModelRequest | None = None,
 ) -> None:
-    request = AiContentPreparationService.build_request(step, prepared)
+    request = request_override or AiContentPreparationService.build_request(step, prepared)
     if repair_code:
         request = request.model_copy(
             update={
@@ -1169,6 +1387,8 @@ async def _dispatch_ai_attempt(
                 + ".</controlled_repair>"
             }
         )
+    if not await repository.authorize_model_call(run_id):
+        raise PermissionError("AI_RUNTIME_AUTHORIZATION_DENIED")
     reservation = await repository.reserve(run_id, step, attempt)
     callback = celery_app.signature(
         "srbg.ai_content.result",
@@ -1202,10 +1422,13 @@ def _safe_ai_error_code(error: Exception) -> str:
     value = str(error).strip()
     if value in {
         "AI01_PILOT_SCOPE_DENIED",
+        "AI_RUNTIME_AUTHORIZATION_DENIED",
         "MODEL_DISABLED",
         "PROVIDER_BALANCE_INSUFFICIENT",
         "PROMPT_INJECTION_R4",
         "NO_VALID_CANDIDATES",
+        "SUMMARY_SCHEMA_REJECTED",
+        "RUNTIME_PROVIDER_CONFIG_MISMATCH",
     }:
         return value
     return type(error).__name__.upper()[:80]
@@ -1649,6 +1872,8 @@ async def _drain_publication_projections() -> dict[str, int]:
             search_projection=projection_writer.apply_search,
             daily_digest=projection_writer.invalidate_daily,
         ):
+            processed += 1
+        while processed < 150 and await service.process_ai_projection_refresh_once():
             processed += 1
         return {"processed": processed}
     finally:

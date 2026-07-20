@@ -46,6 +46,7 @@ def test_full_projection_requires_claim_linked_excerpt_and_summary() -> None:
             "primary_type": "SAFETY_INTELLIGENCE",
             "facets": {"engineering_objects": ["RAILWAY", "TUNNEL"]},
             "source": {"name": "国家铁路局", "official": True},
+            "human_reviewed": True,
             "source_published_at": NOW,
             "first_discovered_at": NOW,
             "source_excerpt": {
@@ -55,13 +56,27 @@ def test_full_projection_requires_claim_linked_excerpt_and_summary() -> None:
             },
             "ai_summary": {
                 "status": "SUCCEEDED",
-                "body": (
-                    "发生了什么:该隧道开展安全隐患整治。\n"
-                    "工程影响与意义:有助于施工风险控制。\n"
-                    "限制与待跟踪:后续结果尚未发布。"
-                ),
+                "paragraphs": [
+                    {
+                        "kind": "FACT",
+                        "section": "WHAT_HAPPENED",
+                        "text": "事实" * 50,
+                        "claim_ids": [CLAIM_ID],
+                    },
+                    {
+                        "kind": "JUDGMENT",
+                        "section": "ENGINEERING_IMPACT",
+                        "text": "影响" * 50,
+                        "judgment_type": "ENGINEERING_SIGNIFICANCE",
+                    },
+                    {
+                        "kind": "JUDGMENT",
+                        "section": "LIMITATIONS_AND_FOLLOW_UP",
+                        "text": "限制" * 50,
+                        "judgment_type": "LIMITATION_AND_FOLLOW_UP",
+                    },
+                ],
                 "claim_ids": [CLAIM_ID],
-                "judgment_paragraphs": [1, 2],
                 "model": "deepseek-chat",
                 "generated_at": NOW,
             },

@@ -1,0 +1,152 @@
+{
+  "issue": 32,
+  "parent_spec": 1,
+  "rule_version": "t31-stream-discovery-w5-v1",
+  "verified_at": "2026-07-20T03:13:23Z",
+  "closure_eligible": false,
+  "sources": [
+    {
+      "source_key": "ENT-007",
+      "registry_code": "ENT-007",
+      "institution": "广联达",
+      "official_origin": "https://www.glodon.com/",
+      "source_status": "CANDIDATE",
+      "desired_enabled": false,
+      "source_admission": null,
+      "actual_running": false,
+      "pause_appended": false,
+      "coverage_credit_granted": false,
+      "streams": [
+        {
+          "stream_key": "GLODON_DIGITAL_CONSTRUCTION_CASES",
+          "name": "广联达数智施工案例",
+          "collection_url": "https://www.glodon.com/case/index/5.html",
+          "allowed_hosts": ["www.glodon.com"],
+          "collection_boundary": {
+            "collection_path_pattern": "^/case/index/5\\.html$",
+            "required_query": {},
+            "detail_path_pattern": "^/case/[0-9]+\\.html$",
+            "pagination_policy": "当前公开集合在单页列出该分类案例；不得把全部案例、其他分类、搜索结果或单篇详情扩成集合边界。",
+            "detail_url_policy": "仅跟随集合 DOM 中同主机 /case/{numeric-id}.html 链接。"
+          },
+          "connector_type": "HTML_LIST_DETAIL",
+          "expected_mime_types": ["text/html"],
+          "poll_interval_minutes": 1440,
+          "request_timeout_seconds": 10,
+          "max_redirects": 5,
+          "rate_limit_requests_per_minute": 1,
+          "user_agent": "SRBG-SourceResearch/1.0 (+personal noncommercial research)",
+          "policy_version": "t31-glodon-digital-construction-cases-v1",
+          "readiness": "BOUNDED",
+          "content_relevance": "FILTERED",
+          "disposition": "MANUAL_SHADOW",
+          "blocker_codes": ["TERMS_PROHIBIT_AUTOMATED_ACCESS"],
+          "engineering_objects": ["HIGHWAY", "RAILWAY", "BRIDGE", "TUNNEL", "BUILDING", "MUNICIPAL", "ENERGY"],
+          "specialty_facets": [],
+          "tunnel_gas_policy": "MINING_ONLY_UNLESS_HIGHWAY_OR_RAILWAY_TUNNEL_EVIDENCE",
+          "permitted_claim_bases": ["MANUFACTURER_CLAIM"],
+          "public_redistribution": false,
+          "prefilter": {
+            "engineering_object_terms": ["公路", "铁路", "桥", "隧道", "房建", "建筑", "市政", "基础设施", "机场", "能源", "工程项目"],
+            "lifecycle_terms": ["规划", "设计", "施工", "建设", "运营", "养护", "安全", "监测", "BIM", "GIS", "物联网", "数字化", "智慧建造", "项目管理"],
+            "excluded_terms": ["财报", "股价", "融资", "品牌", "大会", "签约仪式", "招聘", "办公系统", "ERP", "泛 AI", "企业经营"]
+          },
+          "verification": {
+            "verified_at": "2026-07-20T03:13:23Z",
+            "public_network_safe": true,
+            "redirect_chain_safe": true,
+            "resolved_hosts": {
+              "www.glodon.com": ["161.117.98.123"],
+              "account.glodon.com": ["47.74.175.46"]
+            },
+            "http_observations": [
+              {"purpose": "COLLECTION", "url": "https://www.glodon.com/case/index/5.html", "final_url": "https://www.glodon.com/case/index/5.html", "status_code": 200, "content_type": "text/html; charset=utf-8", "redirect_count": 0, "response_sha256": "6c8dc361db9b2e98080baaad427d9a315e88ad34d632a81bf4256872d507b72d"},
+              {"purpose": "DETAIL", "url": "https://www.glodon.com/case/426.html", "final_url": "https://www.glodon.com/case/426.html", "status_code": 200, "content_type": "text/html; charset=utf-8", "redirect_count": 0, "response_sha256": "eea10a1f1537bd80d1b9b5c5a621d6cdfe40cdea0ca934d0ab2cb662d00b9a06"},
+              {"purpose": "ROBOTS", "url": "https://www.glodon.com/robots.txt", "final_url": "https://www.glodon.com/robots.txt", "status_code": 404, "content_type": "text/html; charset=utf-8", "redirect_count": 0, "response_sha256": "aa7a1bafd1fb82697cdc3b7d302c355cca34b6266da9ee3b61bbbd777ed6fa0e"},
+              {"purpose": "TERMS", "url": "https://account.glodon.com/umcore/account-login/agreement/user-agreement", "final_url": "https://account.glodon.com/umcore/account-login/agreement/user-agreement", "status_code": 200, "content_type": "text/html", "redirect_count": 0, "response_sha256": "404443df5c5d2275adf3847249b7e0be065d88db95a80f9a10165eac4948d8aa"}
+            ]
+          },
+          "compliance": [
+            {"check": "PUBLIC_NETWORK", "status": "VERIFIED_PUBLIC", "observed_at": "2026-07-20T03:13:23Z", "evidence_urls": ["https://dns.google/resolve?name=www.glodon.com&type=A", "https://dns.google/resolve?name=account.glodon.com&type=A"], "finding": "点时 DNS-over-HTTPS 解析为公网 IPv4 161.117.98.123 与 47.74.175.46；该事实不构成后续请求授权。"},
+            {"check": "REDIRECTS", "status": "VERIFIED_NO_REDIRECT", "observed_at": "2026-07-20T03:13:23Z", "evidence_urls": ["https://www.glodon.com/case/index/5.html", "https://www.glodon.com/case/426.html"], "finding": "集合与详情样本均 GET 200 且未重定向；后续运行仍须逐跳复核允许主机和公网地址。"},
+            {"check": "ROBOTS", "status": "VERIFIED_NOT_PUBLISHED", "observed_at": "2026-07-20T03:13:23Z", "evidence_urls": ["https://www.glodon.com/robots.txt"], "finding": "robots.txt GET 404，返回站点 HTML 错误页；未发布 robots 规则绝不解释为自动抓取许可。"},
+            {"check": "TERMS", "status": "BLOCKED", "observed_at": "2026-07-20T03:13:23Z", "evidence_urls": ["https://account.glodon.com/umcore/account-login/agreement/user-agreement"], "finding": "2025-06-30 版广联达用户协议 2.13 明确要求事先书面授权，否则不得以爬虫、垂直搜索、镜像、复制或传播等形式使用产品与服务；与自动集合访问及 raw-first 保存冲突。"},
+            {"check": "COPYRIGHT", "status": "BLOCKED", "observed_at": "2026-07-20T03:13:23Z", "evidence_urls": ["https://account.glodon.com/umcore/account-login/agreement/user-agreement"], "finding": "协议第 9 条保留网页、文本、图片等内容知识产权且未授予自动复制或公开再分发许可；只保留人工原链研究。"},
+            {"check": "ACCESS_BOUNDARY", "status": "VERIFIED_RESTRICTED", "observed_at": "2026-07-20T03:13:23Z", "evidence_urls": ["https://www.glodon.com/case/index/5.html"], "finding": "公开页面无需登录即可人工浏览，但协议限制自动访问；集合不得扩展到根站、全部案例、其他分类、搜索或 CDN 媒体。"},
+            {"check": "PUBLIC_REACHABILITY", "status": "VERIFIED_PUBLIC", "observed_at": "2026-07-20T03:13:23Z", "evidence_urls": ["https://www.glodon.com/case/index/5.html", "https://www.glodon.com/case/426.html"], "finding": "浏览器公开会话可达，集合和详情样本均为 text/html 200；可达性不覆盖条款 blocker。"}
+          ]
+        }
+      ]
+    },
+    {
+      "source_key": "CAMPAIGN-W5-CCTEG",
+      "registry_code": null,
+      "institution": "中国煤炭科工集团",
+      "official_origin": "https://www.ccteg.cn/",
+      "source_status": "CANDIDATE",
+      "desired_enabled": false,
+      "source_admission": null,
+      "actual_running": false,
+      "pause_appended": false,
+      "coverage_credit_granted": false,
+      "streams": [
+        {
+          "stream_key": "CCTEG_HARDCORE_TECHNOLOGY",
+          "name": "中国煤科煤科硬核",
+          "collection_url": "https://www.ccteg.cn/zh/article/textList/40?idss=183",
+          "allowed_hosts": ["www.ccteg.cn"],
+          "collection_boundary": {
+            "collection_path_pattern": "^/zh/article/textList/40$",
+            "required_query": {"idss": "183"},
+            "detail_path_pattern": "^/zh/article/infoDetails/[0-9]+$",
+            "pagination_policy": "仅使用 idss=183 的煤科硬核分类和站内页码；不得退化为集团新闻、搜索、采购公告或单篇详情。",
+            "detail_url_policy": "仅跟随集合 DOM 中同主机 /zh/article/infoDetails/{numeric-id} 链接；外部媒体链接不属于该 SourceStream。"
+          },
+          "connector_type": "HTML_LIST_DETAIL",
+          "expected_mime_types": ["text/html"],
+          "poll_interval_minutes": 1440,
+          "request_timeout_seconds": 10,
+          "max_redirects": 5,
+          "rate_limit_requests_per_minute": 1,
+          "user_agent": "SRBG-SourceResearch/1.0 (+personal noncommercial research)",
+          "policy_version": "t31-ccteg-mining-technology-v1",
+          "readiness": "BOUNDED",
+          "content_relevance": "FILTERED",
+          "disposition": "MANUAL_SHADOW",
+          "blocker_codes": ["TERMS_REQUIRE_WRITTEN_PERMISSION"],
+          "engineering_objects": ["MINING"],
+          "specialty_facets": [],
+          "tunnel_gas_policy": "MINING_ONLY_UNLESS_HIGHWAY_OR_RAILWAY_TUNNEL_EVIDENCE",
+          "permitted_claim_bases": ["MANUFACTURER_CLAIM", "PROJECT_FIRST_PARTY_RECORD"],
+          "public_redistribution": false,
+          "prefilter": {
+            "engineering_object_terms": ["煤矿", "矿井", "矿山", "井下", "巷道", "采煤", "掘进", "矿用"],
+            "lifecycle_terms": ["设计", "建设", "施工", "开采", "运营", "安全", "监测", "防控", "通风", "防灭火", "装备", "智能化", "数字孪生"],
+            "excluded_terms": ["党建", "党委", "经营", "招聘", "品牌", "展会", "获奖", "发运", "财务", "采购", "泛 AI", "工业制造"]
+          },
+          "verification": {
+            "verified_at": "2026-07-20T03:13:23Z",
+            "public_network_safe": true,
+            "redirect_chain_safe": true,
+            "resolved_hosts": {"www.ccteg.cn": ["121.32.243.73"]},
+            "http_observations": [
+              {"purpose": "COLLECTION", "url": "https://www.ccteg.cn/zh/article/textList/40?idss=183", "final_url": "https://www.ccteg.cn/zh/article/textList/40?idss=183", "status_code": 200, "content_type": "text/html; charset=utf-8", "redirect_count": 0, "response_sha256": "666a31cd9fb8e2e32fb29ec26aac88fd62a799b91a732db6e7d26acca6908725"},
+              {"purpose": "DETAIL", "url": "https://www.ccteg.cn/zh/article/infoDetails/18809", "final_url": "https://www.ccteg.cn/zh/article/infoDetails/18809", "status_code": 200, "content_type": "text/html; charset=utf-8", "redirect_count": 0, "response_sha256": "06b5a6759b5a6f0f7ac0416e682009f5ccb8d3b3f9ddee6e17703d9186c06428"},
+              {"purpose": "ROBOTS", "url": "https://www.ccteg.cn/robots.txt", "final_url": "https://www.ccteg.cn/robots.txt", "status_code": 200, "content_type": "text/plain; charset=UTF-8", "redirect_count": 0, "response_sha256": "57bdfd5fdf85640c79971a7ff9f80a4bbc735ee89f51af81019613258b664829"},
+              {"purpose": "TERMS", "url": "https://www.ccteg.cn/zh/article/content/137", "final_url": "https://www.ccteg.cn/zh/article/content/137", "status_code": 200, "content_type": "text/html; charset=utf-8", "redirect_count": 0, "response_sha256": "e75007883c18c5945d3b198035cd6b477555e95d67db0e48a7d4b0b0b063161f"}
+            ]
+          },
+          "compliance": [
+            {"check": "PUBLIC_NETWORK", "status": "VERIFIED_PUBLIC", "observed_at": "2026-07-20T03:13:23Z", "evidence_urls": ["https://dns.google/resolve?name=www.ccteg.cn&type=A"], "finding": "点时 DNS-over-HTTPS 经 qaxcloudwaf.com CNAME 解析到公网 IPv4 121.32.243.73；该事实不构成运行授权。"},
+            {"check": "REDIRECTS", "status": "VERIFIED_SAFE", "observed_at": "2026-07-20T03:13:23Z", "evidence_urls": ["https://www.ccteg.cn/article/textList/40?idss=183", "https://www.ccteg.cn/zh/article/textList/40?idss=183"], "finding": "非语言前缀入口同主机重定向到 /zh/；清单保存最终规范 URL，详情与法律声明也保持同主机 /zh/ 边界。"},
+            {"check": "ROBOTS", "status": "VERIFIED_ALLOWED", "observed_at": "2026-07-20T03:13:23Z", "evidence_urls": ["https://www.ccteg.cn/robots.txt"], "finding": "GET 200；User-agent: * 为 Allow: /，仅 Disallow /js/ 与 /plugins/。robots 允许不覆盖法律声明。"},
+            {"check": "TERMS", "status": "BLOCKED", "observed_at": "2026-07-20T03:13:23Z", "evidence_urls": ["https://www.ccteg.cn/zh/article/content/137"], "finding": "官网法律声明称进入、浏览和使用即受约束，并要求复制、再造、传播、出版、转帖、改编或陈列任何网站内容前取得中国煤科或相关权利人书面许可；当前未取得许可。"},
+            {"check": "COPYRIGHT", "status": "BLOCKED", "observed_at": "2026-07-20T03:13:23Z", "evidence_urls": ["https://www.ccteg.cn/zh/article/content/137"], "finding": "法律声明明确网站数据、文字、图表、图像、声音和录像版权归中国煤科或相关权利人；raw-first 私有复制也不能在无书面许可时被推定允许。"},
+            {"check": "ACCESS_BOUNDARY", "status": "VERIFIED_RESTRICTED", "observed_at": "2026-07-20T03:13:23Z", "evidence_urls": ["https://www.ccteg.cn/zh/article/textList/40?idss=183"], "finding": "集合公开且无需登录，但只锁定煤科硬核 idss=183；集团、子公司和栏目仍只计一个 Source，外部媒体与采购平台不纳入。"},
+            {"check": "PUBLIC_REACHABILITY", "status": "VERIFIED_PUBLIC", "observed_at": "2026-07-20T03:13:23Z", "evidence_urls": ["https://www.ccteg.cn/zh/article/textList/40?idss=183", "https://www.ccteg.cn/zh/article/infoDetails/18809"], "finding": "浏览器公开会话可达，集合与详情样本均为 text/html 200；条款 blocker 仍使自动化保持失败关闭。"}
+          ]
+        }
+      ]
+    }
+  ]
+}

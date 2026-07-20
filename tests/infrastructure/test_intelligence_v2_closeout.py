@@ -1,9 +1,21 @@
 import json
 import sys
+from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from srbg_api.intelligence_v2.gold_calibration import (
+    CalibrationFact,
+    SliceMetrics,
+    calibration_fact_sha256,
+)
+from srbg_contracts import (
+    EngineeringObject,
+    EquipmentFacet,
+    PrimaryIntelligenceType,
+    SpecialtyFacet,
+)
 
 from scripts.intelligence_v2_closeout import (
     build_closeout_report,
@@ -23,6 +35,38 @@ def _write_jsonl(path: Path, values: list[dict[str, object]]) -> None:
         "\n".join(json.dumps(value, ensure_ascii=False) for value in values) + "\n",
         encoding="utf-8",
     )
+
+
+def _write_protocol_calibration_fact(path: Path) -> None:
+    """Write a protocol fixture; this is not Owner Gold or closeout evidence."""
+
+    metric = SliceMetrics(sample_count=1, precision_bps=10_000, recall_bps=10_000)
+    fact = CalibrationFact(
+        fact_version="intelligence-v2-owner-gold-calibration-1.0.0",
+        corpus_version="TEST_FIXTURE_ONLY",
+        rule_version="intelligence-v2-qualification-1.0.0",
+        model_id="protocol-equivalent-test-stub",
+        prompt_version="qualification-test-v1",
+        calibrated_at=START,
+        label_authority="HUMAN_OWNER",
+        decision="GO",
+        reasons=(),
+        authorizes_auto_pass=True,
+        auto_pass_threshold_bps=9300,
+        precision_bps=10_000,
+        recall_bps=10_000,
+        locked_negative_leaks=0,
+        primary_type_slices={value: metric for value in PrimaryIntelligenceType},
+        engineering_object_slices={value: metric for value in EngineeringObject},
+        specialty_facet_slices={value: metric for value in SpecialtyFacet},
+        equipment_domain_slices={value: metric for value in EquipmentFacet},
+        evidence_manifest_sha256="f" * 64,
+        fact_sha256="",
+    )
+    fact = replace(fact, fact_sha256=calibration_fact_sha256(fact))
+    payload = asdict(fact)
+    payload["calibrated_at"] = fact.calibrated_at.isoformat()
+    _write_json(path, payload)
 
 
 def test_owner_qualification_rejects_generated_or_non_owner_labels(tmp_path: Path) -> None:
@@ -113,6 +157,7 @@ def test_closeout_report_accepts_complete_hashed_evidence(tmp_path: Path) -> Non
                 }
             )
     _write_jsonl(tmp_path / "qualification.jsonl", qualification)
+    _write_protocol_calibration_fact(tmp_path / "qualification-calibration.json")
 
     _write_jsonl(
         tmp_path / "feed.jsonl",
@@ -159,6 +204,7 @@ def test_closeout_report_accepts_complete_hashed_evidence(tmp_path: Path) -> Non
                         "terms_allowed": True,
                         "copyright_reviewed": True,
                         "public_network_safe": True,
+                        "hard_negative_evaluated": True,
                         "fetch_success_bps": 9800,
                         "parse_evidence_success_bps": 9500,
                         "metadata_success_bps": 9800,
@@ -192,8 +238,10 @@ def test_closeout_report_accepts_complete_hashed_evidence(tmp_path: Path) -> Non
     _write_json(
         tmp_path / "compensation.json",
         {
-            "eligible_count": 5,
+            "injected_transient_count": 5,
             "recovered_count": 5,
+            "injected_permanent_count": 1,
+            "permanent_error_observed_count": 1,
             "duplicate_side_effects": 0,
             "stale_version_recoveries": 0,
             "permanent_error_retries": 0,
@@ -213,8 +261,9 @@ def test_closeout_report_accepts_complete_hashed_evidence(tmp_path: Path) -> Non
         tmp_path / "context.json",
         {
             "baseline_commit": "a" * 40,
-            "migration_head": "0036_ai_content_result_lifecycle",
+            "migration_head": "0039_t04_content_candidates",
             "environment": "isolated-production-equivalent-acceptance",
+            "campaign_id": "019c0000-0000-7000-8000-000000000001",
         },
     )
 
@@ -223,9 +272,11 @@ def test_closeout_report_accepts_complete_hashed_evidence(tmp_path: Path) -> Non
     assert report["reasons"] == []
     assert report["context"]["baseline_commit"] == "a" * 40
     assert report["context"]["time_window"]["start"] == START.isoformat()
+    assert report["checks"]["qualification"]["auto_pass_threshold_bps"] == 9300
     assert {item["path"] for item in report["context"]["evidence_refs"]} >= {
         "runtime.jsonl",
         "qualification.jsonl",
+        "qualification-calibration.json",
         "feed.jsonl",
         "sources.json",
         "preflight.json",
@@ -291,6 +342,7 @@ def test_one_hour_unlabelled_evidence_is_engineering_go_but_production_no_go(
                         "terms_allowed": True,
                         "copyright_reviewed": True,
                         "public_network_safe": True,
+                        "hard_negative_evaluated": True,
                         "fetch_success_bps": 9800,
                         "parse_evidence_success_bps": 9500,
                         "metadata_success_bps": 9800,
@@ -312,8 +364,10 @@ def test_one_hour_unlabelled_evidence_is_engineering_go_but_production_no_go(
         "fixture_replay", "quality_gate", "web_e2e", "web_a11y",
     )})
     _write_json(tmp_path / "compensation.json", {
-        "eligible_count": 3,
+        "injected_transient_count": 3,
         "recovered_count": 3,
+        "injected_permanent_count": 1,
+        "permanent_error_observed_count": 1,
         "duplicate_side_effects": 0,
         "stale_version_recoveries": 0,
         "permanent_error_retries": 0,
@@ -327,8 +381,9 @@ def test_one_hour_unlabelled_evidence_is_engineering_go_but_production_no_go(
     })
     _write_json(tmp_path / "context.json", {
         "baseline_commit": "a" * 40,
-        "migration_head": "0036_ai_content_result_lifecycle",
+        "migration_head": "0039_t04_content_candidates",
         "environment": "isolated-production-equivalent-acceptance",
+        "campaign_id": "019c0000-0000-7000-8000-000000000001",
     })
 
     engineering = build_closeout_report(tmp_path, acceptance_profile="engineering")

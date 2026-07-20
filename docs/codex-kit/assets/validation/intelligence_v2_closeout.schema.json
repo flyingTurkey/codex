@@ -18,11 +18,15 @@
     "context": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["baseline_commit", "migration_head", "environment", "time_window", "rule_versions", "evidence_refs"],
+      "required": ["baseline_commit", "migration_head", "environment", "campaign_id", "time_window", "rule_versions", "evidence_refs"],
       "properties": {
         "baseline_commit": {"type": ["string", "null"], "pattern": "^[a-f0-9]{40}$"},
-        "migration_head": {"const": "0036_ai_content_result_lifecycle"},
+        "migration_head": {"const": "0039_t04_content_candidates"},
         "environment": {"type": ["string", "null"], "minLength": 1},
+        "campaign_id": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
         "time_window": {
           "type": ["object", "null"],
           "additionalProperties": false,

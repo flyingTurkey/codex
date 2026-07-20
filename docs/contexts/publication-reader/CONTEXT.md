@@ -17,7 +17,7 @@ R4 safe metadata and isolation reason visible only to the Owner review boundary;
 _Avoid_: Hidden card
 
 **ReaderAppendix**:
-The collapsed bottom section containing claims, evidence, automatic results, relationships, corrections and Owner controls.
+The lazy, collapsed bottom section containing accepted claims, evidence, separately labelled automatic results, reviewed/automatic relationships and structured corrections. It may link to a safe Owner review case, but remains read-only and does not duplicate governance forms.
 _Avoid_: Main story
 
 **HotspotAward**:

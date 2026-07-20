@@ -1,3 +1,30 @@
+export type AlgorithmVersion = string
+export type CreatedAt = string
+export type Id = string
+export type InputFingerprintSha256 = string
+export type AutomaticRelationshipKind =
+  | 'DUPLICATE'
+  | 'SAME_EVENT'
+  | 'FOLLOW_UP_OF'
+  | 'INVESTIGATES'
+  | 'MODEL_ALIAS'
+  | 'VERSION_SUCCESSOR'
+  | 'TOPIC'
+  | 'RELATED_CONTENT'
+export type ModelVersion = string | null
+/**
+ * @maxItems 20
+ */
+export type ReasonCodes = string[]
+export type RelationshipKey = string
+export type ScoreBps = number
+export type SourceItemId = string
+export type Status = 'ACTIVE' | 'INVALIDATED' | 'WITHDRAWN' | 'SUPERSEDED'
+export type TargetItemId = string
+/**
+ * @maxItems 500
+ */
+export type AutomaticRelationships = AutomaticRelationshipView[]
 /**
  * @maxItems 20
  */
@@ -38,17 +65,40 @@ export type DecisionStatus = ('PENDING' | 'ACCEPTED' | 'REJECTED') | null
  * @minItems 1
  */
 export type EvidenceIds = string[]
-export type Id = string
+export type Id1 = string
 export type Label = string
 export type Value = string
 /**
  * @maxItems 500
  */
 export type Claims = ClaimView[]
+export type HeavyContent = boolean
+export type TotalItems = number
+/**
+ * @maxItems 6
+ */
+export type TruncatedSections = (
+  'CLAIMS' | 'EVIDENCE' | 'AUTOMATIC_RESULTS' | 'REVIEWED_RELATIONSHIPS' | 'AUTOMATIC_RELATIONSHIPS' | 'CORRECTIONS'
+)[]
+/**
+ * @minItems 1
+ * @maxItems 3
+ */
+export type Affects = ('SOURCE_EXCERPT' | 'AI_SUMMARY' | 'RELATIONSHIPS')[]
+export type Description = string
+export type DocumentVersionId = string | null
+export type Id2 = string
+export type Kind =
+  | 'DOCUMENT_VERSION_CHANGED'
+  | 'ACCEPTED_CLAIMS_CHANGED'
+  | 'SOURCE_WITHDRAWN'
+  | 'SOURCE_CORRECTED'
+  | 'RELATION_CORRECTED'
+export type OccurredAt = string
 /**
  * @maxItems 100
  */
-export type Corrections = string[]
+export type Corrections = AppendixCorrectionV2[]
 export type EventId = string
 export type CharEnd = number | null
 export type CharStart = number | null
@@ -56,10 +106,10 @@ export type CharStart = number | null
  * @minItems 1
  */
 export type ClaimIds = string[]
-export type DocumentVersionId = string | null
+export type DocumentVersionId1 = string | null
 export type Excerpt = string
 export type ExcerptSha256 = string
-export type Id1 = string
+export type Id3 = string
 export type Locator = (HtmlParagraphLocator | PdfTextLocator | PdfOcrLocator | PdfTableCellLocator) | null
 export type CharEnd1 = number
 export type CharStart1 = number
@@ -90,23 +140,46 @@ export type ParagraphId1 = string | null
 export type Evidence = EvidenceView[]
 export type EventId1 = string
 export type FromItemId = string
-export type Id2 = string
+export type SafetyCaseReportStage =
+  'INITIAL_REPORT' | 'FOLLOW_UP_REPORT' | 'FINAL_INVESTIGATION' | 'ENFORCEMENT' | 'RECTIFICATION'
+export type Id4 = string
 export type EventRelation = 'FOLLOW_UP' | 'INVESTIGATES' | 'PENALIZES' | 'RECTIFIES' | 'CORRECTS'
 export type ReviewedAt = string
-export type ReviewedBy = string
+export type ReviewedBy = string | null
 export type ToItemId = string
 /**
  * @maxItems 500
  */
-export type Relationships = EventRelationView[]
+export type Relationships = ReviewedRelationshipV2[]
+export type CaseId = string
+export type Href = string
+export type ReviewHref = '/review'
 
 export interface EventAppendixV2 {
+  automatic_relationships?: AutomaticRelationships
   automatic_results?: AutomaticResults
   claims?: Claims
+  content_summary?: AppendixContentSummaryV2
   corrections?: Corrections
   event_id: EventId
   evidence?: Evidence
   relationships?: Relationships
+  review_context?: AppendixReviewContextV2 | null
+  review_href?: ReviewHref
+}
+export interface AutomaticRelationshipView {
+  algorithm_version: AlgorithmVersion
+  created_at: CreatedAt
+  id: Id
+  input_fingerprint_sha256: InputFingerprintSha256
+  kind: AutomaticRelationshipKind
+  model_version?: ModelVersion
+  reason_codes: ReasonCodes
+  relationship_key: RelationshipKey
+  score_bps: ScoreBps
+  source_item_id: SourceItemId
+  status: Status
+  target_item_id: TargetItemId
 }
 export interface EventAutomaticResultView {
   failure_reason_codes?: FailureReasonCodes
@@ -128,18 +201,31 @@ export interface ClaimView {
   claim_type: ClaimType
   decision_status?: DecisionStatus
   evidence_ids: EvidenceIds
-  id: Id
+  id: Id1
   label: Label
   value: Value
+}
+export interface AppendixContentSummaryV2 {
+  heavy_content?: HeavyContent
+  total_items?: TotalItems
+  truncated_sections?: TruncatedSections
+}
+export interface AppendixCorrectionV2 {
+  affects: Affects
+  description: Description
+  document_version_id?: DocumentVersionId
+  id: Id2
+  kind: Kind
+  occurred_at: OccurredAt
 }
 export interface EvidenceView {
   char_end?: CharEnd
   char_start?: CharStart
   claim_ids: ClaimIds
-  document_version_id?: DocumentVersionId
+  document_version_id?: DocumentVersionId1
   excerpt: Excerpt
   excerpt_sha256: ExcerptSha256
-  id: Id1
+  id: Id3
   locator?: Locator
   original_url: OriginalUrl1
   paragraph_id?: ParagraphId1
@@ -181,12 +267,18 @@ export interface PdfTableCellLocator {
   table_cell_id: TableCellId
   type: Type3
 }
-export interface EventRelationView {
+export interface ReviewedRelationshipV2 {
   event_id: EventId1
   from_item_id: FromItemId
-  id: Id2
+  from_stage?: SafetyCaseReportStage | null
+  id: Id4
   relation_type: EventRelation
   reviewed_at: ReviewedAt
-  reviewed_by: ReviewedBy
+  reviewed_by?: ReviewedBy
   to_item_id: ToItemId
+  to_stage?: SafetyCaseReportStage | null
+}
+export interface AppendixReviewContextV2 {
+  case_id: CaseId
+  href: Href
 }

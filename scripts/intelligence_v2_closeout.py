@@ -14,18 +14,25 @@ from typing import Any
 from jsonschema import Draft202012Validator, FormatChecker, ValidationError
 from srbg_api.intelligence_v2.closeout import (
     AcceptanceProfile,
+    CompensationInspection,
     FeedInspection,
     QualificationInspection,
     RuntimeObservation,
+    evaluate_compensation,
     evaluate_feed,
     evaluate_qualification,
     evaluate_runtime_window,
+)
+from srbg_api.intelligence_v2.gold_calibration import (
+    calibration_grant,
+    load_calibration_fact,
 )
 from srbg_api.source_registry.v2_rollout import SourceAdmissionMetrics, admission_verdict
 from srbg_contracts import EngineeringObject, PrimaryIntelligenceType
 
 _SHA256 = re.compile(r"^[a-f0-9]{64}$")
 _GIT_COMMIT = re.compile(r"^[a-f0-9]{40}$")
+_UUID7 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 _ENGINEERING_GATES = (
     "lint",
     "typecheck",
@@ -38,9 +45,7 @@ _ENGINEERING_GATES = (
     "web_a11y",
 )
 _ROOT = Path(__file__).resolve().parents[1]
-_REPORT_SCHEMA = (
-    _ROOT / "docs/codex-kit/assets/validation/intelligence_v2_closeout.schema.json"
-)
+_REPORT_SCHEMA = _ROOT / "docs/codex-kit/assets/validation/intelligence_v2_closeout.schema.json"
 _SOURCE_ROLLOUT = (
     _ROOT / "docs/codex-kit/assets/validation/civil_engineering_source_rollout_v2.json"
 )
@@ -48,18 +53,19 @@ _OWNER_ANNOTATION_SCHEMA = (
     _ROOT / "docs/codex-kit/assets/validation/intelligence_v2_owner_annotation.schema.json"
 )
 _FEED_STRUCTURAL_SCHEMA = (
-    _ROOT
-    / "docs/codex-kit/assets/validation/intelligence_v2_feed_structural_audit.schema.json"
+    _ROOT / "docs/codex-kit/assets/validation/intelligence_v2_feed_structural_audit.schema.json"
 )
 _EVIDENCE_FILES = (
     "runtime.jsonl",
     "qualification.jsonl",
+    "qualification-calibration.json",
     "feed.jsonl",
     "sources.json",
     "engineering.json",
     "compensation.json",
     "preflight.json",
     "context.json",
+    "historical_budget.json",
 )
 
 
@@ -165,9 +171,7 @@ def _load_runtime(path: Path) -> list[RuntimeObservation]:
     return values
 
 
-def _load_feed(
-    path: Path, *, acceptance_profile: AcceptanceProfile
-) -> list[FeedInspection]:
+def _load_feed(path: Path, *, acceptance_profile: AcceptanceProfile) -> list[FeedInspection]:
     values: list[FeedInspection] = []
     snapshot_hash: str | None = None
     for row in _read_jsonl(path):
@@ -228,9 +232,7 @@ def _source_assessments_valid(
         if acceptance_profile == "engineering"
         else "civil-source-rollout-v2.0.0"
     )
-    if sources.get("rule_version") != expected_rule or not isinstance(
-        assessments, list
-    ):
+    if sources.get("rule_version") != expected_rule or not isinstance(assessments, list):
         return False
     expected_batch = {
         str(institution): batch_index
@@ -274,6 +276,7 @@ def _source_assessments_valid(
             "terms_allowed",
             "copyright_reviewed",
             "public_network_safe",
+            "hard_negative_evaluated",
         )
         numeric_metrics = (
             "fetch_success_bps",
@@ -288,9 +291,7 @@ def _source_assessments_valid(
             for field in numeric_metrics
         ):
             return False
-        calculated = admission_verdict(
-            SourceAdmissionMetrics(sample_size=sample_size, **metrics)
-        )
+        calculated = admission_verdict(SourceAdmissionMetrics(sample_size=sample_size, **metrics))
         if value.get("verdict") != calculated:
             return False
         windows[batch].append((started_at, ended_at, wave))
@@ -305,9 +306,7 @@ def _source_assessments_valid(
     return first_end - first_start >= timedelta(days=14) and second_start >= first_end
 
 
-def build_closeout_report(
-    root: Path, *, acceptance_profile: AcceptanceProfile
-) -> dict[str, Any]:
+def build_closeout_report(root: Path, *, acceptance_profile: AcceptanceProfile) -> dict[str, Any]:
     reasons: list[str] = []
     checks: dict[str, object] = {}
     runtime_values: list[RuntimeObservation] = []
@@ -316,9 +315,7 @@ def build_closeout_report(
     if runtime_path.is_file():
         try:
             runtime_values = _load_runtime(runtime_path)
-            runtime = evaluate_runtime_window(
-                runtime_values, acceptance_profile=acceptance_profile
-            )
+            runtime = evaluate_runtime_window(runtime_values, acceptance_profile=acceptance_profile)
             checks["ai_runtime"] = runtime.__dict__
             reasons.extend(runtime.reasons)
         except (KeyError, TypeError, ValueError, json.JSONDecodeError):
@@ -327,6 +324,7 @@ def build_closeout_report(
         _append_reason(reasons, "AI_RUNTIME_WINDOW_INCOMPLETE")
 
     qualification_path = root / "qualification.jsonl"
+    calibration_path = root / "qualification-calibration.json"
     if acceptance_profile == "engineering":
         checks["qualification"] = {
             "passed": True,
@@ -344,10 +342,33 @@ def build_closeout_report(
             }:
                 _append_reason(reasons, "OWNER_GOLD_INCOMPLETE")
             qualification = evaluate_qualification(qualification_values)
-            checks["qualification"] = qualification.__dict__ | {"distribution": distribution}
+            if not calibration_path.is_file():
+                _append_reason(reasons, "OWNER_GOLD_CALIBRATION_INCOMPLETE")
+                checks["qualification"] = qualification.__dict__ | {
+                    "distribution": distribution
+                }
+            else:
+                calibration = load_calibration_fact(calibration_path)
+                grant = calibration_grant(
+                    calibration,
+                    rule_version=calibration.rule_version,
+                    model_id=calibration.model_id,
+                    prompt_version=calibration.prompt_version,
+                )
+                if grant is None:
+                    _append_reason(reasons, "OWNER_GOLD_CALIBRATION_NO_GO")
+                checks["qualification"] = qualification.__dict__ | {
+                    "distribution": distribution,
+                    "calibration_fact_sha256": calibration.fact_sha256,
+                    "corpus_version": calibration.corpus_version,
+                    "model_id": calibration.model_id,
+                    "prompt_version": calibration.prompt_version,
+                    "auto_pass_threshold_bps": calibration.auto_pass_threshold_bps,
+                    "calibration_decision": calibration.decision,
+                }
             reasons.extend(qualification.reasons)
         except (TypeError, ValueError, json.JSONDecodeError):
-            _append_reason(reasons, "OWNER_GOLD_INVALID")
+            _append_reason(reasons, "OWNER_GOLD_OR_CALIBRATION_INVALID")
     else:
         _append_reason(reasons, "OWNER_GOLD_INCOMPLETE")
 
@@ -395,14 +416,27 @@ def build_closeout_report(
     compensation_path = root / "compensation.json"
     if compensation_path.is_file():
         compensation = _read_json(compensation_path)
-        compensation_ok = (
-            compensation.get("eligible_count") == compensation.get("recovered_count")
-            and compensation.get("duplicate_side_effects") == 0
-            and compensation.get("stale_version_recoveries") == 0
-            and compensation.get("permanent_error_retries") == 0
-        )
-        checks["compensation"] = {"passed": compensation_ok}
-        if not compensation_ok:
+        try:
+            result = evaluate_compensation(
+                CompensationInspection(
+                    injected_transient_count=int(compensation.get("injected_transient_count", 0)),
+                    recovered_count=int(compensation.get("recovered_count", -1)),
+                    injected_permanent_count=int(compensation.get("injected_permanent_count", 0)),
+                    permanent_error_observed_count=int(
+                        compensation.get("permanent_error_observed_count", 0)
+                    ),
+                    duplicate_side_effects=int(compensation.get("duplicate_side_effects", -1)),
+                    stale_version_recoveries=int(compensation.get("stale_version_recoveries", -1)),
+                    permanent_error_retries=int(compensation.get("permanent_error_retries", -1)),
+                )
+            )
+            checks["compensation"] = {
+                "passed": result.passed,
+                "reasons": result.reasons,
+            }
+            if not result.passed:
+                _append_reason(reasons, "AI_COMPENSATION_INCOMPLETE")
+        except (TypeError, ValueError):
             _append_reason(reasons, "AI_COMPENSATION_INCOMPLETE")
     else:
         _append_reason(reasons, "AI_COMPENSATION_INCOMPLETE")
@@ -410,15 +444,18 @@ def build_closeout_report(
     preflight_path = root / "preflight.json"
     if preflight_path.is_file():
         preflight = _read_json(preflight_path)
-        preflight_ok = all(
-            preflight.get(field) is True
-            for field in (
-                "backup_receipt_verified",
-                "object_inventory_verified",
-                "audit_tail_anchor_verified",
-                "v1_archive_sha256_verified",
+        preflight_ok = (
+            all(
+                preflight.get(field) is True
+                for field in (
+                    "backup_receipt_verified",
+                    "object_inventory_verified",
+                    "audit_tail_anchor_verified",
+                    "v1_archive_sha256_verified",
+                )
             )
-        ) and preflight.get("mutation_performed") is False
+            and preflight.get("mutation_performed") is False
+        )
         checks["preflight"] = {
             "passed": preflight_ok,
             "mutation_performed": preflight.get("mutation_performed"),
@@ -430,20 +467,23 @@ def build_closeout_report(
 
     baseline_commit: str | None = None
     environment: str | None = None
+    campaign_id: str | None = None
     context_path = root / "context.json"
     if context_path.is_file():
         try:
             supplied_context = _read_json(context_path)
             candidate_commit = str(supplied_context.get("baseline_commit") or "")
             candidate_environment = str(supplied_context.get("environment") or "").strip()
+            candidate_campaign_id = str(supplied_context.get("campaign_id") or "")
             if (
                 _GIT_COMMIT.fullmatch(candidate_commit)
-                and supplied_context.get("migration_head")
-                == "0036_ai_content_result_lifecycle"
+                and supplied_context.get("migration_head") == "0039_t04_content_candidates"
                 and candidate_environment
+                and _UUID7.fullmatch(candidate_campaign_id)
             ):
                 baseline_commit = candidate_commit
                 environment = candidate_environment
+                campaign_id = candidate_campaign_id
             else:
                 _append_reason(reasons, "READINESS_CONTEXT_INVALID")
         except (TypeError, ValueError, json.JSONDecodeError):
@@ -470,8 +510,9 @@ def build_closeout_report(
     ]
     context = {
         "baseline_commit": baseline_commit,
-        "migration_head": "0036_ai_content_result_lifecycle",
+        "migration_head": "0039_t04_content_candidates",
         "environment": environment,
+        "campaign_id": campaign_id,
         "time_window": time_window,
         "rule_versions": {
             "closeout": (
@@ -506,9 +547,7 @@ def build_closeout_report(
     report: dict[str, Any] = {
         "schema_version": "intelligence-v2-closeout-1.0.0",
         "acceptance_profile": (
-            "ENGINEERING_CLOSEOUT"
-            if acceptance_profile == "engineering"
-            else "PRODUCTION_CLOSEOUT"
+            "ENGINEERING_CLOSEOUT" if acceptance_profile == "engineering" else "PRODUCTION_CLOSEOUT"
         ),
         "generated_at": datetime.now(UTC).isoformat(),
         "decision": "GO" if not reasons else "NO_GO",
@@ -532,9 +571,7 @@ def main() -> int:
     parser.add_argument("--evidence-root", type=Path, required=True)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    report = build_closeout_report(
-        args.evidence_root, acceptance_profile=args.acceptance_profile
-    )
+    report = build_closeout_report(args.evidence_root, acceptance_profile=args.acceptance_profile)
     rendered = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
