@@ -30,7 +30,7 @@ from srbg_api.intelligence_v2.private_policy_replay import (
     load_private_policy_pack,
     run_offline_policy_replay,
 )
-from srbg_contracts import AutonomousClassificationCandidate
+from srbg_contracts import AutonomousClassificationCandidate, QualificationDecisionTrace
 
 _PUBLIC_AGGREGATES = (
     "total_cases",
@@ -57,7 +57,6 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--attempt-manifest-sha256", required=True)
     parser.add_argument("--response-artifact-sha256", required=True)
     parser.add_argument("--api-key-file", type=Path)
-    parser.add_argument("--candidate-cache", type=Path)
     return parser
 
 
@@ -90,7 +89,7 @@ class DeepSeekPolicyCandidateFetcher:
         policy = BudgetPolicy.deepseek_v4_flash()
         request = ModelRequest(
             step=AiStep.CLASSIFY,
-            prompt_version="autonomous-classify-2.3.0",
+            prompt_version="autonomous-classify-2.7.0",
             schema_version="autonomous-classify-output-2.0.0",
             model_profile="deepseek-v4-flash",
             system_prompt=system_prompt,
@@ -135,6 +134,14 @@ class _HttpxClientAdapter:
         return response
 
 
+class _ProcessLocalDecisionSink:
+    def __init__(self) -> None:
+        self.traces: list[QualificationDecisionTrace] = []
+
+    def append(self, trace: QualificationDecisionTrace) -> None:
+        self.traces.append(trace)
+
+
 def main() -> int:
     try:
         args = _parser().parse_args()
@@ -144,15 +151,13 @@ def main() -> int:
             expected_response_artifact_sha256=args.response_artifact_sha256,
         )
         use_live_model = args.api_key_file is not None
-        if use_live_model != (args.candidate_cache is not None):
-            raise ValueError("PRIVATE_REPLAY_LIVE_ARGUMENTS_INCOMPLETE")
         policy = QualificationPolicyBundle.create(
-            policy_version="qualification-policy-2.0.0",
-            global_rule_version="global-rules-2.0.0",
+            policy_version="qualification-policy-2.1.0",
+            global_rule_version="global-rules-2.1.0",
             source_stream_policy_version="owner-gold-private-v4",
             ai_provider="deepseek" if use_live_model else "protocol-equivalent-recorded",
             ai_model="deepseek-v4-flash" if use_live_model else "semantic-classifier-v2",
-            prompt_version="autonomous-classify-2.3.0",
+            prompt_version="autonomous-classify-2.7.0",
             schema_version="autonomous-classify-output-2.0.0",
             code_version=args.code_version,
         )
@@ -165,17 +170,17 @@ def main() -> int:
                 fetch_candidate=DeepSeekPolicyCandidateFetcher(
                     api_key=_read_api_key(args.api_key_file)
                 ),
-                cache_path=args.candidate_cache,
-                policy_identity=policy.identity,
             )
-            if args.api_key_file is not None and args.candidate_cache is not None
+            if args.api_key_file is not None
             else MappingModelEdge(pack.responses)
         )
+        decision_sink = _ProcessLocalDecisionSink()
         service = AutomatedAdjudicationService(
             policy=policy,
             model_edge=model_edge,
             clock=lambda: datetime.now(UTC),
             id_factory=uuid7,
+            decision_sink=decision_sink,
         )
         report = run_offline_policy_replay(
             pack.cases,
@@ -184,6 +189,8 @@ def main() -> int:
             corpus_manifest_sha256=pack.corpus_manifest_sha256,
             policy_bundle_sha256=policy.identity.bundle_sha256,
         )
+        if len(decision_sink.traces) != report.total_cases:
+            raise ValueError("PRIVATE_REPLAY_DECISION_TRACE_INCOMPLETE")
         values = asdict(report)
         print(
             json.dumps(

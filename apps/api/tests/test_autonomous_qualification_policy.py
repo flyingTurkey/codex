@@ -219,9 +219,7 @@ def test_semantic_model_can_supply_an_unlexicalized_engineering_object() -> None
         id_factory=lambda: UUID("019b1d00-0000-7000-8000-000000000041"),
     )
 
-    trace = service.adjudicate(
-        _input("Underground transit depot construction started this month.")
-    )
+    trace = service.adjudicate(_input("Underground transit depot construction started this month."))
 
     assert trace.disposition.value == "AUTO_ACCEPTED"
     assert "AI_SUPPORTED_ENGINEERING_OBJECT_ACTIVITY_COOCCURRENCE" in trace.rule_signals
@@ -273,9 +271,7 @@ def test_model_cannot_accept_without_an_engineering_object_axis() -> None:
     trace = service.adjudicate(_input("工程施工活动形成新的行业事实。"))
 
     assert trace.disposition.value == "AUTO_FILTERED"
-    assert "RULE_NO_ENGINEERING_COOCCURRENCE" in {
-        reason.value for reason in trace.reason_codes
-    }
+    assert "RULE_NO_ENGINEERING_COOCCURRENCE" in {reason.value for reason in trace.reason_codes}
     assert trace.semantic_recheck_count == 1
 
 
@@ -482,6 +478,85 @@ def test_construction_machinery_requires_direct_in_scope_lifecycle_use() -> None
     )
 
     trace = service.adjudicate(_input("挖掘机直接用于公路施工。"))
+
+    assert trace.disposition.value == "AUTO_ACCEPTED"
+
+
+@pytest.mark.parametrize(
+    ("document_text", "engineering_object", "primary_type"),
+    [
+        ("A shield machine is directly used for tunnel construction.", "TUNNEL", "INDUSTRY_UPDATE"),
+        ("A paver is directly used for highway maintenance.", "HIGHWAY", "INDUSTRY_UPDATE"),
+        ("A drilling rig is directly used for mining construction.", "MINING", "INDUSTRY_UPDATE"),
+        (
+            "A girder launcher is directly used for bridge construction.",
+            "BRIDGE",
+            "INDUSTRY_UPDATE",
+        ),
+        (
+            "A shotcrete robot is directly used for tunnel construction.",
+            "TUNNEL",
+            "DIGITAL_TRANSFORMATION",
+        ),
+        (
+            "A pile driver is directly used for building construction.",
+            "BUILDING",
+            "INDUSTRY_UPDATE",
+        ),
+        (
+            "Construction equipment was deployed directly for municipal construction.",
+            "MUNICIPAL",
+            "INDUSTRY_UPDATE",
+        ),
+        (
+            "Mechanical equipment was applied directly to water conservancy construction.",
+            "WATER_CONSERVANCY",
+            "INDUSTRY_UPDATE",
+        ),
+    ],
+)
+def test_common_construction_machinery_terms_prove_lifecycle_cooccurrence(
+    document_text: str,
+    engineering_object: str,
+    primary_type: str,
+) -> None:
+    candidate = _candidate(
+        core_new_fact=document_text,
+        primary_type=primary_type,
+        engineering_objects=[engineering_object],
+        equipment_domains=["CONSTRUCTION_MACHINERY"],
+    )
+    service = AutomatedAdjudicationService(
+        policy=_bundle(),
+        model_edge=RecordingModelEdge([candidate]),
+        clock=lambda: datetime(2026, 7, 21, 8, tzinfo=UTC),
+        id_factory=lambda: UUID("019b1d00-0000-7000-8000-000000000041"),
+    )
+
+    trace = service.adjudicate(_input(document_text))
+
+    assert trace.disposition.value == "AUTO_ACCEPTED"
+
+
+def test_direct_use_relation_can_span_adjacent_evidence_clauses() -> None:
+    document_text = (
+        "Highway construction entered a new phase. "
+        "A paver was deployed directly for that engineering work."
+    )
+    candidate = _candidate(
+        core_new_fact="A paver was deployed directly for highway construction",
+        primary_type="INDUSTRY_UPDATE",
+        engineering_objects=["HIGHWAY"],
+        equipment_domains=["CONSTRUCTION_MACHINERY"],
+    )
+    service = AutomatedAdjudicationService(
+        policy=_bundle(),
+        model_edge=RecordingModelEdge([candidate]),
+        clock=lambda: datetime(2026, 7, 21, 8, tzinfo=UTC),
+        id_factory=lambda: UUID("019b1d00-0000-7000-8000-000000000041"),
+    )
+
+    trace = service.adjudicate(_input(document_text))
 
     assert trace.disposition.value == "AUTO_ACCEPTED"
 

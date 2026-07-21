@@ -19,7 +19,6 @@ from srbg_contracts import (
     AutomatedDisposition,
     AutonomousClassificationCandidate,
     PrimaryIntelligenceType,
-    QualificationPolicyIdentity,
 )
 
 from srbg_api.ai_pipeline.gateway import ModelOutputRejected, TransientProviderError
@@ -105,63 +104,18 @@ class MappingModelEdge:
 
 
 class CachingClassificationModelEdge:
-    """Blind, resumable live-model edge that persists candidates but never documents."""
+    """Blind live-model edge that retains candidates only for the current process."""
 
     def __init__(
         self,
         *,
         evidence_locators_by_hash: dict[str, tuple[str, ...]],
         fetch_candidate: PolicyCandidateFetcher,
-        cache_path: Path,
-        policy_identity: QualificationPolicyIdentity,
     ) -> None:
         self._locators = dict(evidence_locators_by_hash)
         self._fetch_candidate = fetch_candidate
-        self._cache_path = cache_path
-        self._policy_identity = policy_identity
         self._positions: dict[str, int] = {}
-        self._responses = self._read_cache()
-
-    def _read_cache(self) -> dict[str, list[dict[str, object]]]:
-        if not self._cache_path.exists():
-            return {}
-        loaded = _load_json(self._cache_path)
-        if not isinstance(loaded, dict) or loaded.get("cache_version") != "policy-candidates-v2":
-            raise ValueError("PRIVATE_REPLAY_CACHE_INVALID")
-        if loaded.get("policy_identity") != self._policy_identity.model_dump(mode="json"):
-            raise ValueError("PRIVATE_REPLAY_CACHE_POLICY_MISMATCH")
-        loaded_responses = loaded.get("responses")
-        if not isinstance(loaded_responses, dict):
-            raise ValueError("PRIVATE_REPLAY_CACHE_INVALID")
-        responses: dict[str, list[dict[str, object]]] = {}
-        for content_hash, values in loaded_responses.items():
-            if (
-                not isinstance(content_hash, str)
-                or len(content_hash) != 64
-                or not isinstance(values, list)
-                or not all(isinstance(value, dict) for value in values)
-            ):
-                raise ValueError("PRIVATE_REPLAY_CACHE_INVALID")
-            responses[content_hash] = [dict(value) for value in values]
-        return responses
-
-    def _write_cache(self) -> None:
-        self._cache_path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self._cache_path.with_suffix(self._cache_path.suffix + ".tmp")
-        temporary.write_text(
-            json.dumps(
-                {
-                    "cache_version": "policy-candidates-v2",
-                    "policy_identity": self._policy_identity.model_dump(mode="json"),
-                    "responses": self._responses,
-                },
-                ensure_ascii=False,
-                separators=(",", ":"),
-            ),
-            encoding="utf-8",
-            newline="\n",
-        )
-        temporary.replace(self._cache_path)
+        self._responses: dict[str, list[dict[str, object]]] = {}
 
     def classify(
         self, *, system_prompt: str, document_text: str, semantic_recheck: bool
@@ -182,7 +136,14 @@ class CachingClassificationModelEdge:
             "especially the locked-negative categories. Return RELEVANT only when the central "
             "subject-action-object fact itself changes or studies an in-scope engineering "
             "lifecycle; otherwise return IRRELEVANT. Resolve a rule conflict only when the "
-            "document and issued evidence have one supported answer."
+            "document and issued evidence have one supported answer. Populate every "
+            "evidence-supported axis when returning RELEVANT. Never omit primary_type or "
+            "evidence_locators when the document supports them, and use only an allowed "
+            "evidence locator. 先识别标题和首段表达的中心新事实, 再核对主体、动作、工程对象和"
+            "生命周期; 企业经营、制造销售、招标采购、会议培训、获奖宣传、背景案例和未来愿景均"
+            "不能仅因出现工程词而判为相关。相关时必须选择唯一主类型: 安全法规、事故、处罚或"
+            "整改属于 SAFETY_INTELLIGENCE; 工程中的软件、平台、监测、智能装备或数字技术应用"
+            "属于 DIGITAL_TRANSFORMATION; 物理工程项目节点属于 INDUSTRY_UPDATE。"
             if semantic_recheck
             else "This is the initial semantic adjudication."
         )
@@ -210,7 +171,6 @@ class CachingClassificationModelEdge:
             raise TransientClassificationFailure from exc
         self._responses.setdefault(content_hash, []).append(candidate)
         self._positions[content_hash] = position + 1
-        self._write_cache()
         return dict(candidate)
 
 
@@ -440,9 +400,21 @@ def load_private_policy_pack(
     if not isinstance(blind_cases, list) or not blind_cases:
         raise ValueError("PRIVATE_REPLAY_PACK_EMPTY")
 
+    if any(not isinstance(value, dict) or "case_id" not in value for value in blind_cases):
+        raise ValueError("PRIVATE_REPLAY_CASE_INVALID")
+    blind_case_ids = [str(value["case_id"]) for value in blind_cases]
+    if len(blind_case_ids) != len(set(blind_case_ids)):
+        raise ValueError("PRIVATE_REPLAY_CASE_DUPLICATE")
+    annotation_ids = [str(row.get("case_id")) for row in annotation_rows]
+    if len(annotation_ids) != len(set(annotation_ids)):
+        raise ValueError("PRIVATE_REPLAY_ANNOTATION_DUPLICATE")
+    response_ids = [str(row["case_id"]) for row in response_rows]
+    if len(response_ids) != len(set(response_ids)):
+        raise ValueError("PRIVATE_REPLAY_RESPONSE_DUPLICATE")
+
     annotations = {str(row["case_id"]): row for row in annotation_rows}
     recorded = {str(row["case_id"]): row for row in response_rows}
-    case_ids = {str(value.get("case_id")) for value in blind_cases if isinstance(value, dict)}
+    case_ids = set(blind_case_ids)
     if case_ids != set(annotations) or case_ids != set(recorded):
         raise ValueError("PRIVATE_REPLAY_CASE_SET_MISMATCH")
 

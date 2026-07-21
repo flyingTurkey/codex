@@ -128,15 +128,54 @@ _DIGITAL_TYPE_TERMS: tuple[str, ...] = (
 
 _CONSTRUCTION_MACHINERY_TERMS: tuple[str, ...] = (
     "construction machinery",
+    "construction equipment",
+    "mechanical equipment",
     "excavator",
     "bulldozer",
     "loader",
     "crane",
+    "shield machine",
+    "tunnel boring machine",
+    "paver",
+    "road roller",
+    "drilling rig",
+    "concrete pump",
+    "girder launcher",
+    "shotcrete robot",
+    "pile driver",
+    "rock drilling jumbo",
+    "concrete batching plant",
     "掘进机",
+    "盾构机",
     "挖掘机",
     "推土机",
     "装载机",
     "起重机",
+    "摊铺机",
+    "压路机",
+    "钻机",
+    "泵车",
+    "架桥机",
+    "湿喷台车",
+    "凿岩台车",
+    "打桩机",
+    "拌合站",
+    "运梁车",
+    "提梁机",
+)
+
+_DIRECT_EQUIPMENT_USE_TERMS: tuple[str, ...] = (
+    "used for",
+    "applied to",
+    "deployed",
+    "serves",
+    "directly for",
+    "用于",
+    "应用于",
+    "投入",
+    "部署",
+    "服务于",
+    "参与",
 )
 
 
@@ -174,6 +213,8 @@ class QualificationPolicyBundle:
             "source_exclude_terms": sorted(set(source_exclude_terms)),
             "engineering_object_terms": _ENGINEERING_OBJECT_TERMS,
             "engineering_activity_terms": _ENGINEERING_ACTIVITY_TERMS,
+            "construction_machinery_terms": _CONSTRUCTION_MACHINERY_TERMS,
+            "direct_equipment_use_terms": _DIRECT_EQUIPMENT_USE_TERMS,
             "locked_negatives": _LOCKED_NEGATIVES,
             "contextual_health_negatives": _CONTEXTUAL_HEALTH_NEGATIVES,
             "port_business_locked_negative": {
@@ -543,7 +584,16 @@ def _has_machinery_lifecycle_cooccurrence(normalized_text: str) -> bool:
             for term in terms
         ):
             return True
-    return False
+    return (
+        any(term.casefold() in normalized_text for term in _CONSTRUCTION_MACHINERY_TERMS)
+        and any(term.casefold() in normalized_text for term in _ENGINEERING_ACTIVITY_TERMS)
+        and any(
+            term.casefold() in normalized_text
+            for _, terms in _ENGINEERING_OBJECT_TERMS
+            for term in terms
+        )
+        and any(term.casefold() in normalized_text for term in _DIRECT_EQUIPMENT_USE_TERMS)
+    )
 
 
 def _is_locked_negative(

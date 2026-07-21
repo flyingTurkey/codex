@@ -254,6 +254,54 @@ def test_private_pack_loader_verifies_seal_and_keeps_case_data_internal(tmp_path
     assert len(loaded.cases) == 1
     assert set(loaded.responses) == {content_hash}
 
+    (tmp_path / "blind.json").write_text(
+        json.dumps(blind | {"cases": [blind["cases"][0], blind["cases"][0]]}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="PRIVATE_REPLAY_CASE_DUPLICATE"):
+        load_private_policy_pack(
+            tmp_path,
+            expected_attempt_manifest_sha256=str(attempt["attempt_manifest_sha256"]),
+            expected_response_artifact_sha256=response_hash,
+        )
+    (tmp_path / "blind.json").write_text(json.dumps(blind), encoding="utf-8")
+
+    duplicate_annotation_bytes = annotation_bytes + annotation_bytes
+    duplicate_annotation_attempt = attempt | {
+        "attempt_labels_sha256": hashlib.sha256(duplicate_annotation_bytes).hexdigest(),
+    }
+    duplicate_annotation_payload = dict(duplicate_annotation_attempt)
+    duplicate_annotation_payload.pop("attempt_manifest_sha256")
+    duplicate_annotation_attempt["attempt_manifest_sha256"] = hashlib.sha256(
+        canonical(duplicate_annotation_payload)
+    ).hexdigest()
+    (tmp_path / "annotations.jsonl").write_bytes(duplicate_annotation_bytes)
+    (tmp_path / "attempt.json").write_text(
+        json.dumps(duplicate_annotation_attempt), encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="PRIVATE_REPLAY_ANNOTATION_DUPLICATE"):
+        load_private_policy_pack(
+            tmp_path,
+            expected_attempt_manifest_sha256=str(
+                duplicate_annotation_attempt["attempt_manifest_sha256"]
+            ),
+            expected_response_artifact_sha256=response_hash,
+        )
+    (tmp_path / "annotations.jsonl").write_bytes(annotation_bytes)
+    (tmp_path / "attempt.json").write_text(json.dumps(attempt), encoding="utf-8")
+
+    duplicate_response_bytes = response_bytes + response_bytes
+    (tmp_path / "responses.jsonl").write_bytes(duplicate_response_bytes)
+    with pytest.raises(ValueError, match="PRIVATE_REPLAY_RESPONSE_DUPLICATE"):
+        load_private_policy_pack(
+            tmp_path,
+            expected_attempt_manifest_sha256=str(attempt["attempt_manifest_sha256"]),
+            expected_response_artifact_sha256=hashlib.sha256(
+                duplicate_response_bytes
+            ).hexdigest(),
+        )
+    (tmp_path / "responses.jsonl").write_bytes(response_bytes)
+
     (tmp_path / "attempt.json").write_text(
         json.dumps(attempt | {"tampered": True}), encoding="utf-8"
     )
@@ -279,7 +327,7 @@ def test_private_pack_loader_verifies_seal_and_keeps_case_data_internal(tmp_path
         )
 
 
-def test_live_edge_cache_never_persists_document_or_labels(tmp_path) -> None:
+def test_live_edge_keeps_candidates_document_and_labels_process_local(tmp_path) -> None:
     document = "Railway tunnel construction safety remediation started."
     content_hash = hashlib.sha256(document.encode("utf-8")).hexdigest()
     prompts: list[str] = []
@@ -296,8 +344,6 @@ def test_live_edge_cache_never_persists_document_or_labels(tmp_path) -> None:
     edge = CachingClassificationModelEdge(
         evidence_locators_by_hash={content_hash: ("html:p:8",)},
         fetch_candidate=fetcher,
-        cache_path=cache_path,
-        policy_identity=_bundle().identity,
     )
 
     first = edge.classify(
@@ -315,44 +361,14 @@ def test_live_edge_cache_never_persists_document_or_labels(tmp_path) -> None:
     assert len(prompts) == 2
     assert received_hashes == [content_hash, content_hash]
     assert "independent final verifier" in prompts[1]
-    persisted = cache_path.read_text(encoding="utf-8")
-    assert document not in persisted
-    assert "expected_relevant" not in persisted
-    assert "primary_type_label" not in persisted
-
-    replayed = CachingClassificationModelEdge(
-        evidence_locators_by_hash={content_hash: ("html:p:8",)},
-        fetch_candidate=lambda **_: (_ for _ in ()).throw(AssertionError),
-        cache_path=cache_path,
-        policy_identity=_bundle().identity,
-    )
-    assert (
-        replayed.classify(
-            system_prompt="policy",
-            document_text=document,
-            semantic_recheck=False,
-        )
-        == _candidate()
-    )
-    with pytest.raises(ValueError, match="PRIVATE_REPLAY_CACHE_POLICY_MISMATCH"):
-        CachingClassificationModelEdge(
-            evidence_locators_by_hash={content_hash: ("html:p:8",)},
-            fetch_candidate=lambda **_: _candidate(),
-            cache_path=cache_path,
-            policy_identity=QualificationPolicyBundle.create(
-                policy_version="qualification-policy-2.0.1",
-                global_rule_version="global-rules-2.0.0",
-                source_stream_policy_version="stream-policy-7",
-                ai_provider="protocol-equivalent-test",
-                ai_model="semantic-classifier-v2",
-                prompt_version="autonomous-classify-2.0.0",
-                schema_version="autonomous-classify-output-2.0.0",
-                code_version="issue-41-test",
-            ).identity,
-        )
+    assert "Populate every evidence-supported axis" in prompts[1]
+    assert "Never omit primary_type or evidence_locators" in prompts[1]
+    assert "先识别标题和首段表达的中心新事实" in prompts[1]
+    assert "物理工程项目节点属于 INDUSTRY_UPDATE" in prompts[1]
+    assert not cache_path.exists()
 
 
-def test_live_edge_turns_provider_output_rejection_into_bounded_recheck(tmp_path) -> None:
+def test_live_edge_turns_provider_output_rejection_into_bounded_recheck() -> None:
     document = "Railway tunnel construction safety remediation started."
     content_hash = hashlib.sha256(document.encode("utf-8")).hexdigest()
     attempts = 0
@@ -370,8 +386,6 @@ def test_live_edge_turns_provider_output_rejection_into_bounded_recheck(tmp_path
     edge = CachingClassificationModelEdge(
         evidence_locators_by_hash={content_hash: ("html:p:8",)},
         fetch_candidate=fetcher,
-        cache_path=tmp_path / "private-candidates.json",
-        policy_identity=_bundle().identity,
     )
     service = AutomatedAdjudicationService(
         policy=_bundle(),
@@ -395,7 +409,7 @@ def test_live_edge_turns_provider_output_rejection_into_bounded_recheck(tmp_path
     assert trace.disposition.value == "AUTO_ACCEPTED"
 
 
-def test_live_edge_maps_transient_provider_failure_to_stable_retry(tmp_path) -> None:
+def test_live_edge_maps_transient_provider_failure_to_stable_retry() -> None:
     document = "Railway tunnel construction safety remediation started."
     content_hash = hashlib.sha256(document.encode("utf-8")).hexdigest()
 
@@ -407,8 +421,6 @@ def test_live_edge_maps_transient_provider_failure_to_stable_retry(tmp_path) -> 
         model_edge=CachingClassificationModelEdge(
             evidence_locators_by_hash={content_hash: ("html:p:8",)},
             fetch_candidate=fetcher,
-            cache_path=tmp_path / "private-candidates.json",
-            policy_identity=_bundle().identity,
         ),
         clock=lambda: datetime(2026, 7, 21, 8, tzinfo=UTC),
         id_factory=lambda: UUID("019b1d00-0000-7000-8000-000000000041"),
