@@ -8,7 +8,7 @@ MIGRATION = Path("apps/api/migrations/versions/0025_personal_source_discovery.py
 
 def test_pers05_is_the_single_head_after_pers04() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
-    assert script.get_current_head() == "0046_owner_gold_prediction_seal"
+    assert script.get_current_head() == "0048_autonomous_policy_foundation"
     revision = script.get_revision("0025_personal_source_discovery")
     assert revision is not None
     assert revision.down_revision == "0024_automatic_source_profiles"

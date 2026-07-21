@@ -1,0 +1,39 @@
+{
+  "$defs": {
+    "OwnerExceptionEventType": {
+      "enum": [
+        "CREATED",
+        "RETRY_REQUESTED",
+        "OWNER_ALLOWED",
+        "OWNER_DENIED",
+        "AUTO_RESOLVED",
+        "SOURCE_DISABLED"
+      ],
+      "title": "OwnerExceptionEventType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "event_type": {
+      "$ref": "#/$defs/OwnerExceptionEventType"
+    },
+    "exception_id": {
+      "format": "uuid",
+      "title": "Exception Id",
+      "type": "string"
+    },
+    "expected_version": {
+      "exclusiveMinimum": 0,
+      "title": "Expected Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "exception_id",
+    "event_type",
+    "expected_version"
+  ],
+  "title": "OwnerExceptionCommand",
+  "type": "object"
+}

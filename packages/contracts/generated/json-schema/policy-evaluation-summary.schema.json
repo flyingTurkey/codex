@@ -1,0 +1,209 @@
+{
+  "$defs": {
+    "PolicyEvaluationMode": {
+      "enum": [
+        "OFFLINE_REPLAY",
+        "SHADOW"
+      ],
+      "title": "PolicyEvaluationMode",
+      "type": "string"
+    },
+    "QualificationPolicyIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "ai_model": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Ai Model",
+          "type": "string"
+        },
+        "ai_provider": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Ai Provider",
+          "type": "string"
+        },
+        "bundle_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Bundle Sha256",
+          "type": "string"
+        },
+        "code_version": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Code Version",
+          "type": "string"
+        },
+        "global_rule_version": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Global Rule Version",
+          "type": "string"
+        },
+        "policy_version": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Policy Version",
+          "type": "string"
+        },
+        "prompt_version": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Prompt Version",
+          "type": "string"
+        },
+        "schema_version": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source_stream_policy_version": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Source Stream Policy Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "policy_version",
+        "global_rule_version",
+        "source_stream_policy_version",
+        "ai_provider",
+        "ai_model",
+        "prompt_version",
+        "schema_version",
+        "code_version",
+        "bundle_sha256"
+      ],
+      "title": "QualificationPolicyIdentity",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "authorizes_production": {
+      "const": false,
+      "title": "Authorizes Production",
+      "type": "boolean"
+    },
+    "auto_accepted_count": {
+      "minimum": 0,
+      "title": "Auto Accepted Count",
+      "type": "integer"
+    },
+    "auto_filtered_count": {
+      "minimum": 0,
+      "title": "Auto Filtered Count",
+      "type": "integer"
+    },
+    "benchmark_version": {
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Benchmark Version",
+      "type": "string"
+    },
+    "corpus_manifest_sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Corpus Manifest Sha256",
+      "type": "string"
+    },
+    "evaluated_at": {
+      "format": "date-time",
+      "title": "Evaluated At",
+      "type": "string"
+    },
+    "gate_passed": {
+      "title": "Gate Passed",
+      "type": "boolean"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "locked_negative_leaks": {
+      "minimum": 0,
+      "title": "Locked Negative Leaks",
+      "type": "integer"
+    },
+    "mode": {
+      "$ref": "#/$defs/PolicyEvaluationMode"
+    },
+    "new_owner_semantic_tasks": {
+      "const": 0,
+      "title": "New Owner Semantic Tasks",
+      "type": "integer"
+    },
+    "owner_suppressed_count": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Owner Suppressed Count",
+      "type": "integer"
+    },
+    "policy": {
+      "$ref": "#/$defs/QualificationPolicyIdentity"
+    },
+    "precision_bps": {
+      "maximum": 10000,
+      "minimum": 0,
+      "title": "Precision Bps",
+      "type": "integer"
+    },
+    "recall_bps": {
+      "maximum": 10000,
+      "minimum": 0,
+      "title": "Recall Bps",
+      "type": "integer"
+    },
+    "safety_hold_count": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Safety Hold Count",
+      "type": "integer"
+    },
+    "schema_valid_bps": {
+      "maximum": 10000,
+      "minimum": 0,
+      "title": "Schema Valid Bps",
+      "type": "integer"
+    },
+    "technical_failed_count": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Technical Failed Count",
+      "type": "integer"
+    },
+    "technical_retry_count": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Technical Retry Count",
+      "type": "integer"
+    },
+    "total_cases": {
+      "minimum": 0,
+      "title": "Total Cases",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "id",
+    "policy",
+    "mode",
+    "benchmark_version",
+    "corpus_manifest_sha256",
+    "total_cases",
+    "auto_accepted_count",
+    "auto_filtered_count",
+    "precision_bps",
+    "recall_bps",
+    "locked_negative_leaks",
+    "schema_valid_bps",
+    "new_owner_semantic_tasks",
+    "gate_passed",
+    "authorizes_production",
+    "evaluated_at"
+  ],
+  "title": "PolicyEvaluationSummary",
+  "type": "object"
+}

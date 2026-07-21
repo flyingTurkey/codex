@@ -56,6 +56,272 @@ class EquipmentFacet(StrEnum):
     CONSTRUCTION_MACHINERY = "CONSTRUCTION_MACHINERY"
 
 
+class AutomatedDisposition(StrEnum):
+    AUTO_ACCEPTED = "AUTO_ACCEPTED"
+    AUTO_FILTERED = "AUTO_FILTERED"
+    TECHNICAL_RETRY = "TECHNICAL_RETRY"
+    TECHNICAL_FAILED = "TECHNICAL_FAILED"
+    SAFETY_HOLD = "SAFETY_HOLD"
+    OWNER_SUPPRESSED = "OWNER_SUPPRESSED"
+
+
+class AutomatedDecisionReason(StrEnum):
+    POLICY_ACCEPTED = "POLICY_ACCEPTED"
+    RULE_LOCKED_NEGATIVE = "RULE_LOCKED_NEGATIVE"
+    RULE_NO_ENGINEERING_COOCCURRENCE = "RULE_NO_ENGINEERING_COOCCURRENCE"
+    RULE_PRIMARY_TYPE_UNSUPPORTED = "RULE_PRIMARY_TYPE_UNSUPPORTED"
+    RULE_AXIS_INVARIANT_FAILED = "RULE_AXIS_INVARIANT_FAILED"
+    RULE_PROMPT_INJECTION = "RULE_PROMPT_INJECTION"
+    AI_SCHEMA_INVALID = "AI_SCHEMA_INVALID"
+    AI_RULE_CONFLICT = "AI_RULE_CONFLICT"
+    AI_AMBIGUITY_UNRESOLVED = "AI_AMBIGUITY_UNRESOLVED"
+    EVIDENCE_MISSING = "EVIDENCE_MISSING"
+    EVIDENCE_LOCATOR_INVALID = "EVIDENCE_LOCATOR_INVALID"
+    DOCUMENT_VERSION_STALE = "DOCUMENT_VERSION_STALE"
+    SAFETY_SIGNAL = "SAFETY_SIGNAL"
+    TECHNICAL_RETRYABLE = "TECHNICAL_RETRYABLE"
+    TECHNICAL_EXHAUSTED = "TECHNICAL_EXHAUSTED"
+    OWNER_PREFERENCE = "OWNER_PREFERENCE"
+    OWNER_CLASSIFICATION_ERROR = "OWNER_CLASSIFICATION_ERROR"
+    POLICY_GATE_FAILED = "POLICY_GATE_FAILED"
+
+
+class ExceptionKind(StrEnum):
+    TECHNICAL = "TECHNICAL"
+    SAFETY = "SAFETY"
+
+
+class SafetyOverrideability(StrEnum):
+    OWNER_DECIDABLE = "OWNER_DECIDABLE"
+    HARD_BLOCK = "HARD_BLOCK"
+
+
+class FeedSuppressionScope(StrEnum):
+    EVENT = "EVENT"
+    PRIMARY_TYPE = "PRIMARY_TYPE"
+    ENGINEERING_OBJECT = "ENGINEERING_OBJECT"
+    SPECIALTY_FACET = "SPECIALTY_FACET"
+    EQUIPMENT_DOMAIN = "EQUIPMENT_DOMAIN"
+    SOURCE = "SOURCE"
+    CUSTOM_TOPIC = "CUSTOM_TOPIC"
+
+
+class PolicyEvaluationMode(StrEnum):
+    OFFLINE_REPLAY = "OFFLINE_REPLAY"
+    SHADOW = "SHADOW"
+
+
+class OwnerExceptionStatus(StrEnum):
+    OPEN = "OPEN"
+    RESOLVED = "RESOLVED"
+
+
+class OwnerExceptionEventType(StrEnum):
+    CREATED = "CREATED"
+    RETRY_REQUESTED = "RETRY_REQUESTED"
+    OWNER_ALLOWED = "OWNER_ALLOWED"
+    OWNER_DENIED = "OWNER_DENIED"
+    AUTO_RESOLVED = "AUTO_RESOLVED"
+    SOURCE_DISABLED = "SOURCE_DISABLED"
+
+
+class FeedSuppressionAction(StrEnum):
+    ACTIVATE = "ACTIVATE"
+    REVOKE = "REVOKE"
+
+
+class FeedSuppressionFeedbackReason(StrEnum):
+    OWNER_PREFERENCE = "OWNER_PREFERENCE"
+    CLASSIFICATION_ERROR = "CLASSIFICATION_ERROR"
+    SAFETY_DENIAL = "SAFETY_DENIAL"
+
+
+class QualificationPolicyIdentity(ContractModel):
+    policy_version: str = Field(min_length=1, max_length=120)
+    global_rule_version: str = Field(min_length=1, max_length=120)
+    source_stream_policy_version: str = Field(min_length=1, max_length=120)
+    ai_provider: str = Field(min_length=1, max_length=80)
+    ai_model: str = Field(min_length=1, max_length=160)
+    prompt_version: str = Field(min_length=1, max_length=120)
+    schema_version: str = Field(min_length=1, max_length=120)
+    code_version: str = Field(min_length=1, max_length=120)
+    bundle_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class AutonomousClassificationCandidate(ContractModel):
+    """Strict model output; publication and safety authority remain server-owned."""
+
+    direct_relevance: Literal["RELEVANT", "IRRELEVANT", "AMBIGUOUS", "FAILED"]
+    core_new_fact: str | None = Field(default=None, max_length=500)
+    primary_type: PrimaryIntelligenceType | None = None
+    engineering_objects: list[EngineeringObject] = Field(default_factory=list, max_length=11)
+    specialty_facets: list[SpecialtyFacet] = Field(default_factory=list, max_length=1)
+    equipment_domains: list[EquipmentFacet] = Field(default_factory=list, max_length=1)
+    content_form: Literal[
+        "AUTHORITY_NOTICE",
+        "PROJECT_RECORD",
+        "RESEARCH",
+        "PRODUCT",
+        "ACCIDENT_UPDATE",
+        "STANDARD_GUIDANCE",
+        "OPERATION_UPDATE",
+        "OTHER",
+    ]
+    evidence_locators: list[str] = Field(default_factory=list, max_length=100)
+    ambiguity_indicators: list[str] = Field(default_factory=list, max_length=20)
+    security_signals: list[str] = Field(default_factory=list, max_length=20)
+    confidence: float = Field(ge=0, le=1)
+
+
+class QualificationDecisionTrace(ContractModel):
+    decision_id: UUID
+    document_version_id: UUID
+    raw_object_id: UUID
+    normalized_input_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    policy: QualificationPolicyIdentity
+    disposition: AutomatedDisposition
+    reason_codes: list[AutomatedDecisionReason] = Field(min_length=1, max_length=20)
+    rule_signals: list[str] = Field(default_factory=list, max_length=50)
+    model_candidate: AutonomousClassificationCandidate | None = None
+    evidence_locators: list[str] = Field(default_factory=list, max_length=100)
+    semantic_recheck_count: int = Field(ge=0, le=1)
+    decided_at: AwareDatetime
+
+
+class OwnerExceptionView(ContractModel):
+    id: UUID
+    kind: ExceptionKind
+    status: OwnerExceptionStatus
+    overrideability: SafetyOverrideability | None = None
+    source_id: UUID | None = None
+    source_stream_id: UUID | None = None
+    document_version_id: UUID | None = None
+    decision_id: UUID | None = None
+    reason_codes: list[AutomatedDecisionReason] = Field(min_length=1, max_length=20)
+    attempt_count: int = Field(ge=0, le=32767)
+    version: int = Field(gt=0)
+    opened_at: AwareDatetime
+    updated_at: AwareDatetime
+    resolved_at: AwareDatetime | None = None
+
+    @model_validator(mode="after")
+    def validate_kind_controls(self) -> "OwnerExceptionView":
+        if self.kind is ExceptionKind.TECHNICAL and self.overrideability is not None:
+            raise ValueError("technical exceptions have no safety overrideability")
+        if self.kind is ExceptionKind.SAFETY and self.overrideability is None:
+            raise ValueError("safety exceptions require overrideability")
+        return self
+
+
+class FeedSuppressionCommand(ContractModel):
+    action: FeedSuppressionAction
+    scope: FeedSuppressionScope
+    target_key: str = Field(min_length=1, max_length=300)
+    feedback_reason: FeedSuppressionFeedbackReason
+    supersedes_rule_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def validate_action_target(self) -> "FeedSuppressionCommand":
+        if self.action is FeedSuppressionAction.ACTIVATE and self.supersedes_rule_id is not None:
+            raise ValueError("activation cannot supersede a suppression rule")
+        if self.action is FeedSuppressionAction.REVOKE and self.supersedes_rule_id is None:
+            raise ValueError("revocation requires the superseded suppression rule")
+        return self
+
+
+class FeedSuppressionRuleView(ContractModel):
+    id: UUID
+    action: FeedSuppressionAction
+    scope: FeedSuppressionScope
+    target_key: str = Field(min_length=1, max_length=300)
+    feedback_reason: FeedSuppressionFeedbackReason
+    supersedes_rule_id: UUID | None = None
+    effective_at: AwareDatetime
+    created_at: AwareDatetime
+
+
+class OwnerExceptionCommand(ContractModel):
+    exception_id: UUID
+    event_type: OwnerExceptionEventType
+    expected_version: int = Field(gt=0)
+
+    @model_validator(mode="after")
+    def validate_owner_action(self) -> "OwnerExceptionCommand":
+        if self.event_type in {
+            OwnerExceptionEventType.CREATED,
+            OwnerExceptionEventType.AUTO_RESOLVED,
+            OwnerExceptionEventType.SOURCE_DISABLED,
+        }:
+            raise ValueError("internal exception events are not command actions")
+        return self
+
+
+class OwnerExceptionEventView(ContractModel):
+    id: UUID
+    exception_id: UUID
+    event_type: OwnerExceptionEventType
+    expected_version: int = Field(gt=0)
+    idempotency_key: UUID
+    created_at: AwareDatetime
+
+
+class PolicyEvaluationSummary(ContractModel):
+    id: UUID
+    policy: QualificationPolicyIdentity
+    mode: PolicyEvaluationMode
+    benchmark_version: str = Field(min_length=1, max_length=120)
+    corpus_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    total_cases: int = Field(ge=0)
+    auto_accepted_count: int = Field(ge=0)
+    auto_filtered_count: int = Field(ge=0)
+    technical_retry_count: int = Field(default=0, ge=0)
+    technical_failed_count: int = Field(default=0, ge=0)
+    safety_hold_count: int = Field(default=0, ge=0)
+    owner_suppressed_count: int = Field(default=0, ge=0)
+    precision_bps: int = Field(ge=0, le=10000)
+    recall_bps: int = Field(ge=0, le=10000)
+    locked_negative_leaks: int = Field(ge=0)
+    schema_valid_bps: int = Field(ge=0, le=10000)
+    new_owner_semantic_tasks: Literal[0]
+    gate_passed: bool
+    authorizes_production: Literal[False]
+    evaluated_at: AwareDatetime
+
+    @model_validator(mode="after")
+    def validate_terminal_counts(self) -> "PolicyEvaluationSummary":
+        disposition_count = (
+            self.auto_accepted_count
+            + self.auto_filtered_count
+            + self.technical_retry_count
+            + self.technical_failed_count
+            + self.safety_hold_count
+            + self.owner_suppressed_count
+        )
+        if disposition_count != self.total_cases:
+            raise ValueError("all replay cases must have one disposition")
+        terminal_count = self.auto_accepted_count + self.auto_filtered_count
+        if self.gate_passed and (
+            self.total_cases == 0
+            or terminal_count != self.total_cases
+            or self.precision_bps < 9000
+            or self.recall_bps < 9000
+            or self.locked_negative_leaks != 0
+            or self.schema_valid_bps != 10_000
+        ):
+            raise ValueError("a passing gate requires the frozen replay thresholds")
+        return self
+
+
+class ShadowDecisionView(ContractModel):
+    id: UUID
+    evaluation_id: UUID
+    document_version_id: UUID
+    disposition: AutomatedDisposition
+    reason_codes: list[AutomatedDecisionReason] = Field(min_length=1, max_length=20)
+    affects_production: Literal[False]
+    decided_at: AwareDatetime
+
+
 class ClaimBasisV2(StrEnum):
     MANUFACTURER_CLAIM = "MANUFACTURER_CLAIM"
     RESEARCH_CONCLUSION = "RESEARCH_CONCLUSION"
@@ -2207,9 +2473,7 @@ class EventAppendixV2(ContractModel):
     corrections: list[AppendixCorrectionV2] = Field(default_factory=list, max_length=100)
     review_context: AppendixReviewContextV2 | None = None
     review_href: Literal["/review"] = "/review"
-    content_summary: AppendixContentSummaryV2 = Field(
-        default_factory=AppendixContentSummaryV2
-    )
+    content_summary: AppendixContentSummaryV2 = Field(default_factory=AppendixContentSummaryV2)
 
 
 class ReviewDecisionCommandV2(ContractModel):

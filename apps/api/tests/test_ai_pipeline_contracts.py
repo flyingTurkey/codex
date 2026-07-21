@@ -9,6 +9,7 @@ from srbg_api.ai_pipeline.contracts import (
     SummaryOutput,
     VerificationOutput,
 )
+from srbg_contracts import AutonomousClassificationCandidate
 
 SCHEMA_ROOT = Path("docs/codex-kit/assets/schemas")
 
@@ -20,6 +21,10 @@ SCHEMA_ROOT = Path("docs/codex-kit/assets/schemas")
         (ExtractionOutput, "extract-output.schema.json"),
         (SummaryOutput, "summarize-output.schema.json"),
         (VerificationOutput, "verify-output.schema.json"),
+        (
+            AutonomousClassificationCandidate,
+            "autonomous-classify-output.schema.json",
+        ),
     ],
 )
 def test_step_models_reject_every_schema_extra_field(model: type, schema_file: str) -> None:

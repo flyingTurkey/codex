@@ -12,6 +12,9 @@ const schemaFiles = (await readdir(schemaDir))
   .sort()
 
 const publicExports = {
+  'autonomous-classify-output.schema.json': [
+    'AutonomousClassificationCandidate',
+  ],
   'ai-summary-v2.schema.json': ['AiSummaryV2', 'AiSummaryStatusV2'],
   'event-appendix-v2.schema.json': ['EventAppendixV2'],
   'event-full-projection-v2.schema.json': [
@@ -24,6 +27,13 @@ const publicExports = {
   ],
   'event-metadata-projection-v2.schema.json': ['EventMetadataProjectionV2'],
   'feed-page-v2.schema.json': ['FeedPageV2'],
+  'feed-suppression-command.schema.json': [
+    'FeedSuppressionCommand',
+    'FeedSuppressionAction',
+    'FeedSuppressionScope',
+    'FeedSuppressionFeedbackReason',
+  ],
+  'feed-suppression-rule-view.schema.json': ['FeedSuppressionRuleView'],
   'review-decision-command-v2.schema.json': ['ReviewDecisionCommandV2'],
   'review-decision-receipt-v2.schema.json': ['ReviewDecisionReceiptV2'],
   'review-case-v2.schema.json': ['ReviewCaseV2'],
@@ -53,6 +63,27 @@ const publicExports = {
     'EventSplitAllocation',
   ],
   'owner-relationship-correction-response.schema.json': ['OwnerRelationshipCorrectionResponse'],
+  'owner-exception-view.schema.json': [
+    'OwnerExceptionView',
+    'ExceptionKind',
+    'OwnerExceptionStatus',
+    'SafetyOverrideability',
+    'AutomatedDecisionReason',
+  ],
+  'owner-exception-command.schema.json': [
+    'OwnerExceptionCommand',
+    'OwnerExceptionEventType',
+  ],
+  'owner-exception-event-view.schema.json': ['OwnerExceptionEventView'],
+  'policy-evaluation-summary.schema.json': [
+    'PolicyEvaluationSummary',
+    'QualificationPolicyIdentity',
+    'PolicyEvaluationMode',
+  ],
+  'shadow-decision-view.schema.json': [
+    'ShadowDecisionView',
+    'AutomatedDisposition',
+  ],
   'claim-view.schema.json': ['ClaimView'],
   'claim-conflict.schema.json': ['ClaimConflict'],
   'claim-conflict-decision-request.schema.json': ['ClaimConflictDecisionRequest'],

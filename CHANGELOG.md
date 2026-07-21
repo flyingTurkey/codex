@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-07-21 (Issue #41 autonomous qualification policy foundation)
+
+- Added immutable, version-bound qualification policy and automated disposition contracts beside the preserved 0046/0047 Owner Gold history. Migration 0048 adds append-only decision, exception-event, suppression, offline/shadow evaluation, and shadow-decision foundations without granting `OWNER_OVERRIDE_GO` any new authority.
+- Added deterministic engineering/safety/domain rules, a strict autonomous classification Schema and Prompt, one bounded semantic re-adjudication, safety holds, and aggregate-only private replay plumbing. Confidence remains diagnostic and all offline/shadow facts are structurally non-production-authorizing.
+- Bound replay caches to the full policy identity and authenticated the private corpus, sealed predictions, Owner attempt and annotations as a single hash chain. The reviewed 40-case aggregate remained `NO-GO` (68.75% precision, 55.00% recall, four locked-negative leaks, 100% Schema validity), so no production path was authorized.
+- Added ADR-0004 and shared T03-T06 exception, Feed suppression, evaluation, shadow and reason-code contracts. Worker, SourceAdmission and PublicationService production paths remain unchanged; no source, production traffic or later ticket was enabled.
+
 ## 2026-07-20（土木工程情报 v2 维护信息收口）
 
 - 新增单一维护入口，汇总已验证工程基线、当前 dirty worktree、本地数据库状态、#36→#35 剩余依赖链、现行 production 门槛、下一轮安全顺序和文档债务；历史验收记录继续作为点时证据保留。

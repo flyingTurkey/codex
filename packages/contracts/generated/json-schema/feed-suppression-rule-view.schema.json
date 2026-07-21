@@ -1,0 +1,91 @@
+{
+  "$defs": {
+    "FeedSuppressionAction": {
+      "enum": [
+        "ACTIVATE",
+        "REVOKE"
+      ],
+      "title": "FeedSuppressionAction",
+      "type": "string"
+    },
+    "FeedSuppressionFeedbackReason": {
+      "enum": [
+        "OWNER_PREFERENCE",
+        "CLASSIFICATION_ERROR",
+        "SAFETY_DENIAL"
+      ],
+      "title": "FeedSuppressionFeedbackReason",
+      "type": "string"
+    },
+    "FeedSuppressionScope": {
+      "enum": [
+        "EVENT",
+        "PRIMARY_TYPE",
+        "ENGINEERING_OBJECT",
+        "SPECIALTY_FACET",
+        "EQUIPMENT_DOMAIN",
+        "SOURCE",
+        "CUSTOM_TOPIC"
+      ],
+      "title": "FeedSuppressionScope",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "$ref": "#/$defs/FeedSuppressionAction"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "effective_at": {
+      "format": "date-time",
+      "title": "Effective At",
+      "type": "string"
+    },
+    "feedback_reason": {
+      "$ref": "#/$defs/FeedSuppressionFeedbackReason"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "scope": {
+      "$ref": "#/$defs/FeedSuppressionScope"
+    },
+    "supersedes_rule_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Supersedes Rule Id"
+    },
+    "target_key": {
+      "maxLength": 300,
+      "minLength": 1,
+      "title": "Target Key",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "action",
+    "scope",
+    "target_key",
+    "feedback_reason",
+    "effective_at",
+    "created_at"
+  ],
+  "title": "FeedSuppressionRuleView",
+  "type": "object"
+}

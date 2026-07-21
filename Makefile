@@ -177,6 +177,7 @@ fixture-replay:
 		apps/api/tests/test_ai01_content_preparation.py \
 		apps/api/tests/test_ai01_orchestration.py \
 		apps/api/tests/test_source_profile_replay.py \
+		tests/infrastructure/test_autonomous_policy_private_replay.py \
 		apps/api/tests/test_round09_feed_projection.py \
 		apps/api/tests/test_pers06_publication_boundary.py \
 		apps/api/tests/test_round10_discovery_domain.py \

@@ -9,7 +9,7 @@ MIGRATION = Path("apps/api/migrations/versions/0043_t09_hotspot_awards.py")
 def test_t09_is_the_single_head_after_t07() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
 
-    assert script.get_current_head() == "0046_owner_gold_prediction_seal"
+    assert script.get_current_head() == "0048_autonomous_policy_foundation"
     assert script.get_revision("0043_t09_hotspot_awards").down_revision == (
         "0042_t07_controlled_stream"
     )
