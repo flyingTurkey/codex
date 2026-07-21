@@ -54,14 +54,15 @@ class FakeRepository:
         return document.document_version_id == "document-v1"
 
     async def load_auto_pass_calibration(
-        self, *, rule_version: str, model_id: str, prompt_version: str
+        self, *, corpus_version: str, rule_version: str, model_id: str, prompt_version: str
     ) -> AutoPassCalibrationGrant | None:
         return AutoPassCalibrationGrant(
             threshold_bps=9300,
-            corpus_version="TEST_FIXTURE_ONLY",
+            corpus_version=corpus_version,
             rule_version=rule_version,
             model_id=model_id,
             prompt_version=prompt_version,
+            prediction_seal_sha256="e" * 64,
             fact_sha256="0" * 64,
         )
 
@@ -292,3 +293,36 @@ def test_locked_negative_only_creates_a_qualification_review_case() -> None:
     assert len(repository.review_payloads) == 1
     assert repository.review_payloads[0]["review_reasons"] == ["LOCKED_NEGATIVE"]
     assert repository.statuses == ["PREPARING", "CLASSIFYING", "WAITING_CLAIM_REVIEW"]
+
+
+def test_stale_calibration_grant_is_treated_as_unavailable() -> None:
+    class StaleCalibrationRepository(FakeRepository):
+        async def load_auto_pass_calibration(
+            self,
+            *,
+            corpus_version: str,
+            rule_version: str,
+            model_id: str,
+            prompt_version: str,
+        ) -> AutoPassCalibrationGrant | None:
+            grant = await super().load_auto_pass_calibration(
+                corpus_version=corpus_version,
+                rule_version=rule_version,
+                model_id=model_id,
+                prompt_version=prompt_version,
+            )
+            assert grant is not None
+            return replace(grant, corpus_version="owner-gold-2026-07-20.3")
+
+    repository = StaleCalibrationRepository()
+    service = AiContentPreparationService(
+        repository=repository,
+        model=FakeModel(),
+        scanner=PromptInjectionScanner(),
+    )
+
+    result = asyncio.run(service.run(RUN_ID))
+
+    assert result.candidate_count == 0
+    assert repository.materialized == 0
+    assert repository.review_payloads[0]["review_reasons"] == ["CALIBRATION_UNAVAILABLE"]

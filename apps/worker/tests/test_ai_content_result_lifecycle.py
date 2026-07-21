@@ -66,6 +66,17 @@ def test_success_persistence_reauthorizes_before_writing_model_content() -> None
     )
 
 
+def test_worker_validates_the_exact_owner_gold_grant_before_qualification() -> None:
+    callback_source = inspect.getsource(worker._handle_ai_content_result)
+
+    assert callback_source.index("load_auto_pass_calibration") < callback_source.index(
+        "exact_auto_pass_calibration"
+    )
+    assert callback_source.index("exact_auto_pass_calibration") < callback_source.index(
+        "qualification_reason"
+    )
+
+
 @dataclass
 class RevokedAuthorizationRepository:
     settled: list[ModelResponse | None] = field(default_factory=list)

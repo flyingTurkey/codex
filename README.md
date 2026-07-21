@@ -2,6 +2,12 @@
 
 本仓库是绑定本机回环地址、由单一 `owner` 使用的个人研究平台。它覆盖公开来源添加与探测、受控采集、来源健康与画像、证据化内容、Feed、搜索、日报和自动关系；不提供企业模式开关、审批工作台或 `source_admin`、`platform_admin`、`reviewer` 等产品角色。
 
+## 当前维护状态
+
+已验证的 v2 工程基线为提交 `8e5bb02`；核心产品票 #2–#13 与 SourceStream 发现轮次已经完成。生产链当前仍被 GitHub Issue #36 阻塞：40 条 Owner 标注已经形成，但标准校准未达到 20/10/10、precision/recall ≥90% 和锁定负例零泄漏，结论必须保持 `NO_GO`。本地工作区和数据库中另有一个未批准的 0047 override `GO`，不得据此启动 #14、来源准入、发布或 production closeout。
+
+下一轮开始前请先阅读[土木工程情报 v2 维护入口](docs/operations/intelligence-v2-maintainer-guide.md)，其中区分了稳定基线、当前 dirty worktree、本地数据库风险、现行门槛和真实 ticket 依赖链。
+
 ## 当前架构
 
 - Web：Nuxt 4、Vue 3、TypeScript strict、Tailwind CSS、Nuxt UI 4。
@@ -26,29 +32,39 @@
 
 输入包含精确的 `corpus_version` 和 360 条 `{case_id, directly_relevant, primary_type}`。输出始终标记 `label_authority=STRUCTURAL_REPLAY`、`authorizes_auto_pass=false`；它只能验证结构与失败关闭行为，不能冒充 HUMAN_OWNER Gold、来源准入、真实 DeepSeek Schema 成功、运行窗口或 GO 证据。
 
-20 条人工试标只用于熟悉流程：10 条正例、5 条边界例、5 条锁定负例。它应保留真实哈希、UTC 标注时间和证据定位，但固定不授权自动通过，也不输入生产校准器冒充完整语料。生产级要求由 GitHub Issue #36 承接。
+20 条人工试标只用于熟悉流程：10 条正例、5 条边界例、5 条锁定负例。它应保留真实哈希、UTC 标注时间和证据定位，但固定不授权自动通过，也不输入生产校准器冒充完整语料。生产级要求由 GitHub Issue #36 的独立 40 条协议承接。
 
-真实生产 Owner Gold 校准使用独立私有标注与候选预测文件；仓库不附带或生成这些文件：
+真实生产 Owner Gold 校准使用独立私有标注与候选预测文件；仓库不附带这些私有文件。`.1` 已以 Owner 分布 `NO_GO` 退役，仅保留 15 条正例培训回放；`.2` 因标注前发现正例中心事实错配而整版退役；`.3` 因标注前发现三个工程对象元数据没有正文证据而整版退役。生产消费者只接受重新封存的 `.4`：
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\calibrate_intelligence_v2_owner_gold.py `
-  --annotations D:\SRBGData\private-acceptance\owner-gold.jsonl `
-  --predictions D:\SRBGData\private-acceptance\qualification-predictions.jsonl `
-  --output D:\SRBGData\private-acceptance\qualification-calibration.json `
-  --corpus-version <owner-corpus-version> `
+  --annotations D:\SRBGData\private-acceptance\owner-gold-40\owner-gold-2026-07-20.4\annotations\owner-gold.jsonl `
+  --predictions D:\SRBGData\private-acceptance\owner-gold-40\owner-gold-2026-07-20.4\predictions\qualification-predictions.jsonl `
+  --prediction-seal D:\SRBGData\private-acceptance\owner-gold-40\owner-gold-2026-07-20.4\predictions\prediction-seal.json `
+  --output D:\SRBGData\private-acceptance\owner-gold-40\owner-gold-2026-07-20.4\calibration\qualification-calibration.json `
+  --corpus-version owner-gold-2026-07-20.4 `
   --rule-version intelligence-v2-qualification-1.0.0 `
   --model-id deepseek-v4-flash `
   --prompt-version ai01-classify-v1 `
   --calibrated-at <UTC-ISO-8601>
 ```
 
-校准入口严格要求 180 条正例、90 条边界例和 90 条锁定负例，校验每条 `HUMAN_OWNER` 标注的 UTC 时间、内容/原始对象 SHA-256、证据定位以及规则、模型和 prompt 版本。阈值从实际预测置信分布中派生；缺失、哈希或版本错配、precision/recall 低于 90% 或锁定负例泄漏都会输出确定性 `NO_GO`，不会回退到硬编码 0.90。生产 qualification、SourceAdmission、PublicationService 和 production closeout 只消费版本完全匹配的追加式校准事实；没有校准事实时自动通过保持禁用。
+`.4` 标注必须从盲包逐案输入，不能读取 prediction 目录，也不能自动填充 Owner 判断：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\annotate_intelligence_v2_owner_gold.py `
+  --pack "D:\SRBGData\private-acceptance\owner-gold-40\owner-gold-2026-07-20.4\blind\blind-pack.json" `
+  --draft "D:\SRBGData\private-acceptance\owner-gold-40\owner-gold-2026-07-20.4\annotations\owner-gold-draft.json" `
+  --output "D:\SRBGData\private-acceptance\owner-gold-40\owner-gold-2026-07-20.4\annotations\owner-gold.jsonl"
+```
+
+Issue #36 校准入口严格要求 40 条冻结语料：20 条正例、10 条边界例和 10 条锁定负例；正例三主类型固定为 7/7/6，并要求 40 条预测在 40 条 `HUMAN_OWNER` 标注之前独立封存。每条保存 UTC 时间、规范化内容与原始对象 SHA-256、稳定证据定位以及 corpus/rule/model/prompt/schema 版本。阈值从实际预测置信分布中派生；缺失、哈希或版本错配、precision/recall 低于 90% 或锁定负例泄漏都会输出确定性 `NO_GO`，不会回退到硬编码 0.90。旧 360 条 `STRUCTURAL_REPLAY` 仍只用于结构回归，不能签发生产授予。生产 qualification、SourceAdmission、PublicationService 和 production closeout 只消费版本完全匹配的追加式校准事实；没有校准事实时自动通过保持禁用。
 
 ## PERS-10 企业治理退场
 
 PERS-10 迁移序列截至 `0033_controlled_ai_budget_bridge`。`0029` 在同一事务中归档旧治理关系；`0030` 补齐三个企业数据库角色的规范快照并删除最后的来源治理角色；`0031` 新增无人值守真实试点的内部预算与停止账本，`0032` 只允许 Worker 读取该账本，`0033` 原子联动受控 AI 费用与既有月度账本，均不恢复任何企业治理能力。归档保存规范化 JSON、逐行 SHA-256、分类计数和分类汇总 SHA-256；数量、哈希、角色状态或跨数据库依赖不一致时拒绝退场。正常业务角色没有归档 Schema 使用权，业务代码禁止读取归档。
 
-当前迁移头为 `0043_t09_hotspot_awards`。0033 复用既有 AI 月度账本，并把受控运行费用预留、结算、释放与 10 元保守上限原子联动；它不恢复企业治理结构。降级先重新验证每行和每类 manifest，损坏时以 `PERS10_ARCHIVE_CORRUPT`/`PERS10_ARCHIVE_HASH_MISMATCH` 中止；验证通过后恢复旧表、数据、约束、触发器、授权和 0029 前调度函数。含受控试点或 T09 热点事实的当前业务库拒绝破坏性降级，应从已验证备份在隔离实例恢复。操作见[迁移回滚 Runbook](docs/operations/pers10-migration-rollback-runbook.md)和[备份恢复说明](docs/operations/personal-backup-restore.md)。
+已提交工程基线的迁移头为 `0045_t12_media_delivery`；当前 #36 工作树另有未提交的 `0046_owner_gold_prediction_seal`，本地数据库还已应用未批准的 `0047_owner_gold_override_go`。这三个状态不得混写成同一个可复现基线。0033 复用既有 AI 月度账本，并把受控运行费用预留、结算、释放与 10 元保守上限原子联动；它不恢复企业治理结构。降级先重新验证每行和每类 manifest，损坏时以 `PERS10_ARCHIVE_CORRUPT`/`PERS10_ARCHIVE_HASH_MISMATCH` 中止；验证通过后恢复旧表、数据、约束、触发器、授权和 0029 前调度函数。含受控试点、T09 热点或 Owner Gold seal/override 事实的当前业务库拒绝未备份的破坏性降级，应从已验证备份在隔离实例恢复。操作见[迁移回滚 Runbook](docs/operations/pers10-migration-rollback-runbook.md)和[备份恢复说明](docs/operations/personal-backup-restore.md)。
 
 旧 `/api/v1/admin/**` API、企业后台任务、生成契约、页面组件、运行时模块和企业产品角色均已退场；只保留 `owner` 语义及必要内部服务主体。历史企业文档的状态总表见[失效企业流程说明](docs/ENTERPRISE-PROCESSES-RETIRED.md)。
 

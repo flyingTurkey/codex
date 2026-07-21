@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 from srbg_api.intelligence_v2.gold_calibration import AutoPassCalibrationGrant
@@ -11,10 +12,11 @@ from srbg_api.source_registry.v2_rollout import (
 
 TEST_CALIBRATION = AutoPassCalibrationGrant(
     threshold_bps=9300,
-    corpus_version="TEST_FIXTURE_ONLY",
+    corpus_version="owner-gold-2026-07-20.4",
     rule_version="intelligence-v2-qualification-1.0.0",
-    model_id="protocol-equivalent-test-stub",
-    prompt_version="qualification-test-v1",
+    model_id="deepseek-v4-flash",
+    prompt_version="ai01-classify-v1",
+    prediction_seal_sha256="e" * 64,
     fact_sha256="0" * 64,
 )
 
@@ -90,3 +92,18 @@ def test_production_source_admission_requires_a_calibrated_classifier() -> None:
 
     assert production_admission_verdict(passing, calibration=None) == "PAUSE"
     assert production_admission_verdict(passing, calibration=TEST_CALIBRATION) == "ADMIT"
+    assert (
+        production_admission_verdict(
+            passing,
+            calibration=replace(
+                TEST_CALIBRATION, corpus_version="owner-gold-2026-07-20.3"
+            ),
+        )
+        == "PAUSE"
+    )
+    assert (
+        production_admission_verdict(
+            passing, calibration=replace(TEST_CALIBRATION, fact_sha256="tampered")
+        )
+        == "PAUSE"
+    )

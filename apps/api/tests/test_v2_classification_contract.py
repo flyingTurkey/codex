@@ -1,6 +1,7 @@
 import pytest
 from pydantic import ValidationError
 from srbg_api.ai_pipeline.contracts import ClassificationOutput
+from srbg_api.ai_pipeline.gateway import _safe_validation_reason
 from srbg_api.intelligence_v2.gold_calibration import AutoPassCalibrationGrant
 from srbg_api.intelligence_v2.qualification import (
     QualificationReason,
@@ -19,6 +20,7 @@ TEST_CALIBRATION = AutoPassCalibrationGrant(
     rule_version="intelligence-v2-qualification-1.0.0",
     model_id="protocol-equivalent-test-stub",
     prompt_version="qualification-test-v1",
+    prediction_seal_sha256="e" * 64,
     fact_sha256="0" * 64,
 )
 
@@ -64,6 +66,35 @@ def test_non_relevant_or_uncertain_classification_stops_before_extraction(decisi
         )
     )
     assert classification_allows_extraction(output, document_text="候选正文") is False
+
+
+def test_irrelevant_classification_survives_gateway_exclude_none_round_trip() -> None:
+    output = ClassificationOutput.model_validate(
+        _classification(
+            direct_relevance="IRRELEVANT",
+            core_new_fact=None,
+            primary_type=None,
+            engineering_objects=[],
+            evidence_locators=[],
+            needs_human_review=True,
+            review_reasons=["OUT_OF_SCOPE"],
+        )
+    )
+
+    round_tripped = ClassificationOutput.model_validate(
+        output.model_dump(mode="json", exclude_none=True)
+    )
+
+    assert round_tripped.primary_type is None
+
+
+def test_gateway_reports_a_content_free_relevance_boundary_reason() -> None:
+    with pytest.raises(ValidationError) as captured:
+        ClassificationOutput.model_validate(
+            _classification(core_new_fact=None, engineering_objects=[])
+        )
+
+    assert _safe_validation_reason(captured.value) == "[RELEVANCE_BOUNDARY]"
 
 
 def test_relevant_result_requires_object_fact_type_and_evidence() -> None:

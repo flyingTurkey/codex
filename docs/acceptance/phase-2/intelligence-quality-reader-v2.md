@@ -2,10 +2,12 @@
 
 日期：2026-07-19
 
+> 现行门槛增量（2026-07-20）：Spec #1 已将 production closeout 更新为每个真实来源波次 1.5 小时、首十来源组合 24 小时、DeepSeek 连续 2 小时且至少 2 次合法 Schema 成功、40 条 Owner Gold 和 50 条最终 Feed Owner 抽检。AI `available` 的 24 小时成功新鲜度、200 条 engineering Feed 结构审计以及来源软指标连续两个完整 14 天窗口失败才退役仍独立保留。本文后续出现的 72 小时、首批 14 天、DeepSeek 24 小时/5 次或 200 条人工 Feed 抽检是 2026-07-19 当时的历史 profile，不再定义当前 production 门槛。
+
 ## 2026-07-19 tracer-bullet tickets 发布验收
 
 - GitHub Spec #1 已拆分为 #2–#35 共 34 张纵向 tickets；34/34 保持 open，唯一标签均为 `ready-for-agent`，正文均引用父 #1，父 Spec 未被修改。
-- GitHub 原生 `blockedBy` 与批准依赖图逐票一致；正文同时保存 blocker 编号。来源发现票不执行准入或 `PAUSE`，真实来源波次只有两源分别满足样本、连续 72 小时和质量门槛后才可关闭。
+- GitHub 原生 `blockedBy` 与批准依赖图逐票一致；正文同时保存 blocker 编号。来源发现票不执行准入或 `PAUSE`。发布时真实来源波次使用 72 小时口径，现已由 Spec #1 的每源 1.5 小时真实执行窗口覆盖。
 - UTF-8 回读覆盖全部 34 张正文：每票包含有效中文、必需章节和验收条件，无字面量问号替换或 Unicode replacement character；来源、UI 与总体依赖三个独立只读审查均为 `PASS`。
 - 首页独立 ticket 明确 DOM 与视觉顺序为“搜索区域 → 今日精选一级标题 → 时间线”；AI/UI、来源发现和实际 rollout 的并行及串行边界均由原生依赖表达。
 - 本次只发布 tickets 和登记验收，不运行 triage、不启用来源、不调用真实 DeepSeek 内容任务、不执行生产投影切换；engineering/production 继续沿用现有真实证据结论。
@@ -16,13 +18,13 @@
 - raw-first 后按 MIME 解析；相关性自动通过阈值只能来自精确 corpus/rule/model/prompt 的 Owner Gold 校准事实，缺失时失败关闭。0.90 仅为已废止的待验证初值；失败、低置信和需复核结果先进入 Owner case，不预建 Event。
 - v2 空投影、append-only Owner decision、版本化 AI summary、永久热点授予、媒体权利和证据优先搜索迁移。
 - `/api/v2` Feed、搜索、热点、Event、附录、媒体和复核接口；普通读取面对无投影/R4 返回 404。
-- Nuxt 首页“今日精选”、搜索前置、行业视图、派生热点、reader-first 详情第一版和底部折叠附录；Owner 后续确认的 B 双栏布局尚未进入正式页面。
+- Nuxt 首页“今日精选”、搜索前置、行业视图、派生热点、底部折叠附录和 Owner 已确认的 B 双栏 Reader 均已通过后续 T10 纵向切片进入正式页面；窄屏保持单列语义顺序。
 - 生产环境禁用 mock provider；DeepSeek 仍通过受控 smoke/canary 验证，CI 使用协议等价测试实现。
 - `0035_intelligence_v2_closeout` 追加 Owner 复核 Outbox、AI 观察/补偿和来源评估事实，包含 append-only、最小权限和有事实 downgrade 阻断。
 - Owner 决定与重处理 Outbox 同事务提交；客户端不能上送投影或风险事实，Worker 只消费 Outbox ID，并由 `PublicationService` 基于当前版本和权威上下文刷新。
 - Feed/搜索/热点使用版本化且 surface-bound 的 keyset cursor；无效 cursor 返回 `INVALID_CURSOR` Problem Details。
 - 10 个旧阅读 E2E spec 已迁移到 v2，完整 Web E2E 和 a11y 门禁已通过，无新增 skip。
-- 私有验收工具提供显式双 profile：engineering 覆盖 1 小时 AI/来源窗口、无人工标注的 200 条 Feed 服务端结构审计；production 完整保留 24 小时 AI、360 条 Owner gold、200 条人工 Feed 抽检和 72 小时/14 天来源门槛。仓库不保存私有正文。
+- 私有验收工具提供显式双 profile：engineering 覆盖 1 小时 AI/来源窗口、无人工标注的 200 条 Feed 服务端结构审计；现行 production 要求 DeepSeek 2 小时/2 次合法成功、40 条 Owner Gold、50 条 Feed Owner 抽检、每源 1.5 小时和首十组合 24 小时。仓库不保存私有正文。
 - AI 队列每 30 秒执行无网络 runtime probe；验收类环境每 6 小时可在最新来源准入、当前 DocVersion、raw CLEAN、运行授权和预算全部成立后，使用固定公开文本执行 SHADOW CLASSIFY canary。其输出只写步骤/运行事实，不物化 claim/Event/投影；内容处理的瞬态真实调用错误以持久补偿事实记录并按 5/15/45 分钟最多重试 3 次。
 
 ## 切换边界
@@ -32,7 +34,7 @@
 ## 验收 Profile
 
 - `ENGINEERING_CLOSEOUT`：真实 DeepSeek 连续 1 小时、至少一次 Schema 成功；20 源可并行观察且每源至少 1 小时；qualification 不要求人工标注，Feed 对真实 v2 快照的至少 200 条投影只做服务端结构安全审计。
-- `PRODUCTION_CLOSEOUT`：继续要求原 24 小时/五次真实成功、360 条 Owner gold、200 条人工 Feed precision、每源 72 小时及首批 14 天后启动第二批。
+- `PRODUCTION_CLOSEOUT`：DeepSeek 连续 2 小时且至少两次合法 Schema 成功、40 条 Owner Gold、50 条人工 Feed precision、每源 1.5 小时以及首十来源组合 24 小时；同时保留 AI 可用性 24 小时新鲜度和两个完整 14 天软失败退出窗口。
 - 两个 profile 都要求 queue/budget/heartbeat/外部余额健康、20/20 来源结论、合规硬门禁、补偿无重复副作用和只读归档预检。engineering `GO` 不表示生产就绪。
 
 ## 验证命令
@@ -56,7 +58,7 @@
 - 当时权威事实为 `admitted_running_sources=0`、`trial_current_documents=0`，因此没有合法内容任务可触发真实 DeepSeek Schema 调用；本轮没有绕过来源准入、运行态、文档版本、raw CLEAN 或预算门禁，也没有伪造 real-schema success。engineering 当时仍有 `AI_RUNTIME_WINDOW_INCOMPLETE`。
 - 迁移将 10 条“outbox 仍为 WAITING_AI、pipeline 已终态且无成功步骤”的历史不一致归零；历史 callback 已丢失的 7 条 `RESERVED` 预算记录缺少可信 provider usage，保持遗留未决，不事后伪造 Token 或费用。
 - 0036 诊断结束时，隔离验收环境尚未形成同一快照的 200 条真实 v2 Feed 结构审计事实、20/20 一小时来源结论、补偿故障注入摘要和只读归档预检，分别保持 `FEED_SAMPLE_INSUFFICIENT`、`SOURCE_ASSESSMENT_INCOMPLETE`、`AI_COMPENSATION_INCOMPLETE`、`ARCHIVE_PREFLIGHT_INCOMPLETE`；后续 0037 campaign 已更新其中的来源结论与归档预检事实。
-- engineering 不再要求 Owner gold；production 仍会在缺少 360 条人工标注时报告 `OWNER_GOLD_INCOMPLETE`。
+- engineering 不再要求 Owner Gold；production 仍会在缺少 40 条人工标注时报告 `OWNER_GOLD_INCOMPLETE`。
 
 当时结论：两个 profile 均为 `NO_GO`。代码与本地运行版本已经一致，runtime probe 健康，但真实 Schema 成功、一小时运行、20 源、Feed、补偿和归档证据尚未形成。本轮未执行生产切换、未启用生产来源、未回放或复活 v1 内容。当前最新证据以本文后续 0037 campaign 最终结果为准。
 
@@ -87,7 +89,7 @@
 - 真实 v2 FULL/R3 投影为 0，保持 `FEED_SAMPLE_INSUFFICIENT`；没有使用 v1、fixture 或生成内容补齐。由于没有合格真实调用前置条件，瞬态/永久注入均失败关闭，保持 `AI_COMPENSATION_INCOMPLETE`。
 - 只读归档预检通过，`mutation_performed=false`；7 条历史 `RESERVED` 仅形成 `UNSETTLED_NO_TRUSTWORTHY_PROVIDER_USAGE` 对账，不补造 token/cost，也不阻断新活动。
 - finalize 首次在外层工具 124 秒超时后已留下 `FINALIZED/RESTORED` 事实和恢复后的 `test` 环境；按 campaign ID 续跑从缺失 readiness 处完成九项门禁，`engineering.json` 中 lint、typecheck、test、contract、security、fixture replay、quality gate、Web E2E 和 a11y 均为 true。
-- 最终 engineering readiness 为 `NO_GO`，manifest 内部 SHA-256 为 `4ae61768e8ef9131b869e300125397773e8a617b28dda83cbe483f96d526e4a0`，文件 SHA-256 为 `a10b0b84b834d1f403506492a052b1a0b5acc8314845cc9b58982ac9e2819f09`。同一证据在 production profile 下也为 `NO_GO`，并额外保留 24 小时、Owner gold、72 小时/14 天等未满足项。
+- 最终 engineering readiness 为 `NO_GO`，manifest 内部 SHA-256 为 `4ae61768e8ef9131b869e300125397773e8a617b28dda83cbe483f96d526e4a0`，文件 SHA-256 为 `a10b0b84b834d1f403506492a052b1a0b5acc8314845cc9b58982ac9e2819f09`。同一证据按当时 production profile 也为 `NO_GO`，并额外记录旧 24 小时、Owner Gold、72 小时/14 天等未满足项；这些历史原因不得作为现行数字配置。
 
 当前结论：工程实现和所有仓库门禁通过，但真实运行证据仍不满足工程 profile，故 `decision=NO_GO`。本轮未执行生产切换、未启用生产来源、未复活 v1 内容。
 
@@ -103,7 +105,7 @@
 - Owner 确认十一类 `EngineeringObject` 是产品领域边界。来源研究报告中的公路、铁路、桥梁、隧道、房屋建筑和矿山六类只是本轮 `SourceCoverageMatrix`；市政、水利、港航、机场和能源工程未纳入该子矩阵，不等于被排除，也不要求首批来源立即覆盖。
 - v2 不新增数字成熟度枚举或 `DEPLOYED+` 阅读门禁。研究、概念和产品内容在直接相关时继续使用统一 Feed/Card/详情；部署与效果只由 accepted claims、证据和 `ClaimBasis` 表达。
 - 工程 campaign 的 20 个机构是验收与战略来源组合，不是 20 条已准入 SourceStream。每条实际流仍须先经过研究 disposition、路径级 `SourceAdmission` 和 rollout 门禁；当前 20/20 `PAUSE` 不授权启用。
-- Owner Reader 的 B 方案是已确认的正式重建输入，不是已经生产实现的页面。当前正式 `/events/{event_id}` 仍为单列第一版；契约和页面差距应进入后续 Spec，而不是通过复制 prototype 解决。
+- Owner Reader 的 B 方案先作为正式重建输入确认，随后已由 T10 实现到正式 `/events/{event_id}`；prototype 组件、fixture 和切换器仍不是生产依赖。
 - 产品规格已经没有未决决策，`to-spec=READY`。当前 `ENGINEERING_CLOSEOUT=NO_GO` 与 `PRODUCTION_CLOSEOUT=NO_GO` 是运行及上线证据状态，只阻止 GO 和切换，不阻止规格工作。
 
 ## 2026-07-19 正式 Spec 发布

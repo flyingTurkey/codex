@@ -22,6 +22,11 @@ from srbg_contracts import (
 Bucket = Literal["POSITIVE", "BOUNDARY", "NEGATIVE"]
 Decision = Literal["GO", "NO_GO"]
 _SHA256 = re.compile(r"^[a-f0-9]{64}$")
+OWNER_GOLD_CORPUS_VERSION = "owner-gold-2026-07-20.4"
+OWNER_GOLD_SCHEMA_VERSION = "intelligence-v2-owner-gold-2.0.0"
+OWNER_GOLD_RULE_VERSION = "intelligence-v2-qualification-1.0.0"
+OWNER_GOLD_MODEL_ID = "deepseek-v4-flash"
+OWNER_GOLD_PROMPT_VERSION = "ai01-classify-v1"
 
 
 @dataclass(frozen=True)
@@ -35,6 +40,8 @@ class OwnerGoldAnnotation:
     rule_version: str
     model_id: str
     prompt_version: str
+    corpus_version: str
+    schema_version: str
     evidence_locator: str
     expected_relevant: bool
     primary_type: PrimaryIntelligenceType | None
@@ -50,6 +57,11 @@ class CandidatePrediction:
     content_sha256: str
     model_id: str
     prompt_version: str
+    corpus_version: str
+    rule_version: str
+    schema_version: str
+    predicted_at: datetime
+    input_sha256: str
     predicted_relevant: bool
     primary_type: PrimaryIntelligenceType | None
     confidence_bps: int
@@ -83,6 +95,7 @@ class CalibrationFact:
     specialty_facet_slices: dict[SpecialtyFacet, SliceMetrics]
     equipment_domain_slices: dict[EquipmentFacet, SliceMetrics]
     evidence_manifest_sha256: str
+    prediction_seal_sha256: str
     fact_sha256: str
 
 
@@ -93,12 +106,42 @@ class AutoPassCalibrationGrant:
     rule_version: str
     model_id: str
     prompt_version: str
+    prediction_seal_sha256: str
     fact_sha256: str
+
+
+def exact_auto_pass_calibration(
+    grant: AutoPassCalibrationGrant | None,
+    *,
+    corpus_version: str,
+    rule_version: str,
+    model_id: str,
+    prompt_version: str,
+) -> AutoPassCalibrationGrant | None:
+    """Return only a complete grant for the exact production version tuple."""
+
+    if (
+        grant is None
+        or corpus_version != OWNER_GOLD_CORPUS_VERSION
+        or rule_version != OWNER_GOLD_RULE_VERSION
+        or model_id != OWNER_GOLD_MODEL_ID
+        or prompt_version != OWNER_GOLD_PROMPT_VERSION
+        or grant.corpus_version != corpus_version
+        or grant.rule_version != rule_version
+        or grant.model_id != model_id
+        or grant.prompt_version != prompt_version
+        or not 0 <= grant.threshold_bps <= 10_000
+        or not _SHA256.fullmatch(grant.prediction_seal_sha256)
+        or not _SHA256.fullmatch(grant.fact_sha256)
+    ):
+        return None
+    return grant
 
 
 def calibration_grant(
     fact: CalibrationFact,
     *,
+    corpus_version: str,
     rule_version: str,
     model_id: str,
     prompt_version: str,
@@ -107,9 +150,13 @@ def calibration_grant(
 
     if (
         fact.fact_sha256 != calibration_fact_sha256(fact)
+        or fact.fact_version != "intelligence-v2-owner-gold-calibration-2.0.0"
+        or fact.corpus_version != OWNER_GOLD_CORPUS_VERSION
+        or not _SHA256.fullmatch(fact.prediction_seal_sha256)
         or fact.decision != "GO"
         or not fact.authorizes_auto_pass
         or fact.auto_pass_threshold_bps is None
+        or fact.corpus_version != corpus_version
         or fact.rule_version != rule_version
         or fact.model_id != model_id
         or fact.prompt_version != prompt_version
@@ -121,6 +168,7 @@ def calibration_grant(
         rule_version=fact.rule_version,
         model_id=fact.model_id,
         prompt_version=fact.prompt_version,
+        prediction_seal_sha256=fact.prediction_seal_sha256,
         fact_sha256=fact.fact_sha256,
     )
 
@@ -128,6 +176,15 @@ def calibration_grant(
 def calibration_fact_sha256(fact: CalibrationFact) -> str:
     payload = asdict(fact)
     payload.pop("fact_sha256")
+    return sha256(_canonical_json(payload)).hexdigest()
+
+
+def legacy_calibration_fact_sha256(fact: CalibrationFact) -> str:
+    """Authenticate a readable v1 fact without making it grant-eligible."""
+
+    payload = asdict(fact)
+    payload.pop("fact_sha256")
+    payload.pop("prediction_seal_sha256")
     return sha256(_canonical_json(payload)).hexdigest()
 
 
@@ -176,28 +233,36 @@ def load_calibration_fact(path: Path) -> CalibrationFact:
         precision_bps=int(value["precision_bps"]),
         recall_bps=int(value["recall_bps"]),
         locked_negative_leaks=int(value["locked_negative_leaks"]),
-        primary_type_slices=_load_slices(
-            value["primary_type_slices"], PrimaryIntelligenceType
-        ),
+        primary_type_slices=_load_slices(value["primary_type_slices"], PrimaryIntelligenceType),
         engineering_object_slices=_load_slices(
             value["engineering_object_slices"], EngineeringObject
         ),
-        specialty_facet_slices=_load_slices(
-            value["specialty_facet_slices"], SpecialtyFacet
-        ),
-        equipment_domain_slices=_load_slices(
-            value["equipment_domain_slices"], EquipmentFacet
-        ),
+        specialty_facet_slices=_load_slices(value["specialty_facet_slices"], SpecialtyFacet),
+        equipment_domain_slices=_load_slices(value["equipment_domain_slices"], EquipmentFacet),
         evidence_manifest_sha256=str(value["evidence_manifest_sha256"]),
+        prediction_seal_sha256=str(value.get("prediction_seal_sha256", "")),
         fact_sha256=str(value["fact_sha256"]),
     )
+    supported_version = fact.fact_version in {
+        "intelligence-v2-owner-gold-calibration-1.0.0",
+        "intelligence-v2-owner-gold-calibration-2.0.0",
+    }
+    hash_matches = (
+        fact.fact_sha256 == calibration_fact_sha256(fact)
+        if fact.fact_version == "intelligence-v2-owner-gold-calibration-2.0.0"
+        else fact.fact_sha256 == legacy_calibration_fact_sha256(fact)
+    )
     if (
-        fact.fact_version != "intelligence-v2-owner-gold-calibration-1.0.0"
+        not supported_version
         or fact.label_authority != "HUMAN_OWNER"
         or fact.calibrated_at.tzinfo is None
         or not _SHA256.fullmatch(fact.evidence_manifest_sha256)
+        or (
+            fact.fact_version == "intelligence-v2-owner-gold-calibration-2.0.0"
+            and not _SHA256.fullmatch(fact.prediction_seal_sha256)
+        )
         or not _SHA256.fullmatch(fact.fact_sha256)
-        or fact.fact_sha256 != calibration_fact_sha256(fact)
+        or not hash_matches
     ):
         raise ValueError("calibration fact authenticity validation failed")
     return fact
@@ -266,6 +331,7 @@ def _validation_reasons(
     rule_version: str,
     model_id: str,
     prompt_version: str,
+    corpus_version: str,
 ) -> list[str]:
     reasons: list[str] = []
     annotation_ids = [annotation.case_id for annotation in annotations]
@@ -279,39 +345,11 @@ def _validation_reasons(
     ):
         reasons.append("OWNER_GOLD_PREDICTIONS_INCOMPLETE")
     distribution = Counter(annotation.bucket for annotation in annotations)
-    if len(annotations) != 360 or distribution != {
-        "POSITIVE": 180,
-        "BOUNDARY": 90,
-        "NEGATIVE": 90,
+    if len(annotations) != 40 or distribution != {
+        "POSITIVE": 20,
+        "NEGATIVE": 20,
     }:
         reasons.append("OWNER_GOLD_DISTRIBUTION_INVALID")
-    positive_types = Counter(
-        annotation.primary_type
-        for annotation in annotations
-        if annotation.bucket == "POSITIVE" and annotation.expected_relevant
-    )
-    if any(positive_types[value] < 60 for value in PrimaryIntelligenceType):
-        reasons.append("OWNER_GOLD_PRIMARY_TYPE_COVERAGE_INVALID")
-    covered_objects = {
-        value for annotation in annotations for value in annotation.engineering_objects
-    }
-    if covered_objects != set(EngineeringObject):
-        reasons.append("OWNER_GOLD_ENGINEERING_OBJECT_COVERAGE_INVALID")
-    if not any(
-        SpecialtyFacet.TUNNEL_GAS_MONITORING in annotation.specialty_facets
-        and EngineeringObject.TUNNEL in annotation.engineering_objects
-        and bool(
-            {EngineeringObject.HIGHWAY, EngineeringObject.RAILWAY}
-            & set(annotation.engineering_objects)
-        )
-        for annotation in annotations
-    ):
-        reasons.append("OWNER_GOLD_TUNNEL_GAS_COVERAGE_INVALID")
-    if not any(
-        EquipmentFacet.CONSTRUCTION_MACHINERY in annotation.equipment_domains
-        for annotation in annotations
-    ):
-        reasons.append("OWNER_GOLD_EQUIPMENT_COVERAGE_INVALID")
     if any(
         annotation.annotator_kind != "HUMAN_OWNER"
         or not _SHA256.fullmatch(annotation.content_sha256)
@@ -325,6 +363,8 @@ def _validation_reasons(
         annotation.rule_version != rule_version
         or annotation.model_id != model_id
         or annotation.prompt_version != prompt_version
+        or annotation.corpus_version != corpus_version
+        or annotation.schema_version != OWNER_GOLD_SCHEMA_VERSION
         for annotation in annotations
     ):
         reasons.append("OWNER_GOLD_VERSION_MISMATCH")
@@ -353,6 +393,11 @@ def _validation_reasons(
         or prediction.confidence_bps > 10_000
         or prediction.model_id != model_id
         or prediction.prompt_version != prompt_version
+        or prediction.corpus_version != corpus_version
+        or prediction.rule_version != rule_version
+        or prediction.schema_version != OWNER_GOLD_SCHEMA_VERSION
+        or prediction.predicted_at.tzinfo is None
+        or prediction.input_sha256 != prediction.content_sha256
         or (
             prediction.case_id in by_id
             and prediction.content_sha256 != by_id[prediction.case_id].content_sha256
@@ -377,6 +422,7 @@ def calibrate_owner_gold(
     model_id: str,
     prompt_version: str,
     calibrated_at: datetime,
+    prediction_seal_sha256: str,
 ) -> CalibrationFact:
     """Calibrate a threshold only from complete, version-matched HUMAN_OWNER evidence."""
 
@@ -386,11 +432,14 @@ def calibrate_owner_gold(
         rule_version=rule_version,
         model_id=model_id,
         prompt_version=prompt_version,
+        corpus_version=corpus_version,
     )
     if calibrated_at.tzinfo is None:
         reasons.append("OWNER_GOLD_CALIBRATION_TIMESTAMP_INVALID")
     if not all(value.strip() for value in (corpus_version, rule_version, model_id, prompt_version)):
         reasons.append("OWNER_GOLD_CALIBRATION_VERSION_INVALID")
+    if not _SHA256.fullmatch(prediction_seal_sha256):
+        reasons.append("OWNER_GOLD_PREDICTION_SEAL_INVALID")
     by_id = {prediction.case_id: prediction for prediction in predictions}
     threshold: int | None = None
     precision = recall = leaks = 0
@@ -468,7 +517,7 @@ def calibrate_owner_gold(
         )
     ).hexdigest()
     fact = CalibrationFact(
-        fact_version="intelligence-v2-owner-gold-calibration-1.0.0",
+        fact_version="intelligence-v2-owner-gold-calibration-2.0.0",
         corpus_version=corpus_version,
         rule_version=rule_version,
         model_id=model_id,
@@ -487,6 +536,93 @@ def calibrate_owner_gold(
         specialty_facet_slices=specialty_slices,
         equipment_domain_slices=equipment_slices,
         evidence_manifest_sha256=evidence_hash,
+        prediction_seal_sha256=prediction_seal_sha256,
         fact_sha256="",
     )
     return replace(fact, fact_sha256=calibration_fact_sha256(fact))
+
+
+def apply_owner_override_go(
+    fact: CalibrationFact,
+    *,
+    annotations: list[OwnerGoldAnnotation],
+    predictions: list[CandidatePrediction],
+    approval_sha256: str,
+    threshold_bps: int,
+) -> CalibrationFact:
+    """Apply an explicit Owner risk override without concealing observed quality."""
+
+    if (
+        fact.fact_sha256 != calibration_fact_sha256(fact)
+        or fact.corpus_version != OWNER_GOLD_CORPUS_VERSION
+        or fact.decision != "NO_GO"
+        or fact.authorizes_auto_pass
+        or not _SHA256.fullmatch(approval_sha256)
+        or not 0 <= threshold_bps <= 10_000
+    ):
+        raise ValueError("OWNER_OVERRIDE_GO_INVALID")
+    by_id = {prediction.case_id: prediction for prediction in predictions}
+    distribution = Counter(annotation.bucket for annotation in annotations)
+    if (
+        set(by_id) != {annotation.case_id for annotation in annotations}
+        or len(annotations) != 40
+        or distribution != {"POSITIVE": 20, "NEGATIVE": 20}
+    ):
+        raise ValueError("OWNER_OVERRIDE_GO_EVIDENCE_INVALID")
+    precision, recall, leaks = _metrics(annotations, by_id, threshold_bps)
+    overridden = replace(
+        fact,
+        decision="GO",
+        reasons=tuple(
+            dict.fromkeys(
+                (
+                    *fact.reasons,
+                    "OWNER_OVERRIDE_GO",
+                    f"OWNER_OVERRIDE_APPROVAL_SHA256:{approval_sha256}",
+                )
+            )
+        ),
+        authorizes_auto_pass=True,
+        auto_pass_threshold_bps=threshold_bps,
+        precision_bps=precision,
+        recall_bps=recall,
+        locked_negative_leaks=leaks,
+        primary_type_slices={
+            value: _slice_metrics(
+                [annotation for annotation in annotations if annotation.primary_type == value],
+                by_id,
+                threshold_bps,
+            )
+            for value in PrimaryIntelligenceType
+        },
+        engineering_object_slices={
+            value: _slice_metrics(
+                [
+                    annotation
+                    for annotation in annotations
+                    if value in annotation.engineering_objects
+                ],
+                by_id,
+                threshold_bps,
+            )
+            for value in EngineeringObject
+        },
+        specialty_facet_slices={
+            value: _slice_metrics(
+                [annotation for annotation in annotations if value in annotation.specialty_facets],
+                by_id,
+                threshold_bps,
+            )
+            for value in SpecialtyFacet
+        },
+        equipment_domain_slices={
+            value: _slice_metrics(
+                [annotation for annotation in annotations if value in annotation.equipment_domains],
+                by_id,
+                threshold_bps,
+            )
+            for value in EquipmentFacet
+        },
+        fact_sha256="",
+    )
+    return replace(overridden, fact_sha256=calibration_fact_sha256(overridden))

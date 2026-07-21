@@ -8,7 +8,7 @@ MIGRATION = Path("apps/api/migrations/versions/0027_ai_judgment_versions.py")
 
 def test_pers07_is_the_single_head_after_pers06() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
-    assert script.get_current_head() == "0045_t12_media_delivery"
+    assert script.get_current_head() == "0046_owner_gold_prediction_seal"
     revision = script.get_revision("0027_ai_judgment_versions")
     assert revision is not None
     assert revision.down_revision == "0026_automatic_evidence_facts"

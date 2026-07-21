@@ -32,7 +32,11 @@ from srbg_api.ai_pipeline.preparation import (
 )
 from srbg_api.ai_pipeline.runtime import AttemptKind
 from srbg_api.ai_pipeline.security import PromptInjectionScanner
-from srbg_api.intelligence_v2.gold_calibration import AutoPassCalibrationGrant
+from srbg_api.intelligence_v2.gold_calibration import (
+    OWNER_GOLD_CORPUS_VERSION,
+    AutoPassCalibrationGrant,
+    exact_auto_pass_calibration,
+)
 from srbg_api.intelligence_v2.qualification import qualification_reason
 from srbg_api.observability import (
     INTELLIGENCE_QUALIFICATION_DECISIONS,
@@ -66,7 +70,7 @@ class PreparationRepository(Protocol):
     async def authorize_real_run(self, document: PreparationDocument) -> bool: ...
 
     async def load_auto_pass_calibration(
-        self, *, rule_version: str, model_id: str, prompt_version: str
+        self, *, corpus_version: str, rule_version: str, model_id: str, prompt_version: str
     ) -> AutoPassCalibrationGrant | None: ...
 
     async def record_security(self, document: PreparationDocument, detected: bool) -> None: ...
@@ -168,6 +172,14 @@ class AiContentPreparationService:
             raise
         classification = ClassificationOutput.model_validate(classification_response.output)
         calibration = await self._repository.load_auto_pass_calibration(
+            corpus_version=OWNER_GOLD_CORPUS_VERSION,
+            rule_version="intelligence-v2-qualification-1.0.0",
+            model_id=classification_request.model_profile,
+            prompt_version=classification_request.prompt_version,
+        )
+        calibration = exact_auto_pass_calibration(
+            calibration,
+            corpus_version=OWNER_GOLD_CORPUS_VERSION,
             rule_version="intelligence-v2-qualification-1.0.0",
             model_id=classification_request.model_profile,
             prompt_version=classification_request.prompt_version,

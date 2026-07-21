@@ -44,7 +44,7 @@ class ClassificationOutput(StrictModel):
     core_new_fact: str | None = Field(default=None, max_length=500)
     primary_type: Literal[
         "DIGITAL_TRANSFORMATION", "SAFETY_INTELLIGENCE", "INDUSTRY_UPDATE"
-    ] | None
+    ] | None = None
     engineering_objects: list[
         Literal[
             "HIGHWAY", "RAILWAY", "BRIDGE", "TUNNEL", "BUILDING", "MINING",

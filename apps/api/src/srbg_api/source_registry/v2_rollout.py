@@ -3,7 +3,14 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from srbg_api.intelligence_v2.gold_calibration import AutoPassCalibrationGrant
+from srbg_api.intelligence_v2.gold_calibration import (
+    OWNER_GOLD_CORPUS_VERSION,
+    OWNER_GOLD_MODEL_ID,
+    OWNER_GOLD_PROMPT_VERSION,
+    OWNER_GOLD_RULE_VERSION,
+    AutoPassCalibrationGrant,
+    exact_auto_pass_calibration,
+)
 
 
 @dataclass(frozen=True)
@@ -111,6 +118,12 @@ def production_admission_verdict(
     """Apply the production-only classifier prerequisite after all source hard gates."""
 
     verdict = admission_verdict(value)
-    if verdict == "ADMIT" and calibration is None:
+    if verdict == "ADMIT" and exact_auto_pass_calibration(
+        calibration,
+        corpus_version=OWNER_GOLD_CORPUS_VERSION,
+        rule_version=OWNER_GOLD_RULE_VERSION,
+        model_id=OWNER_GOLD_MODEL_ID,
+        prompt_version=OWNER_GOLD_PROMPT_VERSION,
+    ) is None:
         return "PAUSE"
     return verdict

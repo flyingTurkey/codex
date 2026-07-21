@@ -42,11 +42,11 @@ def _write_protocol_calibration_fact(path: Path) -> None:
 
     metric = SliceMetrics(sample_count=1, precision_bps=10_000, recall_bps=10_000)
     fact = CalibrationFact(
-        fact_version="intelligence-v2-owner-gold-calibration-1.0.0",
-        corpus_version="TEST_FIXTURE_ONLY",
+        fact_version="intelligence-v2-owner-gold-calibration-2.0.0",
+        corpus_version="owner-gold-2026-07-20.4",
         rule_version="intelligence-v2-qualification-1.0.0",
-        model_id="protocol-equivalent-test-stub",
-        prompt_version="qualification-test-v1",
+        model_id="deepseek-v4-flash",
+        prompt_version="ai01-classify-v1",
         calibrated_at=START,
         label_authority="HUMAN_OWNER",
         decision="GO",
@@ -61,6 +61,7 @@ def _write_protocol_calibration_fact(path: Path) -> None:
         specialty_facet_slices={value: metric for value in SpecialtyFacet},
         equipment_domain_slices={value: metric for value in EquipmentFacet},
         evidence_manifest_sha256="f" * 64,
+        prediction_seal_sha256="e" * 64,
         fact_sha256="",
     )
     fact = replace(fact, fact_sha256=calibration_fact_sha256(fact))
@@ -91,7 +92,7 @@ def test_owner_qualification_rejects_generated_or_non_owner_labels(tmp_path: Pat
         ],
     )
     with pytest.raises(ValueError, match="HUMAN_OWNER"):
-        load_owner_qualification(path)
+        load_owner_qualification(path, tmp_path / "missing-predictions.jsonl")
 
 
 def test_closeout_report_is_no_go_when_real_evidence_is_missing(tmp_path: Path) -> None:
@@ -134,29 +135,54 @@ def test_closeout_report_accepts_complete_hashed_evidence(tmp_path: Path) -> Non
     _write_jsonl(tmp_path / "runtime.jsonl", runtime)
 
     qualification: list[dict[str, object]] = []
+    qualification_predictions: list[dict[str, object]] = []
     for bucket, count, relevant in (
-        ("POSITIVE", 180, True),
-        ("BOUNDARY", 90, True),
-        ("NEGATIVE", 90, False),
+        ("POSITIVE", 20, True),
+        ("BOUNDARY", 10, True),
+        ("NEGATIVE", 10, False),
     ):
         for index in range(count):
+            content_sha256 = f"{len(qualification) + 1:064x}"
             qualification.append(
                 {
                     "case_id": f"{bucket}-{index}",
                     "bucket": bucket,
                     "expected_relevant": relevant,
-                    "predicted_relevant": relevant,
                     "locked_negative": bucket == "NEGATIVE",
                     "annotator_kind": "HUMAN_OWNER",
-                    "content_sha256": f"{len(qualification) + 1:064x}",
+                    "content_sha256": content_sha256,
                     "raw_object_sha256": f"{len(qualification) + 1001:064x}",
-                    "locator": f"html:p:{index}",
+                    "annotated_at": START.isoformat(),
+                    "corpus_version": "owner-gold-2026-07-20.4",
+                    "schema_version": "intelligence-v2-owner-gold-2.0.0",
+                    "evidence_locator": f"html:p:{index}",
                     "primary_type": "INDUSTRY_UPDATE" if relevant else None,
-                    "engineering_object": "HIGHWAY" if relevant else None,
+                    "engineering_objects": ["HIGHWAY"] if relevant else [],
+                    "specialty_facets": [],
+                    "equipment_domains": [],
                     "rule_version": "intelligence-v2-qualification-1.0.0",
+                    "model_id": "deepseek-v4-flash",
+                    "prompt_version": "ai01-classify-v1",
+                }
+            )
+            qualification_predictions.append(
+                {
+                    "case_id": f"{bucket}-{index}",
+                    "content_sha256": content_sha256,
+                    "input_sha256": content_sha256,
+                    "corpus_version": "owner-gold-2026-07-20.4",
+                    "rule_version": "intelligence-v2-qualification-1.0.0",
+                    "model_id": "deepseek-v4-flash",
+                    "prompt_version": "ai01-classify-v1",
+                    "schema_version": "intelligence-v2-owner-gold-2.0.0",
+                    "predicted_at": (START - timedelta(minutes=1)).isoformat(),
+                    "predicted_relevant": relevant,
+                    "primary_type": "INDUSTRY_UPDATE" if relevant else None,
+                    "confidence_bps": 9300,
                 }
             )
     _write_jsonl(tmp_path / "qualification.jsonl", qualification)
+    _write_jsonl(tmp_path / "qualification-predictions.jsonl", qualification_predictions)
     _write_protocol_calibration_fact(tmp_path / "qualification-calibration.json")
 
     _write_jsonl(
@@ -268,7 +294,7 @@ def test_closeout_report_accepts_complete_hashed_evidence(tmp_path: Path) -> Non
     )
 
     report = build_closeout_report(tmp_path, acceptance_profile="production")
-    assert report["decision"] == "GO"
+    assert report["decision"] == "GO", report["reasons"]
     assert report["reasons"] == []
     assert report["context"]["baseline_commit"] == "a" * 40
     assert report["context"]["time_window"]["start"] == START.isoformat()
@@ -359,32 +385,54 @@ def test_one_hour_unlabelled_evidence_is_engineering_go_but_production_no_go(
             "assessments": assessments,
         },
     )
-    _write_json(tmp_path / "engineering.json", {gate: True for gate in (
-        "lint", "typecheck", "test", "contract_test", "security_check",
-        "fixture_replay", "quality_gate", "web_e2e", "web_a11y",
-    )})
-    _write_json(tmp_path / "compensation.json", {
-        "injected_transient_count": 3,
-        "recovered_count": 3,
-        "injected_permanent_count": 1,
-        "permanent_error_observed_count": 1,
-        "duplicate_side_effects": 0,
-        "stale_version_recoveries": 0,
-        "permanent_error_retries": 0,
-    })
-    _write_json(tmp_path / "preflight.json", {
-        "backup_receipt_verified": True,
-        "object_inventory_verified": True,
-        "audit_tail_anchor_verified": True,
-        "v1_archive_sha256_verified": True,
-        "mutation_performed": False,
-    })
-    _write_json(tmp_path / "context.json", {
-        "baseline_commit": "a" * 40,
-        "migration_head": "0039_t04_content_candidates",
-        "environment": "isolated-production-equivalent-acceptance",
-        "campaign_id": "019c0000-0000-7000-8000-000000000001",
-    })
+    _write_json(
+        tmp_path / "engineering.json",
+        {
+            gate: True
+            for gate in (
+                "lint",
+                "typecheck",
+                "test",
+                "contract_test",
+                "security_check",
+                "fixture_replay",
+                "quality_gate",
+                "web_e2e",
+                "web_a11y",
+            )
+        },
+    )
+    _write_json(
+        tmp_path / "compensation.json",
+        {
+            "injected_transient_count": 3,
+            "recovered_count": 3,
+            "injected_permanent_count": 1,
+            "permanent_error_observed_count": 1,
+            "duplicate_side_effects": 0,
+            "stale_version_recoveries": 0,
+            "permanent_error_retries": 0,
+        },
+    )
+    _write_json(
+        tmp_path / "preflight.json",
+        {
+            "backup_receipt_verified": True,
+            "object_inventory_verified": True,
+            "audit_tail_anchor_verified": True,
+            "v1_archive_sha256_verified": True,
+            "mutation_performed": False,
+        },
+    )
+    _write_json(
+        tmp_path / "context.json",
+        {
+            "baseline_commit": "a" * 40,
+            "migration_head": "0039_t04_content_candidates",
+            "environment": "isolated-production-equivalent-acceptance",
+            "campaign_id": "019c0000-0000-7000-8000-000000000001",
+        },
+    )
 
     engineering = build_closeout_report(tmp_path, acceptance_profile="engineering")
     production = build_closeout_report(tmp_path, acceptance_profile="production")

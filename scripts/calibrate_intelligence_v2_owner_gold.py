@@ -67,6 +67,8 @@ def _annotations(path: Path) -> list[OwnerGoldAnnotation]:
                 rule_version=str(row["rule_version"]),
                 model_id=str(row["model_id"]),
                 prompt_version=str(row["prompt_version"]),
+                corpus_version=str(row["corpus_version"]),
+                schema_version=str(row["schema_version"]),
                 evidence_locator=str(row["evidence_locator"]),
                 expected_relevant=row["expected_relevant"] is True,
                 primary_type=(
@@ -98,6 +100,11 @@ def _predictions(path: Path) -> list[CandidatePrediction]:
                 content_sha256=str(row["content_sha256"]),
                 model_id=str(row["model_id"]),
                 prompt_version=str(row["prompt_version"]),
+                corpus_version=str(row["corpus_version"]),
+                rule_version=str(row["rule_version"]),
+                schema_version=str(row["schema_version"]),
+                predicted_at=datetime.fromisoformat(str(row["predicted_at"])),
+                input_sha256=str(row["input_sha256"]),
                 predicted_relevant=row["predicted_relevant"] is True,
                 primary_type=(
                     PrimaryIntelligenceType(str(row["primary_type"]))
@@ -128,6 +135,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--model-id", required=True)
     parser.add_argument("--prompt-version", required=True)
     parser.add_argument("--calibrated-at", required=True)
+    parser.add_argument("--prediction-seal-sha256", required=True)
     args = parser.parse_args(argv)
     try:
         fact = calibrate_owner_gold(
@@ -138,6 +146,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             model_id=args.model_id,
             prompt_version=args.prompt_version,
             calibrated_at=datetime.fromisoformat(args.calibrated_at),
+            prediction_seal_sha256=args.prediction_seal_sha256,
         )
         result: dict[str, object] = asdict(fact)
         exit_code = 0 if fact.authorizes_auto_pass else 1
@@ -149,6 +158,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "model_id": args.model_id,
             "prompt_version": args.prompt_version,
             "calibrated_at": args.calibrated_at,
+            "prediction_seal_sha256": args.prediction_seal_sha256,
             "label_authority": "UNVERIFIED",
             "decision": "NO_GO",
             "reasons": ["OWNER_GOLD_INPUT_INVALID"],

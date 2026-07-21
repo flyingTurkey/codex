@@ -5,20 +5,22 @@
   "additionalProperties": false,
   "required": [
     "case_id", "bucket", "annotator_kind", "content_sha256", "raw_object_sha256",
-    "annotated_at", "rule_version", "model_id", "prompt_version", "evidence_locator",
+    "annotated_at", "corpus_version", "rule_version", "model_id", "prompt_version", "schema_version", "evidence_locator",
     "expected_relevant", "primary_type", "engineering_objects", "specialty_facets",
     "equipment_domains", "locked_negative"
   ],
   "properties": {
     "case_id": {"type": "string", "minLength": 1},
-    "bucket": {"enum": ["POSITIVE", "BOUNDARY", "NEGATIVE"]},
+    "bucket": {"enum": ["POSITIVE", "NEGATIVE"]},
     "annotator_kind": {"const": "HUMAN_OWNER"},
     "content_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "raw_object_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "annotated_at": {"type": "string", "format": "date-time"},
+    "corpus_version": {"enum": ["owner-gold-2026-07-20.4", "owner-gold-2026-07-20.5"]},
     "rule_version": {"type": "string", "minLength": 1},
     "model_id": {"type": "string", "minLength": 1},
     "prompt_version": {"type": "string", "minLength": 1},
+    "schema_version": {"const": "intelligence-v2-owner-gold-2.0.0"},
     "evidence_locator": {"type": "string", "minLength": 1},
     "expected_relevant": {"type": "boolean"},
     "primary_type": {

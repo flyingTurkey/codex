@@ -401,9 +401,26 @@ def validate_step_output(output: dict[str, Any], request: ModelRequest) -> Any:
         code = (
             "SUMMARY_SCHEMA_REJECTED"
             if request.schema_version == "summarize-v2-output-1.0.0"
-            else "provider output violates step contract"
+            else "provider output violates step contract " + _safe_validation_reason(exc)
         )
         raise ModelOutputRejected(code) from exc
     if isinstance(validated, ExtractionOutput):
         ControlledModelGateway._validate_evidence(validated, request)
     return validated
+
+
+def _safe_validation_reason(error: ValidationError) -> str:
+    messages = " ".join(str(item.get("msg", "")) for item in error.errors())
+    if "TUNNEL_GAS_MONITORING" in messages:
+        return "[TUNNEL_GAS_INVARIANT]"
+    if "must not contain duplicates" in messages:
+        return "[DUPLICATE_LIST]"
+    if "unqualified content cannot receive a primary type" in messages:
+        return "[PRIMARY_TYPE_BOUNDARY]"
+    if "relevant content requires" in messages:
+        return "[RELEVANCE_BOUNDARY]"
+    if "prompt injection status" in messages:
+        return "[SECURITY_STATUS]"
+    first = error.errors()[0]
+    location = ".".join(str(part) for part in first.get("loc", ())) or "MODEL"
+    return f"[{location}:{first.get('type', 'invalid')}]"[:64]

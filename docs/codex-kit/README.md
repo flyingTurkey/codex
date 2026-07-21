@@ -1,5 +1,7 @@
 # 四川路桥行业数智与安全情报平台（首期）Codex 开发包
 
+> **LEGACY / 仅作历史参考**：本开发包冻结于 2026-07-13，包含已失效的企业角色、v1 Item、旧领域范围和旧执行轮次。不得继续按本目录命令实施。现行入口为仓库根 `AGENTS.md`、`CONTEXT-MAP.md`、GitHub Spec #1、当前 ticket 和 `docs/operations/intelligence-v2-maintainer-guide.md`；仅根规则明确引用的设计令牌、视觉参考或 Schema 继续按限定用途有效。
+
 版本：`v1.1.0-avocado-ui`  
 基准日期：`2026-07-13`  
 适用对象：四川路桥产品负责人、行业编辑、信息化团队、Codex 开发代理

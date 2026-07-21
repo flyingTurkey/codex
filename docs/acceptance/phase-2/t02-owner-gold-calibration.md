@@ -6,16 +6,18 @@
 
 ## 2026-07-20 范围变更
 
+- `owner-gold-2026-07-20.1` 的 40 条 Owner 尝试已按真实 `15/3/22` 分布确定性 `NO_GO`；15 条已知正例仅作为 `production_calibration_eligible=false` 的培训回放，不能签发生产授予。
+- `.2` 在 Owner 标注前发现铁路安全正文与数字化正例槽位不一致，`.3` 在 Owner 标注前发现三个预注册工程对象没有正文证据；两次均未查看预测输出或 Owner 标签即整版确定性 `NO_GO`。带哈希 amendment 递增产生 `.4`，新增正文对象/主类型/专项/设备硬门禁、重新生成 case ID、冻结 40 条并在 Owner 标注前重新执行 40 条独立预测；旧 `.1`/`.2`/`.3` 即使存在版本内自洽的 fixture fact 也必须失败关闭。本记录不把预测运行计入 DeepSeek 可用性、AI 运行窗口或任何来源 closeout 证据。
 - Owner 将 #3 正式改为 20 条人工试标流程 pilot，并以 `PILOT / SUPERSEDED` 关闭；关闭不表示 20 条已经标注完成，也不表示自动通过或生产校准 GO。
 - Pilot 按 10 条正例、5 条边界例、5 条锁定负例组织，固定 `authorizes_auto_pass=false`，仅验证标注说明、真实哈希、UTC 时间、证据定位和领域判断流程。
-- 原 360 条生产级 Owner Gold、独立预测、阈值校准、服务端安全入库和耐久消费要求完整迁移到 #36；#14 的原生 blocker 同步迁移到 #36。
-- 既有 360 条生产校准器及数据库失败关闭约束不降低，20 条 pilot 不得通过修改阈值、删除断言或伪造事实取得 GO。
+- 生产级 Owner Gold、独立预测、阈值校准、服务端安全入库和耐久消费要求完整迁移到 #36；#14 的原生 blocker 同步迁移到 #36。
+- #36 已将生产协议限定为 40 条，旧 360 条只保留为 `STRUCTURAL_REPLAY`；数据库失败关闭约束不降低，20 条 pilot 不得通过修改阈值、删除断言或伪造事实取得 GO。
 - Owner 后续完成 20 条真实人工判断及私有 reviewed artifacts；交叉校验确认 10/5/5 分布、4/3/3 正例主类型、十一对象、P07 交通隧道瓦斯组合、施工机械覆盖以及 20/20 manifest 哈希和字节数一致。私有报告结论为 `PILOT_PASS`，自动通过真值行数为 0，且 `production_calibration_eligible=false`。
 
 ## 本票纵向范围
 
 - 公共 seam 为“私有 Owner 标注 + 独立候选预测 → 版本化校准事实”。入口不生成标注、不调用模型、不启用来源，也不写发布状态。
-- 语料必须严格为 180 条正例、90 条边界例和 90 条负例；三个 `PrimaryType` 各至少 60 条正例，并覆盖十一类 `EngineeringObject`、合法交通隧道瓦斯组合和 `CONSTRUCTION_MACHINERY`。
+- 语料必须严格为 20 条正例、10 条边界例和 10 条锁定负例；三个 `PrimaryType` 正例按 7/7/6 分层，并覆盖十一类 `EngineeringObject`、合法交通隧道瓦斯组合和 `CONSTRUCTION_MACHINERY`。
 - 每条标注要求 `HUMAN_OWNER`、UTC 标注时间、内容与原始对象 SHA-256、证据定位、规则版本、模型 ID 和 prompt 版本；预测必须按 case ID、内容哈希和模型/prompt 精确对应。
 - 阈值从实际置信分布中选择满足 precision/recall 均至少 90% 且锁定负例零泄漏的最低可行值。0.90 没有特殊地位，不能作为缺省批准值。
 - 校准事实包含 corpus/rule/model/prompt、分片指标、证据 manifest SHA-256 和事实 SHA-256；字段被修改后不能签发授予。

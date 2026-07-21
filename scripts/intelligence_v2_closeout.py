@@ -24,6 +24,7 @@ from srbg_api.intelligence_v2.closeout import (
     evaluate_runtime_window,
 )
 from srbg_api.intelligence_v2.gold_calibration import (
+    OWNER_GOLD_CORPUS_VERSION,
     calibration_grant,
     load_calibration_fact,
 )
@@ -50,7 +51,13 @@ _SOURCE_ROLLOUT = (
     _ROOT / "docs/codex-kit/assets/validation/civil_engineering_source_rollout_v2.json"
 )
 _OWNER_ANNOTATION_SCHEMA = (
+    _ROOT / "docs/codex-kit/assets/validation/intelligence_v2_owner_gold_annotation.schema.json"
+)
+_FEED_OWNER_ANNOTATION_SCHEMA = (
     _ROOT / "docs/codex-kit/assets/validation/intelligence_v2_owner_annotation.schema.json"
+)
+_QUALIFICATION_PREDICTION_SCHEMA = (
+    _ROOT / "docs/codex-kit/assets/validation/intelligence_v2_qualification_prediction.schema.json"
 )
 _FEED_STRUCTURAL_SCHEMA = (
     _ROOT / "docs/codex-kit/assets/validation/intelligence_v2_feed_structural_audit.schema.json"
@@ -58,6 +65,7 @@ _FEED_STRUCTURAL_SCHEMA = (
 _EVIDENCE_FILES = (
     "runtime.jsonl",
     "qualification.jsonl",
+    "qualification-predictions.jsonl",
     "qualification-calibration.json",
     "feed.jsonl",
     "sources.json",
@@ -97,11 +105,11 @@ def _owner(row: dict[str, Any]) -> None:
         raise ValueError("acceptance annotations require annotator_kind=HUMAN_OWNER")
 
 
-def _validate_owner_annotation(row: dict[str, Any]) -> None:
+def _validate_owner_annotation(
+    row: dict[str, Any], *, schema_path: Path = _OWNER_ANNOTATION_SCHEMA
+) -> None:
     try:
-        Draft202012Validator(
-            json.loads(_OWNER_ANNOTATION_SCHEMA.read_text(encoding="utf-8"))
-        ).validate(row)
+        Draft202012Validator(json.loads(schema_path.read_text(encoding="utf-8"))).validate(row)
     except ValidationError as error:
         raise ValueError("owner annotation does not match the locked schema") from error
 
@@ -113,41 +121,81 @@ def _hash(value: object, field: str) -> str:
     return text
 
 
-def load_owner_qualification(path: Path) -> list[QualificationInspection]:
+def load_owner_qualification(
+    path: Path, prediction_path: Path | None = None
+) -> list[QualificationInspection]:
+    annotation_rows = _read_jsonl(path)
+    for annotation_row in annotation_rows:
+        _owner(annotation_row)
+    if prediction_path is None:
+        raise ValueError("independent qualification predictions are required")
+    prediction_schema = json.loads(_QUALIFICATION_PREDICTION_SCHEMA.read_text(encoding="utf-8"))
+    prediction_validator = Draft202012Validator(prediction_schema, format_checker=FormatChecker())
+    predictions: dict[str, dict[str, Any]] = {}
+    for prediction in _read_jsonl(prediction_path):
+        prediction_validator.validate(prediction)
+        case_id = str(prediction["case_id"])
+        if case_id in predictions:
+            raise ValueError("duplicate qualification prediction")
+        predictions[case_id] = prediction
     inspections: list[QualificationInspection] = []
-    for row in _read_jsonl(path):
-        _owner(row)
+    annotation_ids: set[str] = set()
+    for row in annotation_rows:
         _validate_owner_annotation(row)
         _hash(row.get("content_sha256"), "content_sha256")
         _hash(row.get("raw_object_sha256"), "raw_object_sha256")
-        if row.get("rule_version") != "intelligence-v2-qualification-1.0.0":
+        if (
+            row.get("corpus_version") != OWNER_GOLD_CORPUS_VERSION
+            or row.get("rule_version") != "intelligence-v2-qualification-1.0.0"
+            or row.get("schema_version") != "intelligence-v2-owner-gold-2.0.0"
+        ):
             raise ValueError("qualification rule_version is invalid")
-        if not str(row.get("locator") or "").strip():
+        if not str(row.get("evidence_locator") or "").strip():
             raise ValueError("qualification locator cannot be empty")
+        case_id = str(row.get("case_id") or "")
+        if not case_id or case_id in annotation_ids:
+            raise ValueError("qualification case_id is invalid")
+        annotation_ids.add(case_id)
+        prediction = predictions.get(case_id)
+        if (
+            prediction is None
+            or prediction.get("content_sha256") != row.get("content_sha256")
+            or prediction.get("corpus_version") != row.get("corpus_version")
+            or prediction.get("rule_version") != row.get("rule_version")
+            or prediction.get("model_id") != row.get("model_id")
+            or prediction.get("prompt_version") != row.get("prompt_version")
+        ):
+            raise ValueError("qualification prediction does not match annotation")
         bucket = str(row.get("bucket"))
         if bucket not in {"POSITIVE", "BOUNDARY", "NEGATIVE"}:
             raise ValueError("qualification bucket is invalid")
         expected = row.get("expected_relevant")
-        predicted = row.get("predicted_relevant")
+        predicted = prediction.get("predicted_relevant")
         if not isinstance(expected, bool) or not isinstance(predicted, bool):
             raise ValueError("qualification relevance labels must be boolean")
         if expected:
             PrimaryIntelligenceType(str(row.get("primary_type")))
-            EngineeringObject(str(row.get("engineering_object")))
-        elif row.get("primary_type") is not None or row.get("engineering_object") is not None:
+            objects = row.get("engineering_objects")
+            if not isinstance(objects, list) or not objects:
+                raise ValueError("relevant qualification labels require engineering objects")
+            for value in objects:
+                EngineeringObject(str(value))
+        elif row.get("primary_type") is not None or row.get("engineering_objects"):
             raise ValueError("irrelevant qualification labels cannot assign type or object")
         locked = row.get("locked_negative")
         if not isinstance(locked, bool) or (bucket == "NEGATIVE" and not locked):
             raise ValueError("negative qualification labels must be locked")
         inspections.append(
             QualificationInspection(
-                case_id=str(row.get("case_id") or ""),
+                case_id=case_id,
                 bucket=bucket,  # type: ignore[arg-type]
                 expected_relevant=expected,
                 predicted_relevant=predicted,
                 locked_negative=locked,
             )
         )
+    if annotation_ids != set(predictions):
+        raise ValueError("qualification predictions are incomplete")
     return inspections
 
 
@@ -177,7 +225,7 @@ def _load_feed(path: Path, *, acceptance_profile: AcceptanceProfile) -> list[Fee
     for row in _read_jsonl(path):
         if acceptance_profile == "production":
             _owner(row)
-            _validate_owner_annotation(row)
+            _validate_owner_annotation(row, schema_path=_FEED_OWNER_ANNOTATION_SCHEMA)
         else:
             try:
                 Draft202012Validator(
@@ -324,6 +372,7 @@ def build_closeout_report(root: Path, *, acceptance_profile: AcceptanceProfile) 
         _append_reason(reasons, "AI_RUNTIME_WINDOW_INCOMPLETE")
 
     qualification_path = root / "qualification.jsonl"
+    qualification_prediction_path = root / "qualification-predictions.jsonl"
     calibration_path = root / "qualification-calibration.json"
     if acceptance_profile == "engineering":
         checks["qualification"] = {
@@ -331,29 +380,30 @@ def build_closeout_report(root: Path, *, acceptance_profile: AcceptanceProfile) 
             "required": False,
             "rule_version": "not-required-engineering-1.0.0",
         }
-    elif qualification_path.is_file():
+    elif qualification_path.is_file() and qualification_prediction_path.is_file():
         try:
-            qualification_values = load_owner_qualification(qualification_path)
+            qualification_values = load_owner_qualification(
+                qualification_path, qualification_prediction_path
+            )
             distribution = Counter(value.bucket for value in qualification_values)
-            if len(qualification_values) != 360 or distribution != {
-                "POSITIVE": 180,
-                "BOUNDARY": 90,
-                "NEGATIVE": 90,
+            if len(qualification_values) != 40 or distribution != {
+                "POSITIVE": 20,
+                "BOUNDARY": 10,
+                "NEGATIVE": 10,
             }:
                 _append_reason(reasons, "OWNER_GOLD_INCOMPLETE")
             qualification = evaluate_qualification(qualification_values)
             if not calibration_path.is_file():
                 _append_reason(reasons, "OWNER_GOLD_CALIBRATION_INCOMPLETE")
-                checks["qualification"] = qualification.__dict__ | {
-                    "distribution": distribution
-                }
+                checks["qualification"] = qualification.__dict__ | {"distribution": distribution}
             else:
                 calibration = load_calibration_fact(calibration_path)
                 grant = calibration_grant(
                     calibration,
-                    rule_version=calibration.rule_version,
-                    model_id=calibration.model_id,
-                    prompt_version=calibration.prompt_version,
+                    corpus_version=OWNER_GOLD_CORPUS_VERSION,
+                    rule_version="intelligence-v2-qualification-1.0.0",
+                    model_id="deepseek-v4-flash",
+                    prompt_version="ai01-classify-v1",
                 )
                 if grant is None:
                     _append_reason(reasons, "OWNER_GOLD_CALIBRATION_NO_GO")

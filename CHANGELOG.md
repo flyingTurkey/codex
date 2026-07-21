@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-07-20（土木工程情报 v2 维护信息收口）
+
+- 新增单一维护入口，汇总已验证工程基线、当前 dirty worktree、本地数据库状态、#36→#35 剩余依赖链、现行 production 门槛、下一轮安全顺序和文档债务；历史验收记录继续作为点时证据保留。
+- 只读复核确认 `.4` 已有 40 条 Owner 标注，但标准校准为 `NO_GO`：实际分布 20/0/20、precision 55.55%、recall 75%、锁定负例泄漏 9；#36 仍 OPEN，#14 仍被阻塞。
+- 标记未批准的 0047 override 冲突：本地 PostgreSQL 已应用对应 migration 并持久化 `authorizes_auto_pass=true` 的事实，但它同时记录质量门槛未满足，不得合入基线或作为 SourceAdmission、PublicationService、closeout 和关票证据。本轮未删除、降级或重写该追加式事实。
+- README 与总体验收记录增加当前状态入口并同步 Spec #1 的每源 1.5 小时、首十 24 小时、DeepSeek 2 小时/2 次和 Feed Owner 50 条口径；保留 AI 24 小时新鲜度、200 条工程结构审计及两个 14 天退出窗口。ADR-0003 收敛为 profile 语义隔离和失败关闭决定，不再充当可变数字配置源。
+- 将 `docs/codex-kit/AGENTS.md` 收敛为 Legacy 作用域护栏，阻止旧企业/OIDC/v1 规则在子目录继续覆盖根规则；为 codex-kit README、根 `README-1.md` 和根 `VALIDATION.md` 增加历史状态与现行入口指针，未删除历史材料。
+- 本轮仅整理文档和只读核验，没有修改业务代码、启用来源、执行发布、关闭 issue、删除历史文件或提交私有 Owner Gold 行级材料。
+
+## 2026-07-20（Issue #36 Owner Gold 40 条盲标准备）
+
+- 将生产 Owner Gold 契约从旧 360 条同步为冻结 40 条：20 正例、10 边界例、10 锁定负例，正例三主类型 7/7/6；旧 360 条仅保留为 `STRUCTURAL_REPLAY`，不能签发生产授予。
+- 新增 `0046_owner_gold_prediction_seal`、服务端重算哈希的追加式 seal/fact 写入、私有冻结/预测/封存/盲标/校准 CLI，以及 qualification、SourceAdmission、PublicationService、production closeout 的精确 corpus/rule/model/prompt 与 seal/fact hash 失败关闭消费；工程 closeout 行为保持不变。
+- `owner-gold-2026-07-20.1` 的 40 条 Owner 尝试以 `15/3/22`、正例主类型 `7/8/0`、对象覆盖 `9/11` 且专项/设备缺失的确定性 `NO_GO` 私有封存；15 条已知正例仅形成 `production_calibration_eligible=false` 的培训回放，未生成生产 `owner-gold.jsonl` 或校准事实。
+- 私有 `owner-gold-2026-07-20.2` 从 80 条全新公开候选确定性冻结并完成预测封存后，在标注前设计复核中发现 1 条铁路安全材料被错误预注册为数字化正例；未查看预测或 Owner 标签，整版以 `PREREGISTERED_POSITIVE_CENTRAL_FACT_MISMATCH` 确定性 `NO_GO` 保留，禁止原地替换。
+- `.3` 重新生成全部 case ID 并完成 40/40 冻结与预测后，标注前正文复核发现三个预注册工程对象没有正文证据；未读取预测或 Owner 标签，整版以 `PREREGISTERED_ENGINEERING_OBJECT_NOT_EVIDENCED` 确定性 `NO_GO` 保留，禁止原地修补。
+- 通过带 base hash 的显式 amendment 递增为 `owner-gold-2026-07-20.4`，新增正文对象/主类型/专项/设备硬门禁并重新生成全部 case ID；首次 freeze 失败的 38 个原始对象和原因另存 NO_GO attempt，随后在 seal 前修正预注册对象元数据并成功冻结 40 条。`.4` 和 `.1` 的 case、URL、内容哈希交集均为 0，设计覆盖 20/10/10、7/7/6、十一对象、两条施工机械和一条交通隧道瓦斯组合。
+- `.4` 的 40 条独立 DeepSeek 预测已在任何 Owner 草稿产生前执行并追加封存，prediction seal 为 `038145f4f1cd841a41dc4c5e8827c62b3a995bac68b785805f9bf7776f702da7`，blind pack 字段泄漏检查通过；正文、预测和标注均未进入 Git，生产消费者只接受 `.4`。
+- 当前停在 `.4` Owner 逐条盲标入口：未创建 HUMAN_OWNER 标注、未生成最终校准 GO、未关闭 #36、未启动 #14、SourceStream 或真实来源观察波次，也未修改 AI 运行、DeepSeek、Feed 抽检、每源观察和来源波次等下游门槛。
+
 ## 2026-07-20（土木工程情报 v2 工程基线收口）
 
 - 将当前工作区中已完成的 #2–#13 纵向切片、已关闭或 superseded 的 SourceStream discovery/替代研究，以及 0037 campaign 与三份 Spec #1 前置 handoff 映射为单一可回滚工程基线；0037/handoff 不是关票或 GO 证据，父规格 #1 继续开放。

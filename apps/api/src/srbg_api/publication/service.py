@@ -10,7 +10,10 @@ from srbg_contracts import (
 )
 
 from srbg_api.intelligence_v2.domain import EvaluatedHotspotAward
-from srbg_api.intelligence_v2.gold_calibration import AutoPassCalibrationGrant
+from srbg_api.intelligence_v2.gold_calibration import (
+    AutoPassCalibrationGrant,
+    exact_auto_pass_calibration,
+)
 from srbg_api.observability import PERSONAL_RELATIONSHIP_CORRECTIONS
 from srbg_api.publication.gate import PublicationGate
 
@@ -25,7 +28,7 @@ class PublicationRepository(Protocol):
     async def close(self) -> None: ...
 
     async def load_auto_pass_calibration(
-        self, *, rule_version: str, model_id: str, prompt_version: str
+        self, *, corpus_version: str, rule_version: str, model_id: str, prompt_version: str
     ) -> AutoPassCalibrationGrant | None: ...
 
     async def append_hotspot_candidate(
@@ -109,11 +112,19 @@ class PublicationService:
         await self._repository.close()
 
     async def load_auto_pass_calibration(
-        self, *, rule_version: str, model_id: str, prompt_version: str
+        self, *, corpus_version: str, rule_version: str, model_id: str, prompt_version: str
     ) -> AutoPassCalibrationGrant | None:
         """Read the exact qualification grant without changing publication state."""
 
-        return await self._repository.load_auto_pass_calibration(
+        grant = await self._repository.load_auto_pass_calibration(
+            corpus_version=corpus_version,
+            rule_version=rule_version,
+            model_id=model_id,
+            prompt_version=prompt_version,
+        )
+        return exact_auto_pass_calibration(
+            grant,
+            corpus_version=corpus_version,
             rule_version=rule_version,
             model_id=model_id,
             prompt_version=prompt_version,

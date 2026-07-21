@@ -29,6 +29,10 @@ from srbg_api.discovery.projections import PostgresDiscoveryProjectionWriter
 from srbg_api.document_vault.storage import S3ObjectStore
 from srbg_api.identifiers import uuid7
 from srbg_api.intelligence_v2.ai_runtime import summary_state_for_failure
+from srbg_api.intelligence_v2.gold_calibration import (
+    OWNER_GOLD_CORPUS_VERSION,
+    exact_auto_pass_calibration,
+)
 from srbg_api.intelligence_v2.qualification import qualification_reason
 from srbg_api.intelligence_v2.t06_content_summary import (
     validate_content_summary_output,
@@ -1068,6 +1072,14 @@ async def _handle_ai_content_result(
             if step is AiStep.CLASSIFY:
                 classification = ClassificationOutput.model_validate(response.output)
                 calibration = await repository.load_auto_pass_calibration(
+                    corpus_version=OWNER_GOLD_CORPUS_VERSION,
+                    rule_version="intelligence-v2-qualification-1.0.0",
+                    model_id=request.model_profile,
+                    prompt_version=request.prompt_version,
+                )
+                calibration = exact_auto_pass_calibration(
+                    calibration,
+                    corpus_version=OWNER_GOLD_CORPUS_VERSION,
                     rule_version="intelligence-v2-qualification-1.0.0",
                     model_id=request.model_profile,
                     prompt_version=request.prompt_version,

@@ -1,5 +1,7 @@
 # 四川路桥行业数智与安全情报平台（首期）Codex 开发包
 
+> **LEGACY 副本**：这是 2026-07-13 设计包的历史副本，不是仓库 README，也不应作为当前 Codex 入口。现行产品说明见 `README.md`，下一轮状态见 `docs/operations/intelligence-v2-maintainer-guide.md`。在 Owner 明确允许删除前保留本文件用于历史溯源。
+
 版本：`v1.0.0-design-baseline`  
 基准日期：`2026-07-13`  
 适用对象：四川路桥产品负责人、行业编辑、信息化团队、Codex 开发代理

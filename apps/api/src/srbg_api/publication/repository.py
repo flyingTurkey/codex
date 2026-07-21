@@ -98,7 +98,7 @@ class PostgresPublicationRepository:
         await self._engine.dispose()
 
     async def load_auto_pass_calibration(
-        self, *, rule_version: str, model_id: str, prompt_version: str
+        self, *, corpus_version: str, rule_version: str, model_id: str, prompt_version: str
     ) -> AutoPassCalibrationGrant | None:
         async with self._engine.connect() as connection:
             row = (
@@ -106,14 +106,23 @@ class PostgresPublicationRepository:
                     await connection.execute(
                         text(
                             "SELECT auto_pass_threshold_bps,corpus_version,rule_version,"
-                            "model_id,prompt_version,fact_sha256 "
-                            "FROM owner_gold_calibration_v2 "
-                            "WHERE decision='GO' AND authorizes_auto_pass=true "
+                            "model_id,prompt_version,prediction_seal_sha256,fact_sha256 "
+                            "FROM owner_gold_calibration_v2 calibration "
+                            "WHERE EXISTS (SELECT 1 FROM owner_gold_prediction_seal_v2 seal "
+                            "WHERE seal.prediction_seal_sha256=calibration.prediction_seal_sha256 "
+                            "AND seal.corpus_version=calibration.corpus_version "
+                            "AND seal.rule_version=calibration.rule_version "
+                            "AND seal.model_id=calibration.model_id "
+                            "AND seal.prompt_version=calibration.prompt_version) "
+                            "AND fact_version='intelligence-v2-owner-gold-calibration-2.0.0' "
+                            "AND decision='GO' AND authorizes_auto_pass=true "
+                            "AND corpus_version=:corpus_version "
                             "AND rule_version=:rule_version AND model_id=:model_id "
                             "AND prompt_version=:prompt_version "
                             "ORDER BY calibrated_at DESC LIMIT 1"
                         ),
                         {
+                            "corpus_version": corpus_version,
                             "rule_version": rule_version,
                             "model_id": model_id,
                             "prompt_version": prompt_version,
@@ -131,6 +140,7 @@ class PostgresPublicationRepository:
             rule_version=str(row["rule_version"]),
             model_id=str(row["model_id"]),
             prompt_version=str(row["prompt_version"]),
+            prediction_seal_sha256=str(row["prediction_seal_sha256"]),
             fact_sha256=str(row["fact_sha256"]),
         )
 

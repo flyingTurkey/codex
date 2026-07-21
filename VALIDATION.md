@@ -1,5 +1,7 @@
 # 交付校验记录
 
+> **LEGACY 副本**：本文只记录 2026-07-13 Codex 开发包的点时校验，统计和执行说明已不代表当前仓库。当前 kit 校验材料位于 `docs/codex-kit/VALIDATION.md`；项目状态与下一轮门禁见 `docs/operations/intelligence-v2-maintainer-guide.md`。
+
 校验日期：2026-07-13
 
 本开发包是可直接交给 Codex 分轮实施的设计与素材基线，不是已经编译好的业务系统。

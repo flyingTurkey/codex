@@ -7,8 +7,10 @@ from srbg_api.ai_pipeline.contracts import ClassificationOutput
 from srbg_api.intelligence_v2.gold_calibration import (
     CandidatePrediction,
     OwnerGoldAnnotation,
+    apply_owner_override_go,
     calibrate_owner_gold,
     calibration_grant,
+    legacy_calibration_fact_sha256,
     load_calibration_fact,
 )
 from srbg_api.intelligence_v2.qualification import QualificationReason, qualification_reason
@@ -24,6 +26,8 @@ from scripts.calibrate_intelligence_v2_owner_gold import main
 RULE_VERSION = "intelligence-v2-qualification-1.0.0"
 MODEL_ID = "deepseek-chat"
 PROMPT_VERSION = "qualification-v2.0.0"
+CORPUS_VERSION = "owner-gold-2026-07-20.4"
+SCHEMA_VERSION = "intelligence-v2-owner-gold-2.0.0"
 ANNOTATED_AT = datetime(2026, 7, 19, tzinfo=UTC)
 
 
@@ -31,16 +35,21 @@ def _complete_owner_corpus() -> tuple[list[OwnerGoldAnnotation], list[CandidateP
     annotations: list[OwnerGoldAnnotation] = []
     predictions: list[CandidatePrediction] = []
     objects = tuple(EngineeringObject)
-    for primary_type in PrimaryIntelligenceType:
-        for index in range(60):
+    positive_counts = {
+        PrimaryIntelligenceType.DIGITAL_TRANSFORMATION: 7,
+        PrimaryIntelligenceType.SAFETY_INTELLIGENCE: 7,
+        PrimaryIntelligenceType.INDUSTRY_UPDATE: 6,
+    }
+    for primary_type, count in positive_counts.items():
+        for index in range(count):
             case_id = f"P-{primary_type.value}-{index:03d}"
-            engineering_objects = (objects[index % len(objects)],)
+            engineering_objects = (objects[len(annotations) % len(objects)],)
             specialty_facets: tuple[SpecialtyFacet, ...] = ()
             equipment_domains: tuple[EquipmentFacet, ...] = ()
-            if index == 3:
+            if len(annotations) == 3:
                 engineering_objects = (EngineeringObject.HIGHWAY, EngineeringObject.TUNNEL)
                 specialty_facets = (SpecialtyFacet.TUNNEL_GAS_MONITORING,)
-            if index == 4:
+            if len(annotations) == 4:
                 equipment_domains = (EquipmentFacet.CONSTRUCTION_MACHINERY,)
             content_hash = f"{len(annotations) + 1:064x}"
             annotations.append(
@@ -54,6 +63,8 @@ def _complete_owner_corpus() -> tuple[list[OwnerGoldAnnotation], list[CandidateP
                     rule_version=RULE_VERSION,
                     model_id=MODEL_ID,
                     prompt_version=PROMPT_VERSION,
+                    corpus_version=CORPUS_VERSION,
+                    schema_version=SCHEMA_VERSION,
                     evidence_locator=f"html:p:{len(annotations) + 1}",
                     expected_relevant=True,
                     primary_type=primary_type,
@@ -69,12 +80,17 @@ def _complete_owner_corpus() -> tuple[list[OwnerGoldAnnotation], list[CandidateP
                     content_sha256=content_hash,
                     model_id=MODEL_ID,
                     prompt_version=PROMPT_VERSION,
+                    corpus_version=CORPUS_VERSION,
+                    rule_version=RULE_VERSION,
+                    schema_version=SCHEMA_VERSION,
+                    predicted_at=ANNOTATED_AT,
+                    input_sha256=content_hash,
                     predicted_relevant=True,
                     primary_type=primary_type,
                     confidence_bps=9300,
                 )
             )
-    for bucket, count, confidence in (("BOUNDARY", 90, 9200), ("NEGATIVE", 90, 9200)):
+    for bucket, count, confidence in (("NEGATIVE", 20, 9200),):
         for index in range(count):
             case_id = f"{bucket[0]}-{index:03d}"
             content_hash = f"{len(annotations) + 1:064x}"
@@ -89,6 +105,8 @@ def _complete_owner_corpus() -> tuple[list[OwnerGoldAnnotation], list[CandidateP
                     rule_version=RULE_VERSION,
                     model_id=MODEL_ID,
                     prompt_version=PROMPT_VERSION,
+                    corpus_version=CORPUS_VERSION,
+                    schema_version=SCHEMA_VERSION,
                     evidence_locator=f"html:p:{len(annotations) + 1}",
                     expected_relevant=False,
                     primary_type=None,
@@ -104,6 +122,11 @@ def _complete_owner_corpus() -> tuple[list[OwnerGoldAnnotation], list[CandidateP
                     content_sha256=content_hash,
                     model_id=MODEL_ID,
                     prompt_version=PROMPT_VERSION,
+                    corpus_version=CORPUS_VERSION,
+                    rule_version=RULE_VERSION,
+                    schema_version=SCHEMA_VERSION,
+                    predicted_at=ANNOTATED_AT,
+                    input_sha256=content_hash,
                     predicted_relevant=True,
                     primary_type=PrimaryIntelligenceType.INDUSTRY_UPDATE,
                     confidence_bps=confidence,
@@ -118,11 +141,12 @@ def test_complete_owner_gold_derives_threshold_from_observed_predictions() -> No
     fact = calibrate_owner_gold(
         annotations,
         predictions,
-        corpus_version="owner-gold-2026-07-19.1",
+        corpus_version=CORPUS_VERSION,
         rule_version=RULE_VERSION,
         model_id=MODEL_ID,
         prompt_version=PROMPT_VERSION,
         calibrated_at=datetime(2026, 7, 20, tzinfo=UTC),
+        prediction_seal_sha256="d" * 64,
     )
 
     assert fact.decision == "GO"
@@ -142,11 +166,12 @@ def test_incomplete_owner_gold_fails_closed_without_a_threshold() -> None:
     fact = calibrate_owner_gold(
         annotations[:-1],
         predictions,
-        corpus_version="owner-gold-2026-07-19.1",
+        corpus_version=CORPUS_VERSION,
         rule_version=RULE_VERSION,
         model_id=MODEL_ID,
         prompt_version=PROMPT_VERSION,
         calibrated_at=datetime(2026, 7, 20, tzinfo=UTC),
+        prediction_seal_sha256="d" * 64,
     )
 
     assert fact.decision == "NO_GO"
@@ -154,6 +179,53 @@ def test_incomplete_owner_gold_fails_closed_without_a_threshold() -> None:
     assert fact.auto_pass_threshold_bps is None
     assert "OWNER_GOLD_DISTRIBUTION_INVALID" in fact.reasons
     assert "OWNER_GOLD_PREDICTIONS_INCOMPLETE" in fact.reasons
+
+
+def test_owner_override_can_authorize_observed_poor_quality_without_hiding_metrics() -> None:
+    annotations, predictions = _complete_owner_corpus()
+    predictions = [
+        replace(
+            prediction,
+            predicted_relevant=True,
+            primary_type=PrimaryIntelligenceType.INDUSTRY_UPDATE,
+            confidence_bps=9500,
+        )
+        for prediction in predictions
+    ]
+    base = calibrate_owner_gold(
+        annotations,
+        predictions,
+        corpus_version=CORPUS_VERSION,
+        rule_version=RULE_VERSION,
+        model_id=MODEL_ID,
+        prompt_version=PROMPT_VERSION,
+        calibrated_at=datetime(2026, 7, 20, tzinfo=UTC),
+        prediction_seal_sha256="d" * 64,
+    )
+
+    overridden = apply_owner_override_go(
+        base,
+        annotations=annotations,
+        predictions=predictions,
+        approval_sha256="e" * 64,
+        threshold_bps=9500,
+    )
+
+    assert base.decision == "NO_GO"
+    assert overridden.decision == "GO"
+    assert overridden.authorizes_auto_pass is True
+    assert overridden.auto_pass_threshold_bps == 9500
+    assert overridden.precision_bps < 9000
+    assert overridden.locked_negative_leaks == 20
+    assert "OWNER_OVERRIDE_GO" in overridden.reasons
+    assert f"OWNER_OVERRIDE_APPROVAL_SHA256:{'e' * 64}" in overridden.reasons
+    assert calibration_grant(
+        overridden,
+        corpus_version=CORPUS_VERSION,
+        rule_version=RULE_VERSION,
+        model_id=MODEL_ID,
+        prompt_version=PROMPT_VERSION,
+    ) is not None
 
 
 def _json_default(value: object) -> object:
@@ -189,7 +261,7 @@ def test_cli_writes_one_versioned_calibration_fact(tmp_path: Path) -> None:
             "--output",
             str(output_path),
             "--corpus-version",
-            "owner-gold-2026-07-19.1",
+            CORPUS_VERSION,
             "--rule-version",
             RULE_VERSION,
             "--model-id",
@@ -198,12 +270,15 @@ def test_cli_writes_one_versioned_calibration_fact(tmp_path: Path) -> None:
             PROMPT_VERSION,
             "--calibrated-at",
             "2026-07-20T00:00:00+00:00",
+            "--prediction-seal-sha256",
+            "d" * 64,
         ]
     )
 
     fact = json.loads(output_path.read_text(encoding="utf-8"))
     assert exit_code == 0
-    assert fact["fact_version"] == "intelligence-v2-owner-gold-calibration-1.0.0"
+    assert fact["fact_version"] == "intelligence-v2-owner-gold-calibration-2.0.0"
+    assert fact["prediction_seal_sha256"] == "d" * 64
     assert fact["label_authority"] == "HUMAN_OWNER"
     assert fact["decision"] == "GO"
     assert fact["auto_pass_threshold_bps"] == 9300
@@ -214,6 +289,7 @@ def test_cli_writes_one_versioned_calibration_fact(tmp_path: Path) -> None:
     assert (
         calibration_grant(
             loaded,
+            corpus_version=CORPUS_VERSION,
             rule_version=RULE_VERSION,
             model_id=MODEL_ID,
             prompt_version=PROMPT_VERSION,
@@ -243,10 +319,52 @@ def test_high_confidence_classification_fails_closed_without_calibration() -> No
             },
         }
     )
-
     assert (
         qualification_reason(output, document_text="铁路隧道施工安全整治")
         is QualificationReason.CALIBRATION_UNAVAILABLE
+    )
+
+
+def test_legacy_v1_fact_remains_readable_but_cannot_issue_a_grant(tmp_path: Path) -> None:
+    annotations, predictions = _complete_owner_corpus()
+    current = calibrate_owner_gold(
+        annotations,
+        predictions,
+        corpus_version=CORPUS_VERSION,
+        rule_version=RULE_VERSION,
+        model_id=MODEL_ID,
+        prompt_version=PROMPT_VERSION,
+        calibrated_at=datetime(2026, 7, 20, tzinfo=UTC),
+        prediction_seal_sha256="d" * 64,
+    )
+    legacy = replace(
+        current,
+        fact_version="intelligence-v2-owner-gold-calibration-1.0.0",
+        prediction_seal_sha256="",
+        fact_sha256="",
+    )
+    legacy = replace(legacy, fact_sha256=legacy_calibration_fact_sha256(legacy))
+    path = tmp_path / "legacy.json"
+    path.write_text(
+        json.dumps(
+            asdict(legacy),
+            default=lambda value: value.isoformat() if isinstance(value, datetime) else value.value,
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_calibration_fact(path)
+
+    assert loaded.fact_version.endswith("1.0.0")
+    assert (
+        calibration_grant(
+            loaded,
+            corpus_version=CORPUS_VERSION,
+            rule_version=RULE_VERSION,
+            model_id=MODEL_ID,
+            prompt_version=PROMPT_VERSION,
+        )
+        is None
     )
 
 
@@ -255,16 +373,68 @@ def test_tampered_calibration_fact_cannot_issue_a_grant() -> None:
     fact = calibrate_owner_gold(
         annotations,
         predictions,
-        corpus_version="owner-gold-2026-07-19.1",
+        corpus_version=CORPUS_VERSION,
         rule_version=RULE_VERSION,
         model_id=MODEL_ID,
         prompt_version=PROMPT_VERSION,
         calibrated_at=datetime(2026, 7, 20, tzinfo=UTC),
+        prediction_seal_sha256="d" * 64,
     )
 
     assert (
         calibration_grant(
             replace(fact, auto_pass_threshold_bps=9000),
+            corpus_version=CORPUS_VERSION,
+            rule_version=RULE_VERSION,
+            model_id=MODEL_ID,
+            prompt_version=PROMPT_VERSION,
+        )
+        is None
+    )
+
+
+def test_calibration_grant_rejects_a_different_corpus_version() -> None:
+    annotations, predictions = _complete_owner_corpus()
+    fact = calibrate_owner_gold(
+        annotations,
+        predictions,
+        corpus_version=CORPUS_VERSION,
+        rule_version=RULE_VERSION,
+        model_id=MODEL_ID,
+        prompt_version=PROMPT_VERSION,
+        calibrated_at=datetime(2026, 7, 20, tzinfo=UTC),
+        prediction_seal_sha256="d" * 64,
+    )
+
+    assert (
+        calibration_grant(
+            fact,
+            corpus_version="owner-gold-2026-07-20.1",
+            rule_version=RULE_VERSION,
+            model_id=MODEL_ID,
+            prompt_version=PROMPT_VERSION,
+        )
+        is None
+    )
+
+
+def test_calibration_grant_rejects_retired_dot_one_even_for_an_exact_request() -> None:
+    annotations, predictions = _complete_owner_corpus()
+    fact = calibrate_owner_gold(
+        annotations,
+        predictions,
+        corpus_version="owner-gold-2026-07-20.1",
+        rule_version=RULE_VERSION,
+        model_id=MODEL_ID,
+        prompt_version=PROMPT_VERSION,
+        calibrated_at=datetime(2026, 7, 20, tzinfo=UTC),
+        prediction_seal_sha256="d" * 64,
+    )
+
+    assert (
+        calibration_grant(
+            fact,
+            corpus_version="owner-gold-2026-07-20.1",
             rule_version=RULE_VERSION,
             model_id=MODEL_ID,
             prompt_version=PROMPT_VERSION,
@@ -283,8 +453,7 @@ def test_cli_reports_deterministic_no_go_for_invalid_private_input(tmp_path: Pat
     prediction_rows[0]["predicted_relevant"] = "true"
     prediction_path.write_text(
         "\n".join(
-            json.dumps(value, default=_json_default, sort_keys=True)
-            for value in prediction_rows
+            json.dumps(value, default=_json_default, sort_keys=True) for value in prediction_rows
         )
         + "\n",
         encoding="utf-8",
@@ -299,7 +468,7 @@ def test_cli_reports_deterministic_no_go_for_invalid_private_input(tmp_path: Pat
             "--output",
             str(output_path),
             "--corpus-version",
-            "owner-gold-2026-07-19.1",
+            CORPUS_VERSION,
             "--rule-version",
             RULE_VERSION,
             "--model-id",
@@ -308,6 +477,8 @@ def test_cli_reports_deterministic_no_go_for_invalid_private_input(tmp_path: Pat
             PROMPT_VERSION,
             "--calibrated-at",
             "2026-07-20T00:00:00+00:00",
+            "--prediction-seal-sha256",
+            "d" * 64,
         ]
     )
 
