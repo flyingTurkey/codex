@@ -185,6 +185,7 @@ class QualificationDecisionTrace(ContractModel):
     model_candidate: AutonomousClassificationCandidate | None = None
     evidence_locators: list[str] = Field(default_factory=list, max_length=100)
     semantic_recheck_count: int = Field(ge=0, le=1)
+    attempt_number: int = Field(default=0, ge=0, le=32767)
     decided_at: AwareDatetime
 
 

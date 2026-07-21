@@ -70,3 +70,15 @@ def test_0048_binds_policy_identity_and_stores_only_aggregate_evaluation_counts(
     assert "locked_negative_leaks=0" in source
     assert "schema_valid_bps=10000" in source
     assert "OWNER_OVERRIDE_GO" not in source
+
+
+def test_0048_allows_append_only_retry_convergence_per_policy() -> None:
+    source = MIGRATION.read_text(encoding="utf-8")
+
+    assert 'sa.Column("attempt_number", sa.SmallInteger(), nullable=False)' in source
+    assert "ck_automated_decision_attempt_v2" in source
+    assert (
+        '"attempt_number",\n            '
+        'name="uq_automated_decision_document_policy_attempt_v2"'
+    ) in source
+    assert "uq_automated_decision_document_policy_v2" not in source

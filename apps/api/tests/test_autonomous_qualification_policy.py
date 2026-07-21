@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
+import srbg_api.intelligence_v2.autonomous_policy as autonomous_policy
 from srbg_api.intelligence_v2.autonomous_policy import (
     AdjudicationInput,
     AutomatedAdjudicationService,
@@ -39,6 +40,25 @@ def test_policy_bundle_digest_is_stable_and_binds_every_component() -> None:
     assert first.identity == same.identity
     assert len(first.identity.bundle_sha256) == 64
     assert changed.identity.bundle_sha256 != first.identity.bundle_sha256
+
+
+def test_policy_bundle_digest_binds_prompt_and_schema_bytes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    baseline = _bundle()
+    original_prompt = autonomous_policy._classification_prompt_text
+
+    monkeypatch.setattr(
+        autonomous_policy,
+        "_classification_prompt_text",
+        lambda *, source_allow_terms, source_exclude_terms: original_prompt(
+            source_allow_terms=source_allow_terms,
+            source_exclude_terms=source_exclude_terms,
+        )
+        + " prompt-revision",
+    )
+
+    assert _bundle().identity.bundle_sha256 != baseline.identity.bundle_sha256
 
 
 class RecordingModelEdge:
@@ -329,6 +349,25 @@ def test_security_signal_enters_safety_hold_without_semantic_override() -> None:
     assert [reason.value for reason in trace.reason_codes] == ["SAFETY_SIGNAL"]
     assert trace.semantic_recheck_count == 0
     assert model.calls == 1
+
+
+def test_security_signal_from_bounded_recheck_enters_safety_hold() -> None:
+    conflicting = _candidate(primary_type="DIGITAL_TRANSFORMATION")
+    safety_candidate = _candidate(security_signals=["PROMPT_INJECTION"])
+    model = RecordingModelEdge([conflicting, safety_candidate])
+    service = AutomatedAdjudicationService(
+        policy=_bundle(),
+        model_edge=model,
+        clock=lambda: datetime(2026, 7, 21, 8, tzinfo=UTC),
+        id_factory=lambda: UUID("019b1d00-0000-7000-8000-000000000041"),
+    )
+
+    trace = service.adjudicate(_input("铁路隧道施工启动安全整治。"))
+
+    assert trace.disposition.value == "SAFETY_HOLD"
+    assert [reason.value for reason in trace.reason_codes] == ["SAFETY_SIGNAL"]
+    assert trace.semantic_recheck_count == 1
+    assert model.semantic_rechecks == [False, True]
 
 
 def test_prompt_contains_frozen_domain_and_untrusted_document_boundaries() -> None:

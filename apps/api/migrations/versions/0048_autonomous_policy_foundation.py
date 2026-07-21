@@ -88,6 +88,7 @@ def upgrade() -> None:
         sa.Column("model_candidate", _json()),
         sa.Column("evidence_locators", postgresql.ARRAY(sa.String(200)), nullable=False),
         sa.Column("semantic_recheck_count", sa.SmallInteger(), nullable=False),
+        sa.Column("attempt_number", sa.SmallInteger(), nullable=False),
         sa.Column("model_latency_ms", sa.Integer()),
         sa.Column("model_input_tokens", sa.Integer()),
         sa.Column("model_output_tokens", sa.Integer()),
@@ -107,13 +108,18 @@ def upgrade() -> None:
             name="ck_automated_decision_recheck_v2",
         ),
         sa.CheckConstraint(
+            "attempt_number BETWEEN 0 AND 32767",
+            name="ck_automated_decision_attempt_v2",
+        ),
+        sa.CheckConstraint(
             "cardinality(reason_codes) BETWEEN 1 AND 20",
             name="ck_automated_decision_reasons_v2",
         ),
         sa.UniqueConstraint(
             "document_version_id",
             "policy_bundle_id",
-            name="uq_automated_decision_document_policy_v2",
+            "attempt_number",
+            name="uq_automated_decision_document_policy_attempt_v2",
         ),
     )
     op.create_table(

@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
+import srbg_api.intelligence_v2.private_policy_replay as private_policy_replay
 from srbg_api.ai_pipeline.gateway import (
     ModelOutputRejected,
     TransientProviderError,
@@ -33,6 +34,8 @@ from srbg_api.intelligence_v2.private_policy_replay import (
     run_offline_policy_replay,
 )
 
+from scripts.replay_autonomous_policy_private_benchmark import _persist_private_audit
+
 
 class _DeepSeekResponse:
     status_code = 200
@@ -54,6 +57,10 @@ class _DeepSeekResponse:
             ],
             "usage": {"prompt_tokens": 100, "completion_tokens": 50},
         }
+
+    @property
+    def content(self) -> bytes:
+        return json.dumps(self.json()).encode("utf-8")
 
 
 class _RecordingDeepSeekClient:
@@ -165,6 +172,87 @@ async def test_private_replay_provider_pins_v4_flash_rule_following_profile() ->
     }
     assert request["timeout"] == 45.0
     assert "reasoning_content" not in json.dumps(candidate)
+    assert len(provider.audits) == 1
+    audit = provider.audits[0]
+    assert audit.model_id == "deepseek-v4-flash"
+    assert audit.input_tokens == 100
+    assert audit.output_tokens == 50
+    assert audit.latency_ms >= 0
+    assert len(audit.prompt_sha256) == len(audit.output_sha256) == 64
+
+
+@pytest.mark.asyncio
+async def test_private_replay_provider_rejects_oversized_response() -> None:
+    class _OversizedResponse(_DeepSeekResponse):
+        @property
+        def content(self) -> bytes:
+            return b"12345"
+
+    class _OversizedClient:
+        async def post(self, path: str, **kwargs: object) -> _OversizedResponse:
+            del path, kwargs
+            return _OversizedResponse()
+
+    provider = DeepSeekPrivateReplayProvider(
+        client=_OversizedClient(),
+        api_key="private-test-key",
+        max_response_bytes=4,
+    )
+
+    with pytest.raises(ModelOutputRejected, match="response is too large"):
+        await provider.complete(system_prompt="policy", user_prompt="document")
+    assert len(provider.audits) == 1
+    assert provider.audits[0].outcome == "REJECTED_TOO_LARGE"
+    assert len(provider.audits[0].output_sha256) == 64
+
+
+@pytest.mark.asyncio
+async def test_private_replay_provider_rejects_response_without_bytes() -> None:
+    class _MissingBytesResponse(_DeepSeekResponse):
+        content = None
+
+    class _MissingBytesClient:
+        async def post(self, path: str, **kwargs: object) -> _MissingBytesResponse:
+            del path, kwargs
+            return _MissingBytesResponse()
+
+    provider = DeepSeekPrivateReplayProvider(
+        client=_MissingBytesClient(),  # type: ignore[arg-type]
+        api_key="private-test-key",
+    )
+
+    with pytest.raises(ModelOutputRejected, match="bytes are unavailable"):
+        await provider.complete(system_prompt="policy", user_prompt="document")
+
+
+@pytest.mark.asyncio
+async def test_private_replay_provider_audits_rejected_model_output() -> None:
+    class _InvalidOutputResponse(_DeepSeekResponse):
+        def json(self) -> object:
+            payload = super().json()
+            assert isinstance(payload, dict)
+            choices = payload["choices"]
+            assert isinstance(choices, list)
+            choices[0]["message"]["content"] = "not-json"
+            return payload
+
+    class _InvalidOutputClient:
+        async def post(self, path: str, **kwargs: object) -> _InvalidOutputResponse:
+            del path, kwargs
+            return _InvalidOutputResponse()
+
+    provider = DeepSeekPrivateReplayProvider(
+        client=_InvalidOutputClient(),
+        api_key="private-test-key",
+    )
+
+    with pytest.raises(ModelOutputRejected, match="invalid JSON"):
+        await provider.complete(system_prompt="policy", user_prompt="document")
+
+    assert len(provider.audits) == 1
+    assert provider.audits[0].outcome == "HTTP_200"
+    assert provider.audits[0].input_tokens is None
+    assert len(provider.audits[0].output_sha256) == 64
 
 
 @pytest.mark.asyncio
@@ -473,6 +561,53 @@ def test_private_pack_loader_verifies_seal_and_keeps_case_data_internal(tmp_path
             expected_attempt_manifest_sha256=str(attempt["attempt_manifest_sha256"]),
             expected_response_artifact_sha256=response_hash,
         )
+
+
+def test_private_pack_loader_rejects_oversized_artifacts(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(private_policy_replay, "_MAX_PRIVATE_ARTIFACT_BYTES", 4)
+    (tmp_path / "oversized.json").write_bytes(b"12345")
+
+    with pytest.raises(ValueError, match="PRIVATE_REPLAY_ARTIFACT_TOO_LARGE"):
+        load_private_policy_pack(
+            tmp_path,
+            expected_attempt_manifest_sha256="a" * 64,
+            expected_response_artifact_sha256="b" * 64,
+        )
+
+
+def test_private_invocation_audit_persists_hash_only_records(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SRBG_DATA_ROOT", str(tmp_path))
+    output = tmp_path / "invocation-audit.json"
+    records = (
+        {
+            "model_id": "deepseek-v4-flash",
+            "prompt_version": "prompt-v1",
+            "schema_version": "schema-v1",
+            "policy_bundle_sha256": "a" * 64,
+            "input_document_sha256": "b" * 64,
+            "prompt_sha256": "c" * 64,
+            "output_sha256": "d" * 64,
+            "latency_ms": 12,
+            "input_tokens": 100,
+            "output_tokens": 50,
+            "cost_microusd": None,
+        },
+    )
+
+    _persist_private_audit(output, records)
+
+    persisted = json.loads(output.read_text(encoding="utf-8"))
+    assert persisted["record_count"] == 1
+    assert len(persisted["records_sha256"]) == 64
+    assert set(persisted["records"][0]).isdisjoint(
+        {"document_text", "url", "case_id", "label", "prediction"}
+    )
+    with pytest.raises(FileExistsError):
+        _persist_private_audit(output, records)
 
 
 def test_live_edge_keeps_candidates_document_and_labels_process_local(tmp_path) -> None:

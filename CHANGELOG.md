@@ -8,6 +8,8 @@
 - Added ADR-0004 and shared T03-T06 exception, Feed suppression, evaluation, shadow and reason-code contracts. Worker, SourceAdmission and PublicationService production paths remain unchanged; no source, production traffic or later ticket was enabled.
 - Hardened the private live replay transport with a pinned tool-free DeepSeek profile, one bounded transient retry, process-local candidates, and at most two offline workers. Reconciled the inherited closeout fixture and validator with the frozen 20-positive/20-negative Owner Gold contract; quality thresholds remain unchanged.
 - Evaluated stronger model and adjudication topologies under expanded Owner authority. None exceeded the held-out gate, so all quality-regressing semantic experiments were removed and the best reviewed aggregate remains `NO-GO`; no benchmark-specific exception or production authorization was introduced.
+- Closed code-review gaps by making safety signals from the single bounded re-adjudication enter `SAFETY_HOLD`, binding the policy digest to the actual Prompt and output Schema bytes, and rejecting oversized private replay artifacts before parsing or hashing. The frozen quality threshold and production-path boundary remain unchanged.
+- Made retry convergence append-only and idempotent by keying immutable automated decisions by document, policy, and bounded attempt number. Private model calls now retain process-local hash-only invocation audits with latency, token usage, and provider cost when supplied; manifest, key, artifact, and provider-response reads are size-bounded before parsing or hashing.
 
 ## 2026-07-20（土木工程情报 v2 维护信息收口）
 

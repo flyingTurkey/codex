@@ -46,6 +46,9 @@ class ModelProvider(Protocol):
 
 
 class HttpResponse(Protocol):
+    @property
+    def content(self) -> bytes: ...
+
     def raise_for_status(self) -> object: ...
 
     def json(self) -> object: ...

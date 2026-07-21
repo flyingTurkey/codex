@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Protocol, cast
 from uuid import UUID
 
@@ -41,6 +42,8 @@ from srbg_api.intelligence_v2.owner_gold_preparation import (
     prediction_manifest_sha256,
     prediction_seal_sha256,
 )
+
+_MAX_PRIVATE_ARTIFACT_BYTES = 64 * 1024 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +87,19 @@ class PrivatePolicyPack:
     responses: dict[str, list[dict[str, object]]]
 
 
+@dataclass(slots=True)
+class PrivateModelInvocationAudit:
+    model_id: str
+    prompt_sha256: str
+    input_sha256: str
+    output_sha256: str
+    latency_ms: int
+    input_tokens: int | None
+    output_tokens: int | None
+    cost_microusd: int | None
+    outcome: str
+
+
 class PolicyCandidateFetcher(Protocol):
     def __call__(
         self, *, system_prompt: str, user_prompt: str, input_sha256: str
@@ -100,6 +116,7 @@ class DeepSeekPrivateReplayProvider:
         api_key: str,
         timeout_seconds: float = 90.0,
         retry_delay_seconds: float = 1.0,
+        max_response_bytes: int = 2 * 1024 * 1024,
     ) -> None:
         if not api_key:
             raise ValueError("PRIVATE_REPLAY_API_KEY_INVALID")
@@ -107,16 +124,25 @@ class DeepSeekPrivateReplayProvider:
             raise ValueError("PRIVATE_REPLAY_TIMEOUT_INVALID")
         if retry_delay_seconds < 0 or retry_delay_seconds > 5:
             raise ValueError("PRIVATE_REPLAY_RETRY_DELAY_INVALID")
+        if max_response_bytes < 1 or max_response_bytes > 8 * 1024 * 1024:
+            raise ValueError("PRIVATE_REPLAY_RESPONSE_LIMIT_INVALID")
         self._client = client
         self._api_key = api_key
         self._timeout_seconds = timeout_seconds
         self._retry_delay_seconds = retry_delay_seconds
+        self._max_response_bytes = max_response_bytes
+        self._audits: list[PrivateModelInvocationAudit] = []
+
+    @property
+    def audits(self) -> tuple[PrivateModelInvocationAudit, ...]:
+        return tuple(self._audits)
 
     async def complete(
         self, *, system_prompt: str, user_prompt: str
     ) -> dict[str, object]:
         response = None
         for attempt in range(2):
+            started = perf_counter()
             response = await self._client.post(
                 "/chat/completions",
                 json={
@@ -136,7 +162,26 @@ class DeepSeekPrivateReplayProvider:
                 },
                 timeout=self._timeout_seconds,
             )
+            response_content = response.content
+            if not isinstance(response_content, bytes):
+                raise ModelOutputRejected("provider response bytes are unavailable")
             status_code = getattr(response, "status_code", None)
+            self._audits.append(
+                PrivateModelInvocationAudit(
+                    model_id="deepseek-v4-flash",
+                    prompt_sha256=hashlib.sha256(system_prompt.encode("utf-8")).hexdigest(),
+                    input_sha256=hashlib.sha256(user_prompt.encode("utf-8")).hexdigest(),
+                    output_sha256=hashlib.sha256(response_content).hexdigest(),
+                    latency_ms=max(0, int((perf_counter() - started) * 1_000)),
+                    input_tokens=None,
+                    output_tokens=None,
+                    cost_microusd=None,
+                    outcome=f"HTTP_{status_code}",
+                )
+            )
+            if len(response_content) > self._max_response_bytes:
+                self._audits[-1].outcome = "REJECTED_TOO_LARGE"
+                raise ModelOutputRejected("provider response is too large")
             if status_code not in {429, 500, 502, 503, 504} or attempt == 1:
                 break
             await asyncio.sleep(self._retry_delay_seconds)
@@ -170,6 +215,31 @@ class DeepSeekPrivateReplayProvider:
             raise ModelOutputRejected("provider returned invalid JSON") from exc
         if not isinstance(candidate, dict):
             raise ModelOutputRejected("provider output must be an object")
+        input_tokens = usage.get("prompt_tokens")
+        output_tokens = usage.get("completion_tokens")
+        cost_microusd = usage.get("cost_microusd")
+        if (
+            not isinstance(input_tokens, int)
+            or isinstance(input_tokens, bool)
+            or input_tokens < 0
+            or not isinstance(output_tokens, int)
+            or isinstance(output_tokens, bool)
+            or output_tokens < 0
+            or (
+                cost_microusd is not None
+                and (
+                    not isinstance(cost_microusd, int)
+                    or isinstance(cost_microusd, bool)
+                    or cost_microusd < 0
+                )
+            )
+        ):
+            raise ModelOutputRejected("provider usage is invalid")
+        audit = self._audits[-1]
+        audit.input_tokens = input_tokens
+        audit.output_tokens = output_tokens
+        audit.cost_microusd = cost_microusd
+        audit.outcome = "VALIDATED"
         return cast(dict[str, object], candidate)
 
 
@@ -264,17 +334,29 @@ class CachingClassificationModelEdge:
         return dict(candidate)
 
 
+def _bounded_artifact_bytes(path: Path) -> bytes:
+    try:
+        if path.stat().st_size > _MAX_PRIVATE_ARTIFACT_BYTES:
+            raise ValueError("PRIVATE_REPLAY_ARTIFACT_TOO_LARGE")
+        return path.read_bytes()
+    except ValueError:
+        raise
+    except OSError as exc:
+        raise ValueError("PRIVATE_REPLAY_ARTIFACT_INVALID") from exc
+
+
 def _load_json(path: Path) -> object:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        return json.loads(_bounded_artifact_bytes(path).decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError("PRIVATE_REPLAY_ARTIFACT_INVALID") from exc
 
 
 def _load_json_lines(path: Path) -> list[dict[str, object]]:
     try:
-        return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        text = _bounded_artifact_bytes(path).decode("utf-8")
+        return [json.loads(line) for line in text.splitlines() if line]
+    except (UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError("PRIVATE_REPLAY_ARTIFACT_INVALID") from exc
 
 
@@ -303,10 +385,7 @@ def _aware_datetime(value: object) -> datetime:
 
 
 def _file_sha256(path: Path) -> str:
-    try:
-        return hashlib.sha256(path.read_bytes()).hexdigest()
-    except OSError as exc:
-        raise ValueError("PRIVATE_REPLAY_ARTIFACT_INVALID") from exc
+    return hashlib.sha256(_bounded_artifact_bytes(path)).hexdigest()
 
 
 def _integer(value: object) -> int:
@@ -655,7 +734,7 @@ def load_private_policy_pack(
         raise ValueError("PRIVATE_REPLAY_CORPUS_VERSION_MISMATCH")
     return PrivatePolicyPack(
         benchmark_version=str(corpus_version),
-        corpus_manifest_sha256=hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+        corpus_manifest_sha256=_file_sha256(manifest_path),
         cases=tuple(cases),
         responses=responses,
     )
