@@ -138,8 +138,8 @@ def test_closeout_report_accepts_complete_hashed_evidence(tmp_path: Path) -> Non
     qualification_predictions: list[dict[str, object]] = []
     for bucket, count, relevant in (
         ("POSITIVE", 20, True),
-        ("BOUNDARY", 10, True),
-        ("NEGATIVE", 10, False),
+        ("BOUNDARY", 0, True),
+        ("NEGATIVE", 20, False),
     ):
         for index in range(count):
             content_sha256 = f"{len(qualification) + 1:064x}"

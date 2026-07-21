@@ -11,12 +11,8 @@ from pathlib import Path
 from typing import Any
 
 import httpx2 as httpx
-from srbg_api.ai_pipeline.budget import BudgetPolicy
-from srbg_api.ai_pipeline.contracts import AiStep, ModelRequest
 from srbg_api.ai_pipeline.gateway import (
-    DeepSeekProvider,
     HttpResponse,
-    ModelOutputRejected,
     TransientProviderError,
 )
 from srbg_api.identifiers import uuid7
@@ -26,11 +22,12 @@ from srbg_api.intelligence_v2.autonomous_policy import (
 )
 from srbg_api.intelligence_v2.private_policy_replay import (
     CachingClassificationModelEdge,
+    DeepSeekPrivateReplayProvider,
     MappingModelEdge,
     load_private_policy_pack,
     run_offline_policy_replay,
 )
-from srbg_contracts import AutonomousClassificationCandidate, QualificationDecisionTrace
+from srbg_contracts import QualificationDecisionTrace
 
 _PUBLIC_AGGREGATES = (
     "total_cases",
@@ -68,7 +65,7 @@ def _read_api_key(path: Path) -> str:
 
 
 class DeepSeekPolicyCandidateFetcher:
-    def __init__(self, *, api_key: str, timeout_seconds: float = 30.0) -> None:
+    def __init__(self, *, api_key: str, timeout_seconds: float = 90.0) -> None:
         self._api_key = api_key
         self._timeout_seconds = timeout_seconds
 
@@ -86,41 +83,19 @@ class DeepSeekPolicyCandidateFetcher:
     async def _fetch(
         self, *, system_prompt: str, user_prompt: str, input_sha256: str
     ) -> dict[str, object]:
-        policy = BudgetPolicy.deepseek_v4_flash()
-        request = ModelRequest(
-            step=AiStep.CLASSIFY,
-            prompt_version="autonomous-classify-2.7.0",
-            schema_version="autonomous-classify-output-2.0.0",
-            model_profile="deepseek-v4-flash",
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            input_sha256=input_sha256,
-            response_schema=AutonomousClassificationCandidate.model_json_schema(),
-            parameters={"temperature": 0, "max_tokens": 1200},
-            data_classification="PUBLIC_SOURCE",
-            input_price_microusd_per_million=(policy.cache_miss_microusd_per_million),
-            cache_hit_input_price_microusd_per_million=(policy.cache_hit_microusd_per_million),
-            output_price_microusd_per_million=policy.output_microusd_per_million,
-        )
+        del input_sha256
         try:
             async with httpx.AsyncClient(
                 base_url="https://api.deepseek.com",
                 follow_redirects=False,
             ) as client:
-                result = await DeepSeekProvider(
+                return await DeepSeekPrivateReplayProvider(
                     client=_HttpxClientAdapter(client),
                     api_key=self._api_key,
                     timeout_seconds=self._timeout_seconds,
-                ).complete(request)
+                ).complete(system_prompt=system_prompt, user_prompt=user_prompt)
         except httpx.TransportError as exc:
             raise TransientProviderError("policy model transport failed") from exc
-        try:
-            decoded = json.loads(result.content)
-        except json.JSONDecodeError as exc:
-            raise ModelOutputRejected("policy model returned invalid JSON") from exc
-        if not isinstance(decoded, dict):
-            raise ModelOutputRejected("policy model output must be an object")
-        return decoded
 
 
 class _HttpxClientAdapter:
@@ -152,7 +127,7 @@ def main() -> int:
         )
         use_live_model = args.api_key_file is not None
         policy = QualificationPolicyBundle.create(
-            policy_version="qualification-policy-2.1.0",
+            policy_version="qualification-policy-2.2.0",
             global_rule_version="global-rules-2.1.0",
             source_stream_policy_version="owner-gold-private-v4",
             ai_provider="deepseek" if use_live_model else "protocol-equivalent-recorded",
@@ -188,6 +163,7 @@ def main() -> int:
             benchmark_version=pack.benchmark_version,
             corpus_manifest_sha256=pack.corpus_manifest_sha256,
             policy_bundle_sha256=policy.identity.bundle_sha256,
+            offline_max_workers=2 if use_live_model else 1,
         )
         if len(decision_sink.traces) != report.total_cases:
             raise ValueError("PRIVATE_REPLAY_DECISION_TRACE_INCOMPLETE")

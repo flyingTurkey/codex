@@ -18,19 +18,19 @@ The implementation was driven by failing tests for contract authority exclusions
 
 ## Private offline replay
 
-The final live aggregate run processed 40 cases with the reviewed policy identity and produced:
+The final live aggregate run processed 40 cases with `qualification-policy-2.2.0` and produced:
 
-- auto accepted: 19
-- auto filtered: 21
+- auto accepted: 20
+- auto filtered: 20
 - technical retry/failed, safety hold, Owner suppressed: 0/0/0/0
-- precision: 73.68%
+- precision: 70.00%
 - recall: 70.00%
-- locked-negative leaks: 4
+- locked-negative leaks: 5
 - Schema validity: 100.00%
 - new Owner semantic tasks: 0
 - production authorization: false
 
-The private gate is therefore **NO-GO**. The required 90% precision, 90% recall, zero locked-negative leakage, and 100% Schema validity threshold has not been met. Aggregate diagnosis found no label-independent rule that could remove all leaked negatives while recovering the remaining relevance, primary-type, axis, and evidence disagreements. No sample-specific exception was added. Changing the fixed model profile, benchmark, or model topology requires authority outside Issue #41, and this result must not authorize or switch a production path.
+The private gate is therefore **NO-GO**. The required 90% precision, 90% recall, zero locked-negative leakage, and 100% Schema validity threshold has not been met. Expanded Owner authority was used to evaluate higher-capability thinking and non-thinking profiles, structured central-fact extraction, bounded lead projection, and adversarial verification. All produced worse aggregate quality than the reviewed Flash baseline and were removed. No sample-specific exception, threshold reduction, frozen-artifact change, or best-of-run selection was used. This result must not authorize or switch a production path.
 
 ## Verification
 
@@ -41,7 +41,13 @@ The private gate is therefore **NO-GO**. The required 90% precision, 90% recall,
 - `make contract-test`: passed (122 tests)
 - `make security-check`: passed
 - `make fixture-replay`: passed (363 tests plus evaluation)
-- `make test`: 1452 passed, 27 skipped, 1 pre-existing fixed-point failure in the W0 closeout fixture
-- `make quality-gate`: stopped at the same pre-existing W0 test failure after lint and typecheck passed
+- inherited W0 closeout mismatch: fixed by aligning its stale 20/10/10 fixture and validator with the frozen 20/0/20 annotation Schema; the focused regression passes
+- `make lint`: passed
+- `make typecheck`: passed (mypy strict: 150 source files; Nuxt/UI/contract TypeScript passed)
+- `make test`: passed (Python 1456 passed, 27 skipped; UI 53 passed; Web 101 passed)
+- `make contract-test`: passed (122 tests; generated contracts reproducible)
+- `make security-check`: passed (dependency audits and HIGH/CRITICAL secret/misconfiguration scan)
+- `make fixture-replay`: passed (366 tests plus evaluation)
+- `make quality-gate`: passed
 
-The private replay failure and inherited W0 test failure remain explicit unfinished acceptance items. This ticket is not eligible for a completion claim or production activation.
+The private replay quality failure remains an explicit unfinished acceptance item. This ticket is not eligible for a completion claim or production activation.

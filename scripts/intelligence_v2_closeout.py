@@ -156,21 +156,21 @@ def load_owner_qualification(
         if not case_id or case_id in annotation_ids:
             raise ValueError("qualification case_id is invalid")
         annotation_ids.add(case_id)
-        prediction = predictions.get(case_id)
+        matched_prediction = predictions.get(case_id)
         if (
-            prediction is None
-            or prediction.get("content_sha256") != row.get("content_sha256")
-            or prediction.get("corpus_version") != row.get("corpus_version")
-            or prediction.get("rule_version") != row.get("rule_version")
-            or prediction.get("model_id") != row.get("model_id")
-            or prediction.get("prompt_version") != row.get("prompt_version")
+            matched_prediction is None
+            or matched_prediction.get("content_sha256") != row.get("content_sha256")
+            or matched_prediction.get("corpus_version") != row.get("corpus_version")
+            or matched_prediction.get("rule_version") != row.get("rule_version")
+            or matched_prediction.get("model_id") != row.get("model_id")
+            or matched_prediction.get("prompt_version") != row.get("prompt_version")
         ):
             raise ValueError("qualification prediction does not match annotation")
         bucket = str(row.get("bucket"))
         if bucket not in {"POSITIVE", "BOUNDARY", "NEGATIVE"}:
             raise ValueError("qualification bucket is invalid")
         expected = row.get("expected_relevant")
-        predicted = prediction.get("predicted_relevant")
+        predicted = matched_prediction.get("predicted_relevant")
         if not isinstance(expected, bool) or not isinstance(predicted, bool):
             raise ValueError("qualification relevance labels must be boolean")
         if expected:
@@ -388,8 +388,7 @@ def build_closeout_report(root: Path, *, acceptance_profile: AcceptanceProfile) 
             distribution = Counter(value.bucket for value in qualification_values)
             if len(qualification_values) != 40 or distribution != {
                 "POSITIVE": 20,
-                "BOUNDARY": 10,
-                "NEGATIVE": 10,
+                "NEGATIVE": 20,
             }:
                 _append_reason(reasons, "OWNER_GOLD_INCOMPLETE")
             qualification = evaluate_qualification(qualification_values)

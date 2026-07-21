@@ -6,6 +6,8 @@
 - Added deterministic engineering/safety/domain rules, a strict autonomous classification Schema and Prompt, one bounded semantic re-adjudication, safety holds, and aggregate-only private replay plumbing. Confidence remains diagnostic and all offline/shadow facts are structurally non-production-authorizing.
 - Authenticated the private corpus, sealed predictions, Owner attempt and annotations as a single hash chain, rejected duplicate case/annotation/response identifiers, and kept live candidates and decision traces process-local. Added broader lifecycle-bound construction-machinery vocabulary and a bilingual bounded-recheck checklist. The reviewed 40-case aggregate remained `NO-GO`, so no production path was authorized.
 - Added ADR-0004 and shared T03-T06 exception, Feed suppression, evaluation, shadow and reason-code contracts. Worker, SourceAdmission and PublicationService production paths remain unchanged; no source, production traffic or later ticket was enabled.
+- Hardened the private live replay transport with a pinned tool-free DeepSeek profile, one bounded transient retry, process-local candidates, and at most two offline workers. Reconciled the inherited closeout fixture and validator with the frozen 20-positive/20-negative Owner Gold contract; quality thresholds remain unchanged.
+- Evaluated stronger model and adjudication topologies under expanded Owner authority. None exceeded the held-out gate, so all quality-regressing semantic experiments were removed and the best reviewed aggregate remains `NO-GO`; no benchmark-specific exception or production authorization was introduced.
 
 ## 2026-07-20（土木工程情报 v2 维护信息收口）
 

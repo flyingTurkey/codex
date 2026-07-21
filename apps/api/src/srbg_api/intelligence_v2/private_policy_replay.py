@@ -6,12 +6,14 @@ labels, and predictions remain process-local and must never enter logs or report
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol, cast
 from uuid import UUID
 
 from srbg_contracts import (
@@ -19,9 +21,14 @@ from srbg_contracts import (
     AutomatedDisposition,
     AutonomousClassificationCandidate,
     PrimaryIntelligenceType,
+    QualificationDecisionTrace,
 )
 
-from srbg_api.ai_pipeline.gateway import ModelOutputRejected, TransientProviderError
+from srbg_api.ai_pipeline.gateway import (
+    AsyncHttpClient,
+    ModelOutputRejected,
+    TransientProviderError,
+)
 from srbg_api.intelligence_v2.autonomous_policy import (
     AdjudicationInput,
     AutomatedAdjudicationService,
@@ -81,6 +88,89 @@ class PolicyCandidateFetcher(Protocol):
     def __call__(
         self, *, system_prompt: str, user_prompt: str, input_sha256: str
     ) -> dict[str, object]: ...
+
+
+class DeepSeekPrivateReplayProvider:
+    """Pinned tool-free provider used only by the private offline gate."""
+
+    def __init__(
+        self,
+        *,
+        client: AsyncHttpClient,
+        api_key: str,
+        timeout_seconds: float = 90.0,
+        retry_delay_seconds: float = 1.0,
+    ) -> None:
+        if not api_key:
+            raise ValueError("PRIVATE_REPLAY_API_KEY_INVALID")
+        if timeout_seconds <= 0:
+            raise ValueError("PRIVATE_REPLAY_TIMEOUT_INVALID")
+        if retry_delay_seconds < 0 or retry_delay_seconds > 5:
+            raise ValueError("PRIVATE_REPLAY_RETRY_DELAY_INVALID")
+        self._client = client
+        self._api_key = api_key
+        self._timeout_seconds = timeout_seconds
+        self._retry_delay_seconds = retry_delay_seconds
+
+    async def complete(
+        self, *, system_prompt: str, user_prompt: str
+    ) -> dict[str, object]:
+        response = None
+        for attempt in range(2):
+            response = await self._client.post(
+                "/chat/completions",
+                json={
+                    "model": "deepseek-v4-flash",
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    "thinking": {"type": "disabled"},
+                    "response_format": {"type": "json_object"},
+                    "temperature": 0,
+                    "max_tokens": 1200,
+                },
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Content-Type": "application/json",
+                },
+                timeout=self._timeout_seconds,
+            )
+            status_code = getattr(response, "status_code", None)
+            if status_code not in {429, 500, 502, 503, 504} or attempt == 1:
+                break
+            await asyncio.sleep(self._retry_delay_seconds)
+        if response is None:  # pragma: no cover - range is statically non-empty
+            raise RuntimeError("PRIVATE_REPLAY_PROVIDER_NOT_CALLED")
+        status_code = getattr(response, "status_code", None)
+        if status_code == 402:
+            raise RuntimeError("PROVIDER_BALANCE_INSUFFICIENT")
+        if status_code in {429, 500, 502, 503, 504}:
+            raise TransientProviderError(f"provider returned HTTP {status_code}")
+        response.raise_for_status()
+        raw = response.json()
+        if not isinstance(raw, dict):
+            raise ModelOutputRejected("provider response must be an object")
+        choices = raw.get("choices")
+        usage = raw.get("usage")
+        if not isinstance(choices, list) or not choices or not isinstance(usage, dict):
+            raise ModelOutputRejected("provider response is missing choices or usage")
+        choice = choices[0]
+        if not isinstance(choice, dict) or not isinstance(choice.get("message"), dict):
+            raise ModelOutputRejected("provider response has invalid message shape")
+        if choice.get("finish_reason") != "stop":
+            raise ModelOutputRejected("provider response did not finish cleanly")
+        message = cast(dict[str, Any], choice["message"])
+        content = message.get("content")
+        if not isinstance(content, str) or not content.strip():
+            raise ModelOutputRejected("provider returned empty content")
+        try:
+            candidate = json.loads(content)
+        except json.JSONDecodeError as exc:
+            raise ModelOutputRejected("provider returned invalid JSON") from exc
+        if not isinstance(candidate, dict):
+            raise ModelOutputRejected("provider output must be an object")
+        return cast(dict[str, object], candidate)
 
 
 class MappingModelEdge:
@@ -584,8 +674,29 @@ def run_offline_policy_replay(
     benchmark_version: str,
     corpus_manifest_sha256: str,
     policy_bundle_sha256: str,
+    offline_max_workers: int = 1,
 ) -> OfflineReplayReport:
     """Run real adjudication and retain only aggregate quality counters."""
+
+    if offline_max_workers < 1 or offline_max_workers > 4:
+        raise ValueError("PRIVATE_REPLAY_WORKER_COUNT_INVALID")
+
+    def adjudicate(replay_case: OfflineReplayCase) -> QualificationDecisionTrace:
+        return service.adjudicate(
+            AdjudicationInput(
+                document_version_id=replay_case.document_version_id,
+                raw_object_id=replay_case.raw_object_id,
+                normalized_input_sha256=replay_case.normalized_input_sha256,
+                document_text=replay_case.document_text,
+                allowed_evidence_locators=replay_case.evidence_locators,
+            )
+        )
+
+    if offline_max_workers == 1:
+        traces = tuple(adjudicate(replay_case) for replay_case in cases)
+    else:
+        with ThreadPoolExecutor(max_workers=offline_max_workers) as executor:
+            traces = tuple(executor.map(adjudicate, cases))
 
     accepted = 0
     filtered = 0
@@ -598,16 +709,7 @@ def run_offline_policy_replay(
     locked_negative_leaks = 0
     schema_valid = 0
 
-    for replay_case in cases:
-        trace = service.adjudicate(
-            AdjudicationInput(
-                document_version_id=replay_case.document_version_id,
-                raw_object_id=replay_case.raw_object_id,
-                normalized_input_sha256=replay_case.normalized_input_sha256,
-                document_text=replay_case.document_text,
-                allowed_evidence_locators=replay_case.evidence_locators,
-            )
-        )
+    for replay_case, trace in zip(cases, traces, strict=True):
         was_accepted = trace.disposition is AutomatedDisposition.AUTO_ACCEPTED
         accepted += int(was_accepted)
         filtered += int(trace.disposition is AutomatedDisposition.AUTO_FILTERED)

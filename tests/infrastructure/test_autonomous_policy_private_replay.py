@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from dataclasses import asdict
 from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
-from srbg_api.ai_pipeline.gateway import ModelOutputRejected, TransientProviderError
+from srbg_api.ai_pipeline.gateway import (
+    ModelOutputRejected,
+    TransientProviderError,
+)
 from srbg_api.intelligence_v2.autonomous_policy import (
     AdjudicationInput,
     AutomatedAdjudicationService,
@@ -22,11 +26,55 @@ from srbg_api.intelligence_v2.owner_gold_preparation import (
 )
 from srbg_api.intelligence_v2.private_policy_replay import (
     CachingClassificationModelEdge,
+    DeepSeekPrivateReplayProvider,
     MappingModelEdge,
     OfflineReplayCase,
     load_private_policy_pack,
     run_offline_policy_replay,
 )
+
+
+class _DeepSeekResponse:
+    status_code = 200
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> object:
+        return {
+            "id": "private-replay-request",
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {
+                        "content": json.dumps(_candidate()),
+                        "reasoning_content": "must remain private and unused",
+                    },
+                }
+            ],
+            "usage": {"prompt_tokens": 100, "completion_tokens": 50},
+        }
+
+
+class _RecordingDeepSeekClient:
+    def __init__(self) -> None:
+        self.requests: list[tuple[str, dict[str, object]]] = []
+
+    async def post(self, path: str, **kwargs: object) -> _DeepSeekResponse:
+        self.requests.append((path, kwargs))
+        return _DeepSeekResponse()
+
+
+class _RateLimitedDeepSeekResponse(_DeepSeekResponse):
+    status_code = 429
+
+
+class _RetryingDeepSeekClient(_RecordingDeepSeekClient):
+    async def post(self, path: str, **kwargs: object) -> _DeepSeekResponse:
+        self.requests.append((path, kwargs))
+        if len(self.requests) == 1:
+            return _RateLimitedDeepSeekResponse()
+        return _DeepSeekResponse()
 
 
 def _bundle() -> QualificationPolicyBundle:
@@ -76,6 +124,63 @@ def _case(
         expected_primary_type=expected_primary_type,
         locked_negative=locked_negative,
     )
+
+
+@pytest.mark.asyncio
+async def test_private_replay_provider_pins_v4_flash_rule_following_profile() -> None:
+    client = _RecordingDeepSeekClient()
+    provider = DeepSeekPrivateReplayProvider(
+        client=client,
+        api_key="private-test-key",
+        timeout_seconds=45.0,
+    )
+
+    candidate = await provider.complete(
+        system_prompt="qualification policy",
+        user_prompt="untrusted source material",
+    )
+
+    assert candidate == _candidate()
+    assert len(client.requests) == 1
+    path, request = client.requests[0]
+    assert path == "/chat/completions"
+    payload = request["json"]
+    assert isinstance(payload, dict)
+    assert payload == {
+        "model": "deepseek-v4-flash",
+        "messages": [
+            {"role": "system", "content": "qualification policy"},
+            {"role": "user", "content": "untrusted source material"},
+        ],
+        "thinking": {"type": "disabled"},
+        "response_format": {"type": "json_object"},
+        "temperature": 0,
+        "max_tokens": 1200,
+    }
+    assert "tools" not in payload
+    assert "stream" not in payload
+    assert request["headers"] == {
+        "Authorization": "Bearer private-test-key",
+        "Content-Type": "application/json",
+    }
+    assert request["timeout"] == 45.0
+    assert "reasoning_content" not in json.dumps(candidate)
+
+
+@pytest.mark.asyncio
+async def test_private_replay_provider_retries_rate_limit_once_then_stops() -> None:
+    client = _RetryingDeepSeekClient()
+    provider = DeepSeekPrivateReplayProvider(
+        client=client,
+        api_key="private-test-key",
+        retry_delay_seconds=0,
+    )
+
+    candidate = await provider.complete(system_prompt="policy", user_prompt="document")
+
+    assert candidate == _candidate()
+    assert len(client.requests) == 2
+    assert all(request[1]["timeout"] == 90.0 for request in client.requests)
 
 
 def test_private_replay_runs_real_adjudication_and_returns_aggregate_only() -> None:
@@ -129,6 +234,49 @@ def test_private_replay_runs_real_adjudication_and_returns_aggregate_only() -> N
             "decision_traces",
         }
     )
+
+
+def test_private_replay_can_bound_parallelism_without_changing_case_semantics() -> None:
+    barrier = threading.Barrier(2)
+
+    class _ConcurrentEdge:
+        def classify(
+            self, *, system_prompt: str, document_text: str, semantic_recheck: bool
+        ) -> dict[str, object]:
+            del system_prompt, document_text
+            assert semantic_recheck is False
+            barrier.wait(timeout=2)
+            return _candidate()
+
+    cases = tuple(
+        _case(
+            suffix=suffix,
+            text=f"Railway tunnel construction safety remediation started {suffix}.",
+            expected_relevant=True,
+            expected_primary_type="SAFETY_INTELLIGENCE",
+            locked_negative=False,
+        )
+        for suffix in (11, 12)
+    )
+    service = AutomatedAdjudicationService(
+        policy=_bundle(),
+        model_edge=_ConcurrentEdge(),
+        clock=lambda: datetime(2026, 7, 21, 8, tzinfo=UTC),
+        id_factory=lambda: UUID("019b1d00-0000-7000-8000-000000000041"),
+    )
+
+    report = run_offline_policy_replay(
+        cases,
+        service=service,
+        benchmark_version="private-parallel-test",
+        corpus_manifest_sha256="c" * 64,
+        policy_bundle_sha256=_bundle().identity.bundle_sha256,
+        offline_max_workers=2,
+    )
+
+    assert report.total_cases == 2
+    assert report.auto_accepted == 2
+    assert report.gate_passed is True
 
 
 def test_private_pack_loader_verifies_seal_and_keeps_case_data_internal(tmp_path) -> None:
@@ -365,6 +513,7 @@ def test_live_edge_keeps_candidates_document_and_labels_process_local(tmp_path) 
     assert "Never omit primary_type or evidence_locators" in prompts[1]
     assert "先识别标题和首段表达的中心新事实" in prompts[1]
     assert "物理工程项目节点属于 INDUSTRY_UPDATE" in prompts[1]
+    assert "鍏堣瘑" not in prompts[1]
     assert not cache_path.exists()
 
 
