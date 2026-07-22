@@ -560,6 +560,19 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
                     )
                 )
                 .mappings()
+                .one_or_none()
+            )
+            refresh = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT status,last_error_code FROM ai_projection_refresh_outbox_v2 "
+                            "WHERE document_version_id=:version ORDER BY created_at DESC LIMIT 1"
+                        ),
+                        {"version": version_id},
+                    )
+                )
+                .mappings()
                 .one()
             )
             review_count = await connection.scalar(
@@ -568,6 +581,7 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
                 ),
                 {"version": version_id},
             )
+        assert projection is not None, dict(refresh)
         assert projection["primary_type"] == primary_type
         assert projection["projection_kind"] == "FULL"
         assert projection["payload"]["human_reviewed"] is False
