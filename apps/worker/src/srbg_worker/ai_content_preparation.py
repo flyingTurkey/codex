@@ -51,7 +51,7 @@ from srbg_api.pdf_processing.parser import (
     ParsedTextBlock,
     PdfDocumentParser,
 )
-from srbg_contracts import QualificationDecisionTrace
+from srbg_contracts import AutomatedDecisionReason, QualificationDecisionTrace
 
 logger = logging.getLogger("srbg.worker.ai_content_preparation")
 
@@ -317,6 +317,9 @@ class PostgresAiPreparationRepository:
                 "OWNER_SUPPRESSED",
             )
         }
+        schema_valid_bps = (
+            0 if AutomatedDecisionReason.AI_SCHEMA_INVALID in trace.reason_codes else 10_000
+        )
         async with self._engine.begin() as connection:
             await connection.execute(
                 text(
@@ -362,7 +365,8 @@ class PostgresAiPreparationRepository:
                     "precision_bps,recall_bps,locked_negative_leaks,schema_valid_bps,"
                     "new_owner_semantic_tasks,gate_passed,authorizes_production,evaluated_at) "
                     "VALUES(:id,:bundle,'SHADOW','runtime-shadow-v1',:manifest,1,:accepted,"
-                    ":filtered,:retry,:failed,:safety,:suppressed,0,0,0,10000,0,false,false,:now) "
+                    ":filtered,:retry,:failed,:safety,:suppressed,0,0,0,:schema_valid,0,false,"
+                    "false,:now) "
                     "ON CONFLICT (id) DO NOTHING"
                 ),
                 {
@@ -375,6 +379,7 @@ class PostgresAiPreparationRepository:
                     "failed": dispositions["TECHNICAL_FAILED"],
                     "safety": dispositions["SAFETY_HOLD"],
                     "suppressed": dispositions["OWNER_SUPPRESSED"],
+                    "schema_valid": schema_valid_bps,
                     "now": trace.decided_at,
                 },
             )
@@ -2283,7 +2288,10 @@ LEFT JOIN LATERAL (
   ORDER BY policy.created_at DESC LIMIT 1
 ) source_policy ON true
 WHERE run.id=:run_id AND run.mode IN ('LIVE','SHADOW')
-  AND run.status IN ('PREPARING','CLASSIFYING','EXTRACTING')
+  AND run.status IN (
+    'PREPARING','CLASSIFYING','EXTRACTING','EVIDENCE_GATING',
+    'SUMMARIZING','VERIFYING','WAITING_CLAIM_REVIEW'
+  )
   AND raw.scan_status='CLEAN' AND document.current_version_id=version.id
 """
 

@@ -76,6 +76,7 @@ def test_live_source_bridge_remains_live_through_authoritative_preparation() -> 
     assert "SET mode='SHADOW'" not in _AUTHORIZE_PERSONAL_SQL
     assert "run.mode IN ('LIVE','SHADOW')" in _DOCUMENT_SQL
     assert "run.mode='LIVE' AND run.status IN" in _AUTHORIZE_PERSONAL_SQL
+    assert "'SUMMARIZING','VERIFYING','WAITING_CLAIM_REVIEW'" in _DOCUMENT_SQL
 
 
 def test_worker_semantic_recheck_renders_the_shared_full_prompt() -> None:
@@ -93,6 +94,7 @@ def test_worker_separates_shadow_facts_from_production_decisions() -> None:
     assert "append_shadow_decision" in callback
     assert "qualification_shadow_decision_v2" in repository
     assert "affects_production" in repository
+    assert "AutomatedDecisionReason.AI_SCHEMA_INVALID in trace.reason_codes" in repository
 
 
 def test_ai_projection_outbox_projects_accepted_content_into_the_v2_reader() -> None:
