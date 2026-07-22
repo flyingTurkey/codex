@@ -63,5 +63,5 @@ def test_ci_integration_uses_an_explicit_ephemeral_data_root() -> None:
     integration = workflow.split("  integration:\n", 1)[1].split(
         "  schema-validation:\n", 1
     )[0]
-    assert "SRBG_DATA_ROOT: ${{ runner.temp }}/srbg-data" in integration
+    assert "SRBG_DATA_ROOT: /tmp/srbg-data" in integration
     assert 'mkdir -p "$SRBG_DATA_ROOT"' in integration

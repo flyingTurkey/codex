@@ -45,7 +45,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
-      SRBG_DATA_ROOT: ${{ runner.temp }}/srbg-data
+      SRBG_DATA_ROOT: /tmp/srbg-data
     steps:
       - name: Check out repository
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
