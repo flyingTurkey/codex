@@ -32,6 +32,7 @@ class FakeRepository:
     judgment_type: str | None = None
     review_payloads: list[dict[str, Any]] = field(default_factory=list)
     decisions: list[QualificationDecisionTrace] = field(default_factory=list)
+    shadow_decisions: list[QualificationDecisionTrace] = field(default_factory=list)
     materialized_classifications: list[dict[str, Any]] = field(default_factory=list)
     calibration_reads: int = 0
 
@@ -64,6 +65,12 @@ class FakeRepository:
     ) -> None:
         assert trace.policy == policy.identity
         self.decisions.append(trace)
+
+    async def append_shadow_decision(
+        self, trace: QualificationDecisionTrace, policy: QualificationPolicyBundle
+    ) -> None:
+        assert trace.policy == policy.identity
+        self.shadow_decisions.append(trace)
 
     async def record_security(self, document: PreparationDocument, detected: bool) -> None:
         assert detected is False
@@ -387,6 +394,7 @@ def test_shadow_decision_never_materializes_reader_content() -> None:
     result = asyncio.run(service.run(RUN_ID))
 
     assert result.candidate_count == 0
-    assert repository.decisions[0].disposition.value == "AUTO_ACCEPTED"
+    assert repository.decisions == []
+    assert repository.shadow_decisions[0].disposition.value == "AUTO_ACCEPTED"
     assert repository.materialized == 0
     assert repository.statuses[-1] == "SUCCEEDED"

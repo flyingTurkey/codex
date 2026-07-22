@@ -294,6 +294,112 @@ class PostgresAiPreparationRepository:
                 },
             )
 
+    async def append_shadow_decision(
+        self, trace: QualificationDecisionTrace, policy: QualificationPolicyBundle
+    ) -> None:
+        """Append a shadow evaluation that is structurally unable to affect production."""
+
+        identity = policy.identity
+        policy_payload = {
+            "identity": identity.model_dump(mode="json"),
+            "source_allow_terms": list(policy.source_allow_terms),
+            "source_exclude_terms": list(policy.source_exclude_terms),
+            "maximum_semantic_rechecks": 1,
+        }
+        dispositions = {
+            value: int(trace.disposition.value == value)
+            for value in (
+                "AUTO_ACCEPTED",
+                "AUTO_FILTERED",
+                "TECHNICAL_RETRY",
+                "TECHNICAL_FAILED",
+                "SAFETY_HOLD",
+                "OWNER_SUPPRESSED",
+            )
+        }
+        async with self._engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "INSERT INTO qualification_policy_bundle_v2("
+                    "id,policy_version,global_rule_version,source_stream_policy_version,"
+                    "ai_provider,ai_model,prompt_version,schema_version,code_version,"
+                    "authorization_basis,policy_payload,bundle_sha256,created_at) VALUES("
+                    ":id,:policy_version,:global_rule_version,:stream_version,:provider,:model,"
+                    ":prompt_version,:schema_version,:code_version,'SERVER_ADJUDICATION_ONLY',"
+                    "CAST(:payload AS jsonb),:bundle_sha256,:now) "
+                    "ON CONFLICT (bundle_sha256) DO NOTHING"
+                ),
+                {
+                    "id": uuid7(),
+                    "policy_version": identity.policy_version,
+                    "global_rule_version": identity.global_rule_version,
+                    "stream_version": identity.source_stream_policy_version,
+                    "provider": identity.ai_provider,
+                    "model": identity.ai_model,
+                    "prompt_version": identity.prompt_version,
+                    "schema_version": identity.schema_version,
+                    "code_version": identity.code_version,
+                    "payload": json.dumps(policy_payload, ensure_ascii=False, sort_keys=True),
+                    "bundle_sha256": identity.bundle_sha256,
+                    "now": trace.decided_at,
+                },
+            )
+            bundle_id = await connection.scalar(
+                text(
+                    "SELECT id FROM qualification_policy_bundle_v2 "
+                    "WHERE bundle_sha256=:bundle_sha256"
+                ),
+                {"bundle_sha256": identity.bundle_sha256},
+            )
+            if bundle_id is None:
+                raise RuntimeError("QUALIFICATION_POLICY_BUNDLE_NOT_PERSISTED")
+            await connection.execute(
+                text(
+                    "INSERT INTO qualification_policy_evaluation_v2("
+                    "id,policy_bundle_id,mode,benchmark_version,corpus_manifest_sha256,"
+                    "total_cases,auto_accepted_count,auto_filtered_count,technical_retry_count,"
+                    "technical_failed_count,safety_hold_count,owner_suppressed_count,"
+                    "precision_bps,recall_bps,locked_negative_leaks,schema_valid_bps,"
+                    "new_owner_semantic_tasks,gate_passed,authorizes_production,evaluated_at) "
+                    "VALUES(:id,:bundle,'SHADOW','runtime-shadow-v1',:manifest,1,:accepted,"
+                    ":filtered,:retry,:failed,:safety,:suppressed,0,0,0,10000,0,false,false,:now) "
+                    "ON CONFLICT (id) DO NOTHING"
+                ),
+                {
+                    "id": trace.decision_id,
+                    "bundle": bundle_id,
+                    "manifest": trace.normalized_input_sha256,
+                    "accepted": dispositions["AUTO_ACCEPTED"],
+                    "filtered": dispositions["AUTO_FILTERED"],
+                    "retry": dispositions["TECHNICAL_RETRY"],
+                    "failed": dispositions["TECHNICAL_FAILED"],
+                    "safety": dispositions["SAFETY_HOLD"],
+                    "suppressed": dispositions["OWNER_SUPPRESSED"],
+                    "now": trace.decided_at,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO qualification_shadow_decision_v2("
+                    "id,evaluation_id,policy_bundle_id,document_version_id,raw_object_id,"
+                    "disposition,reason_codes,decision_trace,affects_production,decided_at) "
+                    "VALUES(:id,:evaluation,:bundle,:version,:raw,:disposition,:reasons,"
+                    "CAST(:trace AS jsonb),false,:now) ON CONFLICT "
+                    "(evaluation_id,document_version_id) DO NOTHING"
+                ),
+                {
+                    "id": uuid7(),
+                    "evaluation": trace.decision_id,
+                    "bundle": bundle_id,
+                    "version": trace.document_version_id,
+                    "raw": trace.raw_object_id,
+                    "disposition": trace.disposition.value,
+                    "reasons": [reason.value for reason in trace.reason_codes],
+                    "trace": json.dumps(trace.model_dump(mode="json"), ensure_ascii=False),
+                    "now": trace.decided_at,
+                },
+            )
+
     async def authorize_model_call(
         self, run_id: UUID, *, document_version_id: UUID | None = None
     ) -> bool:
@@ -2137,7 +2243,10 @@ WITH candidate AS (
        (run.mode='SHADOW' AND run.status IN (
          'QUEUED','PREPARING','CLASSIFYING','EXTRACTING','WAITING_CLAIM_REVIEW'
        )) OR (
-         run.mode='LIVE' AND run.status='QUEUED'
+         run.mode='LIVE' AND run.status IN (
+           'QUEUED','PREPARING','CLASSIFYING','EXTRACTING','EVIDENCE_GATING',
+           'SUMMARIZING','VERIFYING','WAITING_CLAIM_REVIEW'
+         )
          AND EXISTS(
            SELECT 1 FROM source_content_outbox outbox
             WHERE outbox.pipeline_run_id=run.id AND outbox.status='WAITING_AI'
@@ -2164,8 +2273,8 @@ JOIN document ON document.id=version.document_id
 JOIN source ON source.id=document.source_id
 LEFT JOIN LATERAL (
   SELECT config.config_sha256 FROM raw_object_capture capture
-  JOIN fetch_run fetch ON fetch.id=capture.fetch_run_id
-  JOIN stream_config_version config ON config.id=fetch.stream_config_version_id
+  JOIN fetch_run fetch_row ON fetch_row.id=capture.fetch_run_id
+  JOIN stream_config_version config ON config.id=fetch_row.stream_config_version_id
   WHERE capture.raw_object_id=raw.id ORDER BY capture.captured_at DESC LIMIT 1
 ) stream_policy ON true
 LEFT JOIN LATERAL (

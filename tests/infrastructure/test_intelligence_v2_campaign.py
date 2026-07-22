@@ -75,6 +75,12 @@ def test_source_assessment_uses_the_durable_transport_success_value() -> None:
     assert "transport_status='SUCCESS'" not in source
 
 
+def test_source_assessment_writes_the_current_production_admission_semantics() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+
+    assert "production_admission_verdict(metrics, calibration=None)" in source
+
+
 def test_source_sample_cutoff_is_campaign_fixed_and_document_versions_are_unique() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
 

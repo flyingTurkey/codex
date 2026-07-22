@@ -28,7 +28,10 @@ from srbg_api.intelligence_v2.gold_calibration import (
     calibration_grant,
     load_calibration_fact,
 )
-from srbg_api.source_registry.v2_rollout import SourceAdmissionMetrics, admission_verdict
+from srbg_api.source_registry.v2_rollout import (
+    SourceAdmissionMetrics,
+    production_admission_verdict,
+)
 from srbg_contracts import EngineeringObject, PrimaryIntelligenceType
 
 _SHA256 = re.compile(r"^[a-f0-9]{64}$")
@@ -339,7 +342,9 @@ def _source_assessments_valid(
             for field in numeric_metrics
         ):
             return False
-        calculated = admission_verdict(SourceAdmissionMetrics(sample_size=sample_size, **metrics))
+        calculated = production_admission_verdict(
+            SourceAdmissionMetrics(sample_size=sample_size, **metrics), calibration=None
+        )
         if value.get("verdict") != calculated:
             return False
         windows[batch].append((started_at, ended_at, wave))

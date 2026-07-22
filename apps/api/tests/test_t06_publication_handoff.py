@@ -75,6 +75,7 @@ def test_filtered_decisions_have_no_publication_materialization_path() -> None:
 def test_live_source_bridge_remains_live_through_authoritative_preparation() -> None:
     assert "SET mode='SHADOW'" not in _AUTHORIZE_PERSONAL_SQL
     assert "run.mode IN ('LIVE','SHADOW')" in _DOCUMENT_SQL
+    assert "run.mode='LIVE' AND run.status IN" in _AUTHORIZE_PERSONAL_SQL
 
 
 def test_worker_semantic_recheck_renders_the_shared_full_prompt() -> None:
@@ -83,6 +84,15 @@ def test_worker_semantic_recheck_renders_the_shared_full_prompt() -> None:
 
     assert "<semantic_recheck>" not in callback
     assert "semantic_recheck=semantic_recheck" in dispatcher
+
+
+def test_worker_separates_shadow_facts_from_production_decisions() -> None:
+    callback = inspect.getsource(worker._handle_ai_content_result)
+    repository = inspect.getsource(PostgresAiPreparationRepository.append_shadow_decision)
+
+    assert "append_shadow_decision" in callback
+    assert "qualification_shadow_decision_v2" in repository
+    assert "affects_production" in repository
 
 
 def test_ai_projection_outbox_projects_accepted_content_into_the_v2_reader() -> None:

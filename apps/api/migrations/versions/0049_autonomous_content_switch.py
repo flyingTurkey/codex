@@ -91,7 +91,8 @@ def upgrade() -> None:
         raise RuntimeError("SCHEMA_REGISTRY_IDENTITY_MISMATCH")
     op.execute(
         "GRANT SELECT,INSERT ON qualification_policy_bundle_v2,"
-        "automated_qualification_decision_v2 TO srbg_worker_role"
+        "automated_qualification_decision_v2,qualification_policy_evaluation_v2,"
+        "qualification_shadow_decision_v2 TO srbg_worker_role"
     )
 
 
@@ -125,6 +126,9 @@ def downgrade() -> None:
         sa.text(
             "SELECT EXISTS(SELECT 1 FROM automated_qualification_decision_v2 decision "
             "JOIN qualification_policy_bundle_v2 bundle ON bundle.id=decision.policy_bundle_id "
+            "WHERE bundle.prompt_version=:prompt OR bundle.schema_version=:schema "
+            "UNION ALL SELECT 1 FROM qualification_shadow_decision_v2 decision "
+            "JOIN qualification_policy_bundle_v2 bundle ON bundle.id=decision.policy_bundle_id "
             "WHERE bundle.prompt_version=:prompt OR bundle.schema_version=:schema)"
         ),
         {"prompt": PROMPT_VERSION, "schema": SCHEMA_VERSION},
@@ -134,7 +138,8 @@ def downgrade() -> None:
     _restore_legacy_storage_constraints()
     op.execute(
         "REVOKE INSERT ON qualification_policy_bundle_v2,"
-        "automated_qualification_decision_v2 FROM srbg_worker_role"
+        "automated_qualification_decision_v2,qualification_policy_evaluation_v2,"
+        "qualification_shadow_decision_v2 FROM srbg_worker_role"
     )
     op.execute("ALTER TABLE ai_prompt_version DISABLE TRIGGER USER")
     op.execute(

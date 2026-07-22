@@ -186,6 +186,7 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
     worker = create_async_engine(os.environ["SRBG_WORKER_DATABASE_URL"])
     publisher = create_async_engine(os.environ["SRBG_PUBLICATION_DATABASE_URL"])
     raw_id = uuid7()
+    capture_id = uuid7()
     document_id = uuid7()
     version_id = uuid7()
     page_id = uuid7()
@@ -212,6 +213,13 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
             )
             await connection.execute(
                 text(
+                    "UPDATE source SET desired_enabled=true,lifecycle_state='ACTIVE',"
+                    "runtime_state='RUNNING',manual_disabled_at=NULL WHERE id=:source"
+                ),
+                {"source": source["id"]},
+            )
+            await connection.execute(
+                text(
                     "INSERT INTO raw_object(id,sha256,object_key,byte_size,declared_mime,"
                     "detected_mime,scan_status,created_at) VALUES(:id,:hash,:key,1,'text/html',"
                     "'text/html','CLEAN',:now)"
@@ -224,6 +232,23 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
                     "rule_version,created_at) VALUES(:id,:raw,'CLEAN','text/html','t41-v1',:now)"
                 ),
                 {"id": uuid7(), "raw": raw_id, "now": now},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO raw_object_capture(id,raw_object_id,source_id,fetch_run_id,"
+                    "trial_run_id,execution_domain,requested_url,final_url,redirect_chain,"
+                    "http_status,response_sha256,arrived_after_close,captured_at) VALUES("
+                    ":id,:raw,:source,NULL,NULL,'PRODUCTION',:url,:url,'[]'::jsonb,200,:hash,"
+                    "false,:now)"
+                ),
+                {
+                    "id": capture_id,
+                    "raw": raw_id,
+                    "source": source["id"],
+                    "url": f"https://example.invalid/t41/accepted/{version_id}",
+                    "hash": content_hash,
+                    "now": now,
+                },
             )
             await connection.execute(
                 text(
@@ -240,14 +265,16 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
             await connection.execute(
                 text(
                     "INSERT INTO document_version(id,document_id,raw_object_id,version_number,"
-                    "content_hash,original_filename,acquired_at) VALUES("
-                    ":id,:document,:raw,1,:hash,'accepted.html',:now)"
+                    "content_hash,original_filename,acquired_at,execution_domain,"
+                    "raw_object_capture_id) VALUES("
+                    ":id,:document,:raw,1,:hash,'accepted.html',:now,'PRODUCTION',:capture)"
                 ),
                 {
                     "id": version_id,
                     "document": document_id,
                     "raw": raw_id,
                     "hash": content_hash,
+                    "capture": capture_id,
                     "now": now,
                 },
             )
@@ -283,9 +310,33 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
             await connection.execute(
                 text(
                     "INSERT INTO ai_pipeline_run(id,document_version_id,mode,status,input_sha256,"
-                    "started_at) VALUES(:id,:version,'LIVE','EXTRACTING',:hash,:now)"
+                    "started_at) VALUES(:id,:version,'LIVE','QUEUED',:hash,:now)"
                 ),
                 {"id": run_id, "version": version_id, "hash": content_hash, "now": now},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO source_content_outbox(id,document_version_id,pipeline_run_id,"
+                    "status,attempt_count,available_at,created_at,updated_at) VALUES("
+                    ":id,:version,:run,'WAITING_AI',1,:now,:now,:now)"
+                ),
+                {"id": uuid7(), "version": version_id, "run": run_id, "now": now},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO source_admission_assessment_v2(id,source_id,rule_version,"
+                    "sample_cutoff,lookback_days,sample_size,sample_manifest_sha256,metrics,"
+                    "evidence_refs,verdict,assessed_by,assessed_at) VALUES("
+                    ":id,:source,'t41-production-admission-v1',:now,90,0,:hash,'{}'::jsonb,"
+                    "'{}'::jsonb,'ADMIT',:actor,:now)"
+                ),
+                {
+                    "id": uuid7(),
+                    "source": source["id"],
+                    "now": now,
+                    "hash": content_hash,
+                    "actor": uuid7(),
+                },
             )
             registry = (
                 (
@@ -304,6 +355,19 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
                 .one()
             )
             assert all(registry.values())
+            await connection.execute(
+                text(
+                    "INSERT INTO ai_provider_activation(id,provider,model_profile_id,environment,"
+                    "active,created_by,created_at) VALUES(:id,'deepseek',:model,'acceptance',"
+                    "true,:actor,:now)"
+                ),
+                {
+                    "id": uuid7(),
+                    "model": registry["model_id"],
+                    "actor": uuid7(),
+                    "now": now,
+                },
+            )
             await connection.execute(
                 text(
                     "INSERT INTO ai_step_run(id,pipeline_run_id,step,attempt,prompt_version_id,"
@@ -362,6 +426,11 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
             environment="acceptance",
             max_document_bytes=1,
         )
+        authoritative_document = await repository.begin(run_id)
+        assert authoritative_document.run_mode == "LIVE"
+        assert authoritative_document.document_version_id == version_id
+        await repository.transition(run_id, "CLASSIFYING")
+        await repository.transition(run_id, "EXTRACTING")
         await repository.append_automated_decision(trace, policy)
         candidate = cast(Any, trace.model_candidate).model_dump(mode="json")
         count = await repository.materialize(

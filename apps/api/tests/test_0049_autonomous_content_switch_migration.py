@@ -24,7 +24,8 @@ def test_0049_registers_the_production_prompt_schema_and_worker_append_rights() 
     assert "autonomous-classify-2.7.0" in source
     assert "autonomous-classify-output-2.0.0" in source
     assert "GRANT SELECT,INSERT ON qualification_policy_bundle_v2" in source
-    assert "automated_qualification_decision_v2 TO srbg_worker_role" in source
+    assert "automated_qualification_decision_v2,qualification_policy_evaluation_v2" in source
+    assert "qualification_shadow_decision_v2 TO srbg_worker_role" in source
     assert "0046" not in source and "0047" not in source
     assert "PROMPT_REGISTRY_IDENTITY_MISMATCH" in source
 

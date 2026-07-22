@@ -959,7 +959,10 @@ async def _start_ai_content_preparation(run_id: UUID) -> dict[str, object]:
             document=document, prepared=classify_input, policy=policy
         )
         if deterministic_trace is not None:
-            await repository.append_automated_decision(deterministic_trace, policy)
+            if document.run_mode == "SHADOW":
+                await repository.append_shadow_decision(deterministic_trace, policy)
+            else:
+                await repository.append_automated_decision(deterministic_trace, policy)
             await repository.transition(run_id, "SUCCEEDED")
             return {
                 "run_id": str(run_id),
@@ -1131,7 +1134,10 @@ async def _handle_ai_content_result(
                         "status": "CLASSIFYING",
                         "semantic_recheck_count": 1,
                     }
-                await repository.append_automated_decision(trace, policy)
+                if document.run_mode == "SHADOW":
+                    await repository.append_shadow_decision(trace, policy)
+                else:
+                    await repository.append_automated_decision(trace, policy)
                 INTELLIGENCE_QUALIFICATION_DECISIONS.labels(
                     outcome=trace.disposition.value,
                     reason=trace.reason_codes[0].value,

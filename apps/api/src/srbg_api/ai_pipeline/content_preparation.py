@@ -112,6 +112,10 @@ class PreparationRepository(Protocol):
         self, trace: QualificationDecisionTrace, policy: QualificationPolicyBundle
     ) -> None: ...
 
+    async def append_shadow_decision(
+        self, trace: QualificationDecisionTrace, policy: QualificationPolicyBundle
+    ) -> None: ...
+
     async def load_judgment_facts(
         self, document: PreparationDocument
     ) -> list[EvidenceFactInput]: ...
@@ -256,7 +260,7 @@ class AiContentPreparationService:
                 document=document, prepared=classify_input, policy=policy
             )
             if deterministic_trace is not None:
-                await self._repository.append_automated_decision(deterministic_trace, policy)
+                await self._append_decision(document, deterministic_trace, policy)
                 await self._repository.transition(run_id, "SUCCEEDED")
                 return PreparationResult(
                     run_id=run_id,
@@ -305,7 +309,7 @@ class AiContentPreparationService:
                     rechecked.model_dump(mode="json"),
                 ],
             )
-        await self._repository.append_automated_decision(trace, policy)
+        await self._append_decision(document, trace, policy)
         INTELLIGENCE_QUALIFICATION_DECISIONS.labels(
             outcome=trace.disposition.value,
             reason=trace.reason_codes[0].value,
@@ -391,6 +395,17 @@ class AiContentPreparationService:
             input_sha256=extract_input.input_sha256,
             candidate_count=candidate_count,
         )
+
+    async def _append_decision(
+        self,
+        document: PreparationDocument,
+        trace: QualificationDecisionTrace,
+        policy: QualificationPolicyBundle,
+    ) -> None:
+        if document.run_mode == "SHADOW":
+            await self._repository.append_shadow_decision(trace, policy)
+            return
+        await self._repository.append_automated_decision(trace, policy)
 
     async def _execute_step(
         self, run_id: UUID, request: ModelRequest, *, attempt_offset: int = 0
