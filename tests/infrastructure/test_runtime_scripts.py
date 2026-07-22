@@ -53,7 +53,7 @@ def test_smoke_rejects_an_incomplete_version_contract() -> None:
 
 def test_smoke_requires_the_empty_state_when_the_feed_is_empty() -> None:
     validate_homepage_contract(
-        "四川路桥 智安情报 业务数据尚未接入",
+        "四川路桥 智安情报 暂无精选内容",
         {"items": []},
     )
 

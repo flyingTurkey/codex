@@ -81,7 +81,7 @@ def validate_homepage_contract(homepage: str, feed: dict[str, Any]) -> None:
     items = feed.get("items")
     require(isinstance(items, list), "feed contract does not contain an items list")
     if not items:
-        require("业务数据尚未接入" in homepage, "honest homepage empty state is missing")
+        require("暂无精选内容" in homepage, "honest homepage empty state is missing")
 
 
 def main() -> None:
