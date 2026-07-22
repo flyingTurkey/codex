@@ -3,10 +3,15 @@ from __future__ import annotations
 import pytest
 
 from scripts.smoke import (
+    CURRENT_FEED_PATH,
     host_port,
     validate_homepage_contract,
     validate_version_contract,
 )
+
+
+def test_smoke_targets_the_current_v2_feed() -> None:
+    assert CURRENT_FEED_PATH == "/api/v2/feed?limit=1"
 
 
 def test_host_port_uses_environment_override(monkeypatch: pytest.MonkeyPatch) -> None:

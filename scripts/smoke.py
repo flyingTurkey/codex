@@ -14,6 +14,7 @@ EXPECTED_VERSION_CONTRACT: dict[str, Any] = {
     "search_schema_version": "1.0.0",
     "semantic_search_enabled": False,
 }
+CURRENT_FEED_PATH = "/api/v2/feed?limit=1"
 
 
 def host_port(name: str, default: int) -> int:
@@ -104,9 +105,7 @@ def main() -> None:
     version = parse_object(wait_for_status(api_port, "/api/v1/version", 200))
     validate_version_contract(version)
 
-    feed = parse_object(
-        wait_for_status(api_port, "/api/v1/feed?mode=all&limit=1", 200)
-    )
+    feed = parse_object(wait_for_status(api_port, CURRENT_FEED_PATH, 200))
     homepage = wait_for_status(web_port, "/", 200)
     validate_homepage_contract(homepage, feed)
 
