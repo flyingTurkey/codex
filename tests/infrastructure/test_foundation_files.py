@@ -88,6 +88,20 @@ def test_makefile_exposes_required_quality_and_runtime_targets() -> None:
     assert "$(UV) run python scripts/check_contract_generation.py" in makefile
 
 
+def test_ci_uses_the_current_autonomous_content_integration_gate() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    target = makefile.split("autonomous-content-integration-test:\n", 1)[1].split(
+        "\ndigital-case-test:", 1
+    )[0]
+
+    assert "safety-case-test:" not in makefile
+    assert "verify_autonomous_policy_migration.py" in target
+    assert "tests/integration/t41_autonomous_content_integration.py" in target
+    assert "make autonomous-content-integration-test" in workflow
+    assert "make safety-case-test" not in workflow
+
+
 def test_makefile_assigns_service_defaults_before_exporting_them() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
@@ -199,15 +213,10 @@ def test_ci_pins_actions_and_runs_all_round_zero_gates() -> None:
         assert command in workflow
 
 
-def test_round04_fixed_fixture_and_isolated_integration_gates_are_wired() -> None:
+def test_round04_fixed_fixtures_remain_in_the_offline_replay_gate() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
-    workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
 
-    assert "safety-case-test:" in makefile
-    assert "scripts/run_isolated_integration.py" in makefile
-    assert "apps/api/tests/test_safety_case_integration.py" in makefile
     assert "apps/api/tests/test_round04_official_fixtures.py" in makefile
-    assert "make safety-case-test" in workflow
 
 
 def test_project_tool_caches_are_kept_inside_the_workspace() -> None:

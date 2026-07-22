@@ -12,6 +12,7 @@
 - Gave the CI integration job its own ephemeral `SRBG_DATA_ROOT`, pre-created with least-privilege service ownership, preserving the mandatory PostgreSQL, Redis, object-storage, and observability data isolation contract on clean runners.
 - Added an idempotent login-role bootstrap before Alembic on clean databases, so historical grants can migrate forward before the existing post-migration role/password initialization; historical revisions remain unchanged.
 - Whitelisted only the #41 autonomous classification Schema into the runtime image build context so migration 0049 can register and hash the same authoritative bytes on clean deployments.
+- Replaced the stale CI target for the retired enterprise Safety Case lifecycle with an explicit #41 autonomous-content integration gate covering real isolated database, Worker/evidence, and PublicationService paths for safety and industry Feed projections; Round 04 immutable fixtures remain in offline replay.
 
 ## 2026-07-21 (Issue #41 autonomous qualification policy foundation)
 

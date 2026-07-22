@@ -41,21 +41,26 @@ class ModelMustNotRun:
         raise AssertionError("locked negative must filter before model dispatch")
 
 
-class AcceptedIndustryModel:
-    def __init__(self, locator: str) -> None:
+class AcceptedModel:
+    def __init__(
+        self, locator: str, *, primary_type: str, core_new_fact: str, content_form: str
+    ) -> None:
         self._locator = locator
+        self._primary_type = primary_type
+        self._core_new_fact = core_new_fact
+        self._content_form = content_form
 
     def classify(
         self, *, system_prompt: str, document_text: str, semantic_recheck: bool
     ) -> dict[str, object]:
         return {
             "direct_relevance": "RELEVANT",
-            "core_new_fact": "A highway construction section opened to traffic.",
-            "primary_type": "INDUSTRY_UPDATE",
+            "core_new_fact": self._core_new_fact,
+            "primary_type": self._primary_type,
             "engineering_objects": ["HIGHWAY"],
             "specialty_facets": [],
             "equipment_domains": [],
-            "content_form": "OPERATION_UPDATE",
+            "content_form": self._content_form,
             "evidence_locators": [self._locator],
             "confidence": 0.91,
             "ambiguity_indicators": [],
@@ -181,7 +186,35 @@ async def test_filtered_decision_is_idempotent_and_has_no_reader_materialization
         await worker.dispose()
 
 
-async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publication() -> None:
+@pytest.mark.parametrize(
+    ("primary_type", "core_new_fact", "content_form", "excerpt", "claim_field", "claim_value"),
+    (
+        (
+            "INDUSTRY_UPDATE",
+            "A highway construction section opened to traffic.",
+            "OPERATION_UPDATE",
+            "A highway construction section opened to traffic after completion.",
+            "project_status",
+            "opened to traffic",
+        ),
+        (
+            "SAFETY_INTELLIGENCE",
+            "An authority issued an accident update for a highway tunnel collision.",
+            "ACCIDENT_UPDATE",
+            "An authority issued an accident update for a highway tunnel collision.",
+            "incident_status",
+            "official update issued",
+        ),
+    ),
+)
+async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publication(
+    primary_type: str,
+    core_new_fact: str,
+    content_form: str,
+    excerpt: str,
+    claim_field: str,
+    claim_value: str,
+) -> None:
     admin = create_async_engine(os.environ["SRBG_TEST_ADMIN_DATABASE_URL"])
     worker = create_async_engine(os.environ["SRBG_WORKER_DATABASE_URL"])
     publisher = create_async_engine(os.environ["SRBG_PUBLICATION_DATABASE_URL"])
@@ -195,7 +228,6 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
     step_run_id = uuid7()
     now = datetime.now(UTC)
     content_hash = sha256(str(version_id).encode()).hexdigest()
-    excerpt = "A highway construction section opened to traffic after completion."
     try:
         async with admin.begin() as connection:
             source = (
@@ -406,7 +438,12 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
         policy = production_policy_for(document)
         trace = AutomatedAdjudicationService(
             policy=policy,
-            model_edge=AcceptedIndustryModel(str(block_id)),
+            model_edge=AcceptedModel(
+                str(block_id),
+                primary_type=primary_type,
+                core_new_fact=core_new_fact,
+                content_form=content_form,
+            ),
             clock=lambda: now,
             id_factory=uuid7,
         ).adjudicate(
@@ -440,8 +477,8 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
                 "claims": [
                     {
                         "claim_id": "project-status-1",
-                        "field": "project_status",
-                        "value": "opened to traffic",
+                        "field": claim_field,
+                        "value": claim_value,
                         "claim_status": "UNVERIFIED",
                         "confidence": 0.99,
                         "evidence_ids": ["evidence-1"],
@@ -531,7 +568,7 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
                 ),
                 {"version": version_id},
             )
-        assert projection["primary_type"] == "INDUSTRY_UPDATE"
+        assert projection["primary_type"] == primary_type
         assert projection["projection_kind"] == "FULL"
         assert projection["payload"]["human_reviewed"] is False
         assert review_count == 0

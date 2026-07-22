@@ -43,7 +43,7 @@ export PLAYWRIGHT_BROWSERS_PATH
 
 .PHONY: setup dev personal-data-ready runtime-ready down lint typecheck test contract-test security-check smoke \
 	resilience-test fixture-replay quality-gate web-e2e web-a11y source-fixture-test \
-	safety-regulation-test pdf-ocr-test safety-case-test digital-case-test paper-test product-test \
+	safety-regulation-test pdf-ocr-test autonomous-content-integration-test digital-case-test paper-test product-test \
 	round08-test round08-eval round09-test round09-eval round10-test round10-eval \
 	round11-test observability-test golden-replay load-test recovery-drill runbook-test \
 	round11-evidence-test readiness-evidence slo-weekly-report \
@@ -392,11 +392,11 @@ pdf-ocr-test:
 		apps/api/tests/test_pdf_versioning.py \
 		apps/api/tests/test_safety_regulation_integration.py -q
 
-safety-case-test:
+autonomous-content-integration-test:
 	$(COMPOSE) up --detach --wait postgres minio
-	$(UV) run python scripts/run_isolated_integration.py -- \
-		apps/api/tests/test_safety_case_integration.py \
-		apps/api/tests/test_round04_official_fixtures.py -q
+	$(UV) run python scripts/run_isolated_integration.py \
+		--migration-verifier verify_autonomous_policy_migration.py -- \
+		tests/integration/t41_autonomous_content_integration.py -q
 
 digital-case-test:
 	$(COMPOSE) up --detach --wait postgres minio

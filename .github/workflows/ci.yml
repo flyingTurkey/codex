@@ -75,7 +75,7 @@ jobs:
           sudo install -d -m 0750 -o 65534 -g 65534 "$SRBG_DATA_ROOT/prometheus"
           sudo install -d -m 0750 -o 472 -g 0 "$SRBG_DATA_ROOT/grafana"
       - run: make dev
-      - run: make safety-case-test
+      - run: make autonomous-content-integration-test
       - run: make smoke
       - run: make resilience-test
       - run: make web-e2e
