@@ -5,7 +5,11 @@ from datetime import UTC, datetime
 import srbg_worker.app as worker
 from srbg_api.publication.repository import PostgresPublicationRepository
 from srbg_api.publication.service import PublicationService
-from srbg_worker.ai_content_preparation import _INSERT_ITEM_SQL, PostgresAiPreparationRepository
+from srbg_worker.ai_content_preparation import (
+    _INSERT_ITEM_SQL,
+    PostgresAiPreparationRepository,
+    _legacy_storage_class_for_primary_type,
+)
 
 NOW = datetime(2026, 7, 20, 9, 0, tzinfo=UTC)
 
@@ -64,3 +68,21 @@ def test_filtered_decisions_have_no_publication_materialization_path() -> None:
     extraction = callback.index('transition(run_id, "EXTRACTING")')
     assert terminal < extraction
     assert "queue_qualification_review" not in callback
+
+
+def test_ai_projection_outbox_projects_accepted_content_into_the_v2_reader() -> None:
+    source = inspect.getsource(PostgresPublicationRepository.process_ai_projection_refresh_once)
+    worker_source = inspect.getsource(worker._handle_ai_content_result)
+
+    assert "refresh_v2_projection" in source
+    assert "append_summary_state" in worker_source
+    assert "process_ai_projection_refresh_once" in inspect.getsource(
+        worker._drain_publication_projections
+    )
+
+
+def test_industry_update_keeps_an_independent_storage_type_and_channel() -> None:
+    assert _legacy_storage_class_for_primary_type("INDUSTRY_UPDATE") == (
+        "INDUSTRY_UPDATE",
+        "INDUSTRY",
+    )

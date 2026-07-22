@@ -86,9 +86,7 @@ class PostgresContentCandidateRepository:
     def __init__(self, engine: AsyncEngine) -> None:
         self._engine = engine
 
-    async def load_active_claims(
-        self, document_version_id: UUID
-    ) -> list[AcceptedClaimInput]:
+    async def load_active_claims(self, document_version_id: UUID) -> list[AcceptedClaimInput]:
         async with self._engine.connect() as connection:
             rows = [
                 dict(row)
@@ -143,6 +141,8 @@ class PostgresContentCandidateRepository:
         self,
         candidate: ContentPreparationCandidate,
         request: ContentSummaryRequest,
+        *,
+        create_review_case: bool = True,
     ) -> UUID:
         now = datetime.now(UTC)
         candidate_id = uuid7()
@@ -267,32 +267,33 @@ class PostgresContentCandidateRepository:
                         "now": now,
                     },
                 )
-            await connection.execute(
-                text(
-                    """
+            if create_review_case:
+                await connection.execute(
+                    text(
+                        """
                     INSERT INTO owner_review_case_v2(
                       id,event_id,document_version_id,reason,risk_tier,safe_metadata,
                       state,version,created_at,updated_at
                     ) VALUES(:id,:event_id,:version_id,'CONTENT_PREPARATION_REVIEW','R2',
                       CAST(:metadata AS jsonb),'OPEN',1,:now,:now)
                     ON CONFLICT(document_version_id) DO NOTHING
-                    """
-                ),
-                {
-                    "id": uuid7(),
-                    "event_id": event["event_id"],
-                    "version_id": candidate.document_version_id,
-                    "metadata": json.dumps(
-                        {
-                            "title": event["title"],
-                            "source_name": event["source_name"],
-                            "original_url": event["original_url"],
-                        },
-                        ensure_ascii=False,
+                        """
                     ),
-                    "now": now,
-                },
-            )
+                    {
+                        "id": uuid7(),
+                        "event_id": event["event_id"],
+                        "version_id": candidate.document_version_id,
+                        "metadata": json.dumps(
+                            {
+                                "title": event["title"],
+                                "source_name": event["source_name"],
+                                "original_url": event["original_url"],
+                            },
+                            ensure_ascii=False,
+                        ),
+                        "now": now,
+                    },
+                )
         return candidate_id
 
     async def append_source_excerpt(
@@ -303,9 +304,7 @@ class PostgresContentCandidateRepository:
     ) -> UUID:
         """Persist the evidence-led excerpt independently from model availability."""
 
-        excerpt = build_source_excerpt(
-            claims, current_document_version_id=document_version_id
-        )
+        excerpt = build_source_excerpt(claims, current_document_version_id=document_version_id)
         claim_hash = accepted_claim_set_sha256(claims)
         excerpt_id = uuid7()
         async with self._engine.begin() as connection:

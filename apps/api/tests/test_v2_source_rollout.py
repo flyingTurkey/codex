@@ -1,23 +1,11 @@
-from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
-from srbg_api.intelligence_v2.gold_calibration import AutoPassCalibrationGrant
 from srbg_api.source_registry.v2_rollout import (
     SourceAdmissionMetrics,
     SourceSampleCandidate,
     admission_verdict,
     production_admission_verdict,
     select_admission_sample,
-)
-
-TEST_CALIBRATION = AutoPassCalibrationGrant(
-    threshold_bps=9300,
-    corpus_version="owner-gold-2026-07-20.4",
-    rule_version="intelligence-v2-qualification-1.0.0",
-    model_id="deepseek-v4-flash",
-    prompt_version="ai01-classify-v1",
-    prediction_seal_sha256="e" * 64,
-    fact_sha256="0" * 64,
 )
 
 
@@ -75,7 +63,7 @@ def test_source_sample_is_recent_deduplicated_and_deterministic() -> None:
     )
 
 
-def test_production_source_admission_requires_a_calibrated_classifier() -> None:
+def test_production_source_admission_uses_hard_server_gates_not_owner_gold() -> None:
     passing = SourceAdmissionMetrics(
         sample_size=30,
         robots_allowed=True,
@@ -90,20 +78,43 @@ def test_production_source_admission_requires_a_calibrated_classifier() -> None:
         hard_negative_leaks=0,
     )
 
-    assert production_admission_verdict(passing, calibration=None) == "PAUSE"
-    assert production_admission_verdict(passing, calibration=TEST_CALIBRATION) == "ADMIT"
+    assert production_admission_verdict(passing, calibration=None) == "ADMIT"
     assert (
         production_admission_verdict(
-            passing,
-            calibration=replace(
-                TEST_CALIBRATION, corpus_version="owner-gold-2026-07-20.3"
+            passing.__class__(
+                **(
+                    passing.__dict__
+                    | {
+                        "sample_size": 0,
+                        "robots_allowed": None,
+                        "terms_allowed": None,
+                        "copyright_reviewed": None,
+                        "hard_negative_evaluated": False,
+                    }
+                )
             ),
+            calibration=object(),
+        )
+        == "ADMIT"
+    )
+    assert (
+        production_admission_verdict(
+            passing.__class__(**(passing.__dict__ | {"terms_allowed": False})),
+            calibration=None,
         )
         == "PAUSE"
     )
     assert (
         production_admission_verdict(
-            passing, calibration=replace(TEST_CALIBRATION, fact_sha256="tampered")
+            passing.__class__(**(passing.__dict__ | {"public_network_safe": False})),
+            calibration=None,
+        )
+        == "PAUSE"
+    )
+    assert (
+        production_admission_verdict(
+            passing.__class__(**(passing.__dict__ | {"hard_negative_leaks": 1})),
+            calibration=None,
         )
         == "PAUSE"
     )

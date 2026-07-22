@@ -393,7 +393,7 @@ def validate_step_output(output: dict[str, Any], request: ModelRequest) -> Any:
     ControlledModelGateway._validate_json_schema(output, request.response_schema)
     validated: BaseModel
     try:
-        if request.schema_version == "autonomous-classify-output-2.1.0":
+        if request.schema_version.startswith("autonomous-classify-output-"):
             validated = AutonomousClassificationCandidate.model_validate(output)
         elif request.schema_version == "summarize-v2-output-1.0.0":
             from srbg_api.intelligence_v2.content_candidates import (

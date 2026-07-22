@@ -19,10 +19,7 @@ from srbg_contracts import QualificationDecisionTrace
 RUN_ID = UUID("019d0000-0000-7000-8000-000000002021")
 DOCUMENT_VERSION_ID = UUID("019d0000-0000-7000-8000-000000002022")
 RAW_OBJECT_ID = UUID("019d0000-0000-7000-8000-000000002023")
-PILOT_URL = (
-    "https://xxgk.mot.gov.cn/2020/jigou/glj/202311/"
-    "P020250514396309964949.pdf"
-)
+PILOT_URL = "https://xxgk.mot.gov.cn/2020/jigou/glj/202311/P020250514396309964949.pdf"
 
 
 @dataclass
@@ -30,10 +27,12 @@ class FakeRepository:
     statuses: list[str] = field(default_factory=list)
     steps: list[tuple[AiStep, str]] = field(default_factory=list)
     reservations: list[AiStep] = field(default_factory=list)
+    reservation_keys: list[tuple[AiStep, int]] = field(default_factory=list)
     materialized: int = 0
     judgment_type: str | None = None
     review_payloads: list[dict[str, Any]] = field(default_factory=list)
     decisions: list[QualificationDecisionTrace] = field(default_factory=list)
+    materialized_classifications: list[dict[str, Any]] = field(default_factory=list)
     calibration_reads: int = 0
 
     async def begin(self, run_id: UUID) -> PreparationDocument:
@@ -73,11 +72,13 @@ class FakeRepository:
         self.statuses.append(status)
 
     async def reserve(self, run_id: UUID, step: AiStep, attempt: int) -> object:
+        assert (step, attempt) not in self.reservation_keys
+        self.reservation_keys.append((step, attempt))
         self.reservations.append(step)
         return (step, attempt)
 
     async def settle(self, reservation: object, response: ModelResponse | None) -> None:
-        assert response is not None
+        assert reservation in self.reservation_keys
 
     async def append_step(
         self,
@@ -98,13 +99,12 @@ class FakeRepository:
         extraction: dict[str, Any],
     ) -> int:
         assert classification["primary_type"] == "DIGITAL_TRANSFORMATION"
+        self.materialized_classifications.append(classification)
         assert extraction["claims"][0]["claim_status"] == "UNVERIFIED"
         self.materialized = 1
         return 1
 
-    async def load_judgment_facts(
-        self, document: PreparationDocument
-    ) -> list[EvidenceFactInput]:
+    async def load_judgment_facts(self, document: PreparationDocument) -> list[EvidenceFactInput]:
         return [
             EvidenceFactInput(
                 claim_id=UUID("019b0000-0000-7000-8000-000000000101"),
@@ -249,9 +249,7 @@ def test_one_document_reaches_automatic_evidence_gate_without_claim_review() -> 
         AiStep.VERIFY,
     ]
     assert repository.judgment_type == "AI_JUDGMENT"
-    assert [decision.disposition.value for decision in repository.decisions] == [
-        "AUTO_ACCEPTED"
-    ]
+    assert [decision.disposition.value for decision in repository.decisions] == ["AUTO_ACCEPTED"]
     assert sha256(result.input_text.encode()).hexdigest() == result.input_sha256
 
 
@@ -289,9 +287,7 @@ def test_locked_negative_is_durably_filtered_without_owner_review_or_model_call(
     assert repository.materialized == 0
     assert repository.judgment_type is None
     assert repository.review_payloads == []
-    assert [decision.disposition.value for decision in repository.decisions] == [
-        "AUTO_FILTERED"
-    ]
+    assert [decision.disposition.value for decision in repository.decisions] == ["AUTO_FILTERED"]
     assert repository.reservations == []
     assert repository.statuses == ["PREPARING", "CLASSIFYING", "SUCCEEDED"]
 
@@ -311,3 +307,43 @@ def test_new_autonomous_path_has_no_owner_gold_or_override_authorization_seam() 
     source = AiContentPreparationService.run.__code__.co_names
     assert "load_auto_pass_calibration" not in source
     assert "OWNER_OVERRIDE_GO" not in str(AiContentPreparationService.run.__code__.co_consts)
+
+
+def test_schema_repair_then_semantic_recheck_uses_a_fresh_attempt_number() -> None:
+    class RepairThenRecheckModel(FakeModel):
+        classification_calls = 0
+
+        async def generate(self, request: ModelRequest) -> ModelResponse:
+            if request.step is not AiStep.CLASSIFY:
+                return await super().generate(request)
+            self.classification_calls += 1
+            if self.classification_calls == 1:
+                return ModelResponse(
+                    raw_output="{}",
+                    output={},
+                    usage=ModelUsage(input_tokens=1, output_tokens=1),
+                    cost_microusd=1,
+                    latency_ms=1,
+                    provider_request_id="classification-schema-invalid",
+                    finish_reason="stop",
+                )
+            response = await super().generate(request)
+            if self.classification_calls == 2:
+                response.output["evidence_locators"] = ["missing-block"]
+            return response
+
+    repository = FakeRepository()
+    service = AiContentPreparationService(
+        repository=repository,
+        model=RepairThenRecheckModel(),
+        scanner=PromptInjectionScanner(),
+    )
+
+    result = asyncio.run(service.run(RUN_ID))
+
+    assert result.candidate_count == 1
+    assert [
+        attempt for step, attempt in repository.reservation_keys if step is AiStep.CLASSIFY
+    ] == [1, 2, 3]
+    assert repository.decisions[0].semantic_recheck_count == 1
+    assert repository.materialized_classifications[0]["evidence_locators"] == ["block-1"]

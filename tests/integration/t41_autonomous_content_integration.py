@@ -1,6 +1,6 @@
 # ruff: noqa: RUF001
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from typing import Any, cast
 
@@ -17,6 +17,12 @@ from srbg_api.intelligence_v2.autonomous_policy import (
     AdjudicationInput,
     AutomatedAdjudicationService,
 )
+from srbg_api.intelligence_v2.content_candidate_repository import (
+    PostgresContentCandidateRepository,
+)
+from srbg_api.intelligence_v2.content_candidates import StructuredSummaryCandidate
+from srbg_api.publication.repository import PostgresPublicationRepository
+from srbg_api.publication.service import PublicationService
 from srbg_worker.ai_content_preparation import PostgresAiPreparationRepository
 
 pytestmark = [
@@ -33,6 +39,28 @@ class ModelMustNotRun:
         self, *, system_prompt: str, document_text: str, semantic_recheck: bool
     ) -> dict[str, object]:
         raise AssertionError("locked negative must filter before model dispatch")
+
+
+class AcceptedIndustryModel:
+    def __init__(self, locator: str) -> None:
+        self._locator = locator
+
+    def classify(
+        self, *, system_prompt: str, document_text: str, semantic_recheck: bool
+    ) -> dict[str, object]:
+        return {
+            "direct_relevance": "RELEVANT",
+            "core_new_fact": "A highway construction section opened to traffic.",
+            "primary_type": "INDUSTRY_UPDATE",
+            "engineering_objects": ["HIGHWAY"],
+            "specialty_facets": [],
+            "equipment_domains": [],
+            "content_form": "OPERATION_UPDATE",
+            "evidence_locators": [self._locator],
+            "confidence": 0.91,
+            "ambiguity_indicators": [],
+            "security_signals": [],
+        }
 
 
 async def test_filtered_decision_is_idempotent_and_has_no_reader_materialization() -> None:
@@ -141,8 +169,7 @@ async def test_filtered_decision_is_idempotent_and_has_no_reader_materialization
             )
             review_count = await connection.scalar(
                 text(
-                    "SELECT count(*) FROM owner_review_case_v2 "
-                    "WHERE document_version_id=:version"
+                    "SELECT count(*) FROM owner_review_case_v2 WHERE document_version_id=:version"
                 ),
                 {"version": version_id},
             )
@@ -152,3 +179,294 @@ async def test_filtered_decision_is_idempotent_and_has_no_reader_materialization
     finally:
         await admin.dispose()
         await worker.dispose()
+
+
+async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publication() -> None:
+    admin = create_async_engine(os.environ["SRBG_TEST_ADMIN_DATABASE_URL"])
+    worker = create_async_engine(os.environ["SRBG_WORKER_DATABASE_URL"])
+    publisher = create_async_engine(os.environ["SRBG_PUBLICATION_DATABASE_URL"])
+    raw_id = uuid7()
+    document_id = uuid7()
+    version_id = uuid7()
+    page_id = uuid7()
+    block_id = uuid7()
+    run_id = uuid7()
+    step_run_id = uuid7()
+    now = datetime.now(UTC)
+    content_hash = sha256(str(version_id).encode()).hexdigest()
+    excerpt = "A highway construction section opened to traffic after completion."
+    try:
+        async with admin.begin() as connection:
+            source = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT id,registry_code,name FROM source "
+                            "WHERE authority_level IN ('A0','A1') "
+                            "ORDER BY id LIMIT 1"
+                        )
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO raw_object(id,sha256,object_key,byte_size,declared_mime,"
+                    "detected_mime,scan_status,created_at) VALUES(:id,:hash,:key,1,'text/html',"
+                    "'text/html','CLEAN',:now)"
+                ),
+                {"id": raw_id, "hash": content_hash, "key": f"t41/{content_hash}", "now": now},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO raw_object_security_fact(id,raw_object_id,status,detected_mime,"
+                    "rule_version,created_at) VALUES(:id,:raw,'CLEAN','text/html','t41-v1',:now)"
+                ),
+                {"id": uuid7(), "raw": raw_id, "now": now},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO document(id,source_id,canonical_url,document_kind,"
+                    "first_discovered_at) VALUES(:id,:source,:url,'HTML',:now)"
+                ),
+                {
+                    "id": document_id,
+                    "source": source["id"],
+                    "url": f"https://example.invalid/t41/accepted/{version_id}",
+                    "now": now,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO document_version(id,document_id,raw_object_id,version_number,"
+                    "content_hash,original_filename,acquired_at) VALUES("
+                    ":id,:document,:raw,1,:hash,'accepted.html',:now)"
+                ),
+                {
+                    "id": version_id,
+                    "document": document_id,
+                    "raw": raw_id,
+                    "hash": content_hash,
+                    "now": now,
+                },
+            )
+            await connection.execute(
+                text("UPDATE document SET current_version_id=:version WHERE id=:document"),
+                {"version": version_id, "document": document_id},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO document_page(id,document_version_id,page_number,width_mpt,"
+                    "height_mpt,rotation,text_source,normalized_text_sha256,preview_object_key,"
+                    "preview_sha256,preview_mime,created_at) VALUES("
+                    ":id,:version,1,100000,100000,0,'NATIVE',:hash,'t41/preview',:hash,"
+                    "'image/png',:now)"
+                ),
+                {"id": page_id, "version": version_id, "hash": content_hash, "now": now},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO document_text_block(id,document_page_id,block_index,block_kind,"
+                    "text_source,text,normalized_text,text_sha256,x0_mpt,y0_mpt,x1_mpt,y1_mpt,"
+                    "confidence_bps,created_at) VALUES(:id,:page,0,'BODY','NATIVE',:text,:text,"
+                    ":hash,0,0,100000,10000,10000,:now)"
+                ),
+                {
+                    "id": block_id,
+                    "page": page_id,
+                    "text": excerpt,
+                    "hash": sha256(excerpt.encode()).hexdigest(),
+                    "now": now,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO ai_pipeline_run(id,document_version_id,mode,status,input_sha256,"
+                    "started_at) VALUES(:id,:version,'LIVE','EXTRACTING',:hash,:now)"
+                ),
+                {"id": run_id, "version": version_id, "hash": content_hash, "now": now},
+            )
+            registry = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT (SELECT id FROM ai_prompt_version WHERE step='EXTRACT' "
+                            "ORDER BY created_at DESC LIMIT 1) AS prompt_id,"
+                            "(SELECT id FROM ai_schema_version WHERE step='EXTRACT' "
+                            "ORDER BY created_at DESC LIMIT 1) AS schema_id,"
+                            "(SELECT id FROM ai_model_profile ORDER BY created_at DESC LIMIT 1) "
+                            "AS model_id"
+                        )
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            assert all(registry.values())
+            await connection.execute(
+                text(
+                    "INSERT INTO ai_step_run(id,pipeline_run_id,step,attempt,prompt_version_id,"
+                    "schema_version_id,model_profile_id,input_sha256,raw_output,validated_output,"
+                    "status,created_at) VALUES(:id,:run,'EXTRACT',1,:prompt,:schema,:model,:hash,"
+                    "'{}',CAST('{}' AS jsonb),'SUCCEEDED',:now)"
+                ),
+                {
+                    "id": step_run_id,
+                    "run": run_id,
+                    "prompt": registry["prompt_id"],
+                    "schema": registry["schema_id"],
+                    "model": registry["model_id"],
+                    "hash": content_hash,
+                    "now": now,
+                },
+            )
+        document = PreparationDocument(
+            run_id=run_id,
+            document_version_id=version_id,
+            raw_object_id=raw_id,
+            source_stream_policy_version="integration-stream-policy-1",
+            source_code=str(source["registry_code"]),
+            canonical_url=f"https://example.invalid/t41/accepted/{version_id}",
+            title="Highway section opened",
+            source_name=str(source["name"]),
+            blocks=(
+                DocumentBlock(
+                    block_id=str(block_id),
+                    page_number=1,
+                    text=excerpt,
+                    locator_value="html:p:1",
+                ),
+            ),
+        )
+        policy = production_policy_for(document)
+        trace = AutomatedAdjudicationService(
+            policy=policy,
+            model_edge=AcceptedIndustryModel(str(block_id)),
+            clock=lambda: now,
+            id_factory=uuid7,
+        ).adjudicate(
+            AdjudicationInput(
+                document_version_id=version_id,
+                raw_object_id=raw_id,
+                normalized_input_sha256=content_hash,
+                document_text=excerpt,
+                allowed_evidence_locators=frozenset({str(block_id)}),
+            )
+        )
+        assert trace.disposition.value == "AUTO_ACCEPTED"
+        repository = PostgresAiPreparationRepository(
+            engine=worker,
+            object_store=cast(Any, object()),
+            parser=cast(Any, object()),
+            environment="acceptance",
+            max_document_bytes=1,
+        )
+        await repository.append_automated_decision(trace, policy)
+        candidate = cast(Any, trace.model_candidate).model_dump(mode="json")
+        count = await repository.materialize(
+            document,
+            candidate,
+            {
+                "claims": [
+                    {
+                        "claim_id": "project-status-1",
+                        "field": "project_status",
+                        "value": "opened to traffic",
+                        "claim_status": "UNVERIFIED",
+                        "confidence": 0.99,
+                        "evidence_ids": ["evidence-1"],
+                    }
+                ],
+                "evidence": [
+                    {
+                        "evidence_id": "evidence-1",
+                        "document_block_id": str(block_id),
+                        "locator": {"type": "HTML_PARAGRAPH", "value": "html:p:1"},
+                        "excerpt": excerpt,
+                        "supports": ["project-status-1"],
+                    }
+                ],
+                "security": {
+                    "prompt_injection_detected": False,
+                    "prompt_injection_status": "NONE",
+                    "suspicious_patterns": [],
+                },
+            },
+        )
+        assert count == 1
+        claims = await PostgresContentCandidateRepository(worker).load_active_claims(version_id)
+        assert len(claims) == 1
+        paragraph = "x" * 100
+        summary = StructuredSummaryCandidate.model_validate(
+            {
+                "paragraphs": [
+                    {
+                        "kind": "FACT",
+                        "section": "WHAT_HAPPENED",
+                        "text": paragraph,
+                        "claim_ids": [str(claims[0].claim_id)],
+                    },
+                    {
+                        "kind": "JUDGMENT",
+                        "section": "ENGINEERING_IMPACT",
+                        "text": paragraph,
+                        "claim_ids": [],
+                        "judgment_type": "ENGINEERING_SIGNIFICANCE",
+                    },
+                    {
+                        "kind": "JUDGMENT",
+                        "section": "LIMITATIONS_AND_FOLLOW_UP",
+                        "text": paragraph,
+                        "claim_ids": [],
+                        "judgment_type": "LIMITATION_AND_FOLLOW_UP",
+                    },
+                ]
+            }
+        )
+        summary_request = await repository.prepare_t06_content_summary(
+            document, append_processing=True
+        )
+        candidate_id = await repository.materialize_t06_content_summary(
+            document, request=summary_request, summary=summary
+        )
+        await repository.append_summary_state(
+            document,
+            status="SUCCEEDED",
+            reason_code="SCHEMA_VALID_APPROVED_CONTENT",
+            candidate_id=candidate_id,
+        )
+        publication = PublicationService(
+            repository=PostgresPublicationRepository(publisher),
+            gate=cast(Any, object()),
+            now=lambda: now + timedelta(minutes=1),
+        )
+        assert await publication.process_ai_projection_refresh_once() is True
+        async with admin.connect() as connection:
+            projection = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT primary_type,projection_kind,payload FROM "
+                            "intelligence_projection_v2 WHERE document_version_id=:version"
+                        ),
+                        {"version": version_id},
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            review_count = await connection.scalar(
+                text(
+                    "SELECT count(*) FROM owner_review_case_v2 WHERE document_version_id=:version"
+                ),
+                {"version": version_id},
+            )
+        assert projection["primary_type"] == "INDUSTRY_UPDATE"
+        assert projection["projection_kind"] == "FULL"
+        assert projection["payload"]["human_reviewed"] is False
+        assert review_count == 0
+    finally:
+        await admin.dispose()
+        await worker.dispose()
+        await publisher.dispose()

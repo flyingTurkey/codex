@@ -41,7 +41,7 @@ def upgrade() -> None:
         sa.Column("bundle_sha256", sa.String(64), nullable=False, unique=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint(
-            "authorization_basis='AUTONOMOUS_POLICY_GATE'",
+            "authorization_basis='SERVER_ADJUDICATION_ONLY'",
             name="ck_qualification_policy_authority_v2",
         ),
         sa.CheckConstraint(

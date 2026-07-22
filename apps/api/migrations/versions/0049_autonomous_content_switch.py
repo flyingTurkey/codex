@@ -19,11 +19,12 @@ down_revision = "0048_autonomous_policy_foundation"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-PROMPT_VERSION = "autonomous-classify-2.1.0"
-SCHEMA_VERSION = "autonomous-classify-output-2.1.0"
+PROMPT_VERSION = "autonomous-classify-2.7.0"
+SCHEMA_VERSION = "autonomous-classify-output-2.0.0"
 
 
 def upgrade() -> None:
+    _expand_primary_type_storage_constraints()
     schema_path = (
         Path(__file__).resolve().parents[4]
         / "docs"
@@ -80,6 +81,30 @@ def upgrade() -> None:
     )
 
 
+def _expand_primary_type_storage_constraints() -> None:
+    op.drop_constraint("ck_round07_item_type", "intelligence_item", type_="check")
+    op.drop_constraint("ck_round05_item_channel", "intelligence_item", type_="check")
+    op.drop_constraint("ck_event_type", "event", type_="check")
+    op.create_check_constraint(
+        "ck_t41_item_type",
+        "intelligence_item",
+        "item_type IN ('DIGITAL_CASE','INDUSTRY_UPDATE','JOURNAL_PAPER',"
+        "'SOFTWARE_PRODUCT','IOT_PRODUCT','LOW_ALTITUDE_EQUIPMENT','AI_EQUIPMENT',"
+        "'SAFETY_REGULATION','SAFETY_CASE')",
+    )
+    op.create_check_constraint(
+        "ck_t41_item_channel",
+        "intelligence_item",
+        "channel IN ('DIGITAL','SAFETY','INDUSTRY')",
+    )
+    op.create_check_constraint(
+        "ck_t41_event_type",
+        "event",
+        "event_type IN ('SAFETY_INCIDENT','REGULATION_CHANGE','DIGITAL_PROJECT',"
+        "'RESEARCH_RESULT','PRODUCT_RELEASE','INDUSTRY_UPDATE')",
+    )
+
+
 def downgrade() -> None:
     bind = op.get_bind()
     used = bind.execute(
@@ -92,6 +117,7 @@ def downgrade() -> None:
     ).scalar_one()
     if used:
         raise RuntimeError("AUTONOMOUS_CONTENT_SWITCH_DOWNGRADE_BLOCKED")
+    _restore_legacy_storage_constraints()
     op.execute(
         "REVOKE INSERT ON qualification_policy_bundle_v2,"
         "automated_qualification_decision_v2 FROM srbg_worker_role"
@@ -108,3 +134,34 @@ def downgrade() -> None:
         .bindparams(version=SCHEMA_VERSION)
     )
     op.execute("ALTER TABLE ai_schema_version ENABLE TRIGGER USER")
+
+
+def _restore_legacy_storage_constraints() -> None:
+    bind = op.get_bind()
+    if bind.execute(
+        sa.text(
+            "SELECT EXISTS(SELECT 1 FROM intelligence_item "
+            "WHERE item_type='INDUSTRY_UPDATE' OR channel='INDUSTRY')"
+        )
+    ).scalar_one():
+        raise RuntimeError("AUTONOMOUS_CONTENT_SWITCH_DOWNGRADE_BLOCKED")
+    op.drop_constraint("ck_t41_item_type", "intelligence_item", type_="check")
+    op.drop_constraint("ck_t41_item_channel", "intelligence_item", type_="check")
+    op.drop_constraint("ck_t41_event_type", "event", type_="check")
+    op.create_check_constraint(
+        "ck_round07_item_type",
+        "intelligence_item",
+        "item_type IN ('DIGITAL_CASE','JOURNAL_PAPER','SOFTWARE_PRODUCT','IOT_PRODUCT',"
+        "'LOW_ALTITUDE_EQUIPMENT','AI_EQUIPMENT','SAFETY_REGULATION','SAFETY_CASE')",
+    )
+    op.create_check_constraint(
+        "ck_round05_item_channel",
+        "intelligence_item",
+        "channel IN ('DIGITAL','SAFETY')",
+    )
+    op.create_check_constraint(
+        "ck_event_type",
+        "event",
+        "event_type IN ('SAFETY_INCIDENT','REGULATION_CHANGE','DIGITAL_PROJECT',"
+        "'RESEARCH_RESULT','PRODUCT_RELEASE')",
+    )

@@ -155,13 +155,13 @@ class _BufferedClassificationEdge:
 
 def production_policy_for(document: PreparationDocument) -> QualificationPolicyBundle:
     return QualificationPolicyBundle.create(
-        policy_version="qualification-policy-2.1.0",
+        policy_version="qualification-policy-2.2.0",
         global_rule_version="global-rules-2.1.0",
         source_stream_policy_version=document.source_stream_policy_version,
         ai_provider="deepseek",
         ai_model="deepseek-v4-flash",
-        prompt_version="autonomous-classify-2.1.0",
-        schema_version="autonomous-classify-output-2.1.0",
+        prompt_version="autonomous-classify-2.7.0",
+        schema_version="autonomous-classify-output-2.0.0",
         code_version="issue-41-production-switch-1",
     )
 
@@ -265,7 +265,7 @@ class AiContentPreparationService:
             classification_request = self.build_request(
                 AiStep.CLASSIFY, classify_input, policy=policy
             )
-            classification_response = await self._execute_step(
+            classification_response, classification_attempt = await self._execute_step_with_attempt(
                 run_id,
                 classification_request,
             )
@@ -292,11 +292,9 @@ class AiContentPreparationService:
                 }
             )
             recheck_response = await self._execute_step(
-                run_id, recheck_request, attempt_offset=1
+                run_id, recheck_request, attempt_offset=classification_attempt
             )
-            rechecked = AutonomousClassificationCandidate.model_validate(
-                recheck_response.output
-            )
+            rechecked = AutonomousClassificationCandidate.model_validate(recheck_response.output)
             trace = adjudicate_candidates(
                 document=document,
                 prepared=classify_input,
@@ -319,6 +317,9 @@ class AiContentPreparationService:
                 input_sha256=extract_input.input_sha256,
                 candidate_count=0,
             )
+        if trace.model_candidate is None:
+            raise RuntimeError("AUTO_ACCEPTED_MODEL_CANDIDATE_REQUIRED")
+        accepted_classification = trace.model_candidate.model_dump(mode="json")
         try:
             await self._repository.transition(run_id, "EXTRACTING")
             extraction_response = await self._execute_step(
@@ -328,7 +329,7 @@ class AiContentPreparationService:
             await self._repository.transition(run_id, "EVIDENCE_GATING")
             candidate_count = await self._repository.materialize(
                 document,
-                classification.model_dump(mode="json"),
+                accepted_classification,
                 extraction_response.output,
             )
         except Exception as error:
@@ -385,6 +386,14 @@ class AiContentPreparationService:
     async def _execute_step(
         self, run_id: UUID, request: ModelRequest, *, attempt_offset: int = 0
     ) -> ModelResponse:
+        response, _attempt = await self._execute_step_with_attempt(
+            run_id, request, attempt_offset=attempt_offset
+        )
+        return response
+
+    async def _execute_step_with_attempt(
+        self, run_id: UUID, request: ModelRequest, *, attempt_offset: int = 0
+    ) -> tuple[ModelResponse, int]:
         network_retries = 0
         repair_used = False
         attempt = attempt_offset
@@ -408,7 +417,7 @@ class AiContentPreparationService:
                     response,
                     current.input_sha256,
                 )
-                return response
+                return response, attempt
             except (TransientProviderError, TimeoutError):
                 await self._repository.settle(reservation, None)
                 await _append_failure(

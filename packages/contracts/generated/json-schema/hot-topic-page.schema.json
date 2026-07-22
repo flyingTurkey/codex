@@ -3,7 +3,8 @@
     "Channel": {
       "enum": [
         "DIGITAL",
-        "SAFETY"
+        "SAFETY",
+        "INDUSTRY"
       ],
       "title": "Channel",
       "type": "string"

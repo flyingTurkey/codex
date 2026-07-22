@@ -21,8 +21,8 @@ def test_0049_is_forward_only_from_the_preserved_0048_head() -> None:
 def test_0049_registers_the_production_prompt_schema_and_worker_append_rights() -> None:
     source = _source()
 
-    assert "autonomous-classify-2.1.0" in source
-    assert "autonomous-classify-output-2.1.0" in source
+    assert "autonomous-classify-2.7.0" in source
+    assert "autonomous-classify-output-2.0.0" in source
     assert "GRANT SELECT,INSERT ON qualification_policy_bundle_v2" in source
     assert "automated_qualification_decision_v2 TO srbg_worker_role" in source
     assert "0046" not in source and "0047" not in source
@@ -34,3 +34,13 @@ def test_0049_does_not_turn_owner_gold_or_offline_replay_into_authority() -> Non
     assert "OWNER_OVERRIDE_GO" not in source
     assert "owner_gold_calibration_v2" not in source
     assert "authorizes_production=true" not in source
+
+
+def test_0049_preserves_all_three_primary_types_in_legacy_storage() -> None:
+    source = _source()
+
+    assert "'INDUSTRY_UPDATE'" in source
+    assert "channel IN ('DIGITAL','SAFETY','INDUSTRY')" in source
+    assert "ck_t41_item_type" in source
+    assert "ck_t41_item_channel" in source
+    assert "ck_t41_event_type" in source

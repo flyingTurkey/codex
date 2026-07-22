@@ -403,7 +403,8 @@
     "Channel": {
       "enum": [
         "DIGITAL",
-        "SAFETY"
+        "SAFETY",
+        "INDUSTRY"
       ],
       "title": "Channel",
       "type": "string"
@@ -894,7 +895,8 @@
         "REGULATION_CHANGE",
         "DIGITAL_PROJECT",
         "RESEARCH_RESULT",
-        "PRODUCT_RELEASE"
+        "PRODUCT_RELEASE",
+        "INDUSTRY_UPDATE"
       ],
       "title": "EventType",
       "type": "string"
@@ -1008,6 +1010,7 @@
     "ItemType": {
       "enum": [
         "DIGITAL_CASE",
+        "INDUSTRY_UPDATE",
         "JOURNAL_PAPER",
         "SOFTWARE_PRODUCT",
         "IOT_PRODUCT",

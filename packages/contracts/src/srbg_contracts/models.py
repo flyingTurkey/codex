@@ -414,6 +414,7 @@ class UserRole(StrEnum):
 class Channel(StrEnum):
     DIGITAL = "DIGITAL"
     SAFETY = "SAFETY"
+    INDUSTRY = "INDUSTRY"
 
 
 class PublicationRiskTier(StrEnum):
@@ -537,6 +538,7 @@ class ScanStatus(StrEnum):
 
 class ItemType(StrEnum):
     DIGITAL_CASE = "DIGITAL_CASE"
+    INDUSTRY_UPDATE = "INDUSTRY_UPDATE"
     JOURNAL_PAPER = "JOURNAL_PAPER"
     SOFTWARE_PRODUCT = "SOFTWARE_PRODUCT"
     IOT_PRODUCT = "IOT_PRODUCT"
@@ -1721,6 +1723,7 @@ class EventType(StrEnum):
     DIGITAL_PROJECT = "DIGITAL_PROJECT"
     RESEARCH_RESULT = "RESEARCH_RESULT"
     PRODUCT_RELEASE = "PRODUCT_RELEASE"
+    INDUSTRY_UPDATE = "INDUSTRY_UPDATE"
 
 
 class EventStatus(StrEnum):

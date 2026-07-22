@@ -18,7 +18,7 @@ def test_0048_expands_after_owner_gold_history_without_rewriting_it() -> None:
         '"feed_suppression_rule_v2"',
         '"qualification_policy_evaluation_v2"',
         '"qualification_shadow_decision_v2"',
-        "AUTONOMOUS_POLICY_GATE",
+        "SERVER_ADJUDICATION_ONLY",
         "prevent_autonomous_policy_fact_mutation",
         "AUTONOMOUS_POLICY_DOWNGRADE_BLOCKED",
     ):

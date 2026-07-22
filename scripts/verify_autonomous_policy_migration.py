@@ -88,16 +88,16 @@ async def _verify(database_url: str, revision: str) -> None:
                 )
                 _require(authority_check is not None, "authority constraint is missing")
                 _require(
-                    "AUTONOMOUS_POLICY_GATE" in authority_check,
-                    "authority constraint does not bind autonomous policy gate",
+                    "SERVER_ADJUDICATION_ONLY" in authority_check,
+                    "authority constraint does not bind server-only adjudication",
                 )
             if revision == "0049_autonomous_content_switch":
                 registry_count = await connection.scalar(
                     text(
                         "SELECT (SELECT count(*) FROM ai_prompt_version WHERE "
-                        "version='autonomous-classify-2.1.0') + "
+                        "version='autonomous-classify-2.7.0') + "
                         "(SELECT count(*) FROM ai_schema_version WHERE "
-                        "version='autonomous-classify-output-2.1.0')"
+                        "version='autonomous-classify-output-2.0.0')"
                     )
                 )
                 _require(int(registry_count or 0) == 2, "production AI registry is incomplete")

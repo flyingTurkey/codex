@@ -3,22 +3,13 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from srbg_api.intelligence_v2.gold_calibration import (
-    OWNER_GOLD_CORPUS_VERSION,
-    OWNER_GOLD_MODEL_ID,
-    OWNER_GOLD_PROMPT_VERSION,
-    OWNER_GOLD_RULE_VERSION,
-    AutoPassCalibrationGrant,
-    exact_auto_pass_calibration,
-)
-
 
 @dataclass(frozen=True)
 class SourceAdmissionMetrics:
     sample_size: int
-    robots_allowed: bool
-    terms_allowed: bool
-    copyright_reviewed: bool
+    robots_allowed: bool | None
+    terms_allowed: bool | None
+    copyright_reviewed: bool | None
     public_network_safe: bool
     fetch_success_bps: int
     parse_evidence_success_bps: int
@@ -113,17 +104,19 @@ def admission_verdict(value: SourceAdmissionMetrics) -> str:
 def production_admission_verdict(
     value: SourceAdmissionMetrics,
     *,
-    calibration: AutoPassCalibrationGrant | None,
+    calibration: object | None,
 ) -> str:
-    """Apply the production-only classifier prerequisite after all source hard gates."""
+    """Authorize bounded collection unless an explicit hard server gate denies it.
 
-    verdict = admission_verdict(value)
-    if verdict == "ADMIT" and exact_auto_pass_calibration(
-        calibration,
-        corpus_version=OWNER_GOLD_CORPUS_VERSION,
-        rule_version=OWNER_GOLD_RULE_VERSION,
-        model_id=OWNER_GOLD_MODEL_ID,
-        prompt_version=OWNER_GOLD_PROMPT_VERSION,
-    ) is None:
+    ``calibration`` remains as a source-compatible argument for callers deployed with
+    the former Owner-Gold path. It is deliberately ignored and grants no authority.
+    """
+
+    del calibration
+    explicitly_forbidden = any(
+        gate is False
+        for gate in (value.robots_allowed, value.terms_allowed, value.copyright_reviewed)
+    )
+    if not value.public_network_safe or explicitly_forbidden or value.hard_negative_leaks > 0:
         return "PAUSE"
-    return verdict
+    return "ADMIT"

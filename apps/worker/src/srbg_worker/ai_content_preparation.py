@@ -232,7 +232,7 @@ class PostgresAiPreparationRepository:
                     "ai_provider,ai_model,prompt_version,schema_version,code_version,"
                     "authorization_basis,policy_payload,bundle_sha256,created_at) VALUES("
                     ":id,:policy_version,:global_rule_version,:stream_version,:provider,:model,"
-                    ":prompt_version,:schema_version,:code_version,'AUTONOMOUS_POLICY_GATE',"
+                    ":prompt_version,:schema_version,:code_version,'SERVER_ADJUDICATION_ONLY',"
                     "CAST(:payload AS jsonb),:bundle_sha256,:now) "
                     "ON CONFLICT (bundle_sha256) DO NOTHING"
                 ),
@@ -744,6 +744,7 @@ class PostgresAiPreparationRepository:
                 response_schema=request.response_schema,
                 input_sha256=request.input_sha256,
             ),
+            create_review_case=False,
         )
 
     async def append_summary_state(
@@ -1173,8 +1174,7 @@ class PostgresAiPreparationRepository:
         primary_type = classification.get("primary_type")
         if primary_type not in {"DIGITAL_TRANSFORMATION", "SAFETY_INTELLIGENCE", "INDUSTRY_UPDATE"}:
             raise RuntimeError("AI01_CLASSIFICATION_OUT_OF_SCOPE")
-        item_type = "SAFETY_CASE" if primary_type == "SAFETY_INTELLIGENCE" else "DIGITAL_CASE"
-        channel = "SAFETY" if primary_type == "SAFETY_INTELLIGENCE" else "DIGITAL"
+        item_type, channel = _legacy_storage_class_for_primary_type(str(primary_type))
         now = datetime.now(UTC)
         async with self._engine.begin() as connection:
             await connection.execute(
@@ -1286,10 +1286,10 @@ class PostgresAiPreparationRepository:
                 str(value)
                 for value in await connection.scalars(
                     text(
-                        "SELECT field_name FROM claim_conflict WHERE source_item_id=:item_id "
+                        "SELECT field_name FROM claim_conflict WHERE event_id=:event_id "
                         "AND status='PENDING_REVIEW'"
                     ),
-                    {"item_id": item_id},
+                    {"event_id": event_id},
                 )
             )
             gate = AutomaticEvidenceGate()
@@ -2023,6 +2023,7 @@ async def _ensure_personal_event(
         return existing
     event_type = {
         "DIGITAL_CASE": "DIGITAL_PROJECT",
+        "INDUSTRY_UPDATE": "INDUSTRY_UPDATE",
         "JOURNAL_PAPER": "RESEARCH_RESULT",
         "SAFETY_REGULATION": "REGULATION_CHANGE",
         "SOFTWARE_PRODUCT": "PRODUCT_RELEASE",
@@ -2054,6 +2055,16 @@ async def _ensure_personal_event(
         },
     )
     return event_id
+
+
+def _legacy_storage_class_for_primary_type(primary_type: str) -> tuple[str, str]:
+    """Keep v2 PrimaryType semantics intact in the shared legacy storage envelope."""
+
+    return {
+        "DIGITAL_TRANSFORMATION": ("DIGITAL_CASE", "DIGITAL"),
+        "SAFETY_INTELLIGENCE": ("SAFETY_CASE", "SAFETY"),
+        "INDUSTRY_UPDATE": ("INDUSTRY_UPDATE", "INDUSTRY"),
+    }[primary_type]
 
 
 async def _load_blocks(connection: Any, version_id: UUID) -> list[DocumentBlock]:

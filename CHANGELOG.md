@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-07-22 (Issue #41 autonomous production closeout)
+
+- Switched the real content Worker to the versioned autonomous rule/AI adjudication seam. Deterministic negatives stop before Item/Event creation; accepted candidates retain exact policy/model/Prompt/Schema/document identities and continue only through evidence qualification and `PublicationService`.
+- Removed HUMAN_OWNER Gold from production SourceAdmission. Explicit network/access/legal prohibitions still pause, while missing legal metadata and soft-quality observations allow bounded collection. `OWNER_OVERRIDE_GO` grants no authority.
+- Preserved `INDUSTRY_UPDATE` as a distinct Item/channel/Event compatibility type and v2 Feed category. The durable publisher outbox now has an isolated accepted-path integration proving evidence-backed FULL machine-organized projection without an Owner semantic case.
+- Added migration `0049_autonomous_content_switch`, ADR-0005, retry-attempt convergence after Schema repair plus semantic recheck, and migration/filtered/accepted production integration coverage while preserving 0046/0047.
+
 ## 2026-07-21 (Issue #41 autonomous qualification policy foundation)
 
 - Added immutable, version-bound qualification policy and automated disposition contracts beside the preserved 0046/0047 Owner Gold history. Migration 0048 adds append-only decision, exception-event, suppression, offline/shadow evaluation, and shadow-decision foundations without granting `OWNER_OVERRIDE_GO` any new authority.
