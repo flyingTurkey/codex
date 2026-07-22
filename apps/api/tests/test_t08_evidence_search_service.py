@@ -21,20 +21,23 @@ class _Rows:
 
 
 class _Connection:
-    def __init__(self, rows: list[dict[str, object]]) -> None:
+    def __init__(self, rows: list[dict[str, object]], statements: list[str]) -> None:
         self._rows = rows
+        self._statements = statements
 
     async def execute(self, _statement: object, _parameters: object) -> _Rows:
+        self._statements.append(str(_statement))
         return _Rows(self._rows)
 
 
 class _Engine:
     def __init__(self, rows: list[dict[str, object]]) -> None:
         self._rows = rows
+        self.statements: list[str] = []
 
     @asynccontextmanager
     async def connect(self):
-        yield _Connection(self._rows)
+        yield _Connection(self._rows, self.statements)
 
     async def dispose(self) -> None:
         pass
@@ -90,3 +93,14 @@ async def test_search_explains_evidence_fields_and_low_weight_ai_assistance() ->
         "SOURCE_EXCERPT",
     ]
     assert item.search_explanation.ai_summary_assisted is True
+
+
+async def test_feed_types_nullable_filters_for_asyncpg() -> None:
+    engine = _Engine([])
+    service = PostgresV2IntelligenceService(engine, engine)  # type: ignore[arg-type]
+
+    page = await service.feed(limit=1, primary_type=None)
+
+    assert page.items == []
+    assert "CAST(:primary_type AS varchar) IS NULL" in engine.statements[0]
+    assert "CAST(:cursor_time AS timestamptz) IS NULL" in engine.statements[0]
