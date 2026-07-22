@@ -44,6 +44,8 @@ jobs:
     needs: quality
     runs-on: ubuntu-24.04
     timeout-minutes: 40
+    env:
+      SRBG_DATA_ROOT: ${{ runner.temp }}/srbg-data
     steps:
       - name: Check out repository
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
@@ -63,6 +65,8 @@ jobs:
           uv sync --frozen --all-packages
           pnpm install --frozen-lockfile
           pnpm --filter @srbg/web exec playwright install --with-deps chromium
+      - name: Prepare isolated integration data root
+        run: mkdir -p "$SRBG_DATA_ROOT"
       - run: make dev
       - run: make safety-case-test
       - run: make smoke
