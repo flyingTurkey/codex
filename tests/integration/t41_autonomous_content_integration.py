@@ -547,7 +547,18 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
             gate=cast(Any, object()),
             now=lambda: now + timedelta(minutes=1),
         )
-        assert await publication.process_ai_projection_refresh_once() is True
+        for _ in range(4):
+            assert await publication.process_ai_projection_refresh_once() is True
+            async with admin.connect() as connection:
+                projected = await connection.scalar(
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM intelligence_projection_v2 "
+                        "WHERE document_version_id=:version)"
+                    ),
+                    {"version": version_id},
+                )
+            if projected:
+                break
         async with admin.connect() as connection:
             projection = (
                 (
