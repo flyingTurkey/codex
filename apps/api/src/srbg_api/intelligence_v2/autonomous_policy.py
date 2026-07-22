@@ -1,4 +1,4 @@
-"""Versioned autonomous qualification policy used by offline and shadow seams only."""
+"""Versioned autonomous qualification policy shared by replay, shadow and production seams."""
 
 from __future__ import annotations
 
@@ -295,7 +295,7 @@ class QualificationDecisionSink(Protocol):
 
 
 class AutomatedAdjudicationService:
-    """Offline/shadow adjudication service; production paths do not call this yet."""
+    """Server-owned adjudication shared by offline, shadow and production paths."""
 
     def __init__(
         self,

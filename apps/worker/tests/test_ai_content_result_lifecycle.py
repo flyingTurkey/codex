@@ -66,15 +66,25 @@ def test_success_persistence_reauthorizes_before_writing_model_content() -> None
     )
 
 
-def test_worker_validates_the_exact_owner_gold_grant_before_qualification() -> None:
+def test_worker_uses_versioned_autonomous_decision_without_owner_gold() -> None:
     callback_source = inspect.getsource(worker._handle_ai_content_result)
 
-    assert callback_source.index("load_auto_pass_calibration") < callback_source.index(
-        "exact_auto_pass_calibration"
-    )
-    assert callback_source.index("exact_auto_pass_calibration") < callback_source.index(
-        "qualification_reason"
-    )
+    assert "load_auto_pass_calibration" not in callback_source
+    assert "OWNER_OVERRIDE_GO" not in callback_source
+    assert "append_automated_decision" in callback_source
+    assert "adjudicate_candidates" in callback_source
+    assert "if semantic_recheck" in callback_source
+    assert "successful_output_before_attempt" in callback_source
+    assert "attempt=attempt + 1" in callback_source
+
+
+def test_repository_persists_policy_identity_and_decision_append_only() -> None:
+    source = inspect.getsource(PostgresAiPreparationRepository.append_automated_decision)
+
+    assert "qualification_policy_bundle_v2" in source
+    assert "automated_qualification_decision_v2" in source
+    assert "ON CONFLICT (bundle_sha256) DO NOTHING" in source
+    assert "owner_gold" not in source.casefold()
 
 
 @dataclass
@@ -90,7 +100,9 @@ class RevokedAuthorizationRepository:
         assert run_id == RUN_ID
         return PreparationDocument(
             run_id=run_id,
-            document_version_id="019f7900-0000-7000-8000-000000000003",
+            document_version_id=UUID("019f7900-0000-7000-8000-000000000003"),
+            raw_object_id=UUID("019f7900-0000-7000-8000-000000000004"),
+            source_stream_policy_version="stream-policy-7",
             source_code="GOV-002",
             canonical_url="https://example.invalid/public-record",
             title="公开工程记录",
@@ -164,13 +176,8 @@ def _successful_classification_result() -> dict[str, object]:
         "content_form": "PROJECT_RECORD",
         "evidence_locators": ["page=1"],
         "confidence": 0.96,
-        "needs_human_review": False,
-        "review_reasons": [],
-        "security": {
-            "prompt_injection_detected": False,
-            "prompt_injection_status": "NONE",
-            "suspicious_patterns": [],
-        },
+        "ambiguity_indicators": [],
+        "security_signals": [],
     }
     return {
         "status": "SUCCEEDED",

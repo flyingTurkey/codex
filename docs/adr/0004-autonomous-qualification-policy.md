@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-07-21
+- Production switch: extended by ADR-0005
 - Supersedes: the HUMAN_OWNER Gold, semantic human-review, and manual Feed-sampling production-authorization clauses in ADR-0003
 
 ## Context
@@ -23,7 +24,7 @@ The sealed private `.4` corpus is a regression benchmark. Its gate requires rele
 - Engineering and Production closeout remain separate.
 - Failures close the gate; fixture or CI success cannot be represented as production readiness.
 - Real external evidence, public-network safety, robots, terms, rights, budgets, and security controls remain mandatory.
-- Worker, SourceAdmission, and PublicationService production read paths are unchanged in Issue #41.
+- This foundation alone does not switch a production path; ADR-0005 records the later Owner-authorized switch absorbed into Issue #41.
 - Private benchmark bodies, URLs, identifiers, labels, and per-case predictions never enter logs, reports, Git, or public artifacts.
 
 ## Consequences

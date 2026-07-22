@@ -1,5 +1,19 @@
 # T41 autonomous qualification policy acceptance
 
+## 2026-07-22 Owner amendment and absorbed T02 closeout
+
+The Owner amended #41 after the original offline foundation: the `.4` benchmark is a non-authorizing reminder rather than a global blocker, and #41 absorbs only #42/T02's production content loop. Issues #43–#46 remain independent. The accepted production seam is:
+
+`authorized SourceStream -> raw/document version -> versioned autonomous decision -> accepted claims/evidence/SourceExcerpt -> PublicationService -> Feed`
+
+- Worker now evaluates deterministic exclusions before dispatching the model, uses the versioned autonomous Prompt/Schema, permits one semantic recheck, and atomically appends the policy identity and terminal decision.
+- New runs contain no Owner Gold lookup or `OWNER_OVERRIDE_GO` authorization branch.
+- `AUTO_FILTERED` retains private raw/document/hash/model/decision history but terminates before Item/Event, accepted claim, search, hotspot or Event projection creation and creates no Owner semantic task.
+- `AUTO_ACCEPTED` is permission to continue evidence processing, not model publication authority. Automatic evidence facts, accepted claims and SourceExcerpt remain required; only `PublicationService` can materialize the reader projection. The result remains `human_reviewed=false`/machine-organized.
+- New document versions are separately adjudicated; existing candidate invalidation and durable publisher outboxes remove stale claims and projections.
+- Forward migration `0049_autonomous_content_switch` registers the production Prompt/Schema and Worker append grants after 0048. 0046/0047 are unchanged.
+- ADR-0005 records the production switch. Source discovery/admission continues to use server public-network, access-control, explicit legal, rate and budget controls; no model output grants source or publication authority.
+
 ## Delivered scope
 
 - Versioned `QualificationPolicyIdentity`, `AutomatedDisposition`, decision trace, Owner exception, feed suppression, aggregate evaluation, and shadow-decision contracts.
@@ -8,9 +22,9 @@
 - Aggregate-only private replay seam. The loader verifies the corpus, sealed independent predictions, Owner attempt manifest, annotation file, unique case identifiers, and recorded response artifact as one hash chain. Live candidates and exact decision traces remain process-local; no cache, report, or log persists document bodies, URLs, case identifiers, labels, or per-case predictions. Live invocation audit requires an exclusive-create `--audit-output` beneath `SRBG_DATA_ROOT` and persists only version bindings, input/output hashes, latency, Token counts, provider cost when supplied, and a manifest hash.
 - ADR-0004. `OWNER_OVERRIDE_GO` remains historical data and grants no authority to the new path.
 
-## Production-path boundary
+## Original production-path boundary (superseded by the Owner amendment above)
 
-Issue #41 does not connect the new service to Worker, `SourceAdmission`, or `PublicationService`. Policy evaluations and shadow decisions explicitly set production authorization/effect to false, and no new Owner semantic task is created.
+The earlier restriction against connecting Worker/SourceAdmission/PublicationService no longer applies to #41. Offline evaluations and shadow decisions still cannot authorize or affect production; the production authority is the current server policy and authoritative database context described in ADR-0005.
 
 ## TDD evidence
 
@@ -30,26 +44,22 @@ The final live aggregate run processed 40 cases with `qualification-policy-2.2.0
 - new Owner semantic tasks: 0
 - production authorization: false
 
-The private gate is therefore **NO-GO**. The required 90% precision, 90% recall, zero locked-negative leakage, and 100% Schema validity threshold has not been met. Expanded Owner authority was used to evaluate higher-capability thinking and non-thinking profiles, structured central-fact extraction, bounded lead projection, and adversarial verification. All produced worse aggregate quality than the reviewed Flash baseline and were removed. No sample-specific exception, threshold reduction, frozen-artifact change, or best-of-run selection was used. This result must not authorize or switch a production path.
+The historical private gate result is therefore **NO-GO against its original threshold**. It remains diagnostic and does not authorize production. Under the 2026-07-22 Owner amendment it is also not a global completion blocker; production authority comes only from the server-controlled policy/runtime/publication gates. No sample-specific exception, threshold reduction, frozen-artifact change, or best-of-run selection was used.
 
 ## Verification
 
-- migration head: `0048_autonomous_policy_foundation`
-- isolated migration replay: `0047 -> 0048 -> 0047 -> 0048` passed
-- `make lint`: passed
-- `make typecheck`: passed
-- `make contract-test`: passed (122 tests)
-- `make security-check`: passed
-- `make fixture-replay`: passed (363 tests plus evaluation)
+- migration head after the production amendment: `0049_autonomous_content_switch`
+- isolated migration replay: `0048 -> 0049 -> 0048 -> 0049` passed
 - inherited W0 closeout mismatch: fixed by aligning its stale 20/10/10 fixture and validator with the frozen 20/0/20 annotation Schema; the focused regression passes
 - `make lint`: passed
 - `make typecheck`: passed (mypy strict: 150 source files; Nuxt/UI/contract TypeScript passed)
-- `make test`: passed (Python 1464 passed, 27 skipped; UI 53 passed; Web 101 passed)
+- `make test`: passed (Python 1470 passed, 27 skipped; UI 53 passed; Web 101 passed)
 - `make contract-test`: passed (122 tests; generated contracts reproducible)
 - `make security-check`: passed (dependency audits and HIGH/CRITICAL secret/misconfiguration scan)
 - `make fixture-replay`: passed (371 tests plus evaluation)
-- `make quality-gate`: passed
+- isolated PostgreSQL/Redis/object-storage integration: passed (duplicate filtered delivery remained idempotent, created no Item or Owner semantic task, and did not invoke the model)
+- `make quality-gate`: passed (including the full test, contract, dependency and HIGH/CRITICAL security scan sequence)
 
 Code review resolved the safety-precedence, Prompt/Schema identity-binding, retry-convergence, model-call audit, and private input-size findings. The W0 20/0/20 closeout reconciliation remains because the frozen Owner Gold annotation Schema permits only `POSITIVE` and `NEGATIVE`; restoring the stale `BOUNDARY` distribution makes the inherited closeout regression fail.
 
-The private replay quality failure remains an explicit unfinished acceptance item. This ticket is not eligible for a completion claim or production activation.
+The private replay quality shortfall remains explicitly recorded and must not be described as a pass. Per the Owner amendment it is a reminder, not an unfinished #41 acceptance item.

@@ -618,3 +618,8 @@
 - PERS-10：新增 `0029_legacy_governance_retirement`，以逐行/分类 SHA-256 和数量校验归档并退出旧企业治理；降级可校验后重建旧结构、授权和数据。
 - 产品只保留固定本地 Owner；删除旧管理 API、角色分支、页面、组件及资格审批/Operations 后台任务，AI 配置迁移到个人设置。
 - 新增 `personal-migration-test`、30+30 固定样本最终评估、迁移/回滚/备份文档和真实验收记录。
+## 2026-07-22 (Issue #41 autonomous content production switch)
+
+- Connected the versioned autonomous qualification policy to the real content Worker. Locked negatives filter before model dispatch; other candidates use the strict production Prompt/Schema and at most one semantic recheck. New runs append the exact policy and decision and no longer read Owner Gold or `OWNER_OVERRIDE_GO`.
+- `AUTO_FILTERED` now terminates without Item/Event, Owner semantic task or reader projection. `AUTO_ACCEPTED` continues through accepted claims, evidence, SourceExcerpt and the sole `PublicationService` projection boundary as machine-organized, not-human-reviewed content.
+- Added forward migration `0049_autonomous_content_switch` after preserved 0048, production registry entries, least-privilege Worker append grants, migration replay, ADR-0005 and the amended #41 acceptance record. The private `.4` aggregate remains a non-authorizing reminder and its measured shortfall is not represented as a pass.

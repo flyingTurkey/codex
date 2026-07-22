@@ -13,9 +13,12 @@ from srbg_api.ai_pipeline.content_preparation import (
 from srbg_api.ai_pipeline.contracts import AiStep, ModelRequest, ModelResponse, ModelUsage
 from srbg_api.ai_pipeline.preparation import DocumentBlock
 from srbg_api.ai_pipeline.security import PromptInjectionScanner
-from srbg_api.intelligence_v2.gold_calibration import AutoPassCalibrationGrant
+from srbg_api.intelligence_v2.autonomous_policy import QualificationPolicyBundle
+from srbg_contracts import QualificationDecisionTrace
 
 RUN_ID = UUID("019d0000-0000-7000-8000-000000002021")
+DOCUMENT_VERSION_ID = UUID("019d0000-0000-7000-8000-000000002022")
+RAW_OBJECT_ID = UUID("019d0000-0000-7000-8000-000000002023")
 PILOT_URL = (
     "https://xxgk.mot.gov.cn/2020/jigou/glj/202311/"
     "P020250514396309964949.pdf"
@@ -30,12 +33,16 @@ class FakeRepository:
     materialized: int = 0
     judgment_type: str | None = None
     review_payloads: list[dict[str, Any]] = field(default_factory=list)
+    decisions: list[QualificationDecisionTrace] = field(default_factory=list)
+    calibration_reads: int = 0
 
     async def begin(self, run_id: UUID) -> PreparationDocument:
         self.statuses.append("PREPARING")
         return PreparationDocument(
             run_id=run_id,
-            document_version_id="document-v1",
+            document_version_id=DOCUMENT_VERSION_ID,
+            raw_object_id=RAW_OBJECT_ID,
+            source_stream_policy_version="stream-policy-7",
             source_code="GOV-003",
             canonical_url=PILOT_URL,
             title="典型案例",
@@ -51,20 +58,13 @@ class FakeRepository:
         )
 
     async def authorize_real_run(self, document: PreparationDocument) -> bool:
-        return document.document_version_id == "document-v1"
+        return document.document_version_id == DOCUMENT_VERSION_ID
 
-    async def load_auto_pass_calibration(
-        self, *, corpus_version: str, rule_version: str, model_id: str, prompt_version: str
-    ) -> AutoPassCalibrationGrant | None:
-        return AutoPassCalibrationGrant(
-            threshold_bps=9300,
-            corpus_version=corpus_version,
-            rule_version=rule_version,
-            model_id=model_id,
-            prompt_version=prompt_version,
-            prediction_seal_sha256="e" * 64,
-            fact_sha256="0" * 64,
-        )
+    async def append_automated_decision(
+        self, trace: QualificationDecisionTrace, policy: QualificationPolicyBundle
+    ) -> None:
+        assert trace.policy == policy.identity
+        self.decisions.append(trace)
 
     async def record_security(self, document: PreparationDocument, detected: bool) -> None:
         assert detected is False
@@ -156,13 +156,8 @@ class FakeModel:
                 "content_form": "PROJECT_RECORD",
                 "evidence_locators": ["block-1"],
                 "confidence": 0.95,
-                "needs_human_review": False,
-                "review_reasons": [],
-                "security": {
-                    "prompt_injection_detected": False,
-                    "prompt_injection_status": "NONE",
-                    "suspicious_patterns": [],
-                },
+                "ambiguity_indicators": [],
+                "security_signals": [],
             }
         elif request.step is AiStep.EXTRACT:
             evidence_id, anchor = next(iter(request.evidence_anchors.items()))
@@ -254,6 +249,9 @@ def test_one_document_reaches_automatic_evidence_gate_without_claim_review() -> 
         AiStep.VERIFY,
     ]
     assert repository.judgment_type == "AI_JUDGMENT"
+    assert [decision.disposition.value for decision in repository.decisions] == [
+        "AUTO_ACCEPTED"
+    ]
     assert sha256(result.input_text.encode()).hexdigest() == result.input_sha256
 
 
@@ -262,7 +260,7 @@ def test_ai01_scope_is_authorized_by_server_facts_not_a_pinned_url() -> None:
     assert PILOT_URL not in source
 
 
-def test_locked_negative_only_creates_a_qualification_review_case() -> None:
+def test_locked_negative_is_durably_filtered_without_owner_review_or_model_call() -> None:
     class LockedNegativeRepository(FakeRepository):
         async def begin(self, run_id: UUID) -> PreparationDocument:
             document = await super().begin(run_id)
@@ -290,31 +288,16 @@ def test_locked_negative_only_creates_a_qualification_review_case() -> None:
     assert result.candidate_count == 0
     assert repository.materialized == 0
     assert repository.judgment_type is None
-    assert len(repository.review_payloads) == 1
-    assert repository.review_payloads[0]["review_reasons"] == ["LOCKED_NEGATIVE"]
-    assert repository.statuses == ["PREPARING", "CLASSIFYING", "WAITING_CLAIM_REVIEW"]
+    assert repository.review_payloads == []
+    assert [decision.disposition.value for decision in repository.decisions] == [
+        "AUTO_FILTERED"
+    ]
+    assert repository.reservations == []
+    assert repository.statuses == ["PREPARING", "CLASSIFYING", "SUCCEEDED"]
 
 
-def test_stale_calibration_grant_is_treated_as_unavailable() -> None:
-    class StaleCalibrationRepository(FakeRepository):
-        async def load_auto_pass_calibration(
-            self,
-            *,
-            corpus_version: str,
-            rule_version: str,
-            model_id: str,
-            prompt_version: str,
-        ) -> AutoPassCalibrationGrant | None:
-            grant = await super().load_auto_pass_calibration(
-                corpus_version=corpus_version,
-                rule_version=rule_version,
-                model_id=model_id,
-                prompt_version=prompt_version,
-            )
-            assert grant is not None
-            return replace(grant, corpus_version="owner-gold-2026-07-20.3")
-
-    repository = StaleCalibrationRepository()
+def test_new_autonomous_path_has_no_owner_gold_or_override_authorization_seam() -> None:
+    repository = FakeRepository()
     service = AiContentPreparationService(
         repository=repository,
         model=FakeModel(),
@@ -323,6 +306,8 @@ def test_stale_calibration_grant_is_treated_as_unavailable() -> None:
 
     result = asyncio.run(service.run(RUN_ID))
 
-    assert result.candidate_count == 0
-    assert repository.materialized == 0
-    assert repository.review_payloads[0]["review_reasons"] == ["CALIBRATION_UNAVAILABLE"]
+    assert result.candidate_count == 1
+    assert repository.calibration_reads == 0
+    source = AiContentPreparationService.run.__code__.co_names
+    assert "load_auto_pass_calibration" not in source
+    assert "OWNER_OVERRIDE_GO" not in str(AiContentPreparationService.run.__code__.co_consts)

@@ -2,8 +2,10 @@ import asyncio
 import inspect
 from datetime import UTC, datetime
 
+import srbg_worker.app as worker
 from srbg_api.publication.repository import PostgresPublicationRepository
 from srbg_api.publication.service import PublicationService
+from srbg_worker.ai_content_preparation import _INSERT_ITEM_SQL, PostgresAiPreparationRepository
 
 NOW = datetime(2026, 7, 20, 9, 0, tzinfo=UTC)
 
@@ -45,3 +47,20 @@ def test_reader_revalidates_exact_accepted_claim_fingerprint_before_projection()
     assert 'row["raw_security_clean"]' in source
     assert "accepted_claim_set_sha256(current_claims)" in source
     assert 'row["accepted_claim_set_sha256"] != current_claim_hash' in source
+
+
+def test_automatic_acceptance_is_machine_unreviewed_and_not_forced_to_r3() -> None:
+    materialize = inspect.getsource(PostgresAiPreparationRepository.materialize)
+
+    assert "owner_review_case_v2" not in materialize
+    assert "'R1'" in _INSERT_ITEM_SQL
+    assert "'R3'" not in _INSERT_ITEM_SQL
+
+
+def test_filtered_decisions_have_no_publication_materialization_path() -> None:
+    callback = inspect.getsource(worker._handle_ai_content_result)
+
+    terminal = callback.index("trace.disposition is not AutomatedDisposition.AUTO_ACCEPTED")
+    extraction = callback.index('transition(run_id, "EXTRACTING")')
+    assert terminal < extraction
+    assert "queue_qualification_review" not in callback

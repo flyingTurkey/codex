@@ -50,7 +50,10 @@ def _isolated_database_url() -> str:
 
 async def _verify(database_url: str, revision: str) -> None:
     engine = create_async_engine(database_url)
-    expected = revision == "0048_autonomous_policy_foundation"
+    expected = revision in {
+        "0048_autonomous_policy_foundation",
+        "0049_autonomous_content_switch",
+    }
     try:
         async with engine.connect() as connection:
             current = await connection.scalar(
@@ -88,6 +91,16 @@ async def _verify(database_url: str, revision: str) -> None:
                     "AUTONOMOUS_POLICY_GATE" in authority_check,
                     "authority constraint does not bind autonomous policy gate",
                 )
+            if revision == "0049_autonomous_content_switch":
+                registry_count = await connection.scalar(
+                    text(
+                        "SELECT (SELECT count(*) FROM ai_prompt_version WHERE "
+                        "version='autonomous-classify-2.1.0') + "
+                        "(SELECT count(*) FROM ai_schema_version WHERE "
+                        "version='autonomous-classify-output-2.1.0')"
+                    )
+                )
+                _require(int(registry_count or 0) == 2, "production AI registry is incomplete")
     finally:
         await engine.dispose()
 
@@ -98,11 +111,13 @@ def main() -> None:
     command.upgrade(config, "0047_owner_gold_override_go")
     command.upgrade(config, "0048_autonomous_policy_foundation")
     asyncio.run(_verify(database_url, "0048_autonomous_policy_foundation"))
-    command.downgrade(config, "0047_owner_gold_override_go")
-    asyncio.run(_verify(database_url, "0047_owner_gold_override_go"))
-    command.upgrade(config, "0048_autonomous_policy_foundation")
+    command.upgrade(config, "0049_autonomous_content_switch")
+    asyncio.run(_verify(database_url, "0049_autonomous_content_switch"))
+    command.downgrade(config, "0048_autonomous_policy_foundation")
     asyncio.run(_verify(database_url, "0048_autonomous_policy_foundation"))
-    print("Autonomous-policy migration replay passed: 0047 -> 0048 -> 0047 -> 0048")
+    command.upgrade(config, "0049_autonomous_content_switch")
+    asyncio.run(_verify(database_url, "0049_autonomous_content_switch"))
+    print("Autonomous-policy migration replay passed: 0048 -> 0049 -> 0048 -> 0049")
 
 
 if __name__ == "__main__":

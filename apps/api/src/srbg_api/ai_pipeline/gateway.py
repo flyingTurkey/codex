@@ -10,6 +10,7 @@ from typing import Any, ClassVar, Protocol, cast
 from jsonschema import Draft202012Validator
 from pydantic import BaseModel, ValidationError
 from referencing import Registry, Resource
+from srbg_contracts import AutonomousClassificationCandidate
 
 from srbg_api.ai_pipeline.contracts import (
     STEP_OUTPUT_MODELS,
@@ -392,7 +393,9 @@ def validate_step_output(output: dict[str, Any], request: ModelRequest) -> Any:
     ControlledModelGateway._validate_json_schema(output, request.response_schema)
     validated: BaseModel
     try:
-        if request.schema_version == "summarize-v2-output-1.0.0":
+        if request.schema_version == "autonomous-classify-output-2.1.0":
+            validated = AutonomousClassificationCandidate.model_validate(output)
+        elif request.schema_version == "summarize-v2-output-1.0.0":
             from srbg_api.intelligence_v2.content_candidates import (
                 StructuredSummaryCandidate,
             )
