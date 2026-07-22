@@ -203,7 +203,7 @@ async def test_filtered_decision_is_idempotent_and_has_no_reader_materialization
             "ACCIDENT_UPDATE",
             "An authority issued an accident update during highway tunnel operation.",
             "incident_status",
-            "official update issued",
+            "accident update",
         ),
     ),
 )
