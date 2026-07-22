@@ -46,6 +46,7 @@ jobs:
     timeout-minutes: 40
     env:
       SRBG_DATA_ROOT: /tmp/srbg-data
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.cache/ms-playwright
     steps:
       - name: Check out repository
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
