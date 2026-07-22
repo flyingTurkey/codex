@@ -27,7 +27,7 @@ SRBG_PUBLISHER_DB_PASSWORD ?= srbg_publisher_local_only
 SRBG_PROJECTION_DB_PASSWORD ?= srbg_projection_local_only
 SRBG_S3_BUCKET ?= srbg-raw
 SRBG_S3_REGION ?= us-east-1
-SRBG_EXTERNAL_IO_TIMEOUT_SECONDS ?= 5
+SRBG_EXTERNAL_IO_TIMEOUT_SECONDS ?= 2
 export SRBG_S3_BUCKET SRBG_S3_REGION SRBG_EXTERNAL_IO_TIMEOUT_SECONDS
 COMPOSE = docker compose --project-directory . -f infra/compose/compose.yaml
 TRIVY_IMAGE = aquasec/trivy:0.69.3

@@ -73,7 +73,7 @@ def test_makefile_exposes_required_quality_and_runtime_targets() -> None:
 def test_makefile_assigns_external_io_timeout_before_exporting_it() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
-    assignment = "SRBG_EXTERNAL_IO_TIMEOUT_SECONDS ?= 5"
+    assignment = "SRBG_EXTERNAL_IO_TIMEOUT_SECONDS ?= 2"
     export = "export SRBG_S3_BUCKET SRBG_S3_REGION SRBG_EXTERNAL_IO_TIMEOUT_SECONDS"
     assert makefile.index(assignment) < makefile.index(export)
 
