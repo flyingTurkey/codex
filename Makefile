@@ -8,6 +8,8 @@ PNPM ?= pnpm
 endif
 
 -include .env
+WEB_PORT ?= 3000
+API_PORT ?= 8000
 export WEB_PORT API_PORT
 
 POSTGRES_PORT ?= 5432

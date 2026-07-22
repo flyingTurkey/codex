@@ -106,6 +106,10 @@ def test_makefile_assigns_service_defaults_before_exporting_them() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
     export_groups = {
+        "export WEB_PORT API_PORT": (
+            "WEB_PORT ?= 3000",
+            "API_PORT ?= 8000",
+        ),
         "export POSTGRES_PORT MINIO_PORT ANCHOR_MINIO_PORT": (
             "POSTGRES_PORT ?= 5432",
             "MINIO_PORT ?= 9000",
