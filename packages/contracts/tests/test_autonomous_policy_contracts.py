@@ -168,9 +168,30 @@ def test_owner_exception_contract_separates_technical_and_safety_controls() -> N
         "updated_at": "2026-07-21T08:00:00Z",
     }
     assert OwnerExceptionView.model_validate(base).overrideability == "HARD_BLOCK"
+    assert OwnerExceptionView.model_validate(base).technical_reason_code is None
     with pytest.raises(ValidationError):
         OwnerExceptionView.model_validate(
             base | {"kind": "TECHNICAL", "overrideability": "OWNER_DECIDABLE"}
+        )
+    technical = OwnerExceptionView.model_validate(
+        base
+        | {
+            "kind": "TECHNICAL",
+            "overrideability": None,
+            "technical_reason_code": "PROVIDER_TIMEOUT",
+        }
+    )
+    assert technical.technical_reason_code == "PROVIDER_TIMEOUT"
+    with pytest.raises(ValidationError):
+        OwnerExceptionView.model_validate(base | {"technical_reason_code": "PROVIDER_TIMEOUT"})
+    with pytest.raises(ValidationError):
+        OwnerExceptionView.model_validate(
+            base
+            | {
+                "kind": "TECHNICAL",
+                "overrideability": None,
+                "technical_reason_code": "unsafe reason",
+            }
         )
 
 

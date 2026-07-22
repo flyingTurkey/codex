@@ -66,6 +66,7 @@ class PreparationDocument:
     source_name: str
     blocks: tuple[DocumentBlock, ...]
     run_mode: str = "LIVE"
+    technical_retry_max_retries: int = 3
 
 
 @dataclass(frozen=True, slots=True)

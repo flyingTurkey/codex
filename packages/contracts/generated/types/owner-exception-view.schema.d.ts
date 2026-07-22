@@ -33,6 +33,7 @@ export type ResolvedAt = string | null
 export type SourceId = string | null
 export type SourceStreamId = string | null
 export type OwnerExceptionStatus = 'OPEN' | 'RESOLVED'
+export type TechnicalReasonCode = string | null
 export type UpdatedAt = string
 export type Version = number
 
@@ -49,6 +50,7 @@ export interface OwnerExceptionView {
   source_id?: SourceId
   source_stream_id?: SourceStreamId
   status: OwnerExceptionStatus
+  technical_reason_code?: TechnicalReasonCode
   updated_at: UpdatedAt
   version: Version
 }

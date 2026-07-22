@@ -30,7 +30,7 @@ def test_worker_message_contains_only_authoritative_ids() -> None:
         (FetchFailure(http_status=503), "HTTP_5XX", True, True),
         (FetchFailure(kind="TIMEOUT"), "TIMEOUT", True, True),
         (FetchFailure(kind="DNS"), "DNS", True, True),
-        (FetchFailure(kind="PARSE"), "PARSE_FAILED", True, True),
+        (FetchFailure(kind="PARSE"), "PARSE_FAILED", False, True),
         (FetchFailure(kind="OBJECT_STORAGE"), "OBJECT_STORAGE_FAILED", True, True),
         (FetchFailure(kind="DATABASE"), "DATABASE_FAILED", True, True),
     ],

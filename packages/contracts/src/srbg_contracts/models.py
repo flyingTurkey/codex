@@ -199,6 +199,10 @@ class OwnerExceptionView(ContractModel):
     document_version_id: UUID | None = None
     decision_id: UUID | None = None
     reason_codes: list[AutomatedDecisionReason] = Field(min_length=1, max_length=20)
+    technical_reason_code: str | None = Field(
+        default=None,
+        pattern=r"^[A-Z0-9_]{1,80}$",
+    )
     attempt_count: int = Field(ge=0, le=32767)
     version: int = Field(gt=0)
     opened_at: AwareDatetime
@@ -211,6 +215,8 @@ class OwnerExceptionView(ContractModel):
             raise ValueError("technical exceptions have no safety overrideability")
         if self.kind is ExceptionKind.SAFETY and self.overrideability is None:
             raise ValueError("safety exceptions require overrideability")
+        if self.kind is ExceptionKind.SAFETY and self.technical_reason_code is not None:
+            raise ValueError("safety exceptions have no technical reason code")
         return self
 
 

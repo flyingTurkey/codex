@@ -13,6 +13,7 @@ from srbg_api.acquisition.contracts import FetchResult, SourceCheckpoint
 from srbg_api.ai_pipeline.content_preparation import (
     production_policy_for,
 )
+from srbg_api.ai_pipeline.contracts import AiStep
 from srbg_api.config import Settings
 from srbg_api.document_vault.storage import S3ObjectStore
 from srbg_api.identifiers import uuid7
@@ -24,6 +25,10 @@ from srbg_api.intelligence_v2.content_candidate_repository import (
     PostgresContentCandidateRepository,
 )
 from srbg_api.intelligence_v2.content_candidates import StructuredSummaryCandidate
+from srbg_api.intelligence_v2.technical_exceptions import (
+    PostgresOwnerTechnicalExceptionService,
+    TechnicalExceptionConflict,
+)
 from srbg_api.publication.repository import PostgresPublicationRepository
 from srbg_api.publication.service import PublicationService
 from srbg_api.scheduling.service import PostgresSchedulingService
@@ -43,6 +48,7 @@ from srbg_worker.source_content_bridge import (
     SourceContentOutboxExecutor,
 )
 from srbg_worker.source_runtime import PostgresRuntimeGateway, RuntimeBinding, RuntimeFetchExecutor
+from srbg_worker.technical_exceptions import PostgresTechnicalRetryCoordinator
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -744,3 +750,465 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
         await admin.dispose()
         await worker.dispose()
         await publisher.dispose()
+
+
+async def test_technical_failure_retries_survive_restart_and_owner_recovery_is_idempotent() -> None:
+    admin = create_async_engine(os.environ["SRBG_TEST_ADMIN_DATABASE_URL"])
+    api = create_async_engine(os.environ["SRBG_DATABASE_URL"])
+    worker = create_async_engine(os.environ["SRBG_WORKER_DATABASE_URL"])
+    now = datetime(2026, 7, 22, 2, 0, tzinfo=UTC)
+    current_time = [now]
+    try:
+        acquired = await acquire_through_live_source_stream(
+            admin=admin,
+            worker=worker,
+            excerpt="A highway tunnel monitoring platform reported a temporary provider outage.",
+            now=now,
+        )
+        preparation_repository = PostgresAiPreparationRepository(
+            engine=worker,
+            object_store=S3ObjectStore(Settings()),
+            parser=cast(Any, object()),
+            environment="acceptance",
+            max_document_bytes=1024 * 1024,
+        )
+        document = await preparation_repository.begin(acquired.pipeline_run_id)
+        await preparation_repository.transition(acquired.pipeline_run_id, "CLASSIFYING")
+        policy = production_policy_for(document)
+
+        retry = PostgresTechnicalRetryCoordinator(
+            engine=worker,
+            clock=lambda: current_time[0],
+            jitter=lambda: 0.5,
+        )
+        first = await retry.record_failure(
+            document=document,
+            policy=policy,
+            reason_code="PROVIDER_TIMEOUT",
+            attempt_number=1,
+        )
+        assert first.disposition.value == "TECHNICAL_RETRY"
+        assert first.next_retry_at == now + timedelta(seconds=150)
+
+        current_time[0] = first.next_retry_at
+        restarted = PostgresTechnicalRetryCoordinator(
+            engine=worker,
+            clock=lambda: current_time[0],
+            jitter=lambda: 0.5,
+        )
+        claimed = await restarted.claim_due(limit=10)
+        assert [item.original_pipeline_run_id for item in claimed] == [acquired.pipeline_run_id]
+
+        second = await restarted.record_failure(
+            document=document,
+            policy=policy,
+            reason_code="PROVIDER_NETWORK_ERROR",
+            attempt_number=2,
+        )
+        assert second.next_retry_at == current_time[0] + timedelta(seconds=450)
+        current_time[0] = cast(datetime, second.next_retry_at)
+        assert len(await restarted.claim_due(limit=10)) == 1
+        third = await restarted.record_failure(
+            document=document,
+            policy=policy,
+            reason_code="TRANSIENT_UNAVAILABLE",
+            attempt_number=3,
+        )
+        assert third.next_retry_at == current_time[0] + timedelta(seconds=1350)
+        current_time[0] = cast(datetime, third.next_retry_at)
+        assert len(await restarted.claim_due(limit=10)) == 1
+        exhausted = await restarted.record_failure(
+            document=document,
+            policy=policy,
+            reason_code="PROVIDER_TIMEOUT",
+            attempt_number=4,
+        )
+        assert exhausted.disposition.value == "TECHNICAL_FAILED"
+        assert exhausted.next_retry_at is None
+        await preparation_repository.fail(acquired.pipeline_run_id, "FAILED", "TECHNICAL_FAILED")
+
+        exceptions = PostgresOwnerTechnicalExceptionService(
+            engine=api,
+            clock=lambda: current_time[0],
+        )
+        page = await exceptions.list_exceptions(
+            kind="TECHNICAL", status="OPEN", cursor=None, limit=20
+        )
+        assert len(page) == 1
+        exception = page[0]
+        assert exception.attempt_count == 4
+        assert exception.reason_codes == ["TECHNICAL_EXHAUSTED"]
+        async with admin.connect() as connection:
+            stable_reason = await connection.scalar(
+                text(
+                    "SELECT safe_metadata->>'technical_reason_code' "
+                    "FROM owner_exception_v2 WHERE id=:id"
+                ),
+                {"id": exception.id},
+            )
+        assert stable_reason == "PROVIDER_TIMEOUT"
+
+        current_time[0] += timedelta(seconds=1)
+        key = uuid7()
+        command = {
+            "exception_id": exception.id,
+            "event_type": "RETRY_REQUESTED",
+            "expected_version": exception.version,
+        }
+        first_request = await exceptions.command(
+            exception_id=exception.id,
+            command=command,
+            owner_id=uuid7(),
+            idempotency_key=key,
+        )
+        duplicate_request = await exceptions.command(
+            exception_id=exception.id,
+            command=command,
+            owner_id=uuid7(),
+            idempotency_key=key,
+        )
+        assert duplicate_request == first_request
+        after_first_request = await exceptions.get_exception(exception.id)
+        assert after_first_request.version == exception.version + 1
+        with pytest.raises(TechnicalExceptionConflict):
+            await exceptions.command(
+                exception_id=exception.id,
+                command=command,
+                owner_id=uuid7(),
+                idempotency_key=uuid7(),
+            )
+        with pytest.raises(TechnicalExceptionConflict):
+            await exceptions.command(
+                exception_id=exception.id,
+                command={**command, "expected_version": 2},
+                owner_id=uuid7(),
+                idempotency_key=key,
+            )
+        async with admin.connect() as connection:
+            audit_count = await connection.scalar(
+                text(
+                    "SELECT count(*) FROM audit_log WHERE event_type="
+                    "'OWNER_TECHNICAL_RETRY_REQUESTED' AND target_id=:exception_id"
+                ),
+                {"exception_id": exception.id},
+            )
+        assert audit_count == 1
+        current_time[0] += timedelta(days=2)
+        assert (
+            await restarted.retry_now(
+                acquired.pipeline_run_id,
+                retry_event_id=first_request.id,
+                requested_at=first_request.created_at,
+            )
+            is True
+        )
+        assert (
+            await restarted.retry_now(
+                acquired.pipeline_run_id,
+                retry_event_id=first_request.id,
+                requested_at=first_request.created_at,
+            )
+            is False
+        )
+        async with admin.connect() as connection:
+            pipeline_status = await connection.scalar(
+                text("SELECT status FROM ai_pipeline_run WHERE id=:run_id"),
+                {"run_id": acquired.pipeline_run_id},
+            )
+        assert pipeline_status == "FAILED"
+        restarted_after_owner_action = PostgresTechnicalRetryCoordinator(
+            engine=worker,
+            clock=lambda: current_time[0],
+            jitter=lambda: 0.5,
+        )
+        owner_retry = await restarted_after_owner_action.claim_due(limit=10)
+        assert len(owner_retry) == 1
+        assert owner_retry[0].original_pipeline_run_id != acquired.pipeline_run_id
+        assert owner_retry[0].attempt_count == 0
+        assert owner_retry[0].next_attempt_number == 5
+        resumed_document = await preparation_repository.begin(
+            owner_retry[0].original_pipeline_run_id
+        )
+        assert resumed_document.document_version_id == acquired.document_version_id
+        fresh_reservation = await preparation_repository.reserve(
+            resumed_document.run_id, AiStep.CLASSIFY, 1
+        )
+        await preparation_repository.release(fresh_reservation)
+        stale_callback = await restarted.record_failure(
+            document=document,
+            policy=policy,
+            reason_code="PROVIDER_TIMEOUT",
+            attempt_number=4,
+        )
+        assert stale_callback.applied is False
+
+        repeated_failure = await restarted_after_owner_action.record_failure(
+            document=resumed_document,
+            policy=policy,
+            reason_code="PROVIDER_TIMEOUT",
+            attempt_number=5,
+            retry_number=1,
+            max_retries=0,
+        )
+        assert repeated_failure.disposition.value == "TECHNICAL_FAILED"
+        await preparation_repository.fail(
+            resumed_document.run_id, "FAILED", "TECHNICAL_FAILED"
+        )
+        await exceptions.reconcile()
+        still_open = await exceptions.list_exceptions(
+            kind="TECHNICAL", status="OPEN", cursor=None, limit=20
+        )
+        assert len(still_open) == 1
+        assert still_open[0].id == exception.id
+        assert still_open[0].attempt_count == 5
+        assert still_open[0].version == exception.version + 2
+        async with admin.connect() as connection:
+            reopened_event_count = await connection.scalar(
+                text(
+                    "SELECT count(*) FROM owner_exception_event_v2 WHERE exception_id=:id "
+                    "AND event_type='CREATED' AND safe_metadata->>'transition'="
+                    "'TECHNICAL_REEXHAUSTED'"
+                ),
+                {"id": exception.id},
+            )
+        assert reopened_event_count == 1
+        current_time[0] += timedelta(seconds=1)
+        second_request = await exceptions.command(
+            exception_id=exception.id,
+            command={**command, "expected_version": still_open[0].version},
+            owner_id=uuid7(),
+            idempotency_key=uuid7(),
+        )
+        assert (
+            await restarted_after_owner_action.retry_now(
+                resumed_document.run_id,
+                retry_event_id=second_request.id,
+                requested_at=second_request.created_at,
+            )
+            is True
+        )
+        final_retry = await restarted_after_owner_action.claim_due(limit=10)
+        assert len(final_retry) == 1
+        assert final_retry[0].original_pipeline_run_id != resumed_document.run_id
+        assert final_retry[0].attempt_count == 0
+        assert final_retry[0].next_attempt_number == 6
+
+        accepted = (
+            AutomatedAdjudicationService(
+                policy=policy,
+                model_edge=AcceptedModel(
+                    str(document.blocks[0].block_id),
+                    primary_type="DIGITAL_TRANSFORMATION",
+                    core_new_fact="A highway tunnel monitoring platform recovered.",
+                    content_form="OPERATION_UPDATE",
+                ),
+                clock=lambda: current_time[0],
+                id_factory=uuid7,
+            )
+            .adjudicate(
+                AdjudicationInput(
+                    document_version_id=acquired.document_version_id,
+                    raw_object_id=acquired.raw_object_id,
+                    normalized_input_sha256=acquired.content_sha256,
+                    document_text="A highway tunnel monitoring platform recovered.",
+                    allowed_evidence_locators=frozenset({str(document.blocks[0].block_id)}),
+                )
+            )
+            .model_copy(update={"attempt_number": 6})
+        )
+        await preparation_repository.append_automated_decision(accepted, policy)
+        await exceptions.reconcile()
+        resolved = await exceptions.get_exception(exception.id)
+        assert resolved.status.value == "RESOLVED"
+        assert resolved.resolved_at == current_time[0]
+    finally:
+        await admin.dispose()
+        await api.dispose()
+        await worker.dispose()
+
+
+async def test_non_retryable_technical_failure_is_immediately_owner_retryable() -> None:
+    admin = create_async_engine(os.environ["SRBG_TEST_ADMIN_DATABASE_URL"])
+    api = create_async_engine(os.environ["SRBG_DATABASE_URL"])
+    worker = create_async_engine(os.environ["SRBG_WORKER_DATABASE_URL"])
+    now = datetime(2026, 7, 22, 4, 0, tzinfo=UTC)
+    current_time = [now]
+    try:
+        acquired = await acquire_through_live_source_stream(
+            admin=admin,
+            worker=worker,
+            excerpt="A tunnel platform returned a non-retryable runtime configuration error.",
+            now=now,
+        )
+        repository = PostgresAiPreparationRepository(
+            engine=worker,
+            object_store=S3ObjectStore(Settings()),
+            parser=cast(Any, object()),
+            environment="acceptance",
+            max_document_bytes=1024 * 1024,
+        )
+        document = await repository.begin(acquired.pipeline_run_id)
+        coordinator = PostgresTechnicalRetryCoordinator(
+            engine=worker, clock=lambda: current_time[0], jitter=lambda: 0.5
+        )
+
+        outcome = await coordinator.record_failure(
+            document=document,
+            policy=production_policy_for(document),
+            reason_code="RUNTIME_PROVIDER_CONFIG_MISMATCH",
+            attempt_number=1,
+            max_retries=1,
+        )
+
+        assert outcome.disposition.value == "TECHNICAL_FAILED"
+        await repository.fail(acquired.pipeline_run_id, "FAILED", "TECHNICAL_FAILED")
+        exceptions = PostgresOwnerTechnicalExceptionService(
+            engine=api, clock=lambda: current_time[0]
+        )
+        page = await exceptions.list_exceptions(
+            kind="TECHNICAL", status="OPEN", cursor=None, limit=20
+        )
+        assert len(page) == 1
+        assert page[0].attempt_count == 1
+        assert page[0].reason_codes == ["TECHNICAL_EXHAUSTED"]
+        current_time[0] += timedelta(seconds=1)
+        exceptions = PostgresOwnerTechnicalExceptionService(
+            engine=api, clock=lambda: current_time[0]
+        )
+        exception = (
+            await exceptions.list_exceptions(kind="TECHNICAL", status="OPEN", cursor=None, limit=20)
+        )[0]
+        request = await exceptions.command(
+            exception_id=exception.id,
+            command={
+                "exception_id": exception.id,
+                "event_type": "RETRY_REQUESTED",
+                "expected_version": exception.version,
+            },
+            owner_id=uuid7(),
+            idempotency_key=uuid7(),
+        )
+        assert (
+            await coordinator.retry_now(
+                acquired.pipeline_run_id,
+                retry_event_id=request.id,
+                requested_at=request.created_at,
+            )
+            is True
+        )
+        stale_callback = await coordinator.record_failure(
+            document=document,
+            policy=production_policy_for(document),
+            reason_code="RUNTIME_PROVIDER_CONFIG_MISMATCH",
+            attempt_number=1,
+        )
+        assert stale_callback.applied is False
+        recovery = await coordinator.claim_due(limit=10)
+        assert len(recovery) == 1
+        assert recovery[0].original_pipeline_run_id != acquired.pipeline_run_id
+        assert recovery[0].attempt_count == 0
+        assert recovery[0].next_attempt_number == 2
+        async with admin.connect() as connection:
+            assert (
+                await connection.scalar(
+                    text("SELECT status FROM ai_pipeline_run WHERE id=:run_id"),
+                    {"run_id": acquired.pipeline_run_id},
+                )
+                == "FAILED"
+            )
+    finally:
+        await admin.dispose()
+        await api.dispose()
+        await worker.dispose()
+
+
+async def test_exhausted_source_fetch_is_retried_as_a_new_auditable_run() -> None:
+    admin = create_async_engine(os.environ["SRBG_TEST_ADMIN_DATABASE_URL"])
+    api = create_async_engine(os.environ["SRBG_DATABASE_URL"])
+    worker = create_async_engine(os.environ["SRBG_WORKER_DATABASE_URL"])
+    current_time = [datetime(2026, 7, 22, 6, 0, tzinfo=UTC)]
+    try:
+        acquired = await acquire_through_live_source_stream(
+            admin=admin,
+            worker=worker,
+            excerpt="A highway source exhausted a temporary network timeout.",
+            now=current_time[0],
+        )
+        async with admin.begin() as connection:
+            failed_run_id = await connection.scalar(
+                text(
+                    "SELECT capture.fetch_run_id FROM raw_object_capture capture "
+                    "WHERE capture.raw_object_id=:raw_id ORDER BY capture.captured_at DESC LIMIT 1"
+                ),
+                {"raw_id": acquired.raw_object_id},
+            )
+            await connection.execute(
+                text(
+                    "UPDATE fetch_run SET status='FAILED',attempt_count=3,"
+                    "failure_class='TIMEOUT',completed_at=:now WHERE id=:run_id"
+                ),
+                {"run_id": failed_run_id, "now": current_time[0]},
+            )
+
+        exceptions = PostgresOwnerTechnicalExceptionService(
+            engine=api, clock=lambda: current_time[0]
+        )
+        page = await exceptions.list_exceptions(
+            kind="TECHNICAL", status="OPEN", cursor=None, limit=20
+        )
+        source_exception = next(item for item in page if item.decision_id is None)
+        assert source_exception.technical_reason_code == "NETWORK_TIMEOUT"
+        assert source_exception.attempt_count == 3
+
+        current_time[0] += timedelta(seconds=1)
+        request = await exceptions.command(
+            exception_id=source_exception.id,
+            command={
+                "exception_id": source_exception.id,
+                "event_type": "RETRY_REQUESTED",
+                "expected_version": source_exception.version,
+            },
+            owner_id=uuid7(),
+            idempotency_key=uuid7(),
+        )
+        coordinator = PostgresTechnicalRetryCoordinator(
+            engine=worker, clock=lambda: current_time[0], jitter=lambda: 0.5
+        )
+        assert (
+            await coordinator.retry_source_fetch(
+                failed_run_id,
+                retry_event_id=request.id,
+                requested_at=request.created_at,
+            )
+            is True
+        )
+        async with admin.begin() as connection:
+            recovery = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT id,status,attempt_count FROM fetch_run "
+                            "WHERE replayed_from_run_id=:failed"
+                        ),
+                        {"failed": failed_run_id},
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            assert recovery["status"] == "PENDING_DISPATCH"
+            assert recovery["attempt_count"] == 0
+            await connection.execute(
+                text(
+                    "UPDATE fetch_run SET status='SUCCEEDED',completed_at=:now "
+                    "WHERE id=:run_id"
+                ),
+                {"run_id": recovery["id"], "now": current_time[0]},
+            )
+        await exceptions.reconcile()
+        resolved = await exceptions.get_exception(source_exception.id)
+        assert resolved.status.value == "RESOLVED"
+    finally:
+        await admin.dispose()
+        await api.dispose()
+        await worker.dispose()

@@ -1,4 +1,8 @@
+import asyncio
 import inspect
+import json
+from datetime import UTC, datetime
+from uuid import UUID
 
 import srbg_worker.app as worker
 from srbg_worker.ai_content_preparation import _INSERT_STEP_SQL, _MODEL_PROFILE_VERSION
@@ -20,11 +24,80 @@ def test_worker_uses_utc_and_json_serialization() -> None:
     assert worker.celery_app.conf.timezone == "UTC"
     assert worker.celery_app.conf.enable_utc is True
     assert worker.celery_app.conf.task_serializer == "json"
-    assert worker.celery_app.conf.task_routes["srbg.ai.generate_attempt"] == {
-        "queue": "ai"
-    }
+    assert worker.celery_app.conf.task_routes["srbg.ai.generate_attempt"] == {"queue": "ai"}
     assert _MODEL_PROFILE_VERSION == "ai01-deepseek-deepseek-v4-flash-v1"
     assert _INSERT_STEP_SQL.count("CAST(:status AS varchar)") == 2
+
+
+def test_technical_retries_are_polled_from_durable_postgres_state() -> None:
+    schedule = worker.celery_app.conf.beat_schedule["dispatch-due-technical-retries"]
+
+    assert schedule == {
+        "task": "srbg.ai.technical_retry_dispatch",
+        "schedule": 5.0,
+        "options": {"queue": "parser"},
+    }
+    assert worker.celery_app.conf.task_routes["srbg.ai.technical_retry_dispatch"] == {
+        "queue": "parser"
+    }
+    source = inspect.getsource(worker._dispatch_due_technical_retries)
+    queue_source = inspect.getsource(worker._drain_owner_retry_requests)
+    assert "claim_due" in source
+    assert "lmove" in source and "lmove" in queue_source
+    assert "lrem" in queue_source
+    assert "AttemptKind.NETWORK_RETRY" in source
+
+
+def test_poison_owner_retry_message_does_not_block_the_next_valid_request() -> None:
+    event_id = UUID("019f8900-0000-7000-8000-000000000043")
+    run_id = UUID("019f8900-0000-7000-8000-000000000044")
+
+    class RetryQueue:
+        def __init__(self) -> None:
+            self.values = [
+                "{not-json",
+                json.dumps(
+                    {
+                        "event_id": str(event_id),
+                        "work_kind": "AI_PIPELINE",
+                        "work_id": str(run_id),
+                        "requested_at": datetime(2026, 7, 22, tzinfo=UTC).isoformat(),
+                    }
+                ),
+            ]
+            self.removed: list[str] = []
+            self.deduped: list[str] = []
+
+        async def lmove(self, *_: object) -> str | None:
+            return self.values.pop(0) if self.values else None
+
+        async def lrem(self, _key: str, _count: int, value: str) -> None:
+            self.removed.append(value)
+
+        async def srem(self, _key: str, value: str) -> None:
+            self.deduped.append(value)
+
+    class Coordinator:
+        def __init__(self) -> None:
+            self.retried: list[tuple[UUID, UUID, datetime]] = []
+
+        async def retry_now(
+            self, work_id: UUID, *, retry_event_id: UUID, requested_at: datetime
+        ) -> None:
+            self.retried.append((work_id, retry_event_id, requested_at))
+
+        async def retry_source_fetch(self, *_: object, **__: object) -> None:
+            raise AssertionError("AI pipeline message must not dispatch source fetch")
+
+    queue = RetryQueue()
+    coordinator = Coordinator()
+    asyncio.run(worker._drain_owner_retry_requests(queue, coordinator))
+
+    assert len(queue.removed) == 2
+    assert queue.deduped == [str(event_id)]
+    assert coordinator.retried == [
+        (run_id, event_id, datetime(2026, 7, 22, tzinfo=UTC))
+    ]
 
 
 def test_v2_review_reprocessing_is_dispatched_by_outbox_id() -> None:
@@ -42,9 +115,7 @@ def test_ai_runtime_probe_runs_every_thirty_seconds_with_api_callback() -> None:
 
     assert schedule["task"] == "srbg.ai.runtime_probe_dispatch"
     assert schedule["schedule"] == 30.0
-    assert worker.celery_app.conf.task_routes["srbg.ai.runtime_observation"] == {
-        "queue": "celery"
-    }
+    assert worker.celery_app.conf.task_routes["srbg.ai.runtime_observation"] == {"queue": "celery"}
 
 
 def test_real_schema_canary_is_scheduled_every_six_hours_and_stays_on_ai_queue() -> None:
@@ -52,9 +123,7 @@ def test_real_schema_canary_is_scheduled_every_six_hours_and_stays_on_ai_queue()
 
     assert schedule["task"] == "srbg.ai.v2_canary_dispatch"
     assert schedule["schedule"] == 21600.0
-    assert worker.celery_app.conf.task_routes["srbg.ai.v2_canary_result"] == {
-        "queue": "celery"
-    }
+    assert worker.celery_app.conf.task_routes["srbg.ai.v2_canary_result"] == {"queue": "celery"}
 
 
 def test_engineering_fault_injection_is_acceptance_only_and_publication_isolated() -> None:
@@ -64,9 +133,9 @@ def test_engineering_fault_injection_is_acceptance_only_and_publication_isolated
     assert "FAULT_TRANSIENT_INJECTED" in source
     assert "FAULT_PERMANENT_INJECTED" in source
     assert "PublicationService" not in source
-    assert worker.celery_app.conf.task_routes[
-        "srbg.ai.v2_campaign_fault_injection"
-    ] == {"queue": "celery"}
+    assert worker.celery_app.conf.task_routes["srbg.ai.v2_campaign_fault_injection"] == {
+        "queue": "celery"
+    }
 
 
 def test_fixed_canary_refuses_unapproved_environment_before_database_access(monkeypatch) -> None:

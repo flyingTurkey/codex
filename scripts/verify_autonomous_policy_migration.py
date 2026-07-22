@@ -54,6 +54,7 @@ async def _verify(database_url: str, revision: str) -> None:
         "0048_autonomous_policy_foundation",
         "0049_autonomous_content_switch",
         "0050_autonomous_handoff_state_order",
+        "0051_technical_exception_recovery",
     }
     try:
         async with engine.connect() as connection:
@@ -102,7 +103,10 @@ async def _verify(database_url: str, revision: str) -> None:
                     )
                 )
                 _require(int(registry_count or 0) == 2, "production AI registry is incomplete")
-            if revision == "0050_autonomous_handoff_state_order":
+            if revision in {
+                "0050_autonomous_handoff_state_order",
+                "0051_technical_exception_recovery",
+            }:
                 handoff_definition = await connection.scalar(
                     text(
                         "SELECT pg_get_functiondef("
@@ -112,6 +116,18 @@ async def _verify(database_url: str, revision: str) -> None:
                 _require(
                     "WHEN 'READY' THEN 80" in str(handoff_definition),
                     "handoff state order is not deterministic",
+                )
+            if revision == "0051_technical_exception_recovery":
+                retry_definition = await connection.scalar(
+                    text(
+                        "SELECT pg_get_functiondef("
+                        "'reopen_source_content_ai_run(uuid,uuid,uuid,uuid,timestamptz,timestamptz)'"
+                        "::regprocedure)"
+                    )
+                )
+                _require(
+                    "event.event_type='RETRY_REQUESTED'" in str(retry_definition),
+                    "technical retry is not bound to an Owner command",
                 )
     finally:
         await engine.dispose()
@@ -135,9 +151,15 @@ def main() -> None:
     asyncio.run(_verify(database_url, "0049_autonomous_content_switch"))
     command.upgrade(config, "0050_autonomous_handoff_state_order")
     asyncio.run(_verify(database_url, "0050_autonomous_handoff_state_order"))
+    command.upgrade(config, "0051_technical_exception_recovery")
+    asyncio.run(_verify(database_url, "0051_technical_exception_recovery"))
+    command.downgrade(config, "0050_autonomous_handoff_state_order")
+    asyncio.run(_verify(database_url, "0050_autonomous_handoff_state_order"))
+    command.upgrade(config, "0051_technical_exception_recovery")
+    asyncio.run(_verify(database_url, "0051_technical_exception_recovery"))
     print(
         "Autonomous-policy migration replay passed: "
-        "0048 -> 0049 -> 0048 -> 0049 -> 0050 -> 0049 -> 0050"
+        "0048 -> 0049 -> 0048 -> 0049 -> 0050 -> 0049 -> 0050 -> 0051 -> 0050 -> 0051"
     )
 
 

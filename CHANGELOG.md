@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-07-22 (Issue #43 technical exception control plane)
+
+- Added retryable/non-retryable autonomous technical failure decisions with three PostgreSQL-backed exponential retry intervals, full jitter, leased restart recovery, terminal `TECHNICAL_FAILED`, and a separate retry-cycle counter so Owner recovery never reuses an immutable decision attempt number.
+- Added the local Owner `/api/v2/owner/exceptions` list/detail/command surface, idempotent immediate-retry requests, automatic resolution after a later accepted/filtered decision, tamper-evident command audit, bounded metrics, and an exhaustion alert. Existing source intent PATCH remains the sole one-click source-disable authority.
+- Added the Nuxt technical-exception workspace with status filtering, retry/disable controls, duplicate-click protection, Shanghai time display, responsive token-driven styling, and browser/axe coverage.
+- Extended the safe Owner projection with a nullable bounded technical reason, kept Safety projections null, and added linear migration `0051_technical_exception_recovery`. Its event-bound `SECURITY DEFINER` commands resume failed AI or SourceStream work without granting direct shared-table writes or creating a parallel Alembic head.
+- Reused the existing durable SourceStream scheduler for acquisition failures and extended the same technical path across raw-object loading, deterministic parsing/evidence failures, queue dispatch, temporary database/object-store outages, and stale-run restart recovery. This change does not add Safety Hold adjudication, Owner allow/deny actions, Feed suppression, or publication authority.
+
 ## 2026-07-22 (Issue #41 autonomous production closeout)
 
 - Switched the real content Worker to the versioned autonomous rule/AI adjudication seam. Deterministic negatives stop before Item/Event creation; accepted candidates retain exact policy/model/Prompt/Schema/document identities and continue only through evidence qualification and `PublicationService`.

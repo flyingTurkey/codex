@@ -40,6 +40,7 @@ from srbg_api.intelligence_v2.content_candidates import (
     StructuredSummaryCandidate,
     build_content_candidate,
 )
+from srbg_api.intelligence_v2.qualification_decisions import append_qualification_decision
 from srbg_api.intelligence_v2.t06_content_summary import build_content_summary_request
 from srbg_api.observability import (
     INTELLIGENCE_QUALIFICATION_REVIEW_BACKLOG,
@@ -202,6 +203,30 @@ class PostgresAiPreparationRepository:
             source_name=str(facts["source_name"]),
             blocks=tuple(blocks),
             run_mode=str(facts["run_mode"]),
+            technical_retry_max_retries=int(facts["technical_retry_max_retries"]),
+        )
+
+    async def load_technical_context(self, run_id: UUID) -> PreparationDocument:
+        """Load ID-only retry authority without touching untrusted object bytes."""
+
+        async with self._engine.connect() as connection:
+            facts = (
+                (await connection.execute(text(_DOCUMENT_SQL), {"run_id": run_id}))
+                .mappings()
+                .one()
+            )
+        return PreparationDocument(
+            run_id=run_id,
+            document_version_id=cast(UUID, facts["document_version_id"]),
+            raw_object_id=cast(UUID, facts["raw_object_id"]),
+            source_stream_policy_version=str(facts["source_stream_policy_version"]),
+            source_code=str(facts["registry_code"]),
+            canonical_url=str(facts["canonical_url"]),
+            title=str(facts["title"] or "Untitled source document"),
+            source_name=str(facts["source_name"]),
+            blocks=(),
+            run_mode=str(facts["run_mode"]),
+            technical_retry_max_retries=int(facts["technical_retry_max_retries"]),
         )
 
     async def authorize_real_run(self, document: PreparationDocument) -> bool:
@@ -217,82 +242,8 @@ class PostgresAiPreparationRepository:
     ) -> None:
         """Append the exact immutable policy bundle and its server decision atomically."""
 
-        identity = policy.identity
-        policy_payload = {
-            "identity": identity.model_dump(mode="json"),
-            "source_allow_terms": list(policy.source_allow_terms),
-            "source_exclude_terms": list(policy.source_exclude_terms),
-            "maximum_semantic_rechecks": 1,
-        }
         async with self._engine.begin() as connection:
-            bundle_id = uuid7()
-            await connection.execute(
-                text(
-                    "INSERT INTO qualification_policy_bundle_v2("
-                    "id,policy_version,global_rule_version,source_stream_policy_version,"
-                    "ai_provider,ai_model,prompt_version,schema_version,code_version,"
-                    "authorization_basis,policy_payload,bundle_sha256,created_at) VALUES("
-                    ":id,:policy_version,:global_rule_version,:stream_version,:provider,:model,"
-                    ":prompt_version,:schema_version,:code_version,'SERVER_ADJUDICATION_ONLY',"
-                    "CAST(:payload AS jsonb),:bundle_sha256,:now) "
-                    "ON CONFLICT (bundle_sha256) DO NOTHING"
-                ),
-                {
-                    "id": bundle_id,
-                    "policy_version": identity.policy_version,
-                    "global_rule_version": identity.global_rule_version,
-                    "stream_version": identity.source_stream_policy_version,
-                    "provider": identity.ai_provider,
-                    "model": identity.ai_model,
-                    "prompt_version": identity.prompt_version,
-                    "schema_version": identity.schema_version,
-                    "code_version": identity.code_version,
-                    "payload": json.dumps(policy_payload, ensure_ascii=False, sort_keys=True),
-                    "bundle_sha256": identity.bundle_sha256,
-                    "now": trace.decided_at,
-                },
-            )
-            persisted_bundle_id = await connection.scalar(
-                text(
-                    "SELECT id FROM qualification_policy_bundle_v2 "
-                    "WHERE bundle_sha256=:bundle_sha256"
-                ),
-                {"bundle_sha256": identity.bundle_sha256},
-            )
-            if persisted_bundle_id is None:
-                raise RuntimeError("QUALIFICATION_POLICY_BUNDLE_NOT_PERSISTED")
-            await connection.execute(
-                text(
-                    "INSERT INTO automated_qualification_decision_v2("
-                    "id,policy_bundle_id,document_version_id,raw_object_id,"
-                    "normalized_input_sha256,disposition,reason_codes,rule_signals,"
-                    "model_candidate,evidence_locators,semantic_recheck_count,attempt_number,"
-                    "decided_at) VALUES(:id,:bundle_id,:version_id,:raw_id,:input_hash,"
-                    ":disposition,:reasons,CAST(:signals AS jsonb),CAST(:candidate AS jsonb),"
-                    ":locators,:rechecks,:attempt,:decided_at) "
-                    "ON CONFLICT (document_version_id,policy_bundle_id,attempt_number) DO NOTHING"
-                ),
-                {
-                    "id": trace.decision_id,
-                    "bundle_id": persisted_bundle_id,
-                    "version_id": trace.document_version_id,
-                    "raw_id": trace.raw_object_id,
-                    "input_hash": trace.normalized_input_sha256,
-                    "disposition": trace.disposition.value,
-                    "reasons": [reason.value for reason in trace.reason_codes],
-                    "signals": json.dumps(trace.rule_signals, ensure_ascii=False),
-                    "candidate": json.dumps(
-                        None
-                        if trace.model_candidate is None
-                        else trace.model_candidate.model_dump(mode="json"),
-                        ensure_ascii=False,
-                    ),
-                    "locators": trace.evidence_locators,
-                    "rechecks": trace.semantic_recheck_count,
-                    "attempt": trace.attempt_number,
-                    "decided_at": trace.decided_at,
-                },
-            )
+            await append_qualification_decision(connection, trace=trace, policy=policy)
 
     async def append_shadow_decision(
         self, trace: QualificationDecisionTrace, policy: QualificationPolicyBundle
@@ -2280,16 +2231,18 @@ SELECT run.mode AS run_mode,version.id AS document_version_id,version.raw_object
        raw.object_key,document.canonical_url,source.registry_code,
        source.name AS source_name,COALESCE(raw.detected_mime,raw.declared_mime,'') AS mime_type,
        COALESCE(stream_policy.config_sha256,source_policy.policy_version,'legacy-source-policy')
-         AS source_stream_policy_version
+         AS source_stream_policy_version,
+       LEAST(COALESCE(stream_policy.max_attempts,3),3) AS technical_retry_max_retries
 FROM ai_pipeline_run run
 JOIN document_version version ON version.id=run.document_version_id
 JOIN raw_object raw ON raw.id=version.raw_object_id
 JOIN document ON document.id=version.document_id
 JOIN source ON source.id=document.source_id
 LEFT JOIN LATERAL (
-  SELECT config.config_sha256 FROM raw_object_capture capture
+  SELECT config.config_sha256,schedule.max_attempts FROM raw_object_capture capture
   JOIN fetch_run fetch_row ON fetch_row.id=capture.fetch_run_id
   JOIN stream_config_version config ON config.id=fetch_row.stream_config_version_id
+  LEFT JOIN fetch_schedule schedule ON schedule.source_stream_id=fetch_row.source_stream_id
   WHERE capture.raw_object_id=raw.id ORDER BY capture.captured_at DESC LIMIT 1
 ) stream_policy ON true
 LEFT JOIN LATERAL (

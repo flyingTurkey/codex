@@ -4,10 +4,12 @@ import asyncio
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal, cast
 from uuid import UUID
 
 from celery import Celery
 from celery.signals import task_failure
+from pydantic import AwareDatetime, BaseModel, ConfigDict, ValidationError
 from redis.asyncio import Redis, from_url
 from sqlalchemy import text
 from srbg_api.ai_pipeline.ai_judgments import (
@@ -37,6 +39,11 @@ from srbg_api.intelligence_v2.autonomous_policy import QualificationPolicyBundle
 from srbg_api.intelligence_v2.t06_content_summary import (
     validate_content_summary_output,
 )
+from srbg_api.intelligence_v2.technical_exceptions import (
+    TECHNICAL_RETRY_DEDUPE_KEY,
+    TECHNICAL_RETRY_PROCESSING_KEY,
+    TECHNICAL_RETRY_QUEUE_KEY,
+)
 from srbg_api.internal_projection.audit_anchor import anchor_latest_audit_root
 from srbg_api.logging import configure_logging
 from srbg_api.observability import (
@@ -47,6 +54,7 @@ from srbg_api.observability import (
     SOURCE_PROFILE_MODEL_ATTEMPTS,
     SOURCE_PROFILE_QUEUE,
     SOURCE_PROFILE_RUNS,
+    TECHNICAL_RETRY_OUTCOMES,
 )
 from srbg_api.pdf_processing.ocr import TesseractOcrAdapter
 from srbg_api.pdf_processing.parser import PdfDocumentParser
@@ -113,6 +121,10 @@ from srbg_worker.source_runtime import (
     PostgresRuntimeGateway,
     RuntimeBinding,
     RuntimeFetchExecutor,
+)
+from srbg_worker.technical_exceptions import (
+    PostgresTechnicalRetryCoordinator,
+    TechnicalRetryOutcome,
 )
 from srbg_worker.v2_canary import fixed_canary_input
 
@@ -186,6 +198,11 @@ celery_app.conf.update(
             "schedule": 5.0,
             "options": {"queue": "parser"},
         },
+        "dispatch-due-technical-retries": {
+            "task": "srbg.ai.technical_retry_dispatch",
+            "schedule": 5.0,
+            "options": {"queue": "parser"},
+        },
     },
     task_routes={
         "srbg.safety_regulations.discover": {"queue": "parser"},
@@ -200,6 +217,7 @@ celery_app.conf.update(
         "srbg.source_content.outbox": {"queue": "parser"},
         "srbg.ai_content.start": {"queue": "parser"},
         "srbg.ai_content.result": {"queue": "parser"},
+        "srbg.ai.technical_retry_dispatch": {"queue": "parser"},
         "srbg.ai.generate": {"queue": "ai"},
         "srbg.ai.generate_attempt": {"queue": "ai"},
         "srbg.ai.runtime_probe_dispatch": {"queue": "celery"},
@@ -582,6 +600,7 @@ def handle_ai_content_result(
     repair_used: bool,
     reservation_id: str,
     semantic_recheck: bool = False,
+    decision_attempt: int | None = None,
 ) -> dict[str, object]:
     return asyncio.run(
         _handle_ai_content_result(
@@ -594,8 +613,14 @@ def handle_ai_content_result(
             repair_used=repair_used,
             reservation_id=UUID(reservation_id),
             semantic_recheck=semantic_recheck,
+            decision_attempt=decision_attempt,
         )
     )
+
+
+@celery_app.task(name="srbg.ai.technical_retry_dispatch")  # type: ignore[untyped-decorator]
+def dispatch_technical_retries() -> dict[str, int]:
+    return asyncio.run(_dispatch_due_technical_retries())
 
 
 @celery_app.task(name="srbg.personal_source.probe")  # type: ignore[untyped-decorator]
@@ -912,10 +937,22 @@ async def _drain_source_content_outbox(
             "queued": outcome.queued,
         }
         if outcome.queued:
-            celery_app.send_task(
-                "srbg.ai_content.start",
-                kwargs={"run_id": str(outcome.pipeline_run_id)},
-            )
+            try:
+                celery_app.send_task(
+                    "srbg.ai_content.start",
+                    kwargs={"run_id": str(outcome.pipeline_run_id)},
+                )
+            except Exception:
+                technical = await _record_run_technical_failure(
+                    outcome.pipeline_run_id,
+                    reason_code="QUEUE_CONTENTION",
+                )
+                response["status"] = (
+                    "RETRYING"
+                    if technical.disposition is AutomatedDisposition.TECHNICAL_RETRY
+                    else "FAILED"
+                )
+                response["queued"] = False
         return response
     finally:
         await gateway.close()
@@ -934,6 +971,179 @@ def _ai_repository() -> PostgresAiPreparationRepository:
         environment=settings.environment,
         max_document_bytes=settings.fixture_max_bytes,
     )
+
+
+def _technical_retry_coordinator() -> PostgresTechnicalRetryCoordinator:
+    return PostgresTechnicalRetryCoordinator(engine=create_database_engine(settings))
+
+
+class TechnicalRetryQueueMessage(BaseModel):
+    """Bounded control message; document or model content is never accepted here."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: UUID
+    work_kind: Literal["AI_PIPELINE", "SOURCE_FETCH"]
+    work_id: UUID
+    requested_at: AwareDatetime
+
+
+async def _drain_owner_retry_requests(
+    retry_queue: Redis,
+    coordinator: PostgresTechnicalRetryCoordinator,
+) -> None:
+    for _ in range(100):
+        raw_value = await retry_queue.lmove(
+            TECHNICAL_RETRY_QUEUE_KEY,
+            TECHNICAL_RETRY_PROCESSING_KEY,
+            "LEFT",
+            "RIGHT",
+        )
+        if raw_value is None:
+            break
+        cleanup = False
+        dedupe_id: str | None = None
+        encoded_message = cast(str, raw_value)
+        try:
+            if not isinstance(encoded_message, str):
+                raise ValueError("technical retry control message must be text")
+            if len(encoded_message) > 2_048:
+                raise ValueError("technical retry control message exceeds the bounded size")
+            message = TechnicalRetryQueueMessage.model_validate_json(encoded_message)
+            dedupe_id = str(message.event_id)
+            if message.work_kind == "SOURCE_FETCH":
+                await coordinator.retry_source_fetch(
+                    message.work_id,
+                    retry_event_id=message.event_id,
+                    requested_at=message.requested_at,
+                )
+                await _dispatch_due_schedules()
+            else:
+                await coordinator.retry_now(
+                    message.work_id,
+                    retry_event_id=message.event_id,
+                    requested_at=message.requested_at,
+                )
+            cleanup = True
+        except (ValidationError, ValueError):
+            cleanup = True
+            TECHNICAL_RETRY_OUTCOMES.labels(
+                outcome="QUEUE_MESSAGE_REJECTED",
+                reason_class="INVALID_CONTROL_MESSAGE",
+            ).inc()
+            logger.warning(
+                "technical_retry_queue_message_rejected",
+                extra={"reason_class": "INVALID_CONTROL_MESSAGE"},
+            )
+        finally:
+            if cleanup:
+                await retry_queue.lrem(TECHNICAL_RETRY_PROCESSING_KEY, 1, encoded_message)
+                if dedupe_id is not None:
+                    await retry_queue.srem(TECHNICAL_RETRY_DEDUPE_KEY, dedupe_id)
+
+
+async def _dispatch_due_technical_retries() -> dict[str, int]:
+    coordinator = _technical_retry_coordinator()
+    repository = _ai_repository()
+    retry_queue = from_url(
+        settings.redis_url,
+        decode_responses=True,
+        socket_connect_timeout=settings.external_io_timeout_seconds,
+        socket_timeout=settings.external_io_timeout_seconds,
+    )
+    dispatched = 0
+    try:
+        while (
+            await retry_queue.lmove(
+                TECHNICAL_RETRY_PROCESSING_KEY,
+                TECHNICAL_RETRY_QUEUE_KEY,
+                "LEFT",
+                "RIGHT",
+            )
+            is not None
+        ):
+            pass
+        await _drain_owner_retry_requests(retry_queue, coordinator)
+        for stalled in await coordinator.claim_stalled(limit=25):
+            document = await repository.load_technical_context(
+                stalled.original_pipeline_run_id
+            )
+            await coordinator.record_failure(
+                document=document,
+                policy=production_policy_for(document),
+                reason_code=stalled.reason_code,
+                attempt_number=stalled.next_attempt_number,
+                max_retries=document.technical_retry_max_retries,
+            )
+        for due in await coordinator.claim_due(limit=25):
+            document = await repository.begin(due.original_pipeline_run_id)
+            classify_input, _ = _prepare_ai_inputs_for_document(document)
+            await _dispatch_ai_attempt(
+                repository,
+                run_id=due.original_pipeline_run_id,
+                step=AiStep.CLASSIFY,
+                prepared=classify_input,
+                attempt=due.attempt_count + 1,
+                kind=AttemptKind.NETWORK_RETRY,
+                network_retries=due.attempt_count,
+                repair_used=False,
+                policy=production_policy_for(document),
+                decision_attempt=due.next_attempt_number,
+            )
+            dispatched += 1
+        return {"dispatched": dispatched}
+    finally:
+        await retry_queue.aclose()
+        await repository.close()
+        await coordinator.close()
+
+
+async def _record_classification_technical_failure(
+    *,
+    document: PreparationDocument,
+    code: str,
+    attempt: int,
+    retry_number: int | None = None,
+) -> TechnicalRetryOutcome:
+    coordinator = _technical_retry_coordinator()
+    try:
+        outcome = await coordinator.record_failure(
+            document=document,
+            policy=production_policy_for(document),
+            reason_code=code,
+            attempt_number=attempt,
+            retry_number=retry_number,
+            max_retries=document.technical_retry_max_retries,
+        )
+    finally:
+        await coordinator.close()
+    INTELLIGENCE_QUALIFICATION_DECISIONS.labels(
+        outcome=outcome.disposition.value,
+        reason=(
+            "TECHNICAL_RETRYABLE"
+            if outcome.disposition is AutomatedDisposition.TECHNICAL_RETRY
+            else "TECHNICAL_EXHAUSTED"
+        ),
+    ).inc()
+    return outcome
+
+
+async def _record_run_technical_failure(
+    run_id: UUID, *, reason_code: str
+) -> TechnicalRetryOutcome:
+    repository = _ai_repository()
+    try:
+        document = await repository.load_technical_context(run_id)
+        outcome = await _record_classification_technical_failure(
+            document=document,
+            code=reason_code,
+            attempt=1,
+        )
+        if outcome.disposition is AutomatedDisposition.TECHNICAL_FAILED and outcome.applied:
+            await repository.fail(run_id, "FAILED", "TECHNICAL_FAILED")
+        return outcome
+    finally:
+        await repository.close()
 
 
 async def _start_ai_content_preparation(run_id: UUID) -> dict[str, object]:
@@ -991,10 +1201,52 @@ async def _start_ai_content_preparation(run_id: UUID) -> dict[str, object]:
         if code in {"MODEL_DISABLED", "PROVIDER_BALANCE_INSUFFICIENT"}:
             await repository.fail(run_id, "DEGRADED", code)
             return {"run_id": str(run_id), "status": "DEGRADED", "failure_code": code}
-        await repository.fail(run_id, "FAILED", code)
-        raise
+        try:
+            document = await repository.load_technical_context(run_id)
+        except Exception:
+            raise error from None
+        reason_code = _preparation_technical_reason(error)
+        outcome = await _record_classification_technical_failure(
+            document=document,
+            code=reason_code,
+            attempt=1,
+        )
+        if outcome.disposition is AutomatedDisposition.TECHNICAL_RETRY:
+            return {
+                "run_id": str(run_id),
+                "status": "RETRYING",
+                "next_retry_at": (
+                    outcome.next_retry_at.isoformat()
+                    if outcome.next_retry_at is not None
+                    else None
+                ),
+            }
+        await repository.fail(run_id, "FAILED", "TECHNICAL_FAILED")
+        return {
+            "run_id": str(run_id),
+            "status": "FAILED",
+            "disposition": AutomatedDisposition.TECHNICAL_FAILED.value,
+        }
     finally:
         await repository.close()
+
+
+def _preparation_technical_reason(error: Exception) -> str:
+    value = str(error)
+    if value == "UNSUPPORTED_DOCUMENT_MIME":
+        return "UNSUPPORTED_DOCUMENT_MIME"
+    if value == "RAW_OBJECT_HASH_MISMATCH":
+        return "MISSING_IMMUTABLE_EVIDENCE"
+    if value == "QUEUE_CONTENTION":
+        return "QUEUE_CONTENTION"
+    module = type(error).__module__
+    if module.startswith("sqlalchemy") or module.startswith("asyncpg"):
+        return "DATABASE_TEMPORARILY_UNAVAILABLE"
+    if isinstance(error, TimeoutError):
+        return "OBJECT_STORE_TEMPORARILY_UNAVAILABLE"
+    if isinstance(error, OSError) or module.startswith(("botocore", "aiobotocore")):
+        return "OBJECT_STORE_TEMPORARILY_UNAVAILABLE"
+    return "DOCUMENT_VALIDATION_FAILED"
 
 
 async def _handle_ai_content_result(
@@ -1008,8 +1260,10 @@ async def _handle_ai_content_result(
     repair_used: bool,
     reservation_id: UUID,
     semantic_recheck: bool = False,
+    decision_attempt: int | None = None,
 ) -> dict[str, object]:
     repository = _ai_repository()
+    qualification_attempt = decision_attempt or attempt
     try:
         try:
             document = await repository.begin(run_id)
@@ -1128,12 +1382,14 @@ async def _handle_ai_content_result(
                         repair_used=False,
                         policy=policy,
                         semantic_recheck=True,
+                        decision_attempt=qualification_attempt + 1,
                     )
                     return {
                         "run_id": str(run_id),
                         "status": "CLASSIFYING",
                         "semantic_recheck_count": 1,
                     }
+                trace = trace.model_copy(update={"attempt_number": qualification_attempt})
                 if document.run_mode == "SHADOW":
                     await repository.append_shadow_decision(trace, policy)
                 else:
@@ -1241,6 +1497,29 @@ async def _handle_ai_content_result(
         )
         retryable = result.get("retryable") is True
         repairable = result.get("repairable") is True
+        if retryable and step is AiStep.CLASSIFY:
+            outcome = await _record_classification_technical_failure(
+                document=document,
+                code=code,
+                attempt=qualification_attempt,
+                retry_number=network_retries + 1,
+            )
+            if outcome.disposition is AutomatedDisposition.TECHNICAL_RETRY:
+                return {
+                    "run_id": str(run_id),
+                    "status": "RETRYING",
+                    "next_retry_at": outcome.next_retry_at.isoformat()
+                    if outcome.next_retry_at is not None
+                    else None,
+                }
+            if not outcome.applied:
+                return {"run_id": str(run_id), "status": "DUPLICATE"}
+            await repository.fail(run_id, "FAILED", "TECHNICAL_FAILED")
+            return {
+                "run_id": str(run_id),
+                "status": "FAILED",
+                "disposition": AutomatedDisposition.TECHNICAL_FAILED.value,
+            }
         if retryable and network_retries < 3:
             delay = await repository.schedule_compensation(
                 run_id=run_id,
@@ -1281,9 +1560,24 @@ async def _handle_ai_content_result(
                 semantic_recheck=semantic_recheck,
                 repair_code=code,
                 request_override=request,
+                decision_attempt=(qualification_attempt + 1 if step is AiStep.CLASSIFY else None),
             )
             return {"run_id": str(run_id), "status": "REPAIRING"}
-        failure_status = "FAILED" if step is AiStep.CLASSIFY else "DEGRADED"
+        if step is AiStep.CLASSIFY:
+            outcome = await _record_classification_technical_failure(
+                document=document,
+                code=code,
+                attempt=qualification_attempt,
+            )
+            if not outcome.applied:
+                return {"run_id": str(run_id), "status": "DUPLICATE"}
+            await repository.fail(run_id, "FAILED", "TECHNICAL_FAILED")
+            return {
+                "run_id": str(run_id),
+                "status": "FAILED",
+                "disposition": AutomatedDisposition.TECHNICAL_FAILED.value,
+            }
+        failure_status = "DEGRADED"
         if step in {AiStep.SUMMARIZE, AiStep.VERIFY}:
             await repository.append_summary_state(
                 document,
@@ -1320,9 +1614,24 @@ async def _handle_ai_content_result(
                 semantic_recheck=semantic_recheck,
                 repair_code=code,
                 request_override=request,
+                decision_attempt=(qualification_attempt + 1 if step is AiStep.CLASSIFY else None),
             )
             return {"run_id": str(run_id), "status": "REPAIRING"}
-        failure_status = "FAILED" if step is AiStep.CLASSIFY else "DEGRADED"
+        if step is AiStep.CLASSIFY:
+            outcome = await _record_classification_technical_failure(
+                document=document,
+                code=code,
+                attempt=qualification_attempt,
+            )
+            if not outcome.applied:
+                return {"run_id": str(run_id), "status": "DUPLICATE"}
+            await repository.fail(run_id, "FAILED", "TECHNICAL_FAILED")
+            return {
+                "run_id": str(run_id),
+                "status": "FAILED",
+                "disposition": AutomatedDisposition.TECHNICAL_FAILED.value,
+            }
+        failure_status = "DEGRADED"
         if step in {AiStep.SUMMARIZE, AiStep.VERIFY}:
             await repository.append_summary_state(
                 document,
@@ -1332,6 +1641,30 @@ async def _handle_ai_content_result(
         await repository.fail(run_id, failure_status, code)
         return {"run_id": str(run_id), "status": failure_status}
     except Exception as error:
+        if step is AiStep.CLASSIFY and str(error) == "QUEUE_CONTENTION":
+            outcome = await _record_classification_technical_failure(
+                document=document,
+                code="QUEUE_CONTENTION",
+                attempt=qualification_attempt,
+                retry_number=network_retries + 1,
+            )
+            if outcome.disposition is AutomatedDisposition.TECHNICAL_RETRY:
+                return {
+                    "run_id": str(run_id),
+                    "status": "RETRYING",
+                    "next_retry_at": (
+                        outcome.next_retry_at.isoformat()
+                        if outcome.next_retry_at is not None
+                        else None
+                    ),
+                }
+            if outcome.applied:
+                await repository.fail(run_id, "FAILED", "TECHNICAL_FAILED")
+            return {
+                "run_id": str(run_id),
+                "status": "FAILED",
+                "disposition": AutomatedDisposition.TECHNICAL_FAILED.value,
+            }
         failure_status = "FAILED" if step is AiStep.CLASSIFY else "DEGRADED"
         await repository.fail(run_id, failure_status, _safe_ai_error_code(error))
         raise
@@ -1447,6 +1780,7 @@ async def _dispatch_ai_attempt(
     request_override: ModelRequest | None = None,
     policy: QualificationPolicyBundle | None = None,
     semantic_recheck: bool = False,
+    decision_attempt: int | None = None,
 ) -> None:
     request = request_override or AiContentPreparationService.build_request(
         step,
@@ -1477,6 +1811,7 @@ async def _dispatch_ai_attempt(
             "repair_used": repair_used,
             "reservation_id": str(reservation),
             "semantic_recheck": semantic_recheck,
+            "decision_attempt": decision_attempt,
         },
         immutable=False,
     )
@@ -1490,9 +1825,9 @@ async def _dispatch_ai_attempt(
             link=callback,
             **options,
         )
-    except Exception:
+    except Exception as error:
         await repository.release(reservation)
-        raise
+        raise RuntimeError("QUEUE_CONTENTION") from error
 
 
 def _safe_ai_error_code(error: Exception) -> str:

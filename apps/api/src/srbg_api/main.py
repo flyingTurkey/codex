@@ -14,6 +14,7 @@ from typing import Any
 from fastapi import FastAPI, Header, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse
+from redis.asyncio import from_url
 from srbg_contracts import (
     API_VERSION,
     CONTENT_SCHEMA_VERSION,
@@ -53,6 +54,11 @@ from srbg_api.identifiers import uuid7
 from srbg_api.intelligence_v2.api import V2IntelligenceService
 from srbg_api.intelligence_v2.api import router as intelligence_v2_router
 from srbg_api.intelligence_v2.service import PostgresV2IntelligenceService
+from srbg_api.intelligence_v2.technical_exceptions import (
+    OwnerTechnicalExceptionService,
+    PostgresOwnerTechnicalExceptionService,
+)
+from srbg_api.intelligence_v2.technical_exceptions import router as technical_exception_router
 from srbg_api.internal_projection.reader import PublishedProjectionReader
 from srbg_api.internal_projection.service import PublishedIntelligenceQueryService
 from srbg_api.logging import configure_logging
@@ -86,6 +92,24 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+async def _reconcile_technical_exceptions_forever(
+    service: OwnerTechnicalExceptionService,
+    *,
+    stop: asyncio.Event,
+) -> None:
+    while not stop.is_set():
+        try:
+            await service.reconcile()
+        except Exception:
+            logging.getLogger("srbg.api.technical_exceptions").exception(
+                "technical_exception_reconciliation_failed"
+            )
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=5.0)
+        except TimeoutError:
+            pass
+
+
 def create_app(
     checkers: Mapping[str, HealthChecker] | None = None,
     source_service: PersonalSourceService | None = None,
@@ -95,6 +119,7 @@ def create_app(
     portal_service: PortalService | None = None,
     ai_admin_service: AiAdminService | None = None,
     v2_intelligence_service: V2IntelligenceService | None = None,
+    technical_exception_service: OwnerTechnicalExceptionService | None = None,
 ) -> FastAPI:
     configure_logging()
     settings = get_settings()
@@ -105,19 +130,37 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        yield
-        for service in (
-            source_service,
-            intelligence_service,
-            public_intelligence_service,
-            publication_service,
-            portal_service,
-            ai_admin_service,
-            v2_intelligence_service,
-        ):
-            close = getattr(service, "close", None)
-            if close is not None:
-                await close()
+        reconciliation_stop = asyncio.Event()
+        reconciliation_task = (
+            asyncio.create_task(
+                _reconcile_technical_exceptions_forever(
+                    technical_exception_service,
+                    stop=reconciliation_stop,
+                )
+            )
+            if technical_exception_service is not None
+            and getattr(technical_exception_service, "reconcile", None) is not None
+            else None
+        )
+        try:
+            yield
+        finally:
+            reconciliation_stop.set()
+            if reconciliation_task is not None:
+                await reconciliation_task
+            for service in (
+                source_service,
+                intelligence_service,
+                public_intelligence_service,
+                publication_service,
+                portal_service,
+                ai_admin_service,
+                v2_intelligence_service,
+                technical_exception_service,
+            ):
+                close = getattr(service, "close", None)
+                if close is not None:
+                    await close()
 
     app = FastAPI(title="SRBG Insight API", version="0.1.0", lifespan=lifespan)
     if settings.cors_allowed_origins:
@@ -135,6 +178,7 @@ def create_app(
     app.state.portal_service = portal_service
     app.state.ai_admin_service = ai_admin_service
     app.state.v2_intelligence_service = v2_intelligence_service
+    app.state.technical_exception_service = technical_exception_service
     app.state.publication_gate_denials = Counter()
     logger = logging.getLogger("srbg.api")
 
@@ -440,6 +484,7 @@ def create_app(
     app.include_router(source_vault_router)
     app.include_router(intelligence_router)
     app.include_router(intelligence_v2_router)
+    app.include_router(technical_exception_router)
     app.include_router(portal_router)
     app.include_router(personal_ai_settings_router)
 
@@ -553,6 +598,15 @@ def build_default_app() -> FastAPI:
             create_projection_reader_engine(settings),
             create_publication_engine(settings),
             S3ObjectStore(settings),
+        ),
+        technical_exception_service=PostgresOwnerTechnicalExceptionService(
+            engine=create_database_engine(settings),
+            retry_queue=from_url(
+                settings.redis_url,
+                decode_responses=True,
+                socket_connect_timeout=settings.external_io_timeout_seconds,
+                socket_timeout=settings.external_io_timeout_seconds,
+            ),
         ),
     )
 

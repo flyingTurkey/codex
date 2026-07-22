@@ -87,6 +87,20 @@ INTELLIGENCE_QUALIFICATION_REVIEW_BACKLOG = Gauge(
     "srbg_intelligence_qualification_review_backlog",
     "Open civil-engineering qualification review cases from PostgreSQL authority.",
 )
+TECHNICAL_RETRY_OUTCOMES = Counter(
+    "srbg_technical_retry_outcomes_total",
+    "Durable technical retry transitions by bounded outcome and reason class.",
+    ("outcome", "reason_class"),
+)
+OWNER_TECHNICAL_EXCEPTION_BACKLOG = Gauge(
+    "srbg_owner_technical_exception_backlog",
+    "Open Owner technical exceptions in PostgreSQL.",
+)
+OWNER_TECHNICAL_EXCEPTION_COMMANDS = Counter(
+    "srbg_owner_technical_exception_commands_total",
+    "Owner technical exception commands by bounded outcome.",
+    ("outcome",),
+)
 INTELLIGENCE_V2_PUBLICATION_DECISIONS = Counter(
     "srbg_intelligence_v2_publication_decisions_total",
     "Reader projection decisions by bounded outcome; safety failures are explicit.",
