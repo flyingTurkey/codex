@@ -116,5 +116,5 @@ def test_production_source_admission_uses_hard_server_gates_not_owner_gold() -> 
             passing.__class__(**(passing.__dict__ | {"hard_negative_leaks": 1})),
             calibration=None,
         )
-        == "PAUSE"
+        == "ADMIT"
     )

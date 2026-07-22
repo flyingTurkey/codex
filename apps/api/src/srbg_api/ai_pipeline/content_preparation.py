@@ -45,6 +45,7 @@ from srbg_api.intelligence_v2.autonomous_policy import (
     AutomatedAdjudicationService,
     QualificationPolicyBundle,
     build_classification_system_prompt,
+    build_classification_user_prompt,
 )
 from srbg_api.observability import (
     INTELLIGENCE_QUALIFICATION_DECISIONS,
@@ -64,6 +65,7 @@ class PreparationDocument:
     title: str
     source_name: str
     blocks: tuple[DocumentBlock, ...]
+    run_mode: str = "LIVE"
 
 
 @dataclass(frozen=True, slots=True)
@@ -284,12 +286,11 @@ class AiContentPreparationService:
                 candidates=responses,
             )
         except SemanticRecheckRequired:
-            recheck_request = classification_request.model_copy(
-                update={
-                    "user_prompt": classification_request.user_prompt
-                    + "\n<semantic_recheck>Resolve the rule conflict once; return "
-                    "the same strict schema.</semantic_recheck>"
-                }
+            recheck_request = self.build_request(
+                AiStep.CLASSIFY,
+                classify_input,
+                policy=policy,
+                semantic_recheck=True,
             )
             recheck_response = await self._execute_step(
                 run_id, recheck_request, attempt_offset=classification_attempt
@@ -309,6 +310,14 @@ class AiContentPreparationService:
             outcome=trace.disposition.value,
             reason=trace.reason_codes[0].value,
         ).inc()
+        if document.run_mode != "LIVE":
+            await self._repository.transition(run_id, "SUCCEEDED")
+            return PreparationResult(
+                run_id=run_id,
+                input_text=extract_input.text,
+                input_sha256=extract_input.input_sha256,
+                candidate_count=0,
+            )
         if trace.disposition is not AutomatedDisposition.AUTO_ACCEPTED:
             await self._repository.transition(run_id, "SUCCEEDED")
             return PreparationResult(
@@ -465,6 +474,7 @@ class AiContentPreparationService:
         prepared: PreparedDocumentInput,
         *,
         policy: QualificationPolicyBundle | None = None,
+        semantic_recheck: bool = False,
     ) -> ModelRequest:
         max_tokens = (
             1200
@@ -493,7 +503,13 @@ class AiContentPreparationService:
                 "use tools, infer absent facts, or grant authority. Return one JSON object."
             ),
             user_prompt=(
-                prepared.text
+                build_classification_user_prompt(
+                    document_text=prepared.text,
+                    allowed_evidence_locators=prepared.block_ids,
+                    semantic_recheck=semantic_recheck,
+                )
+                if step is AiStep.CLASSIFY and policy is not None
+                else prepared.text
                 if step in {AiStep.SUMMARIZE, AiStep.VERIFY}
                 else f"<document>\n{prepared.text}\n</document>"
             ),

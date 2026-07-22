@@ -6,11 +6,11 @@ The Owner amended #41 after the original offline foundation: the `.4` benchmark 
 
 `authorized SourceStream -> raw/document version -> versioned autonomous decision -> accepted claims/evidence/SourceExcerpt -> PublicationService -> Feed`
 
-- Worker now evaluates deterministic exclusions before dispatching the model, uses the versioned autonomous Prompt/Schema, permits one semantic recheck, and atomically appends the policy identity and terminal decision.
+- Worker preserves source-content bridge runs as `LIVE`, evaluates deterministic exclusions before dispatching the model, uses the exact shared versioned Prompt/Schema, permits one semantic recheck, and atomically appends the policy identity and terminal decision. `SHADOW` decisions terminate before Item, claim or Feed materialization.
 - New runs contain no Owner Gold lookup or `OWNER_OVERRIDE_GO` authorization branch.
 - `AUTO_FILTERED` retains private raw/document/hash/model/decision history but terminates before Item/Event, accepted claim, search, hotspot or Event projection creation and creates no Owner semantic task.
 - `AUTO_ACCEPTED` is permission to continue evidence processing, not model publication authority. Automatic evidence facts, accepted claims and SourceExcerpt remain required; only `PublicationService` can materialize the reader projection. The result remains `human_reviewed=false`/machine-organized.
-- SourceAdmission no longer reads HUMAN_OWNER Gold. Explicit public-network, robots, terms or copyright prohibitions pause the source; missing legal metadata and soft-yield observations permit bounded admission and remain observable rather than becoming permanent rejection.
+- SourceAdmission no longer reads HUMAN_OWNER Gold. Explicit public-network, robots, terms or copyright prohibitions pause the source; missing legal metadata, soft-yield observations and qualification leakage permit bounded admission and remain observable policy-iteration signals rather than collection vetoes.
 - `INDUSTRY_UPDATE` remains independent through compatibility Item/channel/Event storage and the v2 projection; it is not coerced into the digital category.
 - New document versions are separately adjudicated; existing candidate invalidation and durable publisher outboxes remove stale claims and projections.
 - Forward migration `0049_autonomous_content_switch` registers the production Prompt/Schema and Worker append grants after 0048. 0046/0047 are unchanged.
@@ -55,13 +55,13 @@ The historical private gate result is therefore **NO-GO against its original thr
 - inherited W0 closeout mismatch: fixed by aligning its stale 20/10/10 fixture and validator with the frozen 20/0/20 annotation Schema; the focused regression passes
 - `make lint`: passed
 - `make typecheck`: passed (mypy strict: 150 source files; Nuxt/UI/contract TypeScript passed)
-- `make test`: passed (Python 1474 passed, 27 skipped; UI 53 passed; Web 101 passed)
+- `make test`: passed (Python 1479 passed, 27 skipped; UI 53 passed; Web 101 passed)
 - `make contract-test`: passed (122 tests; generated contracts reproducible)
 - `make security-check`: passed (dependency audits and HIGH/CRITICAL secret/misconfiguration scan)
-- `make fixture-replay`: passed (372 tests plus evaluation)
+- `make fixture-replay`: passed (374 tests plus evaluation)
 - isolated PostgreSQL/Redis/object-storage integration: passed (2 tests: duplicate deterministic filtering remained idempotent with no Item/task/model call; automatic industry acceptance created evidence-backed claims and SourceExcerpt, traversed the durable publisher outbox, and produced a FULL `/api/v2` reader projection with `human_reviewed=false` and no Owner semantic case)
 - `make quality-gate`: passed (including the full test, contract, dependency and HIGH/CRITICAL security scan sequence)
 
-Code review resolved the safety-precedence, Prompt/Schema identity-binding, retry-convergence, model-call audit, and private input-size findings. The W0 20/0/20 closeout reconciliation remains because the frozen Owner Gold annotation Schema permits only `POSITIVE` and `NEGATIVE`; restoring the stale `BOUNDARY` distribution makes the inherited closeout regression fail.
+Code review resolved the safety-precedence, Prompt/Schema identity-binding, retry-convergence, model-call audit, private input-size, LIVE-to-SHADOW mutation, SourceAdmission leakage veto, and production/replay Prompt divergence findings. The W0 20/0/20 closeout reconciliation remains because the frozen Owner Gold annotation Schema permits only `POSITIVE` and `NEGATIVE`; restoring the stale `BOUNDARY` distribution makes the inherited closeout regression fail.
 
 The private replay quality shortfall remains explicitly recorded and must not be described as a pass. Per the Owner amendment it is a reminder, not an unfinished #41 acceptance item.

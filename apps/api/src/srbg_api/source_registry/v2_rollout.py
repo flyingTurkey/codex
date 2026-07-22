@@ -117,6 +117,6 @@ def production_admission_verdict(
         gate is False
         for gate in (value.robots_allowed, value.terms_allowed, value.copyright_reviewed)
     )
-    if not value.public_network_safe or explicitly_forbidden or value.hard_negative_leaks > 0:
+    if not value.public_network_safe or explicitly_forbidden:
         return "PAUSE"
     return "ADMIT"

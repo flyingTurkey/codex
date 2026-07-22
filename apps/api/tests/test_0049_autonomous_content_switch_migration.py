@@ -26,6 +26,22 @@ def test_0049_registers_the_production_prompt_schema_and_worker_append_rights() 
     assert "GRANT SELECT,INSERT ON qualification_policy_bundle_v2" in source
     assert "automated_qualification_decision_v2 TO srbg_worker_role" in source
     assert "0046" not in source and "0047" not in source
+    assert "PROMPT_REGISTRY_IDENTITY_MISMATCH" in source
+
+
+def test_0049_registers_the_exact_runtime_prompt_bytes() -> None:
+    spec = importlib.util.spec_from_file_location("migration_0049_prompt", MIGRATION)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    from srbg_api.intelligence_v2.autonomous_policy import (
+        CLASSIFICATION_TASK_PROMPT_TEMPLATE,
+        PRODUCTION_CLASSIFICATION_SYSTEM_PROMPT,
+    )
+
+    assert module.SYSTEM_PROMPT == PRODUCTION_CLASSIFICATION_SYSTEM_PROMPT
+    assert module.TASK_PROMPT == CLASSIFICATION_TASK_PROMPT_TEMPLATE
 
 
 def test_0049_does_not_turn_owner_gold_or_offline_replay_into_authority() -> None:

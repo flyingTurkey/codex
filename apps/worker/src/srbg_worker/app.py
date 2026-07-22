@@ -1114,13 +1114,6 @@ async def _handle_ai_content_result(
                         candidates=classification_candidates,
                     )
                 except SemanticRecheckRequired:
-                    recheck_request = request.model_copy(
-                        update={
-                            "user_prompt": request.user_prompt
-                            + "\n<semantic_recheck>Resolve the rule conflict once; return "
-                            "the same strict schema.</semantic_recheck>"
-                        }
-                    )
                     await _dispatch_ai_attempt(
                         repository,
                         run_id=run_id,
@@ -1130,7 +1123,6 @@ async def _handle_ai_content_result(
                         kind=AttemptKind.PRIMARY,
                         network_retries=0,
                         repair_used=False,
-                        request_override=recheck_request,
                         policy=policy,
                         semantic_recheck=True,
                     )
@@ -1144,6 +1136,14 @@ async def _handle_ai_content_result(
                     outcome=trace.disposition.value,
                     reason=trace.reason_codes[0].value,
                 ).inc()
+                if document.run_mode != "LIVE":
+                    await repository.transition(run_id, "SUCCEEDED")
+                    return {
+                        "run_id": str(run_id),
+                        "status": "SUCCEEDED",
+                        "disposition": trace.disposition.value,
+                        "projection_eligible": False,
+                    }
                 if trace.disposition is not AutomatedDisposition.AUTO_ACCEPTED:
                     await repository.transition(run_id, "SUCCEEDED")
                     return {
@@ -1385,14 +1385,14 @@ def _prepare_ai_inputs_for_document(
 ) -> tuple[PreparedDocumentInput, PreparedDocumentInput]:
     return (
         prepare_document_input(
-        document_version_id=str(document.document_version_id),
+            document_version_id=str(document.document_version_id),
             title=document.title,
             source_name=document.source_name,
             blocks=list(document.blocks),
             max_characters=32_000,
         ),
         prepare_document_input(
-        document_version_id=str(document.document_version_id),
+            document_version_id=str(document.document_version_id),
             title=document.title,
             source_name=document.source_name,
             blocks=list(document.blocks),
@@ -1440,7 +1440,10 @@ async def _dispatch_ai_attempt(
     semantic_recheck: bool = False,
 ) -> None:
     request = request_override or AiContentPreparationService.build_request(
-        step, prepared, policy=policy if step is AiStep.CLASSIFY else None
+        step,
+        prepared,
+        policy=policy if step is AiStep.CLASSIFY else None,
+        semantic_recheck=semantic_recheck,
     )
     if repair_code:
         request = request.model_copy(

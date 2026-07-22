@@ -347,3 +347,46 @@ def test_schema_repair_then_semantic_recheck_uses_a_fresh_attempt_number() -> No
     ] == [1, 2, 3]
     assert repository.decisions[0].semantic_recheck_count == 1
     assert repository.materialized_classifications[0]["evidence_locators"] == ["block-1"]
+
+
+def test_production_and_replay_share_the_exact_bounded_classification_prompt() -> None:
+    from srbg_api.intelligence_v2.autonomous_policy import (
+        build_classification_user_prompt,
+    )
+
+    initial = build_classification_user_prompt(
+        document_text="untrusted body",
+        allowed_evidence_locators=("block-1",),
+        semantic_recheck=False,
+    )
+    recheck = build_classification_user_prompt(
+        document_text="untrusted body",
+        allowed_evidence_locators=("block-1",),
+        semantic_recheck=True,
+    )
+
+    assert "Return one JSON object matching this schema exactly" in initial
+    assert 'Allowed evidence locators: ["block-1"]' in initial
+    assert "<untrusted_document>untrusted body</untrusted_document>" in initial
+    assert "single permitted semantic re-adjudication" in recheck
+    assert "independent final verifier" in recheck
+
+
+def test_shadow_decision_never_materializes_reader_content() -> None:
+    class ShadowRepository(FakeRepository):
+        async def begin(self, run_id: UUID) -> PreparationDocument:
+            return replace(await super().begin(run_id), run_mode="SHADOW")
+
+    repository = ShadowRepository()
+    service = AiContentPreparationService(
+        repository=repository,
+        model=FakeModel(),
+        scanner=PromptInjectionScanner(),
+    )
+
+    result = asyncio.run(service.run(RUN_ID))
+
+    assert result.candidate_count == 0
+    assert repository.decisions[0].disposition.value == "AUTO_ACCEPTED"
+    assert repository.materialized == 0
+    assert repository.statuses[-1] == "SUCCEEDED"

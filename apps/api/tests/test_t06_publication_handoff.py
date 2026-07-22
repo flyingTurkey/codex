@@ -6,6 +6,8 @@ import srbg_worker.app as worker
 from srbg_api.publication.repository import PostgresPublicationRepository
 from srbg_api.publication.service import PublicationService
 from srbg_worker.ai_content_preparation import (
+    _AUTHORIZE_PERSONAL_SQL,
+    _DOCUMENT_SQL,
     _INSERT_ITEM_SQL,
     PostgresAiPreparationRepository,
     _legacy_storage_class_for_primary_type,
@@ -68,6 +70,19 @@ def test_filtered_decisions_have_no_publication_materialization_path() -> None:
     extraction = callback.index('transition(run_id, "EXTRACTING")')
     assert terminal < extraction
     assert "queue_qualification_review" not in callback
+
+
+def test_live_source_bridge_remains_live_through_authoritative_preparation() -> None:
+    assert "SET mode='SHADOW'" not in _AUTHORIZE_PERSONAL_SQL
+    assert "run.mode IN ('LIVE','SHADOW')" in _DOCUMENT_SQL
+
+
+def test_worker_semantic_recheck_renders_the_shared_full_prompt() -> None:
+    callback = inspect.getsource(worker._handle_ai_content_result)
+    dispatcher = inspect.getsource(worker._dispatch_ai_attempt)
+
+    assert "<semantic_recheck>" not in callback
+    assert "semantic_recheck=semantic_recheck" in dispatcher
 
 
 def test_ai_projection_outbox_projects_accepted_content_into_the_v2_reader() -> None:

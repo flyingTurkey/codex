@@ -201,6 +201,7 @@ class PostgresAiPreparationRepository:
             title=str(facts["title"] or "交通运输部公开 PDF"),
             source_name=str(facts["source_name"]),
             blocks=tuple(blocks),
+            run_mode=str(facts["run_mode"]),
         )
 
     async def authorize_real_run(self, document: PreparationDocument) -> bool:
@@ -2144,20 +2145,14 @@ WITH candidate AS (
        )
      )
    FOR UPDATE OF run
-), promoted AS (
-  UPDATE ai_pipeline_run run SET mode='SHADOW'
-    FROM candidate
-   WHERE run.id=candidate.id AND candidate.mode='LIVE'
-  RETURNING run.id
 )
-SELECT id FROM promoted
-UNION ALL
-SELECT id FROM candidate WHERE mode='SHADOW'
+SELECT id FROM candidate
 LIMIT 1
 """
 
 _DOCUMENT_SQL = """
-SELECT version.id AS document_version_id,version.raw_object_id,version.content_hash,version.title,
+SELECT run.mode AS run_mode,version.id AS document_version_id,version.raw_object_id,
+       version.content_hash,version.title,
        raw.object_key,document.canonical_url,source.registry_code,
        source.name AS source_name,COALESCE(raw.detected_mime,raw.declared_mime,'') AS mime_type,
        COALESCE(stream_policy.config_sha256,source_policy.policy_version,'legacy-source-policy')
@@ -2178,7 +2173,7 @@ LEFT JOIN LATERAL (
   WHERE policy.source_id=source.id AND policy.status='VALID'
   ORDER BY policy.created_at DESC LIMIT 1
 ) source_policy ON true
-WHERE run.id=:run_id AND run.mode='SHADOW'
+WHERE run.id=:run_id AND run.mode IN ('LIVE','SHADOW')
   AND run.status IN ('PREPARING','CLASSIFYING','EXTRACTING')
   AND raw.scan_status='CLEAN' AND document.current_version_id=version.id
 """
