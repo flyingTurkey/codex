@@ -160,6 +160,40 @@ services:
         && mc version enable "anchor/$${SRBG_BACKUP_S3_BUCKET}"
     restart: "no"
 
+  role-bootstrap:
+    image: srbg-postgres:17.10-pgvector-0.8.2
+    build: *postgres-build
+    environment:
+      PGHOST: postgres
+      PGDATABASE: ${POSTGRES_DB:-srbg}
+      PGUSER: ${POSTGRES_USER:-srbg}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-srbg_local_only}
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        psql --set=ON_ERROR_STOP=1 <<'SQL'
+        DO $$$$
+        BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'srbg_api_login') THEN
+            CREATE ROLE srbg_api_login LOGIN;
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'srbg_worker_login') THEN
+            CREATE ROLE srbg_worker_login LOGIN;
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'srbg_publisher_login') THEN
+            CREATE ROLE srbg_publisher_login LOGIN;
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'srbg_projection_reader_login') THEN
+            CREATE ROLE srbg_projection_reader_login LOGIN;
+          END IF;
+        END
+        $$$$;
+        SQL
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   migrate:
     build:
       context: .
@@ -171,6 +205,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      role-bootstrap:
+        condition: service_completed_successfully
     restart: "no"
 
   role-init:

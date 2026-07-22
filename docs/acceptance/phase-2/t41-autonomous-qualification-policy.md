@@ -63,6 +63,7 @@ The historical private gate result is therefore **NO-GO against its original thr
 - `make quality-gate`: passed (including the full test, contract, dependency and HIGH/CRITICAL security scan sequence)
 - CI environment regression: GNU Make now assigns `SRBG_EXTERNAL_IO_TIMEOUT_SECONDS` before exporting it; the focused infrastructure suite passes (19 tests), preventing an empty timeout from aborting test collection on clean runners.
 - CI integration isolation: the integration job creates and exports a runner-scoped ephemeral `SRBG_DATA_ROOT`, with service-specific UID/GID and permissions, before Compose startup; production and local data-root requirements remain unchanged.
+- Clean-database startup: an idempotent no-password login-role bootstrap now runs after PostgreSQL health and before Alembic; the existing post-migration initializer still assigns passwords and memberships. This preserves all historical migration files while allowing their grants to execute from an empty database.
 
 Code review resolved the safety-precedence, Prompt/Schema identity-binding, retry-convergence, model-call audit, private input-size, LIVE-to-SHADOW mutation, LIVE callback authorization, SourceAdmission writer/leakage veto, production/replay Prompt divergence, and SHADOW fact-separation findings. The W0 20/0/20 closeout reconciliation remains because the frozen Owner Gold annotation Schema permits only `POSITIVE` and `NEGATIVE`; restoring the stale `BOUNDARY` distribution makes the inherited closeout regression fail.
 

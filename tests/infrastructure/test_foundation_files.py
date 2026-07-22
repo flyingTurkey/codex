@@ -46,6 +46,24 @@ def test_source_upload_runtime_requires_private_healthy_clamav() -> None:
     assert "  clamav-db:\n" in compose
 
 
+def test_clean_database_bootstraps_login_roles_before_migrations() -> None:
+    compose = (ROOT / "infra/compose/compose.yaml").read_text(encoding="utf-8")
+
+    bootstrap = compose.split("  role-bootstrap:\n", 1)[1].split("  migrate:\n", 1)[0]
+    migrate = compose.split("  migrate:\n", 1)[1].split("  role-init:\n", 1)[0]
+    role_init = compose.split("  role-init:\n", 1)[1].split("  api:\n", 1)[0]
+    for role in (
+        "srbg_api_login",
+        "srbg_worker_login",
+        "srbg_publisher_login",
+        "srbg_projection_reader_login",
+    ):
+        assert f"CREATE ROLE {role} LOGIN" in bootstrap
+    assert "postgres:\n        condition: service_healthy" in bootstrap
+    assert "role-bootstrap:\n        condition: service_completed_successfully" in migrate
+    assert "migrate:\n        condition: service_completed_successfully" in role_init
+
+
 def test_makefile_exposes_required_quality_and_runtime_targets() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
