@@ -17,7 +17,7 @@ The immutable bytes, response metadata and content hash saved before parsing.
 _Avoid_: Article
 
 **SourceAdmission**:
-A fail-closed decision that a Source and SourceStream satisfy public-network safety, robots, terms, copyright, access, quality and operating limits.
+A server-owned decision that a Source and SourceStream satisfy public-network safety, access, explicit legal restrictions and operating limits. Explicitly blocked or restricted robots, terms or copyright evidence fails closed; genuinely absent or unknown legal metadata permits only bounded collection and remains observable. Its assessment fact is append-only and cannot itself start a source.
 _Avoid_: Enable switch
 
 **SourceExit**:
