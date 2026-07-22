@@ -29,7 +29,7 @@ async function loadDetail(): Promise<void> {
 </script>
 
 <template>
-  <section v-if="summary" class="auto-score" aria-label="自动启用评分">
+  <div v-if="summary" class="auto-score" role="group" aria-label="自动启用评分">
     <div><strong>自动启用分数 {{ summary.total_score }}/100</strong><span>{{ summary.eligible ? '满足自动启用规则' : '暂不满足自动启用规则' }}</span></div>
     <p v-if="summary.reason_codes.length">原因：{{ summary.reason_codes.join('、') }}</p>
     <button type="button" @click="loadDetail">{{ loading ? '读取中…' : '查看分项解释' }}</button>
@@ -38,7 +38,7 @@ async function loadDetail(): Promise<void> {
     </dl>
     <p v-if="detail && Object.values(detail.hard_gate_results).some(value => !value)">硬门禁失败：{{ detail.reason_codes.join('、') }}</p>
     <small>{{ summary.rule_version }}</small>
-  </section>
+  </div>
 </template>
 
 <style scoped>
