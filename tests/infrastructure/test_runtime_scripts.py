@@ -51,13 +51,13 @@ def test_smoke_rejects_an_incomplete_version_contract() -> None:
         )
 
 
-def test_smoke_requires_the_empty_state_when_the_feed_is_empty() -> None:
+def test_smoke_requires_the_ssr_loading_state_when_the_feed_is_empty() -> None:
     validate_homepage_contract(
-        "四川路桥 智安情报 暂无精选内容",
+        "四川路桥 智安情报 正在加载情报",
         {"items": []},
     )
 
-    with pytest.raises(RuntimeError, match="empty state"):
+    with pytest.raises(RuntimeError, match="loading state"):
         validate_homepage_contract("四川路桥 智安情报", {"items": []})
 
 
