@@ -88,12 +88,38 @@ def test_makefile_exposes_required_quality_and_runtime_targets() -> None:
     assert "$(UV) run python scripts/check_contract_generation.py" in makefile
 
 
-def test_makefile_assigns_external_io_timeout_before_exporting_it() -> None:
+def test_makefile_assigns_service_defaults_before_exporting_them() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
-    assignment = "SRBG_EXTERNAL_IO_TIMEOUT_SECONDS ?= 2"
-    export = "export SRBG_S3_BUCKET SRBG_S3_REGION SRBG_EXTERNAL_IO_TIMEOUT_SECONDS"
-    assert makefile.index(assignment) < makefile.index(export)
+    export_groups = {
+        "export POSTGRES_PORT MINIO_PORT ANCHOR_MINIO_PORT": (
+            "POSTGRES_PORT ?= 5432",
+            "MINIO_PORT ?= 9000",
+            "ANCHOR_MINIO_PORT ?= 9002",
+        ),
+        "export POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB": (
+            "POSTGRES_USER ?= srbg",
+            "POSTGRES_PASSWORD ?= srbg_local_only",
+            "POSTGRES_DB ?= srbg",
+        ),
+        "export MINIO_ROOT_USER MINIO_ROOT_PASSWORD": (
+            "MINIO_ROOT_USER ?= srbg_local",
+            "MINIO_ROOT_PASSWORD ?= srbg_local_storage_only",
+        ),
+        "export SRBG_API_DB_PASSWORD SRBG_PUBLISHER_DB_PASSWORD SRBG_PROJECTION_DB_PASSWORD": (
+            "SRBG_API_DB_PASSWORD ?= srbg_api_local_only",
+            "SRBG_PUBLISHER_DB_PASSWORD ?= srbg_publisher_local_only",
+            "SRBG_PROJECTION_DB_PASSWORD ?= srbg_projection_local_only",
+        ),
+        "export SRBG_S3_BUCKET SRBG_S3_REGION SRBG_EXTERNAL_IO_TIMEOUT_SECONDS": (
+            "SRBG_S3_BUCKET ?= srbg-raw",
+            "SRBG_S3_REGION ?= us-east-1",
+            "SRBG_EXTERNAL_IO_TIMEOUT_SECONDS ?= 2",
+        ),
+    }
+    for export, assignments in export_groups.items():
+        export_index = makefile.index(export)
+        assert all(makefile.index(assignment) < export_index for assignment in assignments)
 
 
 def test_environment_example_is_demo_only_and_documents_timeouts() -> None:
