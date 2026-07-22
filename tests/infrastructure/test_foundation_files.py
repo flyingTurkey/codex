@@ -135,6 +135,7 @@ def test_runtime_build_context_includes_authoritative_publication_gate_assets() 
     dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8")
 
     included_assets = {
+        "!docs/codex-kit/assets/schemas/autonomous-classify-output.schema.json",
         "!docs/codex-kit/assets/validation/publication_gate.json",
         "!docs/codex-kit/assets/validation/publication_evaluation.schema.json",
         "!docs/codex-kit/assets/validation/publication_gate_v3.json",

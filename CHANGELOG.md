@@ -11,6 +11,7 @@
 - Fixed GNU Make default/export ordering so CI receives the bounded external-I/O timeout instead of an invalid empty value, with a regression test covering the environment contract.
 - Gave the CI integration job its own ephemeral `SRBG_DATA_ROOT`, pre-created with least-privilege service ownership, preserving the mandatory PostgreSQL, Redis, object-storage, and observability data isolation contract on clean runners.
 - Added an idempotent login-role bootstrap before Alembic on clean databases, so historical grants can migrate forward before the existing post-migration role/password initialization; historical revisions remain unchanged.
+- Whitelisted only the #41 autonomous classification Schema into the runtime image build context so migration 0049 can register and hash the same authoritative bytes on clean deployments.
 
 ## 2026-07-21 (Issue #41 autonomous qualification policy foundation)
 
