@@ -49,6 +49,7 @@ export type CanonicalEventId = string | null
 export type ContentSeverity = 'UNASSESSED' | 'LOW' | 'MODERATE' | 'HIGH' | 'CRITICAL'
 export type ItemType =
   | 'DIGITAL_CASE'
+  | 'INDUSTRY_UPDATE'
   | 'JOURNAL_PAPER'
   | 'SOFTWARE_PRODUCT'
   | 'IOT_PRODUCT'
@@ -57,11 +58,16 @@ export type ItemType =
   | 'SAFETY_REGULATION'
   | 'SAFETY_CASE'
 export type DiscoveryStatus = 'MACHINE_DISCOVERED' | 'HUMAN_CURATED'
-export type Channel = 'DIGITAL' | 'SAFETY'
+export type Channel = 'DIGITAL' | 'SAFETY' | 'INDUSTRY'
 export type EventRevisionId = string | null
 export type EventStatus = 'ACTIVE' | 'MERGED' | 'SPLIT' | 'WITHDRAWN'
 export type EventType =
-  'SAFETY_INCIDENT' | 'REGULATION_CHANGE' | 'DIGITAL_PROJECT' | 'RESEARCH_RESULT' | 'PRODUCT_RELEASE'
+  | 'SAFETY_INCIDENT'
+  | 'REGULATION_CHANGE'
+  | 'DIGITAL_PROJECT'
+  | 'RESEARCH_RESULT'
+  | 'PRODUCT_RELEASE'
+  | 'INDUSTRY_UPDATE'
 export type EventVersion = number
 export type FactReviewStatus = 'PENDING_HUMAN_REVIEW' | 'HUMAN_REVIEWED'
 export type FirstDiscoveredAt = string

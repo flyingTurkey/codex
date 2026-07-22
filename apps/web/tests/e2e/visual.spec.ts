@@ -4,7 +4,7 @@ const visualViewports = [
   { name: '1920x1080', width: 1920, height: 1080 },
   { name: '1440x900', width: 1440, height: 900 },
   { name: '1024x768', width: 1024, height: 768 },
-  { name: '768x1024', width: 768, height: 1024 },
+  { name: '767x1024', width: 767, height: 1024 },
 ] as const
 
 async function normalizeDynamicPageData(page: Page): Promise<void> {

@@ -8,11 +8,9 @@ PNPM ?= pnpm
 endif
 
 -include .env
-export WEB_PORT API_PORT POSTGRES_PORT MINIO_PORT ANCHOR_MINIO_PORT
-export POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB
-export MINIO_ROOT_USER MINIO_ROOT_PASSWORD
-export SRBG_API_DB_PASSWORD SRBG_PUBLISHER_DB_PASSWORD SRBG_PROJECTION_DB_PASSWORD
-export SRBG_S3_BUCKET SRBG_S3_REGION SRBG_EXTERNAL_IO_TIMEOUT_SECONDS
+WEB_PORT ?= 3000
+API_PORT ?= 8000
+export WEB_PORT API_PORT
 
 POSTGRES_PORT ?= 5432
 MINIO_PORT ?= 9000
@@ -28,7 +26,12 @@ SRBG_PUBLISHER_DB_PASSWORD ?= srbg_publisher_local_only
 SRBG_PROJECTION_DB_PASSWORD ?= srbg_projection_local_only
 SRBG_S3_BUCKET ?= srbg-raw
 SRBG_S3_REGION ?= us-east-1
-SRBG_EXTERNAL_IO_TIMEOUT_SECONDS ?= 5
+SRBG_EXTERNAL_IO_TIMEOUT_SECONDS ?= 2
+export POSTGRES_PORT MINIO_PORT ANCHOR_MINIO_PORT
+export POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB
+export MINIO_ROOT_USER MINIO_ROOT_PASSWORD
+export SRBG_API_DB_PASSWORD SRBG_PUBLISHER_DB_PASSWORD SRBG_PROJECTION_DB_PASSWORD
+export SRBG_S3_BUCKET SRBG_S3_REGION SRBG_EXTERNAL_IO_TIMEOUT_SECONDS
 COMPOSE = docker compose --project-directory . -f infra/compose/compose.yaml
 TRIVY_IMAGE = aquasec/trivy:0.69.3
 UV_CACHE_DIR ?= $(CURDIR)/.cache/uv
@@ -42,7 +45,7 @@ export PLAYWRIGHT_BROWSERS_PATH
 
 .PHONY: setup dev personal-data-ready runtime-ready down lint typecheck test contract-test security-check smoke \
 	resilience-test fixture-replay quality-gate web-e2e web-a11y source-fixture-test \
-	safety-regulation-test pdf-ocr-test safety-case-test digital-case-test paper-test product-test \
+	safety-regulation-test pdf-ocr-test autonomous-content-integration-test digital-case-test paper-test product-test \
 	round08-test round08-eval round09-test round09-eval round10-test round10-eval \
 	round11-test observability-test golden-replay load-test recovery-drill runbook-test \
 	round11-evidence-test readiness-evidence slo-weekly-report \
@@ -177,6 +180,7 @@ fixture-replay:
 		apps/api/tests/test_ai01_content_preparation.py \
 		apps/api/tests/test_ai01_orchestration.py \
 		apps/api/tests/test_source_profile_replay.py \
+		tests/infrastructure/test_autonomous_policy_private_replay.py \
 		apps/api/tests/test_round09_feed_projection.py \
 		apps/api/tests/test_pers06_publication_boundary.py \
 		apps/api/tests/test_round10_discovery_domain.py \
@@ -390,11 +394,11 @@ pdf-ocr-test:
 		apps/api/tests/test_pdf_versioning.py \
 		apps/api/tests/test_safety_regulation_integration.py -q
 
-safety-case-test:
+autonomous-content-integration-test:
 	$(COMPOSE) up --detach --wait postgres minio
-	$(UV) run python scripts/run_isolated_integration.py -- \
-		apps/api/tests/test_safety_case_integration.py \
-		apps/api/tests/test_round04_official_fixtures.py -q
+	$(UV) run python scripts/run_isolated_integration.py \
+		--migration-verifier verify_autonomous_policy_migration.py -- \
+		tests/integration/t41_autonomous_content_integration.py -q
 
 digital-case-test:
 	$(COMPOSE) up --detach --wait postgres minio

@@ -1,0 +1,91 @@
+{
+  "$defs": {
+    "AutomatedDecisionReason": {
+      "enum": [
+        "POLICY_ACCEPTED",
+        "RULE_LOCKED_NEGATIVE",
+        "RULE_NO_ENGINEERING_COOCCURRENCE",
+        "RULE_PRIMARY_TYPE_UNSUPPORTED",
+        "RULE_AXIS_INVARIANT_FAILED",
+        "RULE_PROMPT_INJECTION",
+        "AI_SCHEMA_INVALID",
+        "AI_RULE_CONFLICT",
+        "AI_AMBIGUITY_UNRESOLVED",
+        "EVIDENCE_MISSING",
+        "EVIDENCE_LOCATOR_INVALID",
+        "DOCUMENT_VERSION_STALE",
+        "SAFETY_SIGNAL",
+        "TECHNICAL_RETRYABLE",
+        "TECHNICAL_EXHAUSTED",
+        "OWNER_PREFERENCE",
+        "OWNER_CLASSIFICATION_ERROR",
+        "POLICY_GATE_FAILED"
+      ],
+      "title": "AutomatedDecisionReason",
+      "type": "string"
+    },
+    "AutomatedDisposition": {
+      "enum": [
+        "AUTO_ACCEPTED",
+        "AUTO_FILTERED",
+        "TECHNICAL_RETRY",
+        "TECHNICAL_FAILED",
+        "SAFETY_HOLD",
+        "OWNER_SUPPRESSED"
+      ],
+      "title": "AutomatedDisposition",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "affects_production": {
+      "const": false,
+      "title": "Affects Production",
+      "type": "boolean"
+    },
+    "decided_at": {
+      "format": "date-time",
+      "title": "Decided At",
+      "type": "string"
+    },
+    "disposition": {
+      "$ref": "#/$defs/AutomatedDisposition"
+    },
+    "document_version_id": {
+      "format": "uuid",
+      "title": "Document Version Id",
+      "type": "string"
+    },
+    "evaluation_id": {
+      "format": "uuid",
+      "title": "Evaluation Id",
+      "type": "string"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "reason_codes": {
+      "items": {
+        "$ref": "#/$defs/AutomatedDecisionReason"
+      },
+      "maxItems": 20,
+      "minItems": 1,
+      "title": "Reason Codes",
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "evaluation_id",
+    "document_version_id",
+    "disposition",
+    "reason_codes",
+    "affects_production",
+    "decided_at"
+  ],
+  "title": "ShadowDecisionView",
+  "type": "object"
+}

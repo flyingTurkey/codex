@@ -1,7 +1,7 @@
 export type AutoMergeEnabled = false
 export type EvaluationTier = 'INTERNAL_TEST_FIXTURE' | 'HUMAN_GOLD'
 export type GeneratedAt = string
-export type Channel = 'DIGITAL' | 'SAFETY'
+export type Channel = 'DIGITAL' | 'SAFETY' | 'INDUSTRY'
 export type EventCount = number
 export type HeatScore = number
 export type Id = string

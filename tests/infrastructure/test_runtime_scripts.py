@@ -3,10 +3,15 @@ from __future__ import annotations
 import pytest
 
 from scripts.smoke import (
+    CURRENT_FEED_PATH,
     host_port,
     validate_homepage_contract,
     validate_version_contract,
 )
+
+
+def test_smoke_targets_the_current_v2_feed() -> None:
+    assert CURRENT_FEED_PATH == "/api/v2/feed?limit=1"
 
 
 def test_host_port_uses_environment_override(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -46,13 +51,13 @@ def test_smoke_rejects_an_incomplete_version_contract() -> None:
         )
 
 
-def test_smoke_requires_the_empty_state_when_the_feed_is_empty() -> None:
+def test_smoke_requires_the_ssr_loading_state_when_the_feed_is_empty() -> None:
     validate_homepage_contract(
-        "四川路桥 智安情报 业务数据尚未接入",
+        "四川路桥 智安情报 正在加载情报",
         {"items": []},
     )
 
-    with pytest.raises(RuntimeError, match="empty state"):
+    with pytest.raises(RuntimeError, match="loading state"):
         validate_homepage_contract("四川路桥 智安情报", {"items": []})
 
 

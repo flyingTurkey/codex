@@ -28,7 +28,10 @@ from srbg_api.intelligence_v2.gold_calibration import (
     calibration_grant,
     load_calibration_fact,
 )
-from srbg_api.source_registry.v2_rollout import SourceAdmissionMetrics, admission_verdict
+from srbg_api.source_registry.v2_rollout import (
+    SourceAdmissionMetrics,
+    production_admission_verdict,
+)
 from srbg_contracts import EngineeringObject, PrimaryIntelligenceType
 
 _SHA256 = re.compile(r"^[a-f0-9]{64}$")
@@ -156,21 +159,21 @@ def load_owner_qualification(
         if not case_id or case_id in annotation_ids:
             raise ValueError("qualification case_id is invalid")
         annotation_ids.add(case_id)
-        prediction = predictions.get(case_id)
+        matched_prediction = predictions.get(case_id)
         if (
-            prediction is None
-            or prediction.get("content_sha256") != row.get("content_sha256")
-            or prediction.get("corpus_version") != row.get("corpus_version")
-            or prediction.get("rule_version") != row.get("rule_version")
-            or prediction.get("model_id") != row.get("model_id")
-            or prediction.get("prompt_version") != row.get("prompt_version")
+            matched_prediction is None
+            or matched_prediction.get("content_sha256") != row.get("content_sha256")
+            or matched_prediction.get("corpus_version") != row.get("corpus_version")
+            or matched_prediction.get("rule_version") != row.get("rule_version")
+            or matched_prediction.get("model_id") != row.get("model_id")
+            or matched_prediction.get("prompt_version") != row.get("prompt_version")
         ):
             raise ValueError("qualification prediction does not match annotation")
         bucket = str(row.get("bucket"))
         if bucket not in {"POSITIVE", "BOUNDARY", "NEGATIVE"}:
             raise ValueError("qualification bucket is invalid")
         expected = row.get("expected_relevant")
-        predicted = prediction.get("predicted_relevant")
+        predicted = matched_prediction.get("predicted_relevant")
         if not isinstance(expected, bool) or not isinstance(predicted, bool):
             raise ValueError("qualification relevance labels must be boolean")
         if expected:
@@ -319,10 +322,12 @@ def _source_assessments_valid(
         metrics = value.get("metrics")
         if not isinstance(sample_size, int) or not isinstance(metrics, dict):
             return False
-        hard_flags = (
+        tri_state_gates = (
             "robots_allowed",
             "terms_allowed",
             "copyright_reviewed",
+        )
+        hard_flags = (
             "public_network_safe",
             "hard_negative_evaluated",
         )
@@ -334,12 +339,21 @@ def _source_assessments_valid(
             "duplicate_bps",
             "hard_negative_leaks",
         )
-        if any(not isinstance(metrics.get(field), bool) for field in hard_flags) or any(
-            not isinstance(metrics.get(field), int) or isinstance(metrics.get(field), bool)
-            for field in numeric_metrics
+        if (
+            any(
+                metrics.get(field) is not None and not isinstance(metrics.get(field), bool)
+                for field in tri_state_gates
+            )
+            or any(not isinstance(metrics.get(field), bool) for field in hard_flags)
+            or any(
+                not isinstance(metrics.get(field), int) or isinstance(metrics.get(field), bool)
+                for field in numeric_metrics
+            )
         ):
             return False
-        calculated = admission_verdict(SourceAdmissionMetrics(sample_size=sample_size, **metrics))
+        calculated = production_admission_verdict(
+            SourceAdmissionMetrics(sample_size=sample_size, **metrics), calibration=None
+        )
         if value.get("verdict") != calculated:
             return False
         windows[batch].append((started_at, ended_at, wave))
@@ -388,8 +402,7 @@ def build_closeout_report(root: Path, *, acceptance_profile: AcceptanceProfile) 
             distribution = Counter(value.bucket for value in qualification_values)
             if len(qualification_values) != 40 or distribution != {
                 "POSITIVE": 20,
-                "BOUNDARY": 10,
-                "NEGATIVE": 10,
+                "NEGATIVE": 20,
             }:
                 _append_reason(reasons, "OWNER_GOLD_INCOMPLETE")
             qualification = evaluate_qualification(qualification_values)

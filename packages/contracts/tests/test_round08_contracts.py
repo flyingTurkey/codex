@@ -93,6 +93,7 @@ def test_event_detail_supports_all_domain_event_types_with_explicit_type() -> No
         models.EventType.DIGITAL_PROJECT,
         models.EventType.RESEARCH_RESULT,
         models.EventType.PRODUCT_RELEASE,
+        models.EventType.INDUSTRY_UPDATE,
     }
     assert fields["event_type"].is_required()
     assert fields["independent_source_count"].default == 0

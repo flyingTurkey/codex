@@ -1,0 +1,184 @@
+{
+  "$defs": {
+    "AutomatedDecisionReason": {
+      "enum": [
+        "POLICY_ACCEPTED",
+        "RULE_LOCKED_NEGATIVE",
+        "RULE_NO_ENGINEERING_COOCCURRENCE",
+        "RULE_PRIMARY_TYPE_UNSUPPORTED",
+        "RULE_AXIS_INVARIANT_FAILED",
+        "RULE_PROMPT_INJECTION",
+        "AI_SCHEMA_INVALID",
+        "AI_RULE_CONFLICT",
+        "AI_AMBIGUITY_UNRESOLVED",
+        "EVIDENCE_MISSING",
+        "EVIDENCE_LOCATOR_INVALID",
+        "DOCUMENT_VERSION_STALE",
+        "SAFETY_SIGNAL",
+        "TECHNICAL_RETRYABLE",
+        "TECHNICAL_EXHAUSTED",
+        "OWNER_PREFERENCE",
+        "OWNER_CLASSIFICATION_ERROR",
+        "POLICY_GATE_FAILED"
+      ],
+      "title": "AutomatedDecisionReason",
+      "type": "string"
+    },
+    "ExceptionKind": {
+      "enum": [
+        "TECHNICAL",
+        "SAFETY"
+      ],
+      "title": "ExceptionKind",
+      "type": "string"
+    },
+    "OwnerExceptionStatus": {
+      "enum": [
+        "OPEN",
+        "RESOLVED"
+      ],
+      "title": "OwnerExceptionStatus",
+      "type": "string"
+    },
+    "SafetyOverrideability": {
+      "enum": [
+        "OWNER_DECIDABLE",
+        "HARD_BLOCK"
+      ],
+      "title": "SafetyOverrideability",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "attempt_count": {
+      "maximum": 32767,
+      "minimum": 0,
+      "title": "Attempt Count",
+      "type": "integer"
+    },
+    "decision_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Decision Id"
+    },
+    "document_version_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Document Version Id"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/ExceptionKind"
+    },
+    "opened_at": {
+      "format": "date-time",
+      "title": "Opened At",
+      "type": "string"
+    },
+    "overrideability": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SafetyOverrideability"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "reason_codes": {
+      "items": {
+        "$ref": "#/$defs/AutomatedDecisionReason"
+      },
+      "maxItems": 20,
+      "minItems": 1,
+      "title": "Reason Codes",
+      "type": "array"
+    },
+    "resolved_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Resolved At"
+    },
+    "source_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Id"
+    },
+    "source_stream_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Stream Id"
+    },
+    "status": {
+      "$ref": "#/$defs/OwnerExceptionStatus"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    },
+    "version": {
+      "exclusiveMinimum": 0,
+      "title": "Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "id",
+    "kind",
+    "status",
+    "reason_codes",
+    "attempt_count",
+    "version",
+    "opened_at",
+    "updated_at"
+  ],
+  "title": "OwnerExceptionView",
+  "type": "object"
+}

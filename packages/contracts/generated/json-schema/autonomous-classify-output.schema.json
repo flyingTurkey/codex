@@ -1,0 +1,157 @@
+{
+  "$defs": {
+    "EngineeringObject": {
+      "enum": [
+        "HIGHWAY",
+        "RAILWAY",
+        "BRIDGE",
+        "TUNNEL",
+        "BUILDING",
+        "MINING",
+        "MUNICIPAL",
+        "WATER_CONSERVANCY",
+        "PORT_WATERWAY",
+        "AIRPORT",
+        "ENERGY"
+      ],
+      "title": "EngineeringObject",
+      "type": "string"
+    },
+    "EquipmentFacet": {
+      "enum": [
+        "CONSTRUCTION_MACHINERY"
+      ],
+      "title": "EquipmentFacet",
+      "type": "string"
+    },
+    "PrimaryIntelligenceType": {
+      "enum": [
+        "DIGITAL_TRANSFORMATION",
+        "SAFETY_INTELLIGENCE",
+        "INDUSTRY_UPDATE"
+      ],
+      "title": "PrimaryIntelligenceType",
+      "type": "string"
+    },
+    "SpecialtyFacet": {
+      "enum": [
+        "TUNNEL_GAS_MONITORING"
+      ],
+      "title": "SpecialtyFacet",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Strict model output; publication and safety authority remain server-owned.",
+  "properties": {
+    "ambiguity_indicators": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 20,
+      "title": "Ambiguity Indicators",
+      "type": "array"
+    },
+    "confidence": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Confidence",
+      "type": "number"
+    },
+    "content_form": {
+      "enum": [
+        "AUTHORITY_NOTICE",
+        "PROJECT_RECORD",
+        "RESEARCH",
+        "PRODUCT",
+        "ACCIDENT_UPDATE",
+        "STANDARD_GUIDANCE",
+        "OPERATION_UPDATE",
+        "OTHER"
+      ],
+      "title": "Content Form",
+      "type": "string"
+    },
+    "core_new_fact": {
+      "anyOf": [
+        {
+          "maxLength": 500,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Core New Fact"
+    },
+    "direct_relevance": {
+      "enum": [
+        "RELEVANT",
+        "IRRELEVANT",
+        "AMBIGUOUS",
+        "FAILED"
+      ],
+      "title": "Direct Relevance",
+      "type": "string"
+    },
+    "engineering_objects": {
+      "items": {
+        "$ref": "#/$defs/EngineeringObject"
+      },
+      "maxItems": 11,
+      "title": "Engineering Objects",
+      "type": "array"
+    },
+    "equipment_domains": {
+      "items": {
+        "$ref": "#/$defs/EquipmentFacet"
+      },
+      "maxItems": 1,
+      "title": "Equipment Domains",
+      "type": "array"
+    },
+    "evidence_locators": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Evidence Locators",
+      "type": "array"
+    },
+    "primary_type": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PrimaryIntelligenceType"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "security_signals": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 20,
+      "title": "Security Signals",
+      "type": "array"
+    },
+    "specialty_facets": {
+      "items": {
+        "$ref": "#/$defs/SpecialtyFacet"
+      },
+      "maxItems": 1,
+      "title": "Specialty Facets",
+      "type": "array"
+    }
+  },
+  "required": [
+    "direct_relevance",
+    "content_form",
+    "confidence"
+  ],
+  "title": "AutonomousClassificationCandidate",
+  "type": "object"
+}

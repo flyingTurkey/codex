@@ -35,6 +35,7 @@ export type AutomaticResultType = ('EVIDENCE_FACT' | 'AI_JUDGMENT' | 'UNVERIFIED
 export type CanonicalEventId = string
 export type ItemType =
   | 'DIGITAL_CASE'
+  | 'INDUSTRY_UPDATE'
   | 'JOURNAL_PAPER'
   | 'SOFTWARE_PRODUCT'
   | 'IOT_PRODUCT'
@@ -45,10 +46,15 @@ export type ItemType =
 export type DetailAvailable = boolean | null
 export type DocumentStates = DocumentState[] | null
 export type DocumentState = 'UPDATED' | 'RE_REVIEW_PENDING' | 'WITHDRAWN' | 'SOURCE_UNAVAILABLE'
-export type Channel = 'DIGITAL' | 'SAFETY'
+export type Channel = 'DIGITAL' | 'SAFETY' | 'INDUSTRY'
 export type EventStatus = 'ACTIVE' | 'MERGED' | 'SPLIT' | 'WITHDRAWN'
 export type EventType =
-  'SAFETY_INCIDENT' | 'REGULATION_CHANGE' | 'DIGITAL_PROJECT' | 'RESEARCH_RESULT' | 'PRODUCT_RELEASE'
+  | 'SAFETY_INCIDENT'
+  | 'REGULATION_CHANGE'
+  | 'DIGITAL_PROJECT'
+  | 'RESEARCH_RESULT'
+  | 'PRODUCT_RELEASE'
+  | 'INDUSTRY_UPDATE'
 export type EventVersion = number
 export type EvidenceCount = number | null
 export type EvidenceStatus = 'WITHHELD' | 'VERIFIED'

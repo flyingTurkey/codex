@@ -35,7 +35,11 @@ from srbg_api.intelligence_v2.campaign import (
     CampaignSnapshot,
     decide_transition,
 )
-from srbg_api.source_registry.v2_rollout import SourceAdmissionMetrics, admission_verdict
+from srbg_api.source_registry.v2_rollout import (
+    SourceAdmissionMetrics,
+    append_production_admission_assessment,
+    review_gate_result,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 ROSTER_PATH = ROOT / "docs/codex-kit/assets/validation/civil_engineering_source_campaign_v2.json"
@@ -193,9 +197,7 @@ def _discover_database_url(variable: str) -> str:
     if parsed.hostname != "postgres" or not parsed.username or parsed.password is None:
         raise RuntimeError("CAMPAIGN_DATABASE_URL_INVALID")
     userinfo = f"{parsed.username}:{parsed.password}"
-    return urlunsplit(
-        (parsed.scheme, f"{userinfo}@127.0.0.1:{host_port}", parsed.path, "", "")
-    )
+    return urlunsplit((parsed.scheme, f"{userinfo}@127.0.0.1:{host_port}", parsed.path, "", ""))
 
 
 def _compose_environment(environment: str) -> dict[str, str]:
@@ -484,9 +486,7 @@ class CampaignRepository:
                 row = (
                     (
                         await connection.execute(
-                            text(
-                                "SELECT id FROM source WHERE name=:name LIMIT 1"
-                            ),
+                            text("SELECT id FROM source WHERE name=:name LIMIT 1"),
                             {"name": roster_source["institution"]},
                         )
                     )
@@ -590,14 +590,13 @@ class CampaignRepository:
                     )
                 metrics = SourceAdmissionMetrics(
                     sample_size=sample_size,
-                    robots_allowed=(
-                        isinstance(robots, dict) and robots.get("result") == "ALLOWED"
+                    robots_allowed=review_gate_result(robots, allowed_results={"ALLOWED"}),
+                    terms_allowed=review_gate_result(
+                        terms, allowed_results={"ALLOWED", "NOT_PRESENT"}
                     ),
-                    terms_allowed=(
-                        isinstance(terms, dict)
-                        and terms.get("result") in {"ALLOWED", "NOT_PRESENT"}
+                    copyright_reviewed=review_gate_result(
+                        copyright_value, allowed_results={"ALLOWED", "REVIEWED"}
                     ),
-                    copyright_reviewed=isinstance(copyright_value, dict),
                     public_network_safe=total > 0 and fetched > 0,
                     fetch_success_bps=fetch_bps,
                     parse_evidence_success_bps=(
@@ -609,36 +608,21 @@ class CampaignRepository:
                     hard_negative_leaks=0,
                     hard_negative_evaluated=False,
                 )
-                metrics_value = {
-                    key: value for key, value in metrics.__dict__.items() if key != "sample_size"
-                }
                 evidence_refs = {
                     "campaign_id": str(campaign_id),
                     "official_origin": roster_source["official_origin"],
                     "sample_document_version_ids_sha256": manifest_hash,
                     "hard_negative_observation": "NOT_EVALUATED_NO_DURABLE_LOCKED_SET",
                 }
-                await connection.execute(
-                    text(
-                        "INSERT INTO source_admission_assessment_v2("
-                        "id,source_id,rule_version,sample_cutoff,lookback_days,sample_size,"
-                        "sample_manifest_sha256,metrics,evidence_refs,verdict,assessed_by,assessed_at) "
-                        "VALUES(:id,:source,'civil-source-rollout-v2-engineering-1.0.0',"
-                        ":cutoff,90,:size,:manifest,CAST(:metrics AS jsonb),CAST(:refs AS jsonb),"
-                        ":verdict,:actor,:now)"
-                    ),
-                    {
-                        "id": uuid7(),
-                        "source": row["id"],
-                        "cutoff": cutoff,
-                        "size": sample_size,
-                        "manifest": manifest_hash,
-                        "metrics": _canonical(metrics_value).decode("utf-8"),
-                        "refs": _canonical(evidence_refs).decode("utf-8"),
-                        "verdict": admission_verdict(metrics),
-                        "actor": LOCAL_USER_ID,
-                        "now": ended_at,
-                    },
+                await append_production_admission_assessment(
+                    connection,
+                    source_id=row["id"],
+                    metrics=metrics,
+                    sample_cutoff=cutoff,
+                    sample_manifest_sha256=manifest_hash,
+                    evidence_refs=evidence_refs,
+                    actor_id=LOCAL_USER_ID,
+                    assessed_at=ended_at,
                 )
 
     async def export_runtime(self, root: Path, started_at: datetime, ended_at: datetime) -> int:
@@ -669,9 +653,7 @@ class CampaignRepository:
         _write_jsonl(root / "runtime.jsonl", values)
         return len(values)
 
-    async def export_sources(
-        self, root: Path, campaign_id: UUID, started_at: datetime
-    ) -> int:
+    async def export_sources(self, root: Path, campaign_id: UUID, started_at: datetime) -> int:
         positions = _rollout_positions()
         async with self._engine.connect() as connection:
             rows = (
@@ -812,16 +794,20 @@ class CampaignRepository:
     async def fault_event_counts(self, campaign_id: UUID) -> dict[str, int]:
         async with self._engine.connect() as connection:
             rows = (
-                await connection.execute(
-                    text(
-                        "SELECT event_type,count(*) AS total "
-                        "FROM engineering_closeout_campaign_event_v2 "
-                        "WHERE campaign_id=:id AND event_type LIKE 'FAULT_%' "
-                        "GROUP BY event_type"
-                    ),
-                    {"id": campaign_id},
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT event_type,count(*) AS total "
+                            "FROM engineering_closeout_campaign_event_v2 "
+                            "WHERE campaign_id=:id AND event_type LIKE 'FAULT_%' "
+                            "GROUP BY event_type"
+                        ),
+                        {"id": campaign_id},
+                    )
                 )
-            ).mappings().all()
+                .mappings()
+                .all()
+            )
         return {str(row["event_type"]): int(row["total"]) for row in rows}
 
     async def export_historical_budget(self, root: Path, campaign_id: UUID) -> None:
@@ -872,9 +858,7 @@ class CampaignRepository:
     async def audit_anchor_valid(self) -> bool:
         async with self._engine.connect() as connection:
             return bool(
-                await connection.scalar(
-                    text("SELECT verify_engineering_closeout_audit_anchor()")
-                )
+                await connection.scalar(text("SELECT verify_engineering_closeout_audit_anchor()"))
             )
 
 
@@ -883,9 +867,7 @@ async def _object_inventory(root: Path) -> tuple[bool, str]:
         "SRBG_S3_ENDPOINT_URL",
         f"http://127.0.0.1:{os.environ.get('MINIO_PORT', '9000')}",
     )
-    access = os.environ.get(
-        "SRBG_S3_ACCESS_KEY", os.environ.get("MINIO_ROOT_USER", "srbg_local")
-    )
+    access = os.environ.get("SRBG_S3_ACCESS_KEY", os.environ.get("MINIO_ROOT_USER", "srbg_local"))
     secret = os.environ.get(
         "SRBG_S3_SECRET_KEY",
         os.environ.get("MINIO_ROOT_PASSWORD", "srbg_local_storage_only"),
@@ -1113,9 +1095,7 @@ async def _status(repository: CampaignRepository, root: Path, campaign_id: UUID)
     return 0
 
 
-async def _exercise_fault_injection(
-    repository: CampaignRepository, campaign_id: UUID
-) -> None:
+async def _exercise_fault_injection(repository: CampaignRepository, campaign_id: UUID) -> None:
     counts = await repository.fault_event_counts(campaign_id)
     if counts.get("FAULT_TRANSIENT_INJECTED", 0) < 1:
         _dispatch_fault_injection(campaign_id, "TRANSIENT")
@@ -1225,12 +1205,10 @@ def _parser() -> argparse.ArgumentParser:
 
 
 async def _main_async(arguments: argparse.Namespace) -> int:
-    database_url = str(arguments.database_url or "") or _discover_database_url(
-        "SRBG_DATABASE_URL"
+    database_url = str(arguments.database_url or "") or _discover_database_url("SRBG_DATABASE_URL")
+    evidence_database_url = str(arguments.evidence_database_url or "") or _discover_database_url(
+        "SRBG_PUBLICATION_DATABASE_URL"
     )
-    evidence_database_url = str(
-        arguments.evidence_database_url or ""
-    ) or _discover_database_url("SRBG_PUBLICATION_DATABASE_URL")
     action = CampaignAction(arguments.action)
     if action is not CampaignAction.PREPARE and not arguments.campaign_id:
         raise RuntimeError("CAMPAIGN_ID_REQUIRED")

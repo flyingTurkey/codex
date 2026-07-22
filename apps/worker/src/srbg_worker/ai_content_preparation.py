@@ -30,6 +30,7 @@ from srbg_api.ai_pipeline.local_evidence import extract_local_evidence_candidate
 from srbg_api.ai_pipeline.preparation import DocumentBlock
 from srbg_api.document_vault.storage import S3ObjectStore
 from srbg_api.identifiers import uuid7
+from srbg_api.intelligence_v2.autonomous_policy import QualificationPolicyBundle
 from srbg_api.intelligence_v2.compensation import compensation_plan
 from srbg_api.intelligence_v2.content_candidate_repository import (
     PostgresContentCandidateRepository,
@@ -39,7 +40,6 @@ from srbg_api.intelligence_v2.content_candidates import (
     StructuredSummaryCandidate,
     build_content_candidate,
 )
-from srbg_api.intelligence_v2.gold_calibration import AutoPassCalibrationGrant
 from srbg_api.intelligence_v2.t06_content_summary import build_content_summary_request
 from srbg_api.observability import (
     INTELLIGENCE_QUALIFICATION_REVIEW_BACKLOG,
@@ -51,6 +51,7 @@ from srbg_api.pdf_processing.parser import (
     ParsedTextBlock,
     PdfDocumentParser,
 )
+from srbg_contracts import AutomatedDecisionReason, QualificationDecisionTrace
 
 logger = logging.getLogger("srbg.worker.ai_content_preparation")
 
@@ -96,8 +97,8 @@ def parse_html_document(content: bytes) -> ParsedPdfDocument:
     blocks = tuple(
         ParsedTextBlock(
             block_index=index,
-            kind="PARAGRAPH",
-            text_source="HTML",
+            kind="BODY",
+            text_source="NATIVE",
             text=value,
             normalized_text=value,
             text_sha256=sha256(value.encode()).hexdigest(),
@@ -116,7 +117,7 @@ def parse_html_document(content: bytes) -> ParsedPdfDocument:
         width_mpt=800_000,
         height_mpt=max(len(blocks), 1) * 1000,
         rotation=0,
-        text_source="HTML",
+        text_source="NATIVE",
         blocks=blocks,
         table_cells=(),
         preview_png=preview,
@@ -192,59 +193,15 @@ class PostgresAiPreparationRepository:
                 blocks = await _load_blocks(connection, cast(UUID, facts["document_version_id"]))
         return PreparationDocument(
             run_id=run_id,
-            document_version_id=str(facts["document_version_id"]),
+            document_version_id=cast(UUID, facts["document_version_id"]),
+            raw_object_id=cast(UUID, facts["raw_object_id"]),
+            source_stream_policy_version=str(facts["source_stream_policy_version"]),
             source_code=str(facts["registry_code"]),
             canonical_url=str(facts["canonical_url"]),
             title=str(facts["title"] or "交通运输部公开 PDF"),
             source_name=str(facts["source_name"]),
             blocks=tuple(blocks),
-        )
-
-    async def load_auto_pass_calibration(
-        self, *, corpus_version: str, rule_version: str, model_id: str, prompt_version: str
-    ) -> AutoPassCalibrationGrant | None:
-        async with self._engine.connect() as connection:
-            row = (
-                (
-                    await connection.execute(
-                        text(
-                            "SELECT auto_pass_threshold_bps,corpus_version,rule_version,"
-                            "model_id,prompt_version,prediction_seal_sha256,fact_sha256 "
-                            "FROM owner_gold_calibration_v2 calibration "
-                            "WHERE EXISTS (SELECT 1 FROM owner_gold_prediction_seal_v2 seal "
-                            "WHERE seal.prediction_seal_sha256=calibration.prediction_seal_sha256 "
-                            "AND seal.corpus_version=calibration.corpus_version "
-                            "AND seal.rule_version=calibration.rule_version "
-                            "AND seal.model_id=calibration.model_id "
-                            "AND seal.prompt_version=calibration.prompt_version) "
-                            "AND fact_version='intelligence-v2-owner-gold-calibration-2.0.0' "
-                            "AND decision='GO' AND authorizes_auto_pass=true "
-                            "AND corpus_version=:corpus_version "
-                            "AND rule_version=:rule_version AND model_id=:model_id "
-                            "AND prompt_version=:prompt_version "
-                            "ORDER BY calibrated_at DESC LIMIT 1"
-                        ),
-                        {
-                            "corpus_version": corpus_version,
-                            "rule_version": rule_version,
-                            "model_id": model_id,
-                            "prompt_version": prompt_version,
-                        },
-                    )
-                )
-                .mappings()
-                .one_or_none()
-            )
-        if row is None:
-            return None
-        return AutoPassCalibrationGrant(
-            threshold_bps=int(row["auto_pass_threshold_bps"]),
-            corpus_version=str(row["corpus_version"]),
-            rule_version=str(row["rule_version"]),
-            model_id=str(row["model_id"]),
-            prompt_version=str(row["prompt_version"]),
-            prediction_seal_sha256=str(row["prediction_seal_sha256"]),
-            fact_sha256=str(row["fact_sha256"]),
+            run_mode=str(facts["run_mode"]),
         )
 
     async def authorize_real_run(self, document: PreparationDocument) -> bool:
@@ -252,8 +209,201 @@ class PostgresAiPreparationRepository:
 
         return await self.authorize_model_call(
             document.run_id,
-            document_version_id=UUID(document.document_version_id),
+            document_version_id=document.document_version_id,
         )
+
+    async def append_automated_decision(
+        self, trace: QualificationDecisionTrace, policy: QualificationPolicyBundle
+    ) -> None:
+        """Append the exact immutable policy bundle and its server decision atomically."""
+
+        identity = policy.identity
+        policy_payload = {
+            "identity": identity.model_dump(mode="json"),
+            "source_allow_terms": list(policy.source_allow_terms),
+            "source_exclude_terms": list(policy.source_exclude_terms),
+            "maximum_semantic_rechecks": 1,
+        }
+        async with self._engine.begin() as connection:
+            bundle_id = uuid7()
+            await connection.execute(
+                text(
+                    "INSERT INTO qualification_policy_bundle_v2("
+                    "id,policy_version,global_rule_version,source_stream_policy_version,"
+                    "ai_provider,ai_model,prompt_version,schema_version,code_version,"
+                    "authorization_basis,policy_payload,bundle_sha256,created_at) VALUES("
+                    ":id,:policy_version,:global_rule_version,:stream_version,:provider,:model,"
+                    ":prompt_version,:schema_version,:code_version,'SERVER_ADJUDICATION_ONLY',"
+                    "CAST(:payload AS jsonb),:bundle_sha256,:now) "
+                    "ON CONFLICT (bundle_sha256) DO NOTHING"
+                ),
+                {
+                    "id": bundle_id,
+                    "policy_version": identity.policy_version,
+                    "global_rule_version": identity.global_rule_version,
+                    "stream_version": identity.source_stream_policy_version,
+                    "provider": identity.ai_provider,
+                    "model": identity.ai_model,
+                    "prompt_version": identity.prompt_version,
+                    "schema_version": identity.schema_version,
+                    "code_version": identity.code_version,
+                    "payload": json.dumps(policy_payload, ensure_ascii=False, sort_keys=True),
+                    "bundle_sha256": identity.bundle_sha256,
+                    "now": trace.decided_at,
+                },
+            )
+            persisted_bundle_id = await connection.scalar(
+                text(
+                    "SELECT id FROM qualification_policy_bundle_v2 "
+                    "WHERE bundle_sha256=:bundle_sha256"
+                ),
+                {"bundle_sha256": identity.bundle_sha256},
+            )
+            if persisted_bundle_id is None:
+                raise RuntimeError("QUALIFICATION_POLICY_BUNDLE_NOT_PERSISTED")
+            await connection.execute(
+                text(
+                    "INSERT INTO automated_qualification_decision_v2("
+                    "id,policy_bundle_id,document_version_id,raw_object_id,"
+                    "normalized_input_sha256,disposition,reason_codes,rule_signals,"
+                    "model_candidate,evidence_locators,semantic_recheck_count,attempt_number,"
+                    "decided_at) VALUES(:id,:bundle_id,:version_id,:raw_id,:input_hash,"
+                    ":disposition,:reasons,CAST(:signals AS jsonb),CAST(:candidate AS jsonb),"
+                    ":locators,:rechecks,:attempt,:decided_at) "
+                    "ON CONFLICT (document_version_id,policy_bundle_id,attempt_number) DO NOTHING"
+                ),
+                {
+                    "id": trace.decision_id,
+                    "bundle_id": persisted_bundle_id,
+                    "version_id": trace.document_version_id,
+                    "raw_id": trace.raw_object_id,
+                    "input_hash": trace.normalized_input_sha256,
+                    "disposition": trace.disposition.value,
+                    "reasons": [reason.value for reason in trace.reason_codes],
+                    "signals": json.dumps(trace.rule_signals, ensure_ascii=False),
+                    "candidate": json.dumps(
+                        None
+                        if trace.model_candidate is None
+                        else trace.model_candidate.model_dump(mode="json"),
+                        ensure_ascii=False,
+                    ),
+                    "locators": trace.evidence_locators,
+                    "rechecks": trace.semantic_recheck_count,
+                    "attempt": trace.attempt_number,
+                    "decided_at": trace.decided_at,
+                },
+            )
+
+    async def append_shadow_decision(
+        self, trace: QualificationDecisionTrace, policy: QualificationPolicyBundle
+    ) -> None:
+        """Append a shadow evaluation that is structurally unable to affect production."""
+
+        identity = policy.identity
+        policy_payload = {
+            "identity": identity.model_dump(mode="json"),
+            "source_allow_terms": list(policy.source_allow_terms),
+            "source_exclude_terms": list(policy.source_exclude_terms),
+            "maximum_semantic_rechecks": 1,
+        }
+        dispositions = {
+            value: int(trace.disposition.value == value)
+            for value in (
+                "AUTO_ACCEPTED",
+                "AUTO_FILTERED",
+                "TECHNICAL_RETRY",
+                "TECHNICAL_FAILED",
+                "SAFETY_HOLD",
+                "OWNER_SUPPRESSED",
+            )
+        }
+        schema_valid_bps = (
+            0 if AutomatedDecisionReason.AI_SCHEMA_INVALID in trace.reason_codes else 10_000
+        )
+        async with self._engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "INSERT INTO qualification_policy_bundle_v2("
+                    "id,policy_version,global_rule_version,source_stream_policy_version,"
+                    "ai_provider,ai_model,prompt_version,schema_version,code_version,"
+                    "authorization_basis,policy_payload,bundle_sha256,created_at) VALUES("
+                    ":id,:policy_version,:global_rule_version,:stream_version,:provider,:model,"
+                    ":prompt_version,:schema_version,:code_version,'SERVER_ADJUDICATION_ONLY',"
+                    "CAST(:payload AS jsonb),:bundle_sha256,:now) "
+                    "ON CONFLICT (bundle_sha256) DO NOTHING"
+                ),
+                {
+                    "id": uuid7(),
+                    "policy_version": identity.policy_version,
+                    "global_rule_version": identity.global_rule_version,
+                    "stream_version": identity.source_stream_policy_version,
+                    "provider": identity.ai_provider,
+                    "model": identity.ai_model,
+                    "prompt_version": identity.prompt_version,
+                    "schema_version": identity.schema_version,
+                    "code_version": identity.code_version,
+                    "payload": json.dumps(policy_payload, ensure_ascii=False, sort_keys=True),
+                    "bundle_sha256": identity.bundle_sha256,
+                    "now": trace.decided_at,
+                },
+            )
+            bundle_id = await connection.scalar(
+                text(
+                    "SELECT id FROM qualification_policy_bundle_v2 "
+                    "WHERE bundle_sha256=:bundle_sha256"
+                ),
+                {"bundle_sha256": identity.bundle_sha256},
+            )
+            if bundle_id is None:
+                raise RuntimeError("QUALIFICATION_POLICY_BUNDLE_NOT_PERSISTED")
+            await connection.execute(
+                text(
+                    "INSERT INTO qualification_policy_evaluation_v2("
+                    "id,policy_bundle_id,mode,benchmark_version,corpus_manifest_sha256,"
+                    "total_cases,auto_accepted_count,auto_filtered_count,technical_retry_count,"
+                    "technical_failed_count,safety_hold_count,owner_suppressed_count,"
+                    "precision_bps,recall_bps,locked_negative_leaks,schema_valid_bps,"
+                    "new_owner_semantic_tasks,gate_passed,authorizes_production,evaluated_at) "
+                    "VALUES(:id,:bundle,'SHADOW','runtime-shadow-v1',:manifest,1,:accepted,"
+                    ":filtered,:retry,:failed,:safety,:suppressed,0,0,0,:schema_valid,0,false,"
+                    "false,:now) "
+                    "ON CONFLICT (id) DO NOTHING"
+                ),
+                {
+                    "id": trace.decision_id,
+                    "bundle": bundle_id,
+                    "manifest": trace.normalized_input_sha256,
+                    "accepted": dispositions["AUTO_ACCEPTED"],
+                    "filtered": dispositions["AUTO_FILTERED"],
+                    "retry": dispositions["TECHNICAL_RETRY"],
+                    "failed": dispositions["TECHNICAL_FAILED"],
+                    "safety": dispositions["SAFETY_HOLD"],
+                    "suppressed": dispositions["OWNER_SUPPRESSED"],
+                    "schema_valid": schema_valid_bps,
+                    "now": trace.decided_at,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO qualification_shadow_decision_v2("
+                    "id,evaluation_id,policy_bundle_id,document_version_id,raw_object_id,"
+                    "disposition,reason_codes,decision_trace,affects_production,decided_at) "
+                    "VALUES(:id,:evaluation,:bundle,:version,:raw,:disposition,:reasons,"
+                    "CAST(:trace AS jsonb),false,:now) ON CONFLICT "
+                    "(evaluation_id,document_version_id) DO NOTHING"
+                ),
+                {
+                    "id": uuid7(),
+                    "evaluation": trace.decision_id,
+                    "bundle": bundle_id,
+                    "version": trace.document_version_id,
+                    "raw": trace.raw_object_id,
+                    "disposition": trace.disposition.value,
+                    "reasons": [reason.value for reason in trace.reason_codes],
+                    "trace": json.dumps(trace.model_dump(mode="json"), ensure_ascii=False),
+                    "now": trace.decided_at,
+                },
+            )
 
     async def authorize_model_call(
         self, run_id: UUID, *, document_version_id: UUID | None = None
@@ -508,7 +658,7 @@ class PostgresAiPreparationRepository:
                 ),
                 {
                     "id": uuid7(),
-                    "version_id": UUID(document.document_version_id),
+                    "version_id": document.document_version_id,
                     "input_hash": sha256(joined.encode()).hexdigest(),
                     "detected": detected,
                     "risk": "R4" if detected else "R1",
@@ -531,7 +681,7 @@ class PostgresAiPreparationRepository:
             statement = (
                 text(
                     "UPDATE ai_pipeline_run SET status=:status WHERE id=:run_id "
-                    "AND status IN ('SUMMARIZING','VERIFYING')"
+                    "AND status IN ('CLASSIFYING','SUMMARIZING','VERIFYING')"
                 )
                 if status == "SUCCEEDED"
                 else text(
@@ -668,7 +818,7 @@ class PostgresAiPreparationRepository:
         self, document: PreparationDocument, *, append_processing: bool
     ) -> ModelRequest:
         candidate_repository = PostgresContentCandidateRepository(self._engine)
-        version_id = UUID(document.document_version_id)
+        version_id = document.document_version_id
         claims = await candidate_repository.load_active_claims(version_id)
         request = build_content_summary_request(claims, current_document_version_id=version_id)
         await candidate_repository.append_source_excerpt(claims, document_version_id=version_id)
@@ -688,7 +838,7 @@ class PostgresAiPreparationRepository:
         summary: StructuredSummaryCandidate,
     ) -> UUID:
         candidate_repository = PostgresContentCandidateRepository(self._engine)
-        version_id = UUID(document.document_version_id)
+        version_id = document.document_version_id
         claims = await candidate_repository.load_active_claims(version_id)
         candidate = build_content_candidate(
             claims=claims,
@@ -706,6 +856,7 @@ class PostgresAiPreparationRepository:
                 response_schema=request.response_schema,
                 input_sha256=request.input_sha256,
             ),
+            create_review_case=False,
         )
 
     async def append_summary_state(
@@ -725,7 +876,7 @@ class PostgresAiPreparationRepository:
                     "JOIN event_identity_binding binding ON binding.item_id=item.id "
                     "WHERE item.current_document_version_id=:version_id"
                 ),
-                {"version_id": UUID(document.document_version_id)},
+                {"version_id": document.document_version_id},
             )
             if event_id is None:
                 raise RuntimeError("CURRENT_EVENT_REQUIRED")
@@ -740,7 +891,7 @@ class PostgresAiPreparationRepository:
                 {
                     "id": state_id,
                     "event_id": event_id,
-                    "version_id": UUID(document.document_version_id),
+                    "version_id": document.document_version_id,
                     "run_id": document.run_id,
                     "candidate_id": candidate_id,
                     "status": status,
@@ -771,7 +922,7 @@ class PostgresAiPreparationRepository:
                 {
                     "id": uuid7(),
                     "event_id": event_id,
-                    "version_id": UUID(document.document_version_id),
+                    "version_id": document.document_version_id,
                     "state_id": state_id,
                     "now": now,
                 },
@@ -845,7 +996,7 @@ class PostgresAiPreparationRepository:
                 {
                     "id": success_id,
                     "run_id": document.run_id,
-                    "version_id": UUID(document.document_version_id),
+                    "version_id": document.document_version_id,
                     "step_id": step_run_id,
                     "provider": provider,
                     "model": model,
@@ -1135,8 +1286,7 @@ class PostgresAiPreparationRepository:
         primary_type = classification.get("primary_type")
         if primary_type not in {"DIGITAL_TRANSFORMATION", "SAFETY_INTELLIGENCE", "INDUSTRY_UPDATE"}:
             raise RuntimeError("AI01_CLASSIFICATION_OUT_OF_SCOPE")
-        item_type = "SAFETY_CASE" if primary_type == "SAFETY_INTELLIGENCE" else "DIGITAL_CASE"
-        channel = "SAFETY" if primary_type == "SAFETY_INTELLIGENCE" else "DIGITAL"
+        item_type, channel = _legacy_storage_class_for_primary_type(str(primary_type))
         now = datetime.now(UTC)
         async with self._engine.begin() as connection:
             await connection.execute(
@@ -1147,7 +1297,7 @@ class PostgresAiPreparationRepository:
                 (
                     await connection.execute(
                         text(_MATERIALIZATION_FACTS_SQL),
-                        {"version_id": UUID(document.document_version_id)},
+                        {"version_id": document.document_version_id},
                     )
                 )
                 .mappings()
@@ -1248,10 +1398,10 @@ class PostgresAiPreparationRepository:
                 str(value)
                 for value in await connection.scalars(
                     text(
-                        "SELECT field_name FROM claim_conflict WHERE source_item_id=:item_id "
+                        "SELECT field_name FROM claim_conflict WHERE event_id=:event_id "
                         "AND status='PENDING_REVIEW'"
                     ),
-                    {"item_id": item_id},
+                    {"event_id": event_id},
                 )
             )
             gate = AutomaticEvidenceGate()
@@ -1385,6 +1535,11 @@ class PostgresAiPreparationRepository:
                             "id": evidence_uuid,
                             "claim_id": claim_id,
                             "version_id": facts["version_id"],
+                            "evidence_role": (
+                                "PRIMARY_OFFICIAL"
+                                if str(document.source_code).startswith("GOV-")
+                                else "SOURCE_EXCERPT"
+                            ),
                             "paragraph_id": str(row["block"]["block_id"]),
                             "start": row["start"],
                             "end": row["start"] + len(row["candidate"]["excerpt"]),
@@ -1447,7 +1602,7 @@ class PostgresAiPreparationRepository:
                 ),
                 {
                     "id": case_id,
-                    "version_id": UUID(document.document_version_id),
+                    "version_id": document.document_version_id,
                     "reason": reason,
                     "metadata": json.dumps(safe_metadata, ensure_ascii=False),
                     "now": now,
@@ -1458,7 +1613,7 @@ class PostgresAiPreparationRepository:
                     text(
                         "SELECT id FROM owner_review_case_v2 WHERE document_version_id=:version_id"
                     ),
-                    {"version_id": UUID(document.document_version_id)},
+                    {"version_id": document.document_version_id},
                 )
                 if existing_case_id is None:
                     raise RuntimeError("QUALIFICATION_REVIEW_CASE_NOT_PERSISTED")
@@ -1509,7 +1664,7 @@ class PostgresAiPreparationRepository:
                             ORDER BY claim.id,evidence.id
                             """
                         ),
-                        {"version_id": UUID(document.document_version_id)},
+                        {"version_id": document.document_version_id},
                     )
                 ).mappings()
             )
@@ -1571,7 +1726,7 @@ class PostgresAiPreparationRepository:
                             GROUP BY item.id,binding.event_id
                             """
                         ),
-                        {"version_id": UUID(document.document_version_id)},
+                        {"version_id": document.document_version_id},
                     )
                 )
                 .mappings()
@@ -1635,7 +1790,7 @@ class PostgresAiPreparationRepository:
                     "id": uuid7(),
                     "event_id": facts["event_id"],
                     "item_id": facts["item_id"],
-                    "version_id": UUID(document.document_version_id),
+                    "version_id": document.document_version_id,
                     "run_id": document.run_id,
                     "summarize_id": summarize_step["id"] if summarize_step else None,
                     "verify_id": verify_step["id"] if verify_step else None,
@@ -1667,7 +1822,7 @@ class PostgresAiPreparationRepository:
                 ),
                 {
                     "id": uuid7(),
-                    "version_id": UUID(document.document_version_id),
+                    "version_id": document.document_version_id,
                     "item_id": facts["item_id"],
                     "now": now,
                 },
@@ -1697,7 +1852,7 @@ class PostgresAiPreparationRepository:
                 (
                     await connection.execute(
                         text(_MATERIALIZATION_FACTS_SQL),
-                        {"version_id": UUID(document.document_version_id)},
+                        {"version_id": document.document_version_id},
                     )
                 )
                 .mappings()
@@ -1800,6 +1955,11 @@ class PostgresAiPreparationRepository:
                         "id": evidence_id,
                         "claim_id": claim_id,
                         "version_id": facts["version_id"],
+                        "evidence_role": (
+                            "PRIMARY_OFFICIAL"
+                            if str(document.source_code).startswith("GOV-")
+                            else "SOURCE_EXCERPT"
+                        ),
                         "paragraph_id": str(block["block_id"]),
                         "start": start,
                         "end": start + len(local.excerpt),
@@ -1860,6 +2020,22 @@ class PostgresAiPreparationRepository:
             )
         if not isinstance(value, dict):
             raise RuntimeError(f"{step.value}_STEP_MISSING")
+        return cast(dict[str, Any], value)
+
+    async def successful_output_before_attempt(
+        self, run_id: UUID, step: AiStep, *, attempt: int
+    ) -> dict[str, Any]:
+        async with self._engine.connect() as connection:
+            value = await connection.scalar(
+                text(
+                    "SELECT validated_output FROM ai_step_run "
+                    "WHERE pipeline_run_id=:run_id AND step=:step AND attempt<:attempt "
+                    "AND status='SUCCEEDED' ORDER BY attempt DESC LIMIT 1"
+                ),
+                {"run_id": run_id, "step": step.value, "attempt": attempt},
+            )
+        if not isinstance(value, dict):
+            raise RuntimeError(f"{step.value}_ATTEMPT_MISSING")
         return cast(dict[str, Any], value)
 
     async def fail(self, run_id: UUID, status: str, code: str) -> None:
@@ -1969,6 +2145,7 @@ async def _ensure_personal_event(
         return existing
     event_type = {
         "DIGITAL_CASE": "DIGITAL_PROJECT",
+        "INDUSTRY_UPDATE": "INDUSTRY_UPDATE",
         "JOURNAL_PAPER": "RESEARCH_RESULT",
         "SAFETY_REGULATION": "REGULATION_CHANGE",
         "SOFTWARE_PRODUCT": "PRODUCT_RELEASE",
@@ -2000,6 +2177,16 @@ async def _ensure_personal_event(
         },
     )
     return event_id
+
+
+def _legacy_storage_class_for_primary_type(primary_type: str) -> tuple[str, str]:
+    """Keep v2 PrimaryType semantics intact in the shared legacy storage envelope."""
+
+    return {
+        "DIGITAL_TRANSFORMATION": ("DIGITAL_CASE", "DIGITAL"),
+        "SAFETY_INTELLIGENCE": ("SAFETY_CASE", "SAFETY"),
+        "INDUSTRY_UPDATE": ("INDUSTRY_UPDATE", "INDUSTRY"),
+    }[primary_type]
 
 
 async def _load_blocks(connection: Any, version_id: UUID) -> list[DocumentBlock]:
@@ -2071,7 +2258,10 @@ WITH candidate AS (
        (run.mode='SHADOW' AND run.status IN (
          'QUEUED','PREPARING','CLASSIFYING','EXTRACTING','WAITING_CLAIM_REVIEW'
        )) OR (
-         run.mode='LIVE' AND run.status='QUEUED'
+         run.mode='LIVE' AND run.status IN (
+           'QUEUED','PREPARING','CLASSIFYING','EXTRACTING','EVIDENCE_GATING',
+           'SUMMARIZING','VERIFYING','WAITING_CLAIM_REVIEW'
+         )
          AND EXISTS(
            SELECT 1 FROM source_content_outbox outbox
             WHERE outbox.pipeline_run_id=run.id AND outbox.status='WAITING_AI'
@@ -2079,29 +2269,39 @@ WITH candidate AS (
        )
      )
    FOR UPDATE OF run
-), promoted AS (
-  UPDATE ai_pipeline_run run SET mode='SHADOW'
-    FROM candidate
-   WHERE run.id=candidate.id AND candidate.mode='LIVE'
-  RETURNING run.id
 )
-SELECT id FROM promoted
-UNION ALL
-SELECT id FROM candidate WHERE mode='SHADOW'
+SELECT id FROM candidate
 LIMIT 1
 """
 
 _DOCUMENT_SQL = """
-SELECT version.id AS document_version_id,version.content_hash,version.title,
+SELECT run.mode AS run_mode,version.id AS document_version_id,version.raw_object_id,
+       version.content_hash,version.title,
        raw.object_key,document.canonical_url,source.registry_code,
-       source.name AS source_name,COALESCE(raw.detected_mime,raw.declared_mime,'') AS mime_type
+       source.name AS source_name,COALESCE(raw.detected_mime,raw.declared_mime,'') AS mime_type,
+       COALESCE(stream_policy.config_sha256,source_policy.policy_version,'legacy-source-policy')
+         AS source_stream_policy_version
 FROM ai_pipeline_run run
 JOIN document_version version ON version.id=run.document_version_id
 JOIN raw_object raw ON raw.id=version.raw_object_id
 JOIN document ON document.id=version.document_id
 JOIN source ON source.id=document.source_id
-WHERE run.id=:run_id AND run.mode='SHADOW'
-  AND run.status IN ('PREPARING','CLASSIFYING','EXTRACTING')
+LEFT JOIN LATERAL (
+  SELECT config.config_sha256 FROM raw_object_capture capture
+  JOIN fetch_run fetch_row ON fetch_row.id=capture.fetch_run_id
+  JOIN stream_config_version config ON config.id=fetch_row.stream_config_version_id
+  WHERE capture.raw_object_id=raw.id ORDER BY capture.captured_at DESC LIMIT 1
+) stream_policy ON true
+LEFT JOIN LATERAL (
+  SELECT policy.policy_version FROM source_policy policy
+  WHERE policy.source_id=source.id AND policy.status='VALID'
+  ORDER BY policy.created_at DESC LIMIT 1
+) source_policy ON true
+WHERE run.id=:run_id AND run.mode IN ('LIVE','SHADOW')
+  AND run.status IN (
+    'PREPARING','CLASSIFYING','EXTRACTING','EVIDENCE_GATING',
+    'SUMMARIZING','VERIFYING','WAITING_CLAIM_REVIEW'
+  )
   AND raw.scan_status='CLEAN' AND document.current_version_id=version.id
 """
 
@@ -2153,7 +2353,7 @@ INSERT INTO intelligence_item(
  title,original_url,source_published_at,first_discovered_at,activity_at,processing_status,
  review_status,submitted_by,is_demo,publishable,created_at,updated_at
 ) VALUES(
- :id,:source_id,:document_id,:version_id,:item_type,:channel,'R3',:title,:url,NULL,
+ :id,:source_id,:document_id,:version_id,:item_type,:channel,'R1',:title,:url,NULL,
  :discovered_at,:now,'READY','PENDING',:actor,false,false,:now,:now
 )
 """
@@ -2190,7 +2390,7 @@ INSERT INTO claim_evidence(
  excerpt_sha256,original_url,created_at,locator_type,page_number,document_text_block_id,
  x0_mpt,y0_mpt,x1_mpt,y1_mpt,confidence_bps
 ) VALUES(
- :id,:claim_id,:version_id,'PRIMARY_OFFICIAL',:paragraph_id,:start,:end,:excerpt,
+ :id,:claim_id,:version_id,:evidence_role,:paragraph_id,:start,:end,:excerpt,
  :excerpt_hash,:url,:now,'PDF_TEXT',:page,:block_id,:x0,:y0,:x1,:y1,:confidence
 )
 """

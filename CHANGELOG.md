@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026-07-22 (Issue #41 autonomous production closeout)
+
+- Switched the real content Worker to the versioned autonomous rule/AI adjudication seam. Deterministic negatives stop before Item/Event creation; accepted candidates retain exact policy/model/Prompt/Schema/document identities and continue only through evidence qualification and `PublicationService`.
+- Removed HUMAN_OWNER Gold from production SourceAdmission. Explicit network/access/legal prohibitions still pause, while missing legal metadata and soft-quality observations allow bounded collection. `OWNER_OVERRIDE_GO` grants no authority.
+- Preserved SourceStream bridge runs as `LIVE` through autonomous preparation, while `SHADOW` decisions remain non-projecting. Classification leakage is now a policy-iteration signal rather than a source-collection veto, and migration 0049 verifies that the immutable Prompt registry hashes match the exact shared production/replay templates.
+- Connected the production admission verdict to the authoritative assessment writer and closeout verifier, re-authorized LIVE callbacks across nonterminal states, and persisted SHADOW results only in `affects_production=false` tables. The accepted integration now enters through a governed raw capture, WAITING_AI handoff and real Worker authorization entry.
+- Preserved `INDUSTRY_UPDATE` as a distinct Item/channel/Event compatibility type and v2 Feed category. The durable publisher outbox now has an isolated accepted-path integration proving evidence-backed FULL machine-organized projection without an Owner semantic case.
+- Added migration `0049_autonomous_content_switch`, ADR-0005, retry-attempt convergence after Schema repair plus semantic recheck, and migration/filtered/accepted production integration coverage while preserving 0046/0047.
+- Fixed GNU Make default/export ordering so clean environments receive bounded service ports, local database/object-storage credentials, buckets, regions, and external-I/O timeout instead of invalid empty values, with a regression test covering the full environment contract.
+- Gave the CI integration job its own ephemeral `SRBG_DATA_ROOT`, pre-created with least-privilege service ownership, preserving the mandatory PostgreSQL, Redis, object-storage, and observability data isolation contract on clean runners.
+- Added an idempotent login-role bootstrap before Alembic on clean databases, so historical grants can migrate forward before the existing post-migration role/password initialization; historical revisions remain unchanged.
+- Whitelisted only the #41 autonomous classification Schema into the runtime image build context so migration 0049 can register and hash the same authoritative bytes on clean deployments.
+- Replaced the stale CI target for the retired enterprise Safety Case lifecycle with an explicit #41 autonomous-content integration gate covering real isolated database, Worker/evidence, and PublicationService paths for safety and industry Feed projections; Round 04 immutable fixtures remain in offline replay.
+- Extended that integration gate through the actual personal SourceStream scheduler, bounded network and malware-scanner edge replacements, and private MinIO raw-first persistence while keeping production ClamAV private-network-only. Migration `0050_autonomous_handoff_state_order` removes a random UUID tie-break from same-timestamp document lifecycle states, and the gate now proves deterministic handoff to filtering or publication.
+- Preserved the one-recheck bound across every Worker redispatch, mapped unknown robots/terms/copyright observations to bounded admission instead of a false prohibition, and centralized production admission assessment writes in the shared SourceAdmission service.
+
+## 2026-07-21 (Issue #41 autonomous qualification policy foundation)
+
+- Added immutable, version-bound qualification policy and automated disposition contracts beside the preserved 0046/0047 Owner Gold history. Migration 0048 adds append-only decision, exception-event, suppression, offline/shadow evaluation, and shadow-decision foundations without granting `OWNER_OVERRIDE_GO` any new authority.
+- Added deterministic engineering/safety/domain rules, a strict autonomous classification Schema and Prompt, one bounded semantic re-adjudication, safety holds, and aggregate-only private replay plumbing. Confidence remains diagnostic and all offline/shadow facts are structurally non-production-authorizing.
+- Authenticated the private corpus, sealed predictions, Owner attempt and annotations as a single hash chain, rejected duplicate case/annotation/response identifiers, and kept live candidates and decision traces process-local. Added broader lifecycle-bound construction-machinery vocabulary and a bilingual bounded-recheck checklist. The reviewed 40-case aggregate remained `NO-GO`, so no production path was authorized.
+- Added ADR-0004 and shared T03-T06 exception, Feed suppression, evaluation, shadow and reason-code contracts. Worker, SourceAdmission and PublicationService production paths remain unchanged; no source, production traffic or later ticket was enabled.
+- Hardened the private live replay transport with a pinned tool-free DeepSeek profile, one bounded transient retry, process-local candidates, and at most two offline workers. Reconciled the inherited closeout fixture and validator with the frozen 20-positive/20-negative Owner Gold contract; quality thresholds remain unchanged.
+- Evaluated stronger model and adjudication topologies under expanded Owner authority. None exceeded the held-out gate, so all quality-regressing semantic experiments were removed and the best reviewed aggregate remains `NO-GO`; no benchmark-specific exception or production authorization was introduced.
+- Closed code-review gaps by making safety signals from the single bounded re-adjudication enter `SAFETY_HOLD`, binding the policy digest to the actual Prompt and output Schema bytes, and rejecting oversized private replay artifacts before parsing or hashing. The frozen quality threshold and production-path boundary remain unchanged.
+- Made retry convergence append-only and idempotent by keying immutable automated decisions by document, policy, and bounded attempt number. Private model calls now retain process-local hash-only invocation audits with latency, token usage, and provider cost when supplied; manifest, key, artifact, and provider-response reads are size-bounded before parsing or hashing.
+
 ## 2026-07-20（土木工程情报 v2 维护信息收口）
 
 - 新增单一维护入口，汇总已验证工程基线、当前 dirty worktree、本地数据库状态、#36→#35 剩余依赖链、现行 production 门槛、下一轮安全顺序和文档债务；历史验收记录继续作为点时证据保留。
@@ -607,3 +634,8 @@
 - PERS-10：新增 `0029_legacy_governance_retirement`，以逐行/分类 SHA-256 和数量校验归档并退出旧企业治理；降级可校验后重建旧结构、授权和数据。
 - 产品只保留固定本地 Owner；删除旧管理 API、角色分支、页面、组件及资格审批/Operations 后台任务，AI 配置迁移到个人设置。
 - 新增 `personal-migration-test`、30+30 固定样本最终评估、迁移/回滚/备份文档和真实验收记录。
+## 2026-07-22 (Issue #41 autonomous content production switch)
+
+- Connected the versioned autonomous qualification policy to the real content Worker. Locked negatives filter before model dispatch; other candidates use the strict production Prompt/Schema and at most one semantic recheck. New runs append the exact policy and decision and no longer read Owner Gold or `OWNER_OVERRIDE_GO`.
+- `AUTO_FILTERED` now terminates without Item/Event, Owner semantic task or reader projection. `AUTO_ACCEPTED` continues through accepted claims, evidence, SourceExcerpt and the sole `PublicationService` projection boundary as machine-organized, not-human-reviewed content.
+- Added forward migration `0049_autonomous_content_switch` after preserved 0048, production registry entries, least-privilege Worker append grants, migration replay, ADR-0005 and the amended #41 acceptance record. The private `.4` aggregate remains a non-authorizing reminder and its measured shortfall is not represented as a pass.

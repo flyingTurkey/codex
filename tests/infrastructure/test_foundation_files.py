@@ -46,6 +46,24 @@ def test_source_upload_runtime_requires_private_healthy_clamav() -> None:
     assert "  clamav-db:\n" in compose
 
 
+def test_clean_database_bootstraps_login_roles_before_migrations() -> None:
+    compose = (ROOT / "infra/compose/compose.yaml").read_text(encoding="utf-8")
+
+    bootstrap = compose.split("  role-bootstrap:\n", 1)[1].split("  migrate:\n", 1)[0]
+    migrate = compose.split("  migrate:\n", 1)[1].split("  role-init:\n", 1)[0]
+    role_init = compose.split("  role-init:\n", 1)[1].split("  api:\n", 1)[0]
+    for role in (
+        "srbg_api_login",
+        "srbg_worker_login",
+        "srbg_publisher_login",
+        "srbg_projection_reader_login",
+    ):
+        assert f"CREATE ROLE {role} LOGIN" in bootstrap
+    assert "postgres:\n        condition: service_healthy" in bootstrap
+    assert "role-bootstrap:\n        condition: service_completed_successfully" in migrate
+    assert "migrate:\n        condition: service_completed_successfully" in role_init
+
+
 def test_makefile_exposes_required_quality_and_runtime_targets() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
@@ -68,6 +86,58 @@ def test_makefile_exposes_required_quality_and_runtime_targets() -> None:
     ):
         assert f"{target}:" in makefile
     assert "$(UV) run python scripts/check_contract_generation.py" in makefile
+
+
+def test_ci_uses_the_current_autonomous_content_integration_gate() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    target = makefile.split("autonomous-content-integration-test:\n", 1)[1].split(
+        "\ndigital-case-test:", 1
+    )[0]
+
+    assert "safety-case-test:" not in makefile
+    assert "verify_autonomous_policy_migration.py" in target
+    assert "tests/integration/t41_autonomous_content_integration.py" in target
+    assert "make autonomous-content-integration-test" in workflow
+    assert "make safety-case-test" not in workflow
+
+
+def test_makefile_assigns_service_defaults_before_exporting_them() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+
+    export_groups = {
+        "export WEB_PORT API_PORT": (
+            "WEB_PORT ?= 3000",
+            "API_PORT ?= 8000",
+        ),
+        "export POSTGRES_PORT MINIO_PORT ANCHOR_MINIO_PORT": (
+            "POSTGRES_PORT ?= 5432",
+            "MINIO_PORT ?= 9000",
+            "ANCHOR_MINIO_PORT ?= 9002",
+        ),
+        "export POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB": (
+            "POSTGRES_USER ?= srbg",
+            "POSTGRES_PASSWORD ?= srbg_local_only",
+            "POSTGRES_DB ?= srbg",
+        ),
+        "export MINIO_ROOT_USER MINIO_ROOT_PASSWORD": (
+            "MINIO_ROOT_USER ?= srbg_local",
+            "MINIO_ROOT_PASSWORD ?= srbg_local_storage_only",
+        ),
+        "export SRBG_API_DB_PASSWORD SRBG_PUBLISHER_DB_PASSWORD SRBG_PROJECTION_DB_PASSWORD": (
+            "SRBG_API_DB_PASSWORD ?= srbg_api_local_only",
+            "SRBG_PUBLISHER_DB_PASSWORD ?= srbg_publisher_local_only",
+            "SRBG_PROJECTION_DB_PASSWORD ?= srbg_projection_local_only",
+        ),
+        "export SRBG_S3_BUCKET SRBG_S3_REGION SRBG_EXTERNAL_IO_TIMEOUT_SECONDS": (
+            "SRBG_S3_BUCKET ?= srbg-raw",
+            "SRBG_S3_REGION ?= us-east-1",
+            "SRBG_EXTERNAL_IO_TIMEOUT_SECONDS ?= 2",
+        ),
+    }
+    for export, assignments in export_groups.items():
+        export_index = makefile.index(export)
+        assert all(makefile.index(assignment) < export_index for assignment in assignments)
 
 
 def test_environment_example_is_demo_only_and_documents_timeouts() -> None:
@@ -109,6 +179,7 @@ def test_runtime_build_context_includes_authoritative_publication_gate_assets() 
     dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8")
 
     included_assets = {
+        "!docs/codex-kit/assets/schemas/autonomous-classify-output.schema.json",
         "!docs/codex-kit/assets/validation/publication_gate.json",
         "!docs/codex-kit/assets/validation/publication_evaluation.schema.json",
         "!docs/codex-kit/assets/validation/publication_gate_v3.json",
@@ -132,6 +203,7 @@ def test_ci_pins_actions_and_runs_all_round_zero_gates() -> None:
     assert "actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd" in workflow
     assert "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1" in workflow
     assert "actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e" in workflow
+    assert "PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.cache/ms-playwright" in workflow
     for command in (
         "make lint",
         "make typecheck",
@@ -146,15 +218,10 @@ def test_ci_pins_actions_and_runs_all_round_zero_gates() -> None:
         assert command in workflow
 
 
-def test_round04_fixed_fixture_and_isolated_integration_gates_are_wired() -> None:
+def test_round04_fixed_fixtures_remain_in_the_offline_replay_gate() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
-    workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
 
-    assert "safety-case-test:" in makefile
-    assert "scripts/run_isolated_integration.py" in makefile
-    assert "apps/api/tests/test_safety_case_integration.py" in makefile
     assert "apps/api/tests/test_round04_official_fixtures.py" in makefile
-    assert "make safety-case-test" in workflow
 
 
 def test_project_tool_caches_are_kept_inside_the_workspace() -> None:

@@ -15,6 +15,7 @@ docs/codex-kit/assets/schemas/*
 !docs/codex-kit/assets/schemas/summarize-output.schema.json
 !docs/codex-kit/assets/schemas/summarize-v2-output.schema.json
 !docs/codex-kit/assets/schemas/verify-output.schema.json
+!docs/codex-kit/assets/schemas/autonomous-classify-output.schema.json
 !docs/codex-kit/assets/validation
 docs/codex-kit/assets/validation/*
 !docs/codex-kit/assets/validation/publication_gate.json

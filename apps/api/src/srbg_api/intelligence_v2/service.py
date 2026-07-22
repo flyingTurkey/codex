@@ -210,8 +210,9 @@ class PostgresV2IntelligenceService:
                 raise InvalidV2Cursor("invalid feed cursor") from exc
         sql = (
             "SELECT payload,projected_at,event_id FROM intelligence_projection_v2 "
-            "WHERE (:primary_type IS NULL OR primary_type=:primary_type) "
-            "AND (:cursor_time IS NULL OR (projected_at,event_id)<"
+            "WHERE (CAST(:primary_type AS varchar) IS NULL "
+            "OR primary_type=CAST(:primary_type AS varchar)) "
+            "AND (CAST(:cursor_time AS timestamptz) IS NULL OR (projected_at,event_id)<"
             "(CAST(:cursor_time AS timestamptz),CAST(:cursor_id AS uuid))) "
             "ORDER BY projected_at DESC,event_id DESC LIMIT :row_limit"
         )

@@ -4,6 +4,7 @@ COMPOSE = Path("infra/compose/compose.yaml")
 ENV_EXAMPLE = Path(".env.example")
 MOUNT_SCRIPT = Path("scripts/mount_personal_data.ps1")
 MAKEFILE = Path("Makefile")
+CI_WORKFLOW = Path(".github/workflows/ci.yml")
 
 
 def test_compose_uses_the_external_personal_data_root_for_business_state() -> None:
@@ -54,3 +55,22 @@ def test_runtime_refuses_to_start_without_the_verified_d_drive_vhd_mount() -> No
         assert token in script
     assert "dev: personal-data-ready" in makefile
     assert "runtime-ready: personal-data-ready" in makefile
+
+
+def test_ci_integration_uses_an_explicit_ephemeral_data_root() -> None:
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+
+    integration = workflow.split("  integration:\n", 1)[1].split(
+        "  schema-validation:\n", 1
+    )[0]
+    assert "SRBG_DATA_ROOT: /tmp/srbg-data" in integration
+    for preparation in (
+        'sudo install -d -m 0700 -o 999 -g 999 "$SRBG_DATA_ROOT/postgres"',
+        'sudo install -d -m 0700 -o 999 -g 999 "$SRBG_DATA_ROOT/postgres-wal"',
+        'sudo install -d -m 0750 -o 999 -g 1000 "$SRBG_DATA_ROOT/redis"',
+        'sudo install -d -m 0750 -o 1000 -g 1000 "$SRBG_DATA_ROOT/minio"',
+        'sudo install -d -m 0750 -o 1000 -g 1000 "$SRBG_DATA_ROOT/anchor-minio"',
+        'sudo install -d -m 0750 -o 65534 -g 65534 "$SRBG_DATA_ROOT/prometheus"',
+        'sudo install -d -m 0750 -o 472 -g 0 "$SRBG_DATA_ROOT/grafana"',
+    ):
+        assert preparation in integration

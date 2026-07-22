@@ -9,6 +9,10 @@ describe('PERS-02 personal sources page', () => {
     resolve(process.cwd(), 'app/components/PersonalDiscoveryPanel.vue'),
     'utf8',
   )
+  const autoScore = readFileSync(
+    resolve(process.cwd(), 'app/components/SourceAutoScorePanel.vue'),
+    'utf8',
+  )
   const proxy = readFileSync(resolve(process.cwd(), 'server/api/v1/[...path].ts'), 'utf8')
 
   it('uses only the personal source API and separates intent from runtime', () => {
@@ -76,5 +80,10 @@ describe('PERS-02 personal sources page', () => {
     expect(discovery).toContain('今日自动启用')
     expect(discovery).toContain('关键词')
     expect(discovery).not.toContain('候选审批')
+  })
+
+  it('groups repeated automatic scores without creating duplicate landmarks', () => {
+    expect(autoScore).toContain('<div v-if="summary" class="auto-score" role="group"')
+    expect(autoScore).not.toContain('<section v-if="summary" class="auto-score"')
   })
 })

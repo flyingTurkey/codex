@@ -1,24 +1,24 @@
 """Fail-closed admission rules for the staged civil-engineering source portfolio."""
 
+import json
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Any
+from uuid import UUID
 
-from srbg_api.intelligence_v2.gold_calibration import (
-    OWNER_GOLD_CORPUS_VERSION,
-    OWNER_GOLD_MODEL_ID,
-    OWNER_GOLD_PROMPT_VERSION,
-    OWNER_GOLD_RULE_VERSION,
-    AutoPassCalibrationGrant,
-    exact_auto_pass_calibration,
-)
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncConnection
+
+from srbg_api.identifiers import uuid7
 
 
 @dataclass(frozen=True)
 class SourceAdmissionMetrics:
     sample_size: int
-    robots_allowed: bool
-    terms_allowed: bool
-    copyright_reviewed: bool
+    robots_allowed: bool | None
+    terms_allowed: bool | None
+    copyright_reviewed: bool | None
     public_network_safe: bool
     fetch_success_bps: int
     parse_evidence_success_bps: int
@@ -50,6 +50,26 @@ class SourceSampleCandidate:
     document_version_id: str
     canonical_key: str
     source_published_at: datetime
+
+
+def review_gate_result(
+    value: object,
+    *,
+    allowed_results: set[str],
+) -> bool | None:
+    """Map policy evidence without turning missing knowledge into a prohibition."""
+
+    if not isinstance(value, dict):
+        return None
+    result = value.get("result")
+    if not isinstance(result, str):
+        return None
+    normalized = result.strip().upper()
+    if normalized in allowed_results:
+        return True
+    if normalized in {"BLOCKED", "DENIED", "DISALLOWED", "FORBIDDEN", "RESTRICTED"}:
+        return False
+    return None
 
 
 def select_admission_sample(
@@ -113,17 +133,68 @@ def admission_verdict(value: SourceAdmissionMetrics) -> str:
 def production_admission_verdict(
     value: SourceAdmissionMetrics,
     *,
-    calibration: AutoPassCalibrationGrant | None,
+    calibration: object | None,
 ) -> str:
-    """Apply the production-only classifier prerequisite after all source hard gates."""
+    """Authorize bounded collection unless an explicit hard server gate denies it.
 
-    verdict = admission_verdict(value)
-    if verdict == "ADMIT" and exact_auto_pass_calibration(
-        calibration,
-        corpus_version=OWNER_GOLD_CORPUS_VERSION,
-        rule_version=OWNER_GOLD_RULE_VERSION,
-        model_id=OWNER_GOLD_MODEL_ID,
-        prompt_version=OWNER_GOLD_PROMPT_VERSION,
-    ) is None:
+    ``calibration`` remains as a source-compatible argument for callers deployed with
+    the former Owner-Gold path. It is deliberately ignored and grants no authority.
+    """
+
+    del calibration
+    explicitly_forbidden = any(
+        gate is False
+        for gate in (value.robots_allowed, value.terms_allowed, value.copyright_reviewed)
+    )
+    if not value.public_network_safe or explicitly_forbidden:
         return "PAUSE"
+    return "ADMIT"
+
+
+async def append_production_admission_assessment(
+    connection: AsyncConnection,
+    *,
+    source_id: UUID,
+    metrics: SourceAdmissionMetrics,
+    sample_cutoff: datetime,
+    sample_manifest_sha256: str,
+    evidence_refs: dict[str, Any],
+    actor_id: UUID,
+    assessed_at: datetime,
+    rule_version: str = "civil-source-rollout-v2-engineering-1.0.0",
+) -> str:
+    """Append the authoritative source-admission fact used by live qualification."""
+
+    if sample_cutoff.tzinfo is None or assessed_at.tzinfo is None:
+        raise ValueError("source admission timestamps must include timezone")
+    if re.fullmatch(r"[0-9a-f]{64}", sample_manifest_sha256) is None:
+        raise ValueError("source admission manifest hash is invalid")
+    if re.fullmatch(r"[A-Za-z0-9._:-]{1,100}", rule_version) is None:
+        raise ValueError("source admission rule version is invalid")
+    verdict = production_admission_verdict(metrics, calibration=None)
+    metrics_payload = {
+        key: value for key, value in metrics.__dict__.items() if key != "sample_size"
+    }
+    await connection.execute(
+        text(
+            "INSERT INTO source_admission_assessment_v2("
+            "id,source_id,rule_version,sample_cutoff,lookback_days,sample_size,"
+            "sample_manifest_sha256,metrics,evidence_refs,verdict,assessed_by,assessed_at) "
+            "VALUES(:id,:source,:rule,:cutoff,90,:size,:manifest,CAST(:metrics AS jsonb),"
+            "CAST(:refs AS jsonb),:verdict,:actor,:now)"
+        ),
+        {
+            "id": uuid7(),
+            "source": source_id,
+            "rule": rule_version,
+            "cutoff": sample_cutoff,
+            "size": metrics.sample_size,
+            "manifest": sample_manifest_sha256,
+            "metrics": json.dumps(metrics_payload, sort_keys=True, separators=(",", ":")),
+            "refs": json.dumps(evidence_refs, sort_keys=True, separators=(",", ":")),
+            "verdict": verdict,
+            "actor": actor_id,
+            "now": assessed_at,
+        },
+    )
     return verdict

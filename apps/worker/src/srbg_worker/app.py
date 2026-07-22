@@ -17,8 +17,12 @@ from srbg_api.ai_pipeline.ai_judgments import (
 from srbg_api.ai_pipeline.content_preparation import (
     AiContentPreparationService,
     PreparationDocument,
+    SemanticRecheckRequired,
+    adjudicate_candidates,
+    production_policy_for,
+    try_deterministic_adjudication,
 )
-from srbg_api.ai_pipeline.contracts import AiStep, ClassificationOutput, ModelRequest, ModelResponse
+from srbg_api.ai_pipeline.contracts import AiStep, ModelRequest, ModelResponse
 from srbg_api.ai_pipeline.gateway import ModelOutputRejected, validate_step_output
 from srbg_api.ai_pipeline.preparation import PreparedDocumentInput, prepare_document_input
 from srbg_api.ai_pipeline.runtime import AttemptKind
@@ -29,11 +33,7 @@ from srbg_api.discovery.projections import PostgresDiscoveryProjectionWriter
 from srbg_api.document_vault.storage import S3ObjectStore
 from srbg_api.identifiers import uuid7
 from srbg_api.intelligence_v2.ai_runtime import summary_state_for_failure
-from srbg_api.intelligence_v2.gold_calibration import (
-    OWNER_GOLD_CORPUS_VERSION,
-    exact_auto_pass_calibration,
-)
-from srbg_api.intelligence_v2.qualification import qualification_reason
+from srbg_api.intelligence_v2.autonomous_policy import QualificationPolicyBundle
 from srbg_api.intelligence_v2.t06_content_summary import (
     validate_content_summary_output,
 )
@@ -68,7 +68,11 @@ from srbg_api.source_profiles import (
     ProfileRuleInput,
     build_source_profile,
 )
-from srbg_contracts import SourceProfileModelOutput
+from srbg_contracts import (
+    AutomatedDisposition,
+    AutonomousClassificationCandidate,
+    SourceProfileModelOutput,
+)
 
 from srbg_worker.ai_content_preparation import PostgresAiPreparationRepository
 from srbg_worker.controlled_run_ledger import ControlledRunAttemptObserver
@@ -577,6 +581,7 @@ def handle_ai_content_result(
     network_retries: int,
     repair_used: bool,
     reservation_id: str,
+    semantic_recheck: bool = False,
 ) -> dict[str, object]:
     return asyncio.run(
         _handle_ai_content_result(
@@ -588,6 +593,7 @@ def handle_ai_content_result(
             network_retries=network_retries,
             repair_used=repair_used,
             reservation_id=UUID(reservation_id),
+            semantic_recheck=semantic_recheck,
         )
     )
 
@@ -948,6 +954,22 @@ async def _start_ai_content_preparation(run_id: UUID) -> dict[str, object]:
             await repository.fail(run_id, "DEGRADED", "PROMPT_INJECTION_R4")
             return {"run_id": str(run_id), "status": "DEGRADED"}
         await repository.transition(run_id, "CLASSIFYING")
+        policy = production_policy_for(document)
+        deterministic_trace = try_deterministic_adjudication(
+            document=document, prepared=classify_input, policy=policy
+        )
+        if deterministic_trace is not None:
+            if document.run_mode == "SHADOW":
+                await repository.append_shadow_decision(deterministic_trace, policy)
+            else:
+                await repository.append_automated_decision(deterministic_trace, policy)
+            await repository.transition(run_id, "SUCCEEDED")
+            return {
+                "run_id": str(run_id),
+                "status": "SUCCEEDED",
+                "disposition": deterministic_trace.disposition.value,
+                "local_fact_count": local_fact_count,
+            }
         await _dispatch_ai_attempt(
             repository,
             run_id=run_id,
@@ -957,6 +979,7 @@ async def _start_ai_content_preparation(run_id: UUID) -> dict[str, object]:
             kind=AttemptKind.PRIMARY,
             network_retries=0,
             repair_used=False,
+            policy=policy,
         )
         return {
             "run_id": str(run_id),
@@ -984,6 +1007,7 @@ async def _handle_ai_content_result(
     network_retries: int,
     repair_used: bool,
     reservation_id: UUID,
+    semantic_recheck: bool = False,
 ) -> dict[str, object]:
     repository = _ai_repository()
     try:
@@ -1031,7 +1055,12 @@ async def _handle_ai_content_result(
                 classify_input=classify_input,
                 extract_input=extract_input,
             )
-            request = AiContentPreparationService.build_request(step, prepared)
+            policy = production_policy_for(document)
+            request = AiContentPreparationService.build_request(
+                step,
+                prepared,
+                policy=policy if step is AiStep.CLASSIFY else None,
+            )
         if result.get("status") == "SUCCEEDED":
             runtime_provider = str(result.get("runtime_provider") or "")
             runtime_model = str(result.get("runtime_model") or "")
@@ -1070,38 +1099,63 @@ async def _handle_ai_content_result(
             )
             await repository.complete_compensation(run_id=run_id, succeeded=True)
             if step is AiStep.CLASSIFY:
-                classification = ClassificationOutput.model_validate(response.output)
-                calibration = await repository.load_auto_pass_calibration(
-                    corpus_version=OWNER_GOLD_CORPUS_VERSION,
-                    rule_version="intelligence-v2-qualification-1.0.0",
-                    model_id=request.model_profile,
-                    prompt_version=request.prompt_version,
-                )
-                calibration = exact_auto_pass_calibration(
-                    calibration,
-                    corpus_version=OWNER_GOLD_CORPUS_VERSION,
-                    rule_version="intelligence-v2-qualification-1.0.0",
-                    model_id=request.model_profile,
-                    prompt_version=request.prompt_version,
-                )
-                review_reason = qualification_reason(
-                    classification,
-                    document_text=classify_input.text,
-                    allowed_evidence_locators=frozenset(classify_input.block_ids),
-                    calibration=calibration,
-                )
-                INTELLIGENCE_QUALIFICATION_DECISIONS.labels(
-                    outcome="AUTO_PASS" if review_reason is None else "REVIEW_REQUIRED",
-                    reason="NONE" if review_reason is None else review_reason.value,
-                ).inc()
-                if review_reason is not None:
-                    review_payload = classification.model_dump(mode="json")
-                    review_payload["review_reasons"] = [review_reason.value]
-                    case_id = await repository.queue_qualification_review(document, review_payload)
+                classification = AutonomousClassificationCandidate.model_validate(response.output)
+                classification_candidates: list[dict[str, object]] = []
+                if semantic_recheck:
+                    classification_candidates.append(
+                        await repository.successful_output_before_attempt(
+                            run_id, AiStep.CLASSIFY, attempt=attempt
+                        )
+                    )
+                classification_candidates.append(classification.model_dump(mode="json"))
+                policy = production_policy_for(document)
+                try:
+                    trace = adjudicate_candidates(
+                        document=document,
+                        prepared=classify_input,
+                        policy=policy,
+                        candidates=classification_candidates,
+                    )
+                except SemanticRecheckRequired:
+                    await _dispatch_ai_attempt(
+                        repository,
+                        run_id=run_id,
+                        step=AiStep.CLASSIFY,
+                        prepared=classify_input,
+                        attempt=attempt + 1,
+                        kind=AttemptKind.PRIMARY,
+                        network_retries=0,
+                        repair_used=False,
+                        policy=policy,
+                        semantic_recheck=True,
+                    )
                     return {
                         "run_id": str(run_id),
-                        "status": "WAITING_CLAIM_REVIEW",
-                        "review_case_id": str(case_id),
+                        "status": "CLASSIFYING",
+                        "semantic_recheck_count": 1,
+                    }
+                if document.run_mode == "SHADOW":
+                    await repository.append_shadow_decision(trace, policy)
+                else:
+                    await repository.append_automated_decision(trace, policy)
+                INTELLIGENCE_QUALIFICATION_DECISIONS.labels(
+                    outcome=trace.disposition.value,
+                    reason=trace.reason_codes[0].value,
+                ).inc()
+                if document.run_mode != "LIVE":
+                    await repository.transition(run_id, "SUCCEEDED")
+                    return {
+                        "run_id": str(run_id),
+                        "status": "SUCCEEDED",
+                        "disposition": trace.disposition.value,
+                        "projection_eligible": False,
+                    }
+                if trace.disposition is not AutomatedDisposition.AUTO_ACCEPTED:
+                    await repository.transition(run_id, "SUCCEEDED")
+                    return {
+                        "run_id": str(run_id),
+                        "status": "SUCCEEDED",
+                        "disposition": trace.disposition.value,
                     }
                 await repository.transition(run_id, "EXTRACTING")
                 await _dispatch_ai_attempt(
@@ -1209,6 +1263,7 @@ async def _handle_ai_content_result(
                     kind=AttemptKind.NETWORK_RETRY,
                     network_retries=network_retries + 1,
                     repair_used=repair_used,
+                    semantic_recheck=semantic_recheck,
                     countdown_seconds=delay,
                     request_override=request,
                 )
@@ -1223,6 +1278,7 @@ async def _handle_ai_content_result(
                 kind=AttemptKind.REPAIR,
                 network_retries=network_retries,
                 repair_used=True,
+                semantic_recheck=semantic_recheck,
                 repair_code=code,
                 request_override=request,
             )
@@ -1261,6 +1317,7 @@ async def _handle_ai_content_result(
                 kind=AttemptKind.REPAIR,
                 network_retries=network_retries,
                 repair_used=True,
+                semantic_recheck=semantic_recheck,
                 repair_code=code,
                 request_override=request,
             )
@@ -1337,14 +1394,14 @@ def _prepare_ai_inputs_for_document(
 ) -> tuple[PreparedDocumentInput, PreparedDocumentInput]:
     return (
         prepare_document_input(
-            document_version_id=document.document_version_id,
+            document_version_id=str(document.document_version_id),
             title=document.title,
             source_name=document.source_name,
             blocks=list(document.blocks),
             max_characters=32_000,
         ),
         prepare_document_input(
-            document_version_id=document.document_version_id,
+            document_version_id=str(document.document_version_id),
             title=document.title,
             source_name=document.source_name,
             blocks=list(document.blocks),
@@ -1388,8 +1445,15 @@ async def _dispatch_ai_attempt(
     repair_code: str | None = None,
     countdown_seconds: int = 0,
     request_override: ModelRequest | None = None,
+    policy: QualificationPolicyBundle | None = None,
+    semantic_recheck: bool = False,
 ) -> None:
-    request = request_override or AiContentPreparationService.build_request(step, prepared)
+    request = request_override or AiContentPreparationService.build_request(
+        step,
+        prepared,
+        policy=policy if step is AiStep.CLASSIFY else None,
+        semantic_recheck=semantic_recheck,
+    )
     if repair_code:
         request = request.model_copy(
             update={
@@ -1412,6 +1476,7 @@ async def _dispatch_ai_attempt(
             "network_retries": network_retries,
             "repair_used": repair_used,
             "reservation_id": str(reservation),
+            "semantic_recheck": semantic_recheck,
         },
         immutable=False,
     )

@@ -145,7 +145,12 @@ export type Documents = PublishedDocumentReferenceV1[]
 export type EngineeringType = string | null
 export type EventStatus = 'ACTIVE' | 'MERGED' | 'SPLIT' | 'WITHDRAWN'
 export type EventType =
-  'SAFETY_INCIDENT' | 'REGULATION_CHANGE' | 'DIGITAL_PROJECT' | 'RESEARCH_RESULT' | 'PRODUCT_RELEASE'
+  | 'SAFETY_INCIDENT'
+  | 'REGULATION_CHANGE'
+  | 'DIGITAL_PROJECT'
+  | 'RESEARCH_RESULT'
+  | 'PRODUCT_RELEASE'
+  | 'INDUSTRY_UPDATE'
 export type EventVersion = number
 export type ContentSha256 = string
 export type EvidenceId1 = string
@@ -225,6 +230,7 @@ export type CanonicalEventId1 = string | null
 export type ContentSeverity = 'UNASSESSED' | 'LOW' | 'MODERATE' | 'HIGH' | 'CRITICAL'
 export type ItemType =
   | 'DIGITAL_CASE'
+  | 'INDUSTRY_UPDATE'
   | 'JOURNAL_PAPER'
   | 'SOFTWARE_PRODUCT'
   | 'IOT_PRODUCT'
@@ -233,7 +239,7 @@ export type ItemType =
   | 'SAFETY_REGULATION'
   | 'SAFETY_CASE'
 export type DiscoveryStatus = 'MACHINE_DISCOVERED' | 'HUMAN_CURATED'
-export type Channel = 'DIGITAL' | 'SAFETY'
+export type Channel = 'DIGITAL' | 'SAFETY' | 'INDUSTRY'
 export type EventRevisionId = string | null
 export type EventStatus1 = 'ACTIVE' | 'MERGED' | 'SPLIT' | 'WITHDRAWN'
 export type EventVersion1 = number
