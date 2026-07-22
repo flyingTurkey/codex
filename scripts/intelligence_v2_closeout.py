@@ -322,10 +322,12 @@ def _source_assessments_valid(
         metrics = value.get("metrics")
         if not isinstance(sample_size, int) or not isinstance(metrics, dict):
             return False
-        hard_flags = (
+        tri_state_gates = (
             "robots_allowed",
             "terms_allowed",
             "copyright_reviewed",
+        )
+        hard_flags = (
             "public_network_safe",
             "hard_negative_evaluated",
         )
@@ -337,9 +339,16 @@ def _source_assessments_valid(
             "duplicate_bps",
             "hard_negative_leaks",
         )
-        if any(not isinstance(metrics.get(field), bool) for field in hard_flags) or any(
-            not isinstance(metrics.get(field), int) or isinstance(metrics.get(field), bool)
-            for field in numeric_metrics
+        if (
+            any(
+                metrics.get(field) is not None and not isinstance(metrics.get(field), bool)
+                for field in tri_state_gates
+            )
+            or any(not isinstance(metrics.get(field), bool) for field in hard_flags)
+            or any(
+                not isinstance(metrics.get(field), int) or isinstance(metrics.get(field), bool)
+                for field in numeric_metrics
+            )
         ):
             return False
         calculated = production_admission_verdict(

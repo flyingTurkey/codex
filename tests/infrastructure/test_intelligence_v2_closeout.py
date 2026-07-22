@@ -226,9 +226,9 @@ def test_closeout_report_accepts_complete_hashed_evidence(tmp_path: Path) -> Non
                     "sample_size": 30,
                     "verdict": "ADMIT",
                     "metrics": {
-                        "robots_allowed": True,
-                        "terms_allowed": True,
-                        "copyright_reviewed": True,
+                        "robots_allowed": None,
+                        "terms_allowed": None,
+                        "copyright_reviewed": None,
                         "public_network_safe": True,
                         "hard_negative_evaluated": True,
                         "fetch_success_bps": 9800,

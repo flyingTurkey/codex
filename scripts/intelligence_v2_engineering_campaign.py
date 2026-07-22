@@ -37,7 +37,8 @@ from srbg_api.intelligence_v2.campaign import (
 )
 from srbg_api.source_registry.v2_rollout import (
     SourceAdmissionMetrics,
-    production_admission_verdict,
+    append_production_admission_assessment,
+    review_gate_result,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -589,12 +590,13 @@ class CampaignRepository:
                     )
                 metrics = SourceAdmissionMetrics(
                     sample_size=sample_size,
-                    robots_allowed=(isinstance(robots, dict) and robots.get("result") == "ALLOWED"),
-                    terms_allowed=(
-                        isinstance(terms, dict)
-                        and terms.get("result") in {"ALLOWED", "NOT_PRESENT"}
+                    robots_allowed=review_gate_result(robots, allowed_results={"ALLOWED"}),
+                    terms_allowed=review_gate_result(
+                        terms, allowed_results={"ALLOWED", "NOT_PRESENT"}
                     ),
-                    copyright_reviewed=isinstance(copyright_value, dict),
+                    copyright_reviewed=review_gate_result(
+                        copyright_value, allowed_results={"ALLOWED", "REVIEWED"}
+                    ),
                     public_network_safe=total > 0 and fetched > 0,
                     fetch_success_bps=fetch_bps,
                     parse_evidence_success_bps=(
@@ -606,36 +608,21 @@ class CampaignRepository:
                     hard_negative_leaks=0,
                     hard_negative_evaluated=False,
                 )
-                metrics_value = {
-                    key: value for key, value in metrics.__dict__.items() if key != "sample_size"
-                }
                 evidence_refs = {
                     "campaign_id": str(campaign_id),
                     "official_origin": roster_source["official_origin"],
                     "sample_document_version_ids_sha256": manifest_hash,
                     "hard_negative_observation": "NOT_EVALUATED_NO_DURABLE_LOCKED_SET",
                 }
-                await connection.execute(
-                    text(
-                        "INSERT INTO source_admission_assessment_v2("
-                        "id,source_id,rule_version,sample_cutoff,lookback_days,sample_size,"
-                        "sample_manifest_sha256,metrics,evidence_refs,verdict,assessed_by,assessed_at) "
-                        "VALUES(:id,:source,'civil-source-rollout-v2-engineering-1.0.0',"
-                        ":cutoff,90,:size,:manifest,CAST(:metrics AS jsonb),CAST(:refs AS jsonb),"
-                        ":verdict,:actor,:now)"
-                    ),
-                    {
-                        "id": uuid7(),
-                        "source": row["id"],
-                        "cutoff": cutoff,
-                        "size": sample_size,
-                        "manifest": manifest_hash,
-                        "metrics": _canonical(metrics_value).decode("utf-8"),
-                        "refs": _canonical(evidence_refs).decode("utf-8"),
-                        "verdict": production_admission_verdict(metrics, calibration=None),
-                        "actor": LOCAL_USER_ID,
-                        "now": ended_at,
-                    },
+                await append_production_admission_assessment(
+                    connection,
+                    source_id=row["id"],
+                    metrics=metrics,
+                    sample_cutoff=cutoff,
+                    sample_manifest_sha256=manifest_hash,
+                    evidence_refs=evidence_refs,
+                    actor_id=LOCAL_USER_ID,
+                    assessed_at=ended_at,
                 )
 
     async def export_runtime(self, root: Path, started_at: datetime, ended_at: datetime) -> int:

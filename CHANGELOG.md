@@ -13,6 +13,8 @@
 - Added an idempotent login-role bootstrap before Alembic on clean databases, so historical grants can migrate forward before the existing post-migration role/password initialization; historical revisions remain unchanged.
 - Whitelisted only the #41 autonomous classification Schema into the runtime image build context so migration 0049 can register and hash the same authoritative bytes on clean deployments.
 - Replaced the stale CI target for the retired enterprise Safety Case lifecycle with an explicit #41 autonomous-content integration gate covering real isolated database, Worker/evidence, and PublicationService paths for safety and industry Feed projections; Round 04 immutable fixtures remain in offline replay.
+- Extended that integration gate through the actual personal SourceStream scheduler, bounded network and malware-scanner edge replacements, and private MinIO raw-first persistence while keeping production ClamAV private-network-only. Migration `0050_autonomous_handoff_state_order` removes a random UUID tie-break from same-timestamp document lifecycle states, and the gate now proves deterministic handoff to filtering or publication.
+- Preserved the one-recheck bound across every Worker redispatch, mapped unknown robots/terms/copyright observations to bounded admission instead of a false prohibition, and centralized production admission assessment writes in the shared SourceAdmission service.
 
 ## 2026-07-21 (Issue #41 autonomous qualification policy foundation)
 

@@ -1263,6 +1263,7 @@ async def _handle_ai_content_result(
                     kind=AttemptKind.NETWORK_RETRY,
                     network_retries=network_retries + 1,
                     repair_used=repair_used,
+                    semantic_recheck=semantic_recheck,
                     countdown_seconds=delay,
                     request_override=request,
                 )
@@ -1277,6 +1278,7 @@ async def _handle_ai_content_result(
                 kind=AttemptKind.REPAIR,
                 network_retries=network_retries,
                 repair_used=True,
+                semantic_recheck=semantic_recheck,
                 repair_code=code,
                 request_override=request,
             )
@@ -1315,6 +1317,7 @@ async def _handle_ai_content_result(
                 kind=AttemptKind.REPAIR,
                 network_retries=network_retries,
                 repair_used=True,
+                semantic_recheck=semantic_recheck,
                 repair_code=code,
                 request_override=request,
             )

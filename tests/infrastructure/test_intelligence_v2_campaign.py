@@ -56,7 +56,7 @@ def test_started_campaign_reasserts_acceptance_environment_when_resumed() -> Non
     source = SCRIPT.read_text(encoding="utf-8")
 
     assert '"resumed": True' in source
-    assert 'if transition is None and current.phase is CampaignPhase.STARTED:' in source
+    assert "if transition is None and current.phase is CampaignPhase.STARTED:" in source
 
 
 def test_campaign_publishes_only_current_hashed_evidence_for_plain_closeout_command() -> None:
@@ -78,7 +78,8 @@ def test_source_assessment_uses_the_durable_transport_success_value() -> None:
 def test_source_assessment_writes_the_current_production_admission_semantics() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
 
-    assert "production_admission_verdict(metrics, calibration=None)" in source
+    assert "append_production_admission_assessment(" in source
+    assert "INSERT INTO source_admission_assessment_v2" not in source
 
 
 def test_source_sample_cutoff_is_campaign_fixed_and_document_versions_are_unique() -> None:
@@ -88,5 +89,4 @@ def test_source_sample_cutoff_is_campaign_fixed_and_document_versions_are_unique
     assert "SELECT DISTINCT ON (item.current_document_version_id)" in source
     assert "hard_negative_evaluated=False" in source
     assert '"ended_at": row["assessed_at"].isoformat()' in source
-    assert 'if key != "sample_size"' in source
     assert 'metrics.pop("sample_size")' in source

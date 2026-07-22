@@ -53,6 +53,7 @@ async def _verify(database_url: str, revision: str) -> None:
     expected = revision in {
         "0048_autonomous_policy_foundation",
         "0049_autonomous_content_switch",
+        "0050_autonomous_handoff_state_order",
     }
     try:
         async with engine.connect() as connection:
@@ -101,6 +102,17 @@ async def _verify(database_url: str, revision: str) -> None:
                     )
                 )
                 _require(int(registry_count or 0) == 2, "production AI registry is incomplete")
+            if revision == "0050_autonomous_handoff_state_order":
+                handoff_definition = await connection.scalar(
+                    text(
+                        "SELECT pg_get_functiondef("
+                        "'handoff_source_content_to_ai(uuid,uuid,timestamptz)'::regprocedure)"
+                    )
+                )
+                _require(
+                    "WHEN 'READY' THEN 80" in str(handoff_definition),
+                    "handoff state order is not deterministic",
+                )
     finally:
         await engine.dispose()
 
@@ -117,7 +129,16 @@ def main() -> None:
     asyncio.run(_verify(database_url, "0048_autonomous_policy_foundation"))
     command.upgrade(config, "0049_autonomous_content_switch")
     asyncio.run(_verify(database_url, "0049_autonomous_content_switch"))
-    print("Autonomous-policy migration replay passed: 0048 -> 0049 -> 0048 -> 0049")
+    command.upgrade(config, "0050_autonomous_handoff_state_order")
+    asyncio.run(_verify(database_url, "0050_autonomous_handoff_state_order"))
+    command.downgrade(config, "0049_autonomous_content_switch")
+    asyncio.run(_verify(database_url, "0049_autonomous_content_switch"))
+    command.upgrade(config, "0050_autonomous_handoff_state_order")
+    asyncio.run(_verify(database_url, "0050_autonomous_handoff_state_order"))
+    print(
+        "Autonomous-policy migration replay passed: "
+        "0048 -> 0049 -> 0048 -> 0049 -> 0050 -> 0049 -> 0050"
+    )
 
 
 if __name__ == "__main__":

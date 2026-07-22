@@ -13,7 +13,7 @@ The Owner amended #41 after the original offline foundation: the `.4` benchmark 
 - The authoritative SourceAdmission assessment writer and closeout verifier no longer read HUMAN_OWNER Gold. Explicit public-network, robots, terms or copyright prohibitions pause the source; missing legal metadata, soft-yield observations and qualification leakage permit bounded admission and remain observable policy-iteration signals rather than collection vetoes.
 - `INDUSTRY_UPDATE` remains independent through compatibility Item/channel/Event storage and the v2 projection; it is not coerced into the digital category.
 - New document versions are separately adjudicated; existing candidate invalidation and durable publisher outboxes remove stale claims and projections.
-- Forward migration `0049_autonomous_content_switch` registers the production Prompt/Schema and Worker append grants after 0048. 0046/0047 are unchanged.
+- Forward migrations `0049_autonomous_content_switch` and `0050_autonomous_handoff_state_order` register the production Prompt/Schema and Worker append grants, then make same-timestamp document lifecycle ordering deterministic. 0046/0047 are unchanged.
 - ADR-0005 records the production switch. Source discovery/admission continues to use server public-network, access-control, explicit legal, rate and budget controls; no model output grants source or publication authority.
 
 ## Delivered scope
@@ -50,16 +50,16 @@ The historical private gate result is therefore **NO-GO against its original thr
 
 ## Verification
 
-- migration head after the production amendment: `0049_autonomous_content_switch`
-- isolated migration replay: `0048 -> 0049 -> 0048 -> 0049` passed
+- migration head after the production amendment: `0050_autonomous_handoff_state_order`
+- isolated migration replay: `0048 -> 0049 -> 0048 -> 0049 -> 0050 -> 0049 -> 0050` passed
 - inherited W0 closeout mismatch: fixed by aligning its stale 20/10/10 fixture and validator with the frozen 20/0/20 annotation Schema; the focused regression passes
 - `make lint`: passed
 - `make typecheck`: passed (mypy strict: 150 source files; Nuxt/UI/contract TypeScript passed)
-- `make test`: passed (Python 1481 passed, 27 skipped; UI 53 passed; Web 101 passed)
+- `make test`: passed (Python 1491 passed, 27 skipped; UI 53 passed; Web 102 passed)
 - `make contract-test`: passed (122 tests; generated contracts reproducible)
 - `make security-check`: passed (dependency audits and HIGH/CRITICAL secret/misconfiguration scan)
 - `make fixture-replay`: passed (374 tests plus evaluation)
-- isolated PostgreSQL/Worker/PublicationService integration: passed (3 tests: duplicate deterministic filtering remained idempotent with no Item/task/model call; governed PRODUCTION raw captures and WAITING_AI handoffs entered through the real Worker authorization seam, then automatic safety and industry acceptance each created evidence-backed claims and SourceExcerpt, traversed the durable publisher outbox, and produced a FULL `/api/v2` reader projection with `human_reviewed=false` and no Owner semantic case). The runner creates and deletes an isolated private object-storage bucket for resource isolation; these tests do not claim content-object persistence coverage.
+- isolated PostgreSQL/Worker/PublicationService integration: passed (3 tests: the real personal SourceStream scheduler used bounded deterministic network and malware-scanner edge replacements, stored raw discovery and article bytes in an isolated private MinIO bucket, created governed PRODUCTION document versions and WAITING_AI handoffs, then either filtered idempotently with no Item/task/model call or created evidence-backed safety/industry claims and SourceExcerpt, traversed the durable publisher outbox, and produced a FULL `/api/v2` reader projection with `human_reviewed=false` and no Owner semantic case). Production ClamAV remains reachable only on the private service network.
 - `make quality-gate`: passed (including the full test, contract, dependency and HIGH/CRITICAL security scan sequence)
 - CI environment regression: GNU Make now assigns all defaulted PostgreSQL, object-storage, port, bucket/region and external-I/O values before exporting them, preventing empty configuration from aborting tests or isolated resource setup on clean runners.
 - CI integration isolation: the integration job creates and exports a runner-scoped ephemeral `SRBG_DATA_ROOT`, with service-specific UID/GID and permissions, before Compose startup; production and local data-root requirements remain unchanged.

@@ -97,8 +97,8 @@ def parse_html_document(content: bytes) -> ParsedPdfDocument:
     blocks = tuple(
         ParsedTextBlock(
             block_index=index,
-            kind="PARAGRAPH",
-            text_source="HTML",
+            kind="BODY",
+            text_source="NATIVE",
             text=value,
             normalized_text=value,
             text_sha256=sha256(value.encode()).hexdigest(),
@@ -117,7 +117,7 @@ def parse_html_document(content: bytes) -> ParsedPdfDocument:
         width_mpt=800_000,
         height_mpt=max(len(blocks), 1) * 1000,
         rotation=0,
-        text_source="HTML",
+        text_source="NATIVE",
         blocks=blocks,
         table_cells=(),
         preview_png=preview,
@@ -1535,6 +1535,11 @@ class PostgresAiPreparationRepository:
                             "id": evidence_uuid,
                             "claim_id": claim_id,
                             "version_id": facts["version_id"],
+                            "evidence_role": (
+                                "PRIMARY_OFFICIAL"
+                                if str(document.source_code).startswith("GOV-")
+                                else "SOURCE_EXCERPT"
+                            ),
                             "paragraph_id": str(row["block"]["block_id"]),
                             "start": row["start"],
                             "end": row["start"] + len(row["candidate"]["excerpt"]),
@@ -1950,6 +1955,11 @@ class PostgresAiPreparationRepository:
                         "id": evidence_id,
                         "claim_id": claim_id,
                         "version_id": facts["version_id"],
+                        "evidence_role": (
+                            "PRIMARY_OFFICIAL"
+                            if str(document.source_code).startswith("GOV-")
+                            else "SOURCE_EXCERPT"
+                        ),
                         "paragraph_id": str(block["block_id"]),
                         "start": start,
                         "end": start + len(local.excerpt),
@@ -2380,7 +2390,7 @@ INSERT INTO claim_evidence(
  excerpt_sha256,original_url,created_at,locator_type,page_number,document_text_block_id,
  x0_mpt,y0_mpt,x1_mpt,y1_mpt,confidence_bps
 ) VALUES(
- :id,:claim_id,:version_id,'PRIMARY_OFFICIAL',:paragraph_id,:start,:end,:excerpt,
+ :id,:claim_id,:version_id,:evidence_role,:paragraph_id,:start,:end,:excerpt,
  :excerpt_hash,:url,:now,'PDF_TEXT',:page,:block_id,:x0,:y0,:x1,:y1,:confidence
 )
 """

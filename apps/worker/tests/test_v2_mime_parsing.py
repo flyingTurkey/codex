@@ -11,3 +11,6 @@ def test_html_is_parsed_as_html_not_opened_as_pdf() -> None:
     assert "铁路隧道" in parsed.normalized_text
     assert "ignore" not in parsed.normalized_text
     assert len(parsed.pages[0].blocks) == 2
+    assert parsed.pages[0].text_source == "NATIVE"
+    assert all(block.text_source == "NATIVE" for block in parsed.pages[0].blocks)
+    assert all(block.kind == "BODY" for block in parsed.pages[0].blocks)

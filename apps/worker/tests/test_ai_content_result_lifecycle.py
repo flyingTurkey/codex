@@ -61,9 +61,7 @@ def test_success_persistence_reauthorizes_before_writing_model_content() -> None
 
     callback_source = inspect.getsource(worker._handle_ai_content_result)
     success_branch = callback_source.rsplit('if result.get("status") == "SUCCEEDED":', 1)[1]
-    assert success_branch.index("authorize_model_call") < success_branch.index(
-        "repository.settle"
-    )
+    assert success_branch.index("authorize_model_call") < success_branch.index("repository.settle")
 
 
 def test_worker_uses_versioned_autonomous_decision_without_owner_gold() -> None:
@@ -76,6 +74,13 @@ def test_worker_uses_versioned_autonomous_decision_without_owner_gold() -> None:
     assert "if semantic_recheck" in callback_source
     assert "successful_output_before_attempt" in callback_source
     assert "attempt=attempt + 1" in callback_source
+
+
+def test_semantic_recheck_flag_survives_every_failure_redispatch() -> None:
+    callback_source = inspect.getsource(worker._handle_ai_content_result)
+    failure_tail = callback_source.split("await repository.settle(reservation_id, None)", 1)[1]
+
+    assert failure_tail.count("semantic_recheck=semantic_recheck") == 3
 
 
 def test_repository_persists_policy_identity_and_decision_append_only() -> None:
@@ -227,13 +232,9 @@ async def test_revoked_authorization_settles_real_usage_and_terminalizes_callbac
     assert repository.settled[0] is not None
     assert repository.settled[0].usage.input_tokens == 21
     assert repository.settled[0].cost_microusd == 17
-    assert repository.failed_steps == [
-        (AiStep.CLASSIFY, "AI_RUNTIME_AUTHORIZATION_DENIED")
-    ]
+    assert repository.failed_steps == [(AiStep.CLASSIFY, "AI_RUNTIME_AUTHORIZATION_DENIED")]
     assert repository.failed_step_usage == [(21, 17)]
-    assert repository.failures == [
-        ("FAILED", "AI_RUNTIME_AUTHORIZATION_DENIED")
-    ]
+    assert repository.failures == [("FAILED", "AI_RUNTIME_AUTHORIZATION_DENIED")]
     assert repository.closed is True
 
 
@@ -281,9 +282,7 @@ async def test_revoked_later_step_callback_does_not_load_prior_ai_results(
     )
 
     assert result["failure_code"] == "AI_RUNTIME_AUTHORIZATION_DENIED"
-    assert repository.failed_steps == [
-        (step, "AI_RUNTIME_AUTHORIZATION_DENIED")
-    ]
+    assert repository.failed_steps == [(step, "AI_RUNTIME_AUTHORIZATION_DENIED")]
     assert repository.failures == [("FAILED", "AI_RUNTIME_AUTHORIZATION_DENIED")]
 
 
@@ -307,6 +306,4 @@ async def test_revoked_callback_with_malformed_success_never_dispatches_repair(
 
     assert result["failure_code"] == "AI_RUNTIME_AUTHORIZATION_DENIED"
     assert repository.settled == [None]
-    assert repository.failed_steps == [
-        (AiStep.CLASSIFY, "AI_RUNTIME_AUTHORIZATION_DENIED")
-    ]
+    assert repository.failed_steps == [(AiStep.CLASSIFY, "AI_RUNTIME_AUTHORIZATION_DENIED")]
