@@ -64,4 +64,13 @@ def test_ci_integration_uses_an_explicit_ephemeral_data_root() -> None:
         "  schema-validation:\n", 1
     )[0]
     assert "SRBG_DATA_ROOT: /tmp/srbg-data" in integration
-    assert 'mkdir -p "$SRBG_DATA_ROOT"' in integration
+    for preparation in (
+        'sudo install -d -m 0700 -o 999 -g 999 "$SRBG_DATA_ROOT/postgres"',
+        'sudo install -d -m 0700 -o 999 -g 999 "$SRBG_DATA_ROOT/postgres-wal"',
+        'sudo install -d -m 0750 -o 999 -g 1000 "$SRBG_DATA_ROOT/redis"',
+        'sudo install -d -m 0750 -o 1000 -g 1000 "$SRBG_DATA_ROOT/minio"',
+        'sudo install -d -m 0750 -o 1000 -g 1000 "$SRBG_DATA_ROOT/anchor-minio"',
+        'sudo install -d -m 0750 -o 65534 -g 65534 "$SRBG_DATA_ROOT/prometheus"',
+        'sudo install -d -m 0750 -o 472 -g 0 "$SRBG_DATA_ROOT/grafana"',
+    ):
+        assert preparation in integration
