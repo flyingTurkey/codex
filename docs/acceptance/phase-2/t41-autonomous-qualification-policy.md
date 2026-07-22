@@ -61,6 +61,7 @@ The historical private gate result is therefore **NO-GO against its original thr
 - `make fixture-replay`: passed (374 tests plus evaluation)
 - isolated PostgreSQL/Redis/object-storage integration: passed (2 tests: duplicate deterministic filtering remained idempotent with no Item/task/model call; a governed PRODUCTION raw capture and WAITING_AI handoff entered through the real Worker authorization seam, then automatic industry acceptance created evidence-backed claims and SourceExcerpt, traversed the durable publisher outbox, and produced a FULL `/api/v2` reader projection with `human_reviewed=false` and no Owner semantic case)
 - `make quality-gate`: passed (including the full test, contract, dependency and HIGH/CRITICAL security scan sequence)
+- CI environment regression: GNU Make now assigns `SRBG_EXTERNAL_IO_TIMEOUT_SECONDS` before exporting it; the focused infrastructure suite passes (19 tests), preventing an empty timeout from aborting test collection on clean runners.
 
 Code review resolved the safety-precedence, Prompt/Schema identity-binding, retry-convergence, model-call audit, private input-size, LIVE-to-SHADOW mutation, LIVE callback authorization, SourceAdmission writer/leakage veto, production/replay Prompt divergence, and SHADOW fact-separation findings. The W0 20/0/20 closeout reconciliation remains because the frozen Owner Gold annotation Schema permits only `POSITIVE` and `NEGATIVE`; restoring the stale `BOUNDARY` distribution makes the inherited closeout regression fail.
 

@@ -70,6 +70,14 @@ def test_makefile_exposes_required_quality_and_runtime_targets() -> None:
     assert "$(UV) run python scripts/check_contract_generation.py" in makefile
 
 
+def test_makefile_assigns_external_io_timeout_before_exporting_it() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+
+    assignment = "SRBG_EXTERNAL_IO_TIMEOUT_SECONDS ?= 5"
+    export = "export SRBG_S3_BUCKET SRBG_S3_REGION SRBG_EXTERNAL_IO_TIMEOUT_SECONDS"
+    assert makefile.index(assignment) < makefile.index(export)
+
+
 def test_environment_example_is_demo_only_and_documents_timeouts() -> None:
     example = (ROOT / ".env.example").read_text(encoding="utf-8")
 
