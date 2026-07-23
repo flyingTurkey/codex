@@ -3,12 +3,14 @@ from uuid import UUID
 
 from fastapi.testclient import TestClient
 from srbg_api.intelligence_v2.service import MediaDeliveryUnavailable, ProjectionNotFound
+from srbg_api.intelligence_v2.technical_exceptions import SafetyExceptionHardBlock
 from srbg_api.main import create_app
 from srbg_contracts import FeedPageV2, OwnerExceptionCommand
 
 NOW = datetime(2026, 7, 19, tzinfo=UTC)
 EVENT_ID = UUID("019f7c00-0000-7000-8000-000000000011")
 EXCEPTION_ID = UUID("019f7c00-0000-7000-8000-000000000012")
+SAFETY_EXCEPTION_ID = UUID("019f7c00-0000-7000-8000-000000000112")
 
 
 class FakeV2Service:
@@ -130,6 +132,64 @@ class FakeTechnicalExceptionService:
             "decision_id": "019f7c00-0000-7000-8000-000000000018",
             "reason_codes": ["TECHNICAL_EXHAUSTED"],
             "attempt_count": 4,
+            "version": 1,
+            "opened_at": NOW,
+            "updated_at": NOW,
+            "resolved_at": None,
+        }
+
+
+class FakeSafetyExceptionService:
+    async def close(self) -> None:
+        pass
+
+    async def list_exceptions(self, **filters: object):
+        assert filters["kind"] == "SAFETY"
+        return [self._view()]
+
+    async def get_exception(self, exception_id: UUID):
+        assert exception_id == SAFETY_EXCEPTION_ID
+        return self._view()
+
+    async def command(
+        self,
+        *,
+        exception_id: UUID,
+        command: OwnerExceptionCommand,
+        owner_id: UUID,
+        idempotency_key: UUID,
+    ):
+        del owner_id
+        assert exception_id == SAFETY_EXCEPTION_ID
+        if command.expected_version == 2:
+            raise SafetyExceptionHardBlock("MALICIOUS_PAYLOAD")
+        return {
+            "id": "019f7c00-0000-7000-8000-000000000114",
+            "exception_id": exception_id,
+            "event_type": command.event_type.value,
+            "expected_version": command.expected_version,
+            "idempotency_key": idempotency_key,
+            "created_at": NOW,
+        }
+
+    @staticmethod
+    def _view():
+        return {
+            "id": SAFETY_EXCEPTION_ID,
+            "kind": "SAFETY",
+            "status": "OPEN",
+            "overrideability": "OWNER_DECIDABLE",
+            "source_id": "019f7c00-0000-7000-8000-000000000115",
+            "source_stream_id": None,
+            "document_version_id": "019f7c00-0000-7000-8000-000000000117",
+            "decision_id": "019f7c00-0000-7000-8000-000000000118",
+            "reason_codes": ["SAFETY_SIGNAL"],
+            "safety_reason_code": "PROMPT_INJECTION_DETECTED",
+            "safe_title": "疑似提示词注入内容",
+            "source_name": "交通运输部",
+            "discovered_at": NOW,
+            "safe_evidence_ids": ["019f7c00-0000-7000-8000-000000000119"],
+            "attempt_count": 0,
             "version": 1,
             "opened_at": NOW,
             "updated_at": NOW,
@@ -291,3 +351,42 @@ def test_owner_technical_exception_api_is_filtered_safe_and_idempotency_guarded(
     assert retried.status_code == 202
     assert retried.json()["event_type"] == "RETRY_REQUESTED"
     assert forbidden_safety_action.status_code == 422
+
+
+def test_owner_safety_exception_uses_same_route_and_hard_block_is_problem_details() -> None:
+    service = FakeSafetyExceptionService()
+    with TestClient(create_app(technical_exception_service=service)) as client:
+        listed = client.get("/api/v2/owner/exceptions?kind=SAFETY&status=OPEN&limit=20")
+        allowed = client.post(
+            f"/api/v2/owner/exceptions/{SAFETY_EXCEPTION_ID}/commands",
+            json={
+                "exception_id": str(SAFETY_EXCEPTION_ID),
+                "event_type": "OWNER_ALLOWED",
+                "expected_version": 1,
+            },
+            headers={
+                "If-Match": '"1"',
+                "Idempotency-Key": "019f7c00-0000-7000-8000-000000000120",
+            },
+        )
+        hard_blocked = client.post(
+            f"/api/v2/owner/exceptions/{SAFETY_EXCEPTION_ID}/commands",
+            json={
+                "exception_id": str(SAFETY_EXCEPTION_ID),
+                "event_type": "OWNER_ALLOWED",
+                "expected_version": 2,
+            },
+            headers={
+                "If-Match": '"2"',
+                "Idempotency-Key": "019f7c00-0000-7000-8000-000000000121",
+            },
+        )
+
+    assert listed.status_code == 200
+    assert listed.json()[0]["safety_reason_code"] == "PROMPT_INJECTION_DETECTED"
+    assert "raw_content" not in listed.text
+    assert allowed.status_code == 202
+    assert allowed.json()["event_type"] == "OWNER_ALLOWED"
+    assert hard_blocked.status_code == 409
+    assert hard_blocked.headers["content-type"].startswith("application/problem+json")
+    assert hard_blocked.json()["code"] == "SAFETY_HARD_BLOCK_NON_OVERRIDABLE"

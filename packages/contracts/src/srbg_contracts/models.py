@@ -96,6 +96,19 @@ class SafetyOverrideability(StrEnum):
     HARD_BLOCK = "HARD_BLOCK"
 
 
+class SafetyRiskReason(StrEnum):
+    PROMPT_INJECTION_DETECTED = "PROMPT_INJECTION_DETECTED"
+    SUSPICIOUS_MODEL_SIGNAL = "SUSPICIOUS_MODEL_SIGNAL"
+    PRIVATE_NETWORK_TARGET = "PRIVATE_NETWORK_TARGET"
+    LOOPBACK_TARGET = "LOOPBACK_TARGET"
+    CLOUD_METADATA_TARGET = "CLOUD_METADATA_TARGET"
+    MALICIOUS_PAYLOAD = "MALICIOUS_PAYLOAD"
+    ACCESS_CONTROL_BYPASS = "ACCESS_CONTROL_BYPASS"
+    MANDATORY_MALWARE_SCAN_FAILED = "MANDATORY_MALWARE_SCAN_FAILED"
+    SAFE_BYTES_UNAVAILABLE = "SAFE_BYTES_UNAVAILABLE"
+    UNRECOGNIZED_SECURITY_SIGNAL = "UNRECOGNIZED_SECURITY_SIGNAL"
+
+
 class FeedSuppressionScope(StrEnum):
     EVENT = "EVENT"
     PRIMARY_TYPE = "PRIMARY_TYPE"
@@ -203,6 +216,11 @@ class OwnerExceptionView(ContractModel):
         default=None,
         pattern=r"^[A-Z0-9_]{1,80}$",
     )
+    safety_reason_code: SafetyRiskReason | None = None
+    safe_title: str | None = Field(default=None, min_length=1, max_length=300)
+    source_name: str | None = Field(default=None, min_length=1, max_length=200)
+    discovered_at: AwareDatetime | None = None
+    safe_evidence_ids: list[UUID] = Field(default_factory=list, max_length=100)
     attempt_count: int = Field(ge=0, le=32767)
     version: int = Field(gt=0)
     opened_at: AwareDatetime
@@ -217,6 +235,21 @@ class OwnerExceptionView(ContractModel):
             raise ValueError("safety exceptions require overrideability")
         if self.kind is ExceptionKind.SAFETY and self.technical_reason_code is not None:
             raise ValueError("safety exceptions have no technical reason code")
+        if self.kind is ExceptionKind.SAFETY and (
+            self.safety_reason_code is None
+            or self.safe_title is None
+            or self.source_name is None
+            or self.discovered_at is None
+        ):
+            raise ValueError("safety exceptions require sanitized projection metadata")
+        if self.kind is ExceptionKind.TECHNICAL and (
+            self.safety_reason_code is not None
+            or self.safe_title is not None
+            or self.source_name is not None
+            or self.discovered_at is not None
+            or self.safe_evidence_ids
+        ):
+            raise ValueError("technical exceptions cannot expose safety projection metadata")
         return self
 
 

@@ -32,6 +32,7 @@ from srbg_api.intelligence_v2.feed_suppressions import FeedSuppressionConflict
 from srbg_api.intelligence_v2.service import PostgresV2IntelligenceService, ProjectionNotFound
 from srbg_api.intelligence_v2.technical_exceptions import (
     PostgresOwnerTechnicalExceptionService,
+    SafetyExceptionHardBlock,
     TechnicalExceptionConflict,
 )
 from srbg_api.publication.repository import PostgresPublicationRepository
@@ -48,6 +49,7 @@ from srbg_api.source_registry.v2_rollout import (
 )
 from srbg_contracts import (
     FeedSuppressionCommand,
+    OwnerExceptionCommand,
     PersonalSourceCreateRequest,
 )
 from srbg_worker.ai_content_preparation import PostgresAiPreparationRepository
@@ -126,12 +128,19 @@ class ModelMustNotRun:
 
 class AcceptedModel:
     def __init__(
-        self, locator: str, *, primary_type: str, core_new_fact: str, content_form: str
+        self,
+        locator: str,
+        *,
+        primary_type: str,
+        core_new_fact: str,
+        content_form: str,
+        security_signals: tuple[str, ...] = (),
     ) -> None:
         self._locator = locator
         self._primary_type = primary_type
         self._core_new_fact = core_new_fact
         self._content_form = content_form
+        self._security_signals = security_signals
 
     def classify(
         self, *, system_prompt: str, document_text: str, semantic_recheck: bool
@@ -148,7 +157,7 @@ class AcceptedModel:
             "evidence_locators": [self._locator],
             "confidence": 0.91,
             "ambiguity_indicators": [],
-            "security_signals": [],
+            "security_signals": list(self._security_signals),
         }
 
 
@@ -551,6 +560,105 @@ async def test_filtered_decision_is_idempotent_and_has_no_reader_materialization
         await worker.dispose()
 
 
+async def test_hard_safety_block_from_live_source_cannot_be_owner_allowed() -> None:
+    admin = create_async_engine(os.environ["SRBG_TEST_ADMIN_DATABASE_URL"])
+    api = create_async_engine(os.environ["SRBG_DATABASE_URL"])
+    worker = create_async_engine(os.environ["SRBG_WORKER_DATABASE_URL"])
+    now = datetime(2026, 7, 23, 1, 0, tzinfo=UTC)
+    try:
+        excerpt = "A highway tunnel safety monitoring update contained an unsafe payload signal."
+        acquired = await acquire_through_live_source_stream(
+            admin=admin,
+            worker=worker,
+            excerpt=excerpt,
+            now=now,
+        )
+        repository = PostgresAiPreparationRepository(
+            engine=worker,
+            object_store=S3ObjectStore(Settings()),
+            parser=cast(Any, object()),
+            environment="acceptance",
+            max_document_bytes=1024 * 1024,
+        )
+        document = await repository.begin(acquired.pipeline_run_id)
+        policy = production_policy_for(document)
+        block_id = document.blocks[0].block_id
+        trace = AutomatedAdjudicationService(
+            policy=policy,
+            model_edge=AcceptedModel(
+                str(block_id),
+                primary_type="SAFETY_INTELLIGENCE",
+                core_new_fact="An authority reported a highway tunnel safety update.",
+                content_form="ACCIDENT_UPDATE",
+                security_signals=("MALICIOUS_PAYLOAD",),
+            ),
+            clock=lambda: now,
+            id_factory=uuid7,
+        ).adjudicate(
+            AdjudicationInput(
+                document_version_id=acquired.document_version_id,
+                raw_object_id=acquired.raw_object_id,
+                normalized_input_sha256=acquired.content_sha256,
+                document_text=excerpt,
+                allowed_evidence_locators=frozenset({str(block_id)}),
+            )
+        )
+        assert trace.disposition.value == "SAFETY_HOLD"
+        await repository.append_automated_decision(trace, policy)
+
+        service = PostgresOwnerTechnicalExceptionService(engine=api, clock=lambda: now)
+        page = await service.list_exceptions(kind="SAFETY", status="OPEN", cursor=None, limit=20)
+        matching_exceptions = [
+            item for item in page if item.document_version_id == acquired.document_version_id
+        ]
+        assert len(matching_exceptions) == 1
+        safety_exception = matching_exceptions[0]
+        assert safety_exception.overrideability == "HARD_BLOCK"
+        assert safety_exception.safety_reason_code == "MALICIOUS_PAYLOAD"
+        with pytest.raises(SafetyExceptionHardBlock):
+            await service.command(
+                exception_id=safety_exception.id,
+                command=OwnerExceptionCommand(
+                    exception_id=safety_exception.id,
+                    event_type="OWNER_ALLOWED",
+                    expected_version=safety_exception.version,
+                ),
+                owner_id=uuid7(),
+                idempotency_key=uuid7(),
+            )
+        async with admin.connect() as connection:
+            facts = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT (SELECT count(*) FROM owner_exception_event_v2 "
+                            "WHERE exception_id=:exception AND event_type='OWNER_ALLOWED') "
+                            "AS owner_allows,"
+                            "(SELECT count(*) FROM intelligence_projection_v2 "
+                            "WHERE document_version_id=:version) AS projections,"
+                            "(SELECT count(*) FROM owner_review_case_v2 "
+                            "WHERE document_version_id=:version) AS semantic_tasks"
+                        ),
+                        {
+                            "exception": safety_exception.id,
+                            "version": acquired.document_version_id,
+                        },
+                    )
+                )
+                .mappings()
+                .one()
+            )
+        assert dict(facts) == {
+            "owner_allows": 0,
+            "projections": 0,
+            "semantic_tasks": 0,
+        }
+    finally:
+        await admin.dispose()
+        await api.dispose()
+        await worker.dispose()
+
+
 @pytest.mark.parametrize(
     ("primary_type", "core_new_fact", "content_form", "excerpt", "claim_field", "claim_value"),
     (
@@ -582,6 +690,7 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
     claim_value: str,
 ) -> None:
     admin = create_async_engine(os.environ["SRBG_TEST_ADMIN_DATABASE_URL"])
+    api = create_async_engine(os.environ["SRBG_DATABASE_URL"])
     worker = create_async_engine(os.environ["SRBG_WORKER_DATABASE_URL"])
     publisher = create_async_engine(os.environ["SRBG_PUBLICATION_DATABASE_URL"])
     projection_reader = create_async_engine(os.environ["SRBG_PROJECTION_DATABASE_URL"])
@@ -919,7 +1028,7 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
                     "INSERT INTO hotspot_candidate_v2(id,event_id,document_version_id,"
                     "claim_ids,reasons,model,prompt_version,schema_version,input_sha256,"
                     "created_at) "
-                    "VALUES(:id,:event,:version,:claims,'[{\"text\":\"accepted evidence\","
+                    'VALUES(:id,:event,:version,:claims,\'[{"text":"accepted evidence",'
                     "\"claim_ids\":[]}]'::jsonb,'acceptance-stub','t44','v2',:hash,:now)"
                 ),
                 {
@@ -1010,6 +1119,18 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
         )
         with pytest.raises(ProjectionNotFound):
             await reader.event(event_id)
+        assert all(
+            item.event_id != event_id
+            for item in (await reader.search(query=claim_value, limit=20, cursor=None)).items
+        )
+        assert all(
+            item.event_id != event_id
+            for item in (await reader.hotspots(limit=20, cursor=None)).items
+        )
+        with pytest.raises(ProjectionNotFound):
+            await reader.appendix(event_id)
+        with pytest.raises(ProjectionNotFound):
+            await reader.media_download(media_id, max_age_seconds=300)
         with pytest.raises(ProjectionNotFound):
             await reader.media_download(media_id, max_age_seconds=300)
         await publication.command_feed_suppression(
@@ -1210,8 +1331,7 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
             async with admin.connect() as connection:
                 converged_at = await connection.scalar(
                     text(
-                        "SELECT projected_at FROM intelligence_projection_v2 "
-                        "WHERE event_id=:event"
+                        "SELECT projected_at FROM intelligence_projection_v2 WHERE event_id=:event"
                     ),
                     {"event": event_id},
                 )
@@ -1238,6 +1358,112 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
         assert any(item.event_id == event_id for item in restored_hotspots.items)
         assert (await reader.event(event_id)).event_id == event_id
         assert await reader.media_download(media_id, max_age_seconds=300)
+
+        safety_trace = (
+            AutomatedAdjudicationService(
+                policy=policy,
+                model_edge=AcceptedModel(
+                    str(block_id),
+                    primary_type=primary_type,
+                    core_new_fact=core_new_fact,
+                    content_form=content_form,
+                    security_signals=("PROMPT_INJECTION",),
+                ),
+                clock=lambda: now + timedelta(minutes=6),
+                id_factory=uuid7,
+            )
+            .adjudicate(
+                AdjudicationInput(
+                    document_version_id=version_id,
+                    raw_object_id=raw_id,
+                    normalized_input_sha256=content_hash,
+                    document_text=excerpt,
+                    allowed_evidence_locators=frozenset({str(block_id)}),
+                )
+            )
+            .model_copy(update={"attempt_number": 1})
+        )
+        assert safety_trace.disposition.value == "SAFETY_HOLD"
+        await repository.append_automated_decision(safety_trace, policy)
+        safety_service = PostgresOwnerTechnicalExceptionService(
+            engine=api,
+            publication_service=publication,
+            clock=lambda: now + timedelta(minutes=7),
+        )
+        safety_page = await safety_service.list_exceptions(
+            kind="SAFETY", status="OPEN", cursor=None, limit=20
+        )
+        matching_exceptions = [
+            item for item in safety_page if item.document_version_id == version_id
+        ]
+        assert len(matching_exceptions) == 1
+        safety_exception = matching_exceptions[0]
+        assert safety_exception.overrideability == "OWNER_DECIDABLE"
+        assert safety_exception.safety_reason_code == "PROMPT_INJECTION_DETECTED"
+        assert safety_exception.safe_title == "内容安全风险待处理"
+        assert all(
+            item.event_id != event_id
+            for item in (await reader.feed(limit=20, primary_type=None, cursor=None)).items
+        )
+        with pytest.raises(ProjectionNotFound):
+            await reader.event(event_id)
+        assert all(
+            item.event_id != event_id
+            for item in (await reader.search(query=claim_value, limit=20, cursor=None)).items
+        )
+        assert all(
+            item.event_id != event_id
+            for item in (await reader.hotspots(limit=20, cursor=None)).items
+        )
+        with pytest.raises(ProjectionNotFound):
+            await reader.appendix(event_id)
+        with pytest.raises(ProjectionNotFound):
+            await reader.media_download(media_id, max_age_seconds=300)
+
+        safety_action = "OWNER_ALLOWED" if primary_type == "SAFETY_INTELLIGENCE" else "OWNER_DENIED"
+        safety_command = OwnerExceptionCommand(
+            exception_id=safety_exception.id,
+            event_type=safety_action,
+            expected_version=safety_exception.version,
+        )
+        safety_key = uuid7()
+        action_result, replayed_action = await asyncio.gather(
+            safety_service.command(
+                exception_id=safety_exception.id,
+                command=safety_command,
+                owner_id=uuid7(),
+                idempotency_key=safety_key,
+            ),
+            safety_service.command(
+                exception_id=safety_exception.id,
+                command=safety_command,
+                owner_id=uuid7(),
+                idempotency_key=safety_key,
+            ),
+        )
+        assert replayed_action == action_result
+        resolved_safety = await safety_service.get_exception(safety_exception.id)
+        assert resolved_safety.status == "RESOLVED"
+        if safety_action == "OWNER_ALLOWED":
+            assert any(
+                item.event_id == event_id
+                for item in (await reader.feed(limit=20, primary_type=None, cursor=None)).items
+            )
+        else:
+            assert all(
+                item.event_id != event_id
+                for item in (await reader.feed(limit=20, primary_type=None, cursor=None)).items
+            )
+            async with admin.connect() as connection:
+                safety_suppressions = await connection.scalar(
+                    text(
+                        "SELECT count(*) FROM feed_suppression_rule_v2 "
+                        "WHERE action='ACTIVATE' AND scope='EVENT' "
+                        "AND target_key=:event AND feedback_reason='SAFETY_DENIAL'"
+                    ),
+                    {"event": str(event_id)},
+                )
+            assert safety_suppressions == 1
         async with admin.connect() as connection:
             preserved_after = (
                 (
@@ -1270,10 +1496,14 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
                     "AND target_type='FEED_SUPPRESSION'"
                 )
             )
-        assert dict(preserved_after) == dict(preserved_before)
+        assert {
+            key: value for key, value in dict(preserved_after).items() if key != "decisions"
+        } == {key: value for key, value in dict(preserved_before).items() if key != "decisions"}
+        assert preserved_after["decisions"] == preserved_before["decisions"] + 1
         assert suppression_audits >= 2
     finally:
         await admin.dispose()
+        await api.dispose()
         await worker.dispose()
         await publisher.dispose()
         await projection_reader.dispose()
@@ -1478,9 +1708,7 @@ async def test_technical_failure_retries_survive_restart_and_owner_recovery_is_i
             max_retries=0,
         )
         assert repeated_failure.disposition.value == "TECHNICAL_FAILED"
-        await preparation_repository.fail(
-            resumed_document.run_id, "FAILED", "TECHNICAL_FAILED"
-        )
+        await preparation_repository.fail(resumed_document.run_id, "FAILED", "TECHNICAL_FAILED")
         await exceptions.reconcile()
         still_open = await exceptions.list_exceptions(
             kind="TECHNICAL", status="OPEN", cursor=None, limit=20
@@ -1726,10 +1954,7 @@ async def test_exhausted_source_fetch_is_retried_as_a_new_auditable_run() -> Non
             assert recovery["status"] == "PENDING_DISPATCH"
             assert recovery["attempt_count"] == 0
             await connection.execute(
-                text(
-                    "UPDATE fetch_run SET status='SUCCEEDED',completed_at=:now "
-                    "WHERE id=:run_id"
-                ),
+                text("UPDATE fetch_run SET status='SUCCEEDED',completed_at=:now WHERE id=:run_id"),
                 {"run_id": recovery["id"], "now": current_time[0]},
             )
         await exceptions.reconcile()

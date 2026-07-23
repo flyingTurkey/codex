@@ -6,10 +6,11 @@ import json
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
-from srbg_contracts import QualificationDecisionTrace
+from srbg_contracts import AutomatedDisposition, QualificationDecisionTrace
 
 from srbg_api.identifiers import uuid7
 from srbg_api.intelligence_v2.autonomous_policy import QualificationPolicyBundle
+from srbg_api.intelligence_v2.safety_exceptions import classify_safety_signals
 
 
 async def append_qualification_decision(
@@ -91,3 +92,44 @@ async def append_qualification_decision(
             "decided_at": trace.decided_at,
         },
     )
+    if trace.disposition is AutomatedDisposition.SAFETY_HOLD:
+        signals = (
+            trace.model_candidate.security_signals
+            if trace.model_candidate is not None
+            else [
+                signal.removeprefix("SAFETY_SIGNAL:")
+                for signal in trace.rule_signals
+                if signal.startswith("SAFETY_SIGNAL:")
+            ]
+            or trace.rule_signals
+        )
+        safety = classify_safety_signals(signals)
+        if safety is None:
+            raise RuntimeError("SAFETY_HOLD_HAS_NO_SERVER_CLASSIFIABLE_SIGNAL")
+        persisted_decision_id = await connection.scalar(
+            text(
+                "SELECT id FROM automated_qualification_decision_v2 "
+                "WHERE document_version_id=:version_id AND policy_bundle_id=:bundle_id "
+                "AND attempt_number=:attempt"
+            ),
+            {
+                "version_id": trace.document_version_id,
+                "bundle_id": bundle_id,
+                "attempt": trace.attempt_number,
+            },
+        )
+        if persisted_decision_id is None:
+            raise RuntimeError("SAFETY_HOLD_DECISION_NOT_PERSISTED")
+        await connection.execute(
+            text(
+                "SELECT record_safety_exception_v2("
+                ":decision_id,:exception_id,:event_id,:audit_id,:now)"
+            ),
+            {
+                "decision_id": persisted_decision_id,
+                "exception_id": uuid7(),
+                "event_id": uuid7(),
+                "audit_id": uuid7(),
+                "now": trace.decided_at,
+            },
+        )

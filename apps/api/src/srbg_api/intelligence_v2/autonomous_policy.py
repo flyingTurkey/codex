@@ -22,6 +22,11 @@ from srbg_contracts import (
     QualificationPolicyIdentity,
 )
 
+from srbg_api.intelligence_v2.safety_exceptions import (
+    classify_safety_signals,
+    safe_safety_evidence_locators,
+)
+
 _ENGINEERING_OBJECT_TERMS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("HIGHWAY", ("公路", "高速公路", "道路工程", "路面工程", "highway")),
     ("RAILWAY", ("铁路", "高铁", "轨道交通", "地铁工程", "railway")),
@@ -419,7 +424,15 @@ class AutomatedAdjudicationService:
                     semantic_recheck_count=1,
                     decided_at=self._clock(),
                 )
+        expected_primary_type = _expected_primary_type(_central_fact_window(normalized))
         if candidate.security_signals:
+            qualification_supported = _candidate_has_supported_non_safety_qualification(
+                candidate,
+                expected_primary_type=expected_primary_type,
+                detected_objects=detected_objects,
+                machinery_lifecycle_supported=machinery_lifecycle_supported,
+                allowed_evidence_locators=value.allowed_evidence_locators,
+            )
             return QualificationDecisionTrace(
                 decision_id=self._id_factory(),
                 document_version_id=value.document_version_id,
@@ -428,13 +441,17 @@ class AutomatedAdjudicationService:
                 policy=self._policy.identity,
                 disposition=AutomatedDisposition.SAFETY_HOLD,
                 reason_codes=[AutomatedDecisionReason.SAFETY_SIGNAL],
-                rule_signals=["UNTRUSTED_INPUT_SAFETY_SIGNAL"],
-                model_candidate=candidate,
-                evidence_locators=candidate.evidence_locators,
+                rule_signals=_safety_rule_signals(
+                    candidate.security_signals,
+                    qualification_supported=qualification_supported,
+                ),
+                model_candidate=candidate if qualification_supported else None,
+                evidence_locators=safe_safety_evidence_locators(
+                    candidate.evidence_locators, value.allowed_evidence_locators
+                ),
                 semantic_recheck_count=semantic_recheck_count,
                 decided_at=self._clock(),
             )
-        expected_primary_type = _expected_primary_type(_central_fact_window(normalized))
         accepted = _candidate_is_supported(
             candidate,
             expected_primary_type=expected_primary_type,
@@ -519,6 +536,13 @@ class AutomatedAdjudicationService:
                 decided_at=self._clock(),
             )
         if rechecked_candidate.security_signals:
+            qualification_supported = _candidate_has_supported_non_safety_qualification(
+                rechecked_candidate,
+                expected_primary_type=expected_primary_type,
+                detected_objects=detected_objects,
+                machinery_lifecycle_supported=machinery_lifecycle_supported,
+                allowed_evidence_locators=value.allowed_evidence_locators,
+            )
             return QualificationDecisionTrace(
                 decision_id=self._id_factory(),
                 document_version_id=value.document_version_id,
@@ -527,16 +551,20 @@ class AutomatedAdjudicationService:
                 policy=self._policy.identity,
                 disposition=AutomatedDisposition.SAFETY_HOLD,
                 reason_codes=[AutomatedDecisionReason.SAFETY_SIGNAL],
-                rule_signals=["UNTRUSTED_INPUT_SAFETY_SIGNAL"],
-                model_candidate=rechecked_candidate,
-                evidence_locators=rechecked_candidate.evidence_locators,
+                rule_signals=_safety_rule_signals(
+                    rechecked_candidate.security_signals,
+                    qualification_supported=qualification_supported,
+                ),
+                model_candidate=rechecked_candidate if qualification_supported else None,
+                evidence_locators=safe_safety_evidence_locators(
+                    rechecked_candidate.evidence_locators, value.allowed_evidence_locators
+                ),
                 semantic_recheck_count=1,
                 decided_at=self._clock(),
             )
-        rechecked_expected_primary_type = _expected_primary_type(_central_fact_window(normalized))
         if _candidate_is_supported(
             rechecked_candidate,
-            expected_primary_type=rechecked_expected_primary_type,
+            expected_primary_type=expected_primary_type,
             detected_objects=detected_objects,
             machinery_lifecycle_supported=machinery_lifecycle_supported,
             allowed_evidence_locators=value.allowed_evidence_locators,
@@ -557,7 +585,7 @@ class AutomatedAdjudicationService:
             )
         reason_codes = _candidate_failure_reasons(
             rechecked_candidate,
-            expected_primary_type=rechecked_expected_primary_type,
+            expected_primary_type=expected_primary_type,
             detected_objects=detected_objects,
             machinery_lifecycle_supported=machinery_lifecycle_supported,
             allowed_evidence_locators=value.allowed_evidence_locators,
@@ -663,6 +691,45 @@ def _candidate_is_supported(
         machinery_lifecycle_supported=machinery_lifecycle_supported,
         allowed_evidence_locators=allowed_evidence_locators,
     )
+
+
+def _candidate_has_supported_non_safety_qualification(
+    candidate: AutonomousClassificationCandidate,
+    *,
+    expected_primary_type: PrimaryIntelligenceType | None,
+    detected_objects: frozenset[EngineeringObject],
+    machinery_lifecycle_supported: bool,
+    allowed_evidence_locators: frozenset[str],
+) -> bool:
+    reasons = _candidate_failure_reasons(
+        candidate,
+        expected_primary_type=expected_primary_type,
+        detected_objects=detected_objects,
+        machinery_lifecycle_supported=machinery_lifecycle_supported,
+        allowed_evidence_locators=allowed_evidence_locators,
+    )
+    return bool(reasons) and all(
+        reason is AutomatedDecisionReason.SAFETY_SIGNAL for reason in reasons
+    )
+
+
+def _safety_rule_signals(
+    signals: list[str],
+    *,
+    qualification_supported: bool,
+) -> list[str]:
+    classification = classify_safety_signals(signals)
+    if classification is None:
+        raise RuntimeError("SAFETY_HOLD_HAS_NO_SERVER_CLASSIFIABLE_SIGNAL")
+    return [
+        "UNTRUSTED_INPUT_SAFETY_SIGNAL",
+        f"SAFETY_SIGNAL:{classification.reason.value}",
+        (
+            "NON_SAFETY_QUALIFICATION_PASSED"
+            if qualification_supported
+            else "NON_SAFETY_QUALIFICATION_FAILED"
+        ),
+    ]
 
 
 def _candidate_failure_reasons(

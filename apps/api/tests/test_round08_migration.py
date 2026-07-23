@@ -24,7 +24,7 @@ REQUIRED_TABLES = {
 
 def test_round08_migration_follows_round07_and_declares_resolution_tables() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
-    assert script.get_current_head() == "0052_feed_suppression_projection"
+    assert script.get_current_head() == "0053_safety_exception_lifecycle"
     revision = script.get_revision("0009_dedup_events_scoring")
     assert revision.down_revision == "0008_technology_products"
     migration = runpy.run_path("apps/api/migrations/versions/0009_dedup_events_scoring.py")

@@ -19,7 +19,23 @@ const exception = {
   resolved_at: null,
 }
 
-async function mockTechnicalExceptions(page: Page): Promise<void> {
+const safetyException = {
+  ...exception,
+  id: '019f8900-0000-7000-8000-000000000145',
+  kind: 'SAFETY',
+  overrideability: 'OWNER_DECIDABLE',
+  technical_reason_code: null,
+  safety_reason_code: 'PROMPT_INJECTION_DETECTED',
+  safe_title: '内容安全风险待处理',
+  source_name: '测试来源',
+  discovered_at: '2026-07-22T01:50:00Z',
+  safe_evidence_ids: ['019f8900-0000-7000-8000-000000000146'],
+}
+
+async function mockTechnicalExceptions(
+  page: Page,
+  values: Array<Record<string, unknown>> = [exception],
+): Promise<void> {
   await page.route('**/api/v1/me', route => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({
@@ -28,7 +44,7 @@ async function mockTechnicalExceptions(page: Page): Promise<void> {
     }),
   }))
   await page.route('**/api/v2/owner/exceptions?**', route => route.fulfill({
-    contentType: 'application/json', body: JSON.stringify([exception]),
+    contentType: 'application/json', body: JSON.stringify(values),
   }))
 }
 
@@ -51,7 +67,7 @@ test('Owner retries once and can disable the affected source', async ({ page }) 
   })
 
   await page.goto('/technical-exceptions')
-  await expect(page.getByRole('heading', { name: '技术异常' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Owner 异常控制' })).toBeVisible()
   await expect(page.getByText('PROVIDER_TIMEOUT')).toBeVisible()
   await page.getByRole('button', { name: '立即重试' }).dblclick()
   await expect(page.getByText('已记录立即重试请求，后台将从耐久状态恢复。')).toBeVisible()
@@ -65,7 +81,7 @@ test('technical exception workspace reflows at a 200% equivalent viewport', asyn
   await mockTechnicalExceptions(page)
   await page.goto('/technical-exceptions')
 
-  await expect(page.getByRole('heading', { name: '技术异常' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Owner 异常控制' })).toBeVisible()
   await expect(page.getByRole('button', { name: '立即重试' })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
     await page.evaluate(() => document.documentElement.clientWidth),
@@ -75,7 +91,30 @@ test('technical exception workspace reflows at a 200% equivalent viewport', asyn
 test('@a11y technical exception workspace has no axe violations', async ({ page }) => {
   await mockTechnicalExceptions(page)
   await page.goto('/technical-exceptions')
-  await expect(page.getByRole('heading', { name: '技术异常' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Owner 异常控制' })).toBeVisible()
   const results = await new AxeBuilder({ page }).analyze()
   expect(results.violations).toEqual([])
+})
+
+test('Owner allows or denies only an owner-decidable Safety hold', async ({ page }) => {
+  await mockTechnicalExceptions(page, [safetyException])
+  const commands: unknown[] = []
+  await page.route(
+    `**/api/v2/owner/exceptions/${safetyException.id}/commands`,
+    async (route) => {
+      commands.push(route.request().postDataJSON())
+      await route.fulfill({ status: 202, contentType: 'application/json', body: '{}' })
+    },
+  )
+
+  await page.goto('/technical-exceptions')
+  await page.getByRole('button', { name: '安全风险' }).click()
+  await expect(page.getByText('PROMPT_INJECTION_DETECTED')).toBeVisible()
+  await page.getByRole('button', { name: '允许进入 Feed' }).click()
+  expect(commands).toEqual([{
+    exception_id: safetyException.id,
+    event_type: 'OWNER_ALLOWED',
+    expected_version: 1,
+  }])
+  await expect(page.getByText('已记录 Owner 放行决定')).toBeVisible()
 })

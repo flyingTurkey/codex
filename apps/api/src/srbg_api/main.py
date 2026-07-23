@@ -576,6 +576,10 @@ def build_default_app() -> FastAPI:
     published_reader = PublishedIntelligenceQueryService(
         PublishedProjectionReader(create_projection_reader_engine(settings))
     )
+    publication_boundary = PublicationService(
+        repository=PostgresPublicationRepository(create_publication_engine(settings)),
+        gate=publication_gate,
+    )
     return create_app(
         source_service=build_default_source_service(settings),
         ai_admin_service=PostgresAiAdminService(
@@ -585,10 +589,7 @@ def build_default_app() -> FastAPI:
         ),
         intelligence_service=intelligence_service,
         public_intelligence_service=published_reader,
-        publication_service=PublicationService(
-            repository=PostgresPublicationRepository(create_publication_engine(settings)),
-            gate=publication_gate,
-        ),
+        publication_service=publication_boundary,
         portal_service=PortalApplicationService(
             repository=PostgresPortalRepository(create_database_engine(settings)),
             intelligence=published_reader,
@@ -603,6 +604,7 @@ def build_default_app() -> FastAPI:
         ),
         technical_exception_service=PostgresOwnerTechnicalExceptionService(
             engine=create_database_engine(settings),
+            publication_service=publication_boundary,
             retry_queue=from_url(
                 settings.redis_url,
                 decode_responses=True,

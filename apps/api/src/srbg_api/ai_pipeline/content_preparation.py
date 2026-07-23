@@ -10,6 +10,7 @@ from typing import Any, Protocol
 from uuid import UUID
 
 from srbg_contracts import (
+    AutomatedDecisionReason,
     AutomatedDisposition,
     AutonomousClassificationCandidate,
     QualificationDecisionTrace,
@@ -251,10 +252,28 @@ class AiContentPreparationService:
         )
         scan = self._scanner.scan(extract_input.text)
         await self._repository.record_security(document, scan.detected)
-        if scan.detected:
-            await self._repository.fail(run_id, "DEGRADED", "PROMPT_INJECTION_R4")
-            raise PermissionError("PROMPT_INJECTION_R4")
         policy = production_policy_for(document)
+        prescan_hold_detected = scan.detected
+        if scan.detected:
+            trace = QualificationDecisionTrace(
+                decision_id=uuid7(),
+                document_version_id=document.document_version_id,
+                raw_object_id=document.raw_object_id,
+                normalized_input_sha256=extract_input.input_sha256,
+                policy=policy.identity,
+                disposition=AutomatedDisposition.SAFETY_HOLD,
+                reason_codes=[AutomatedDecisionReason.SAFETY_SIGNAL],
+                rule_signals=["PROMPT_INJECTION_DETECTED"],
+                model_candidate=None,
+                evidence_locators=list(extract_input.block_ids),
+                semantic_recheck_count=0,
+                decided_at=datetime.now(UTC),
+            )
+            await self._append_decision(document, trace, policy)
+            INTELLIGENCE_QUALIFICATION_DECISIONS.labels(
+                outcome=trace.disposition.value,
+                reason=trace.reason_codes[0].value,
+            ).inc()
         try:
             await self._repository.transition(run_id, "CLASSIFYING")
             deterministic_trace = try_deterministic_adjudication(
@@ -310,6 +329,8 @@ class AiContentPreparationService:
                     rechecked.model_dump(mode="json"),
                 ],
             )
+        if prescan_hold_detected:
+            trace = trace.model_copy(update={"attempt_number": 1})
         await self._append_decision(document, trace, policy)
         INTELLIGENCE_QUALIFICATION_DECISIONS.labels(
             outcome=trace.disposition.value,
@@ -323,7 +344,21 @@ class AiContentPreparationService:
                 input_sha256=extract_input.input_sha256,
                 candidate_count=0,
             )
-        if trace.disposition is not AutomatedDisposition.AUTO_ACCEPTED:
+        if trace.disposition not in {
+            AutomatedDisposition.AUTO_ACCEPTED,
+            AutomatedDisposition.SAFETY_HOLD,
+        }:
+            await self._repository.transition(run_id, "SUCCEEDED")
+            return PreparationResult(
+                run_id=run_id,
+                input_text=extract_input.text,
+                input_sha256=extract_input.input_sha256,
+                candidate_count=0,
+            )
+        if (
+            trace.disposition is AutomatedDisposition.SAFETY_HOLD
+            and trace.model_candidate is None
+        ):
             await self._repository.transition(run_id, "SUCCEEDED")
             return PreparationResult(
                 run_id=run_id,
