@@ -1000,6 +1000,16 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
             item.event_id != event_id
             for item in (await reader.feed(limit=20, primary_type=None, cursor=None)).items
         )
+        assert all(
+            item.event_id != event_id
+            for item in (await reader.search(query=claim_value, limit=20, cursor=None)).items
+        )
+        assert all(
+            item.event_id != event_id
+            for item in (await reader.hotspots(limit=20, cursor=None)).items
+        )
+        with pytest.raises(ProjectionNotFound):
+            await reader.event(event_id)
         with pytest.raises(ProjectionNotFound):
             await reader.media_download(media_id, max_age_seconds=300)
         await publication.command_feed_suppression(
