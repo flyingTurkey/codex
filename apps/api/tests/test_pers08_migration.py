@@ -8,7 +8,7 @@ MIGRATION = Path("apps/api/migrations/versions/0028_automatic_relationships.py")
 
 def test_pers08_is_the_single_head_after_pers07() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
-    assert script.get_current_head() == "0050_autonomous_handoff_state_order"
+    assert script.get_current_head() == "0051_technical_exception_recovery"
     revision = script.get_revision("0028_automatic_relationships")
     assert revision is not None
     assert revision.down_revision == "0027_ai_judgment_versions"

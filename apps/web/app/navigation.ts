@@ -32,5 +32,6 @@ export const primaryNavigation = [
 
 export const personalNavigation = [
   { id: 'sources', label: '我的来源', to: '/sources', icon: 'Settings' },
+  { id: 'technical-exceptions', label: '技术异常', to: '/technical-exceptions', icon: 'WarningCircle' },
   { id: 'ai', label: 'AI 模型配置', to: '/settings/ai', icon: 'Settings' },
 ] as const satisfies readonly AppNavigationItem[]

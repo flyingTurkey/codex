@@ -36,6 +36,11 @@ def test_beat_wakes_only_personal_source_dispatchers() -> None:
             "schedule": 5.0,
             "options": {"queue": "parser"},
         },
+        "dispatch-due-technical-retries": {
+            "task": "srbg.ai.technical_retry_dispatch",
+            "schedule": 5.0,
+            "options": {"queue": "parser"},
+        },
         "dispatch-personal-source-probes": {
             "task": "srbg.personal_source.probe",
             "schedule": 5.0,

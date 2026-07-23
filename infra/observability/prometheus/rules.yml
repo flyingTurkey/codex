@@ -175,3 +175,8 @@ groups:
         for: 5m
         labels: {severity: p2}
         annotations: {summary: "v2 热点候选因证据或服务端规则不足连续拒绝"}
+      - alert: TechnicalRetryExhausted
+        expr: increase(srbg_technical_retry_outcomes_total{outcome="TECHNICAL_FAILED"}[15m]) > 0
+        for: 1m
+        labels: {severity: p2}
+        annotations: {summary: "Autonomous content technical retries were exhausted"}

@@ -12,6 +12,7 @@ from srbg_api.ai_pipeline.content_preparation import PreparationDocument
 from srbg_api.ai_pipeline.contracts import AiStep, ModelResponse
 from srbg_api.ai_pipeline.preparation import DocumentBlock
 from srbg_api.ai_pipeline.runtime import AttemptKind
+from srbg_api.intelligence_v2.qualification_decisions import append_qualification_decision
 from srbg_worker.ai_content_preparation import PostgresAiPreparationRepository
 
 RUN_ID = UUID("019f7900-0000-7000-8000-000000000001")
@@ -42,6 +43,13 @@ def test_every_physical_model_dispatch_reauthorizes_before_budget_reservation() 
 
     assert source.index("authorize_model_call") < source.index("repository.reserve")
     assert source.index("authorize_model_call") < source.index("celery_app.send_task")
+
+
+def test_owner_retry_separates_bounded_physical_and_immutable_decision_attempts() -> None:
+    source = inspect.getsource(worker._dispatch_due_technical_retries)
+
+    assert "attempt=due.attempt_count + 1" in source
+    assert "decision_attempt=due.next_attempt_number" in source
 
 
 def test_success_persistence_reauthorizes_before_writing_model_content() -> None:
@@ -84,8 +92,10 @@ def test_semantic_recheck_flag_survives_every_failure_redispatch() -> None:
 
 
 def test_repository_persists_policy_identity_and_decision_append_only() -> None:
-    source = inspect.getsource(PostgresAiPreparationRepository.append_automated_decision)
+    repository_source = inspect.getsource(PostgresAiPreparationRepository.append_automated_decision)
+    source = inspect.getsource(append_qualification_decision)
 
+    assert "append_qualification_decision" in repository_source
     assert "qualification_policy_bundle_v2" in source
     assert "automated_qualification_decision_v2" in source
     assert "ON CONFLICT (bundle_sha256) DO NOTHING" in source

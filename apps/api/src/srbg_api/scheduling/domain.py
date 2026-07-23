@@ -136,7 +136,8 @@ def classify_failure(failure: FetchFailure) -> FailureClassification:
         "DATABASE": "DATABASE_FAILED",
     }
     code = kinds.get(failure.kind or "", "UNKNOWN")
-    return FailureClassification(code, code != "UNKNOWN", code != "UNKNOWN")
+    retryable = code not in {"UNKNOWN", "PARSE_FAILED"}
+    return FailureClassification(code, retryable, code != "UNKNOWN")
 
 
 def next_backoff(

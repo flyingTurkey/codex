@@ -4,10 +4,11 @@ from uuid import UUID
 from fastapi.testclient import TestClient
 from srbg_api.intelligence_v2.service import MediaDeliveryUnavailable, ProjectionNotFound
 from srbg_api.main import create_app
-from srbg_contracts import FeedPageV2
+from srbg_contracts import FeedPageV2, OwnerExceptionCommand
 
 NOW = datetime(2026, 7, 19, tzinfo=UTC)
 EVENT_ID = UUID("019f7c00-0000-7000-8000-000000000011")
+EXCEPTION_ID = UUID("019f7c00-0000-7000-8000-000000000012")
 
 
 class FakeV2Service:
@@ -83,6 +84,57 @@ class FakeV2Service:
     async def media_download(self, media_id: UUID, *, max_age_seconds: int):
         assert max_age_seconds == 300
         return "https://objects.example/private?expires=300"
+
+
+class FakeTechnicalExceptionService:
+    async def close(self) -> None:
+        pass
+
+    async def list_exceptions(self, **_: object):
+        return [self._view()]
+
+    async def get_exception(self, exception_id: UUID):
+        assert exception_id == EXCEPTION_ID
+        return self._view()
+
+    async def command(
+        self,
+        *,
+        exception_id: UUID,
+        command: OwnerExceptionCommand,
+        owner_id: UUID,
+        idempotency_key: UUID,
+    ):
+        del owner_id
+        assert exception_id == EXCEPTION_ID
+        assert command.event_type.value == "RETRY_REQUESTED"
+        return {
+            "id": "019f7c00-0000-7000-8000-000000000014",
+            "exception_id": exception_id,
+            "event_type": "RETRY_REQUESTED",
+            "expected_version": 1,
+            "idempotency_key": idempotency_key,
+            "created_at": NOW,
+        }
+
+    @staticmethod
+    def _view():
+        return {
+            "id": EXCEPTION_ID,
+            "kind": "TECHNICAL",
+            "status": "OPEN",
+            "overrideability": None,
+            "source_id": "019f7c00-0000-7000-8000-000000000015",
+            "source_stream_id": "019f7c00-0000-7000-8000-000000000016",
+            "document_version_id": "019f7c00-0000-7000-8000-000000000017",
+            "decision_id": "019f7c00-0000-7000-8000-000000000018",
+            "reason_codes": ["TECHNICAL_EXHAUSTED"],
+            "attempt_count": 4,
+            "version": 1,
+            "opened_at": NOW,
+            "updated_at": NOW,
+            "resolved_at": None,
+        }
 
 
 def test_v2_feed_starts_empty_and_uses_v2_generation() -> None:
@@ -190,3 +242,52 @@ def test_review_case_uses_the_typed_safe_contract() -> None:
     assert response.status_code == 200
     assert response.json()["processing_state"] == "IDLE"
     assert "document_version_id" in response.json()
+
+
+def test_owner_technical_exception_api_is_filtered_safe_and_idempotency_guarded() -> None:
+    service = FakeTechnicalExceptionService()
+    app = create_app(technical_exception_service=service)
+    with TestClient(app) as client:
+        listed = client.get("/api/v2/owner/exceptions?kind=TECHNICAL&status=OPEN&limit=20")
+        detail = client.get(f"/api/v2/owner/exceptions/{EXCEPTION_ID}")
+        missing_headers = client.post(
+            f"/api/v2/owner/exceptions/{EXCEPTION_ID}/commands",
+            json={
+                "exception_id": str(EXCEPTION_ID),
+                "event_type": "RETRY_REQUESTED",
+                "expected_version": 1,
+            },
+        )
+        retried = client.post(
+            f"/api/v2/owner/exceptions/{EXCEPTION_ID}/commands",
+            json={
+                "exception_id": str(EXCEPTION_ID),
+                "event_type": "RETRY_REQUESTED",
+                "expected_version": 1,
+            },
+            headers={
+                "If-Match": '"1"',
+                "Idempotency-Key": "019f7c00-0000-7000-8000-000000000019",
+            },
+        )
+        forbidden_safety_action = client.post(
+            f"/api/v2/owner/exceptions/{EXCEPTION_ID}/commands",
+            json={
+                "exception_id": str(EXCEPTION_ID),
+                "event_type": "OWNER_ALLOWED",
+                "expected_version": 1,
+            },
+            headers={
+                "If-Match": '"1"',
+                "Idempotency-Key": "019f7c00-0000-7000-8000-000000000020",
+            },
+        )
+
+    assert listed.status_code == 200
+    assert listed.json() == [detail.json()]
+    assert "safe_metadata" not in detail.json()
+    assert "url" not in detail.text.casefold()
+    assert missing_headers.status_code == 422
+    assert retried.status_code == 202
+    assert retried.json()["event_type"] == "RETRY_REQUESTED"
+    assert forbidden_safety_action.status_code == 422

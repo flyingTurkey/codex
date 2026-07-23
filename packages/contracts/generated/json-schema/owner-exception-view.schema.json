@@ -158,6 +158,19 @@
     "status": {
       "$ref": "#/$defs/OwnerExceptionStatus"
     },
+    "technical_reason_code": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Z0-9_]{1,80}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Technical Reason Code"
+    },
     "updated_at": {
       "format": "date-time",
       "title": "Updated At",

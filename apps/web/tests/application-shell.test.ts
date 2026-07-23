@@ -51,7 +51,9 @@ describe('application shell contract', () => {
     if (!navigation) return
 
     const { personalNavigation, primaryNavigation } = navigation
-    expect(personalNavigation.map(item => item.to)).toEqual(['/sources', '/settings/ai'])
+    expect(personalNavigation.map(item => item.to)).toEqual([
+      '/sources', '/technical-exceptions', '/settings/ai',
+    ])
     expect(primaryNavigation.map((item) => [item.label, item.to])).toEqual([
       ['今日精选', '/'],
       ['全部动态', '/all'],

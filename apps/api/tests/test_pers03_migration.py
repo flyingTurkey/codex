@@ -8,7 +8,7 @@ MIGRATION = Path("apps/api/migrations/versions/0023_personal_source_runtime.py")
 
 def test_pers03_is_the_single_head_after_pers02() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
-    assert script.get_current_head() == "0050_autonomous_handoff_state_order"
+    assert script.get_current_head() == "0051_technical_exception_recovery"
     revision = script.get_revision("0023_personal_source_runtime")
     assert revision is not None
     assert revision.down_revision == "0022_personal_source_streams"
