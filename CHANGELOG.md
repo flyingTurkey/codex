@@ -8,7 +8,7 @@
 - Kept `AUTO_ACCEPTED` content entering Feed through the existing `PublicationService`. Revocation appends a fact and re-evaluates each affected current document through that same gate; successful current content restores automatically, while current gate failures remain closed without requiring Owner confirmation.
 - Added the shared Feed-card confirmation action and an accessible Nuxt Owner control page for creating and revoking rules, plus a v2 same-origin proxy, bounded metrics, migration replay, SQL-boundary tests, browser/axe coverage, and the existing unique SourceStream-to-Feed acceptance seam.
 - Added the same accessible hide action to the unified Event Reader, complete Event-wide SOURCE and confirmed custom-topic matching with shared Unicode canonicalization, failure-safe revalidation-before-REVOKE ordering, and a bounded failure alert/runbook.
-- Hardened revocation convergence with same-key replay before rebuild work, post-revalidation projection timestamps, explicit HTTP 412 conflict feedback, legacy-safe oversized custom-topic handling, and acceptance coverage for future document versions plus real object-storage media suppression/restoration.
+- Hardened revocation convergence with same-key replay before rebuild work, winner-timestamp convergence for losing writers, explicit HTTP 412 conflict feedback, legacy-safe oversized custom-topic handling, and acceptance coverage for a rule predating the real raw/document handoff plus object-storage media suppression/restoration.
 
 ## 2026-07-22 (Issue #43 technical exception control plane)
 

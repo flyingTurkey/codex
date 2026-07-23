@@ -2,6 +2,7 @@
 import asyncio
 import json
 import os
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
@@ -46,8 +47,6 @@ from srbg_api.source_registry.v2_rollout import (
     append_production_admission_assessment,
 )
 from srbg_contracts import (
-    EventAppendixV2,
-    EventFullProjectionV2,
     FeedSuppressionCommand,
     PersonalSourceCreateRequest,
 )
@@ -235,6 +234,7 @@ async def acquire_through_live_source_stream(
     worker: Any,
     excerpt: str,
     now: datetime,
+    before_fetch: Callable[[UUID], Awaitable[None]] | None = None,
 ) -> AcquiredDocument:
     unique = uuid7().hex
     host = f"t41-{unique[:12]}.example.test"
@@ -377,6 +377,8 @@ async def acquire_through_live_source_stream(
                 "now": now,
             },
         )
+    if before_fetch is not None:
+        await before_fetch(source.id)
     scheduling = PostgresSchedulingService(worker)
     claimed = await scheduling.claim_due(now=now)
     assert claimed is not None and claimed.source_id == source.id
@@ -583,12 +585,35 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
     projection_reader = create_async_engine(os.environ["SRBG_PROJECTION_DATABASE_URL"])
     step_run_id = uuid7()
     now = datetime.now(UTC)
+    source_activation: Any = None
+
+    async def suppress_source_before_fetch(source_id: UUID) -> None:
+        nonlocal source_activation
+        source_activation = await PublicationService(
+            repository=PostgresPublicationRepository(publisher),
+            gate=cast(Any, object()),
+            now=lambda: now - timedelta(minutes=1),
+        ).command_feed_suppression(
+            command=FeedSuppressionCommand.model_validate(
+                {
+                    "action": "ACTIVATE",
+                    "scope": "SOURCE",
+                    "target_key": str(source_id),
+                    "feedback_reason": "OWNER_PREFERENCE",
+                }
+            ),
+            owner_id=uuid7(),
+            idempotency_key=uuid7(),
+            expected_rule_id=None,
+        )
+
     try:
         acquired = await acquire_through_live_source_stream(
             admin=admin,
             worker=worker,
             excerpt=excerpt,
             now=now,
+            before_fetch=suppress_source_before_fetch,
         )
         version_id = acquired.document_version_id
         raw_id = acquired.raw_object_id
@@ -968,6 +993,27 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
                 .mappings()
                 .one()
             )
+        assert source_activation is not None
+        assert all(
+            item.event_id != event_id
+            for item in (await reader.feed(limit=20, primary_type=None, cursor=None)).items
+        )
+        with pytest.raises(ProjectionNotFound):
+            await reader.media_download(media_id, max_age_seconds=300)
+        await publication.command_feed_suppression(
+            command=FeedSuppressionCommand.model_validate(
+                {
+                    "action": "REVOKE",
+                    "scope": "SOURCE",
+                    "target_key": str(acquired.source_id),
+                    "feedback_reason": "OWNER_PREFERENCE",
+                    "supersedes_rule_id": str(source_activation.id),
+                }
+            ),
+            owner_id=uuid7(),
+            idempotency_key=uuid7(),
+            expected_rule_id=source_activation.id,
+        )
         auto_feed = await reader.feed(limit=20, primary_type=None, cursor=None)
         auto_hotspots = await reader.hotspots(limit=20, cursor=None)
         assert any(item.event_id == event_id for item in auto_feed.items)
@@ -987,31 +1033,6 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
             idempotency_key=uuid7(),
             expected_rule_id=None,
         )
-        future_version_id = uuid7()
-        async with admin.begin() as connection:
-            await connection.execute(
-                text(
-                    "INSERT INTO document_version(id,document_id,raw_object_id,version_number,"
-                    "content_hash,original_filename,title,acquired_at) SELECT :future,document_id,"
-                    "raw_object_id,version_number+1000,:hash,original_filename,title,:now "
-                    "FROM document_version WHERE id=:current"
-                ),
-                {
-                    "future": future_version_id,
-                    "hash": sha256(str(future_version_id).encode()).hexdigest(),
-                    "now": now + timedelta(minutes=2),
-                    "current": version_id,
-                },
-            )
-        projection_writer = PostgresPublicationRepository(publisher)
-        await projection_writer.upsert_v2_projection(
-            document_version_id=future_version_id,
-            projection=EventFullProjectionV2.model_validate(projection["payload"]),
-            appendix=EventAppendixV2(event_id=event_id),
-            risk_tier="R1",
-            projected_at=now + timedelta(minutes=2),
-            suppression_targets=(("EVENT", str(event_id)),),
-        )
         suppressed_feed = await reader.feed(limit=20, primary_type=None, cursor=None)
         suppressed_search = await reader.search(query=claim_value, limit=20, cursor=None)
         suppressed_hotspots = await reader.hotspots(limit=20, cursor=None)
@@ -1024,7 +1045,7 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
             await reader.appendix(event_id)
         with pytest.raises(ProjectionNotFound):
             await reader.media_download(media_id, max_age_seconds=300)
-        await projection_writer.refresh_v2_projection(
+        await PostgresPublicationRepository(publisher).refresh_v2_projection(
             event_id=event_id,
             document_version_id=version_id,
             projected_at=now + timedelta(minutes=3),
@@ -1044,13 +1065,68 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
             }
         )
         revoke_key = uuid7()
-        revoked = await publication.command_feed_suppression(
-            command=revoke_command,
-            owner_id=uuid7(),
-            idempotency_key=revoke_key,
-            expected_rule_id=activation.id,
-        )
-        replayed_revoke = await publication.command_feed_suppression(
+        if primary_type == "INDUSTRY_UPDATE":
+            first_refresh_done = asyncio.Event()
+            allow_first_writer = asyncio.Event()
+
+            class DelayedRevokeRepository(PostgresPublicationRepository):
+                paused = False
+
+                async def refresh_v2_projection(
+                    self,
+                    *,
+                    event_id: UUID,
+                    document_version_id: UUID,
+                    projected_at: datetime,
+                ) -> None:
+                    await super().refresh_v2_projection(
+                        event_id=event_id,
+                        document_version_id=document_version_id,
+                        projected_at=projected_at,
+                    )
+                    if not self.paused:
+                        self.paused = True
+                        first_refresh_done.set()
+                        await allow_first_writer.wait()
+
+            losing_service = PublicationService(
+                repository=DelayedRevokeRepository(publisher),
+                gate=cast(Any, object()),
+                now=lambda: now + timedelta(minutes=4),
+            )
+            winning_service = PublicationService(
+                repository=PostgresPublicationRepository(publisher),
+                gate=cast(Any, object()),
+                now=lambda: now + timedelta(minutes=5),
+            )
+            losing_task = asyncio.create_task(
+                losing_service.command_feed_suppression(
+                    command=revoke_command,
+                    owner_id=uuid7(),
+                    idempotency_key=uuid7(),
+                    expected_rule_id=activation.id,
+                )
+            )
+            await asyncio.wait_for(first_refresh_done.wait(), timeout=5)
+            revoked = await winning_service.command_feed_suppression(
+                command=revoke_command,
+                owner_id=uuid7(),
+                idempotency_key=revoke_key,
+                expected_rule_id=activation.id,
+            )
+            allow_first_writer.set()
+            losing_result = await asyncio.gather(losing_task, return_exceptions=True)
+            assert isinstance(losing_result[0], FeedSuppressionConflict)
+            replay_service = winning_service
+        else:
+            revoked = await publication.command_feed_suppression(
+                command=revoke_command,
+                owner_id=uuid7(),
+                idempotency_key=revoke_key,
+                expected_rule_id=activation.id,
+            )
+            replay_service = publication
+        replayed_revoke = await replay_service.command_feed_suppression(
             command=revoke_command,
             owner_id=uuid7(),
             idempotency_key=revoke_key,

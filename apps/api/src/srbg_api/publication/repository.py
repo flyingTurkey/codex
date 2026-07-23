@@ -740,6 +740,22 @@ class PostgresPublicationRepository:
                 raise FeedSuppressionConflict("Suppression is already revoked")
             return await self._suppression_affected_events(connection, command)
 
+    async def feed_suppression_revoked_at(
+        self, *, activation_rule_id: UUID
+    ) -> datetime | None:
+        """Return the winning revoke timestamp used to converge a losing writer."""
+
+        async with self._engine.connect() as connection:
+            value = await connection.scalar(
+                text(
+                    "SELECT effective_at FROM feed_suppression_rule_v2 "
+                    "WHERE action='REVOKE' AND supersedes_rule_id=:id "
+                    "ORDER BY effective_at DESC,id DESC LIMIT 1"
+                ),
+                {"id": activation_rule_id},
+            )
+        return cast(datetime | None, value)
+
     @staticmethod
     async def _suppression_affected_events(
         connection: AsyncConnection, command: FeedSuppressionCommand

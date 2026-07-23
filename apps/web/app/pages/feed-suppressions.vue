@@ -18,9 +18,8 @@ const message = ref<string | null>(null)
 const problem = ref<string | null>(null)
 
 function isConflict(value: unknown): boolean {
-  const data = (value as { data?: { detail?: { code?: string } } })?.data
-  return data?.detail?.code === 'SUPPRESSION_CONFLICT'
-    || data?.detail?.code === 'SUPPRESSION_VERSION_MISMATCH'
+  const code = (value as { data?: { code?: string } })?.data?.code
+  return code === 'SUPPRESSION_CONFLICT' || code === 'SUPPRESSION_VERSION_MISMATCH'
 }
 
 const scopeLabels: Readonly<Record<string, string>> = {

@@ -97,7 +97,9 @@ test('Owner sees an explicit suppression conflict state', async ({ page }) => {
     status: 412,
     json: {
       type: 'about:blank', title: 'Suppression conflict', status: 412,
-      detail: { code: 'SUPPRESSION_CONFLICT', title: 'Suppression is already active' },
+      detail: null, instance: '/api/v2/owner/suppressions',
+      request_id: '019f9000-0000-7000-8000-000000000412',
+      code: 'SUPPRESSION_CONFLICT',
     },
   }))
 

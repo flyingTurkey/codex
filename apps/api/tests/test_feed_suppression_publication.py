@@ -5,6 +5,7 @@ from uuid import UUID
 
 import pytest
 from srbg_api.intelligence_v2.feed_suppressions import (
+    FeedSuppressionConflict,
     InvalidFeedSuppressionTarget,
     canonical_custom_topic_match,
 )
@@ -191,6 +192,47 @@ async def test_successful_revocation_idempotency_replay_does_not_rebuild_again()
 
     assert result.action.value == "REVOKE"
     repository.refresh_v2_projection.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_losing_concurrent_revoke_converges_after_winner_timestamp() -> None:
+    repository = AsyncMock()
+    repository.prepare_feed_suppression_revocation.return_value = [(EVENT_ID, VERSION_ID)]
+    repository.command_feed_suppression.side_effect = FeedSuppressionConflict(
+        "Suppression is already revoked"
+    )
+    winner_at = NOW + timedelta(seconds=10)
+    repository.feed_suppression_revoked_at.return_value = winner_at
+    command = FeedSuppressionCommand.model_validate(
+        {
+            "action": "REVOKE",
+            "scope": "EVENT",
+            "target_key": str(EVENT_ID),
+            "feedback_reason": "OWNER_PREFERENCE",
+            "supersedes_rule_id": str(RULE_ID),
+        }
+    )
+
+    with pytest.raises(FeedSuppressionConflict, match="already revoked"):
+        await _service(repository).command_feed_suppression(
+            command=command,
+            owner_id=OWNER_ID,
+            idempotency_key=IDEMPOTENCY_KEY,
+            expected_rule_id=RULE_ID,
+        )
+
+    assert repository.refresh_v2_projection.await_args_list == [
+        call(
+            event_id=EVENT_ID,
+            document_version_id=VERSION_ID,
+            projected_at=NOW + timedelta(microseconds=1),
+        ),
+        call(
+            event_id=EVENT_ID,
+            document_version_id=VERSION_ID,
+            projected_at=winner_at + timedelta(microseconds=1),
+        ),
+    ]
 
 
 @pytest.mark.asyncio

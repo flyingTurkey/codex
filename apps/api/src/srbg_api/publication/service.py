@@ -19,6 +19,7 @@ from srbg_contracts import (
 
 from srbg_api.intelligence_v2.domain import EvaluatedHotspotAward
 from srbg_api.intelligence_v2.feed_suppressions import (
+    FeedSuppressionConflict,
     InvalidFeedSuppressionTarget,
     canonical_custom_topic,
 )
@@ -119,6 +120,10 @@ class PublicationRepository(Protocol):
     async def prepare_feed_suppression_revocation(
         self, *, command: FeedSuppressionCommand, idempotency_key: UUID
     ) -> list[tuple[UUID, UUID]] | None: ...
+
+    async def feed_suppression_revoked_at(
+        self, *, activation_rule_id: UUID
+    ) -> datetime | None: ...
 
     async def process_v2_review_reprocessing(
         self,
@@ -275,6 +280,7 @@ class PublicationService:
             update={"target_key": _canonical_suppression_target(command)}
         )
         gate_denied = False
+        affected: list[tuple[UUID, UUID]] | None = None
         try:
             if canonical.action is FeedSuppressionAction.REVOKE:
                 affected = await self._repository.prepare_feed_suppression_revocation(
@@ -300,6 +306,34 @@ class PublicationService:
                 idempotency_key=idempotency_key,
                 effective_at=effective_at,
             )
+        except FeedSuppressionConflict:
+            # A losing revoke may already have refreshed with an older provisional
+            # timestamp. Re-run the same gate after the winner's database timestamp
+            # so the read model converges without weakening publication authority.
+            if (
+                canonical.action is FeedSuppressionAction.REVOKE
+                and affected
+                and canonical.supersedes_rule_id is not None
+            ):
+                revoked_at = await self._repository.feed_suppression_revoked_at(
+                    activation_rule_id=canonical.supersedes_rule_id
+                )
+                if revoked_at is not None:
+                    for event_id, document_version_id in affected:
+                        try:
+                            await self._repository.refresh_v2_projection(
+                                event_id=event_id,
+                                document_version_id=document_version_id,
+                                projected_at=revoked_at + timedelta(microseconds=1),
+                            )
+                        except PublicationDenied:
+                            pass
+            OWNER_FEED_SUPPRESSION_COMMANDS.labels(
+                scope=canonical.scope.value,
+                action=canonical.action.value,
+                outcome="failed",
+            ).inc()
+            raise
         except Exception:
             OWNER_FEED_SUPPRESSION_COMMANDS.labels(
                 scope=canonical.scope.value,
