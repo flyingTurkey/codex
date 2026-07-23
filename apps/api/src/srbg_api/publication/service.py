@@ -116,6 +116,10 @@ class PublicationRepository(Protocol):
         effective_at: datetime,
     ) -> tuple[FeedSuppressionRuleView, list[tuple[UUID, UUID]]]: ...
 
+    async def prepare_feed_suppression_revocation(
+        self, *, command: FeedSuppressionCommand
+    ) -> list[tuple[UUID, UUID]]: ...
+
     async def process_v2_review_reprocessing(
         self,
         *,
@@ -273,13 +277,10 @@ class PublicationService:
         effective_at = self._now()
         gate_denied = False
         try:
-            result, affected = await self._repository.command_feed_suppression(
-                command=canonical,
-                owner_id=owner_id,
-                idempotency_key=idempotency_key,
-                effective_at=effective_at,
-            )
             if canonical.action is FeedSuppressionAction.REVOKE:
+                affected = await self._repository.prepare_feed_suppression_revocation(
+                    command=canonical
+                )
                 restore_at = effective_at + timedelta(microseconds=1)
                 for event_id, document_version_id in affected:
                     try:
@@ -291,6 +292,12 @@ class PublicationService:
                     except PublicationDenied:
                         # The current PublicationService gate deliberately failed closed.
                         gate_denied = True
+            result, affected = await self._repository.command_feed_suppression(
+                command=canonical,
+                owner_id=owner_id,
+                idempotency_key=idempotency_key,
+                effective_at=effective_at,
+            )
         except Exception:
             OWNER_FEED_SUPPRESSION_COMMANDS.labels(
                 scope=canonical.scope.value,

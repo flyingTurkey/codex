@@ -46,7 +46,11 @@ def canonical_custom_topic(value: str) -> str:
     normalized = _CUSTOM_TOPIC_SPACES.sub(
         "-", unicodedata.normalize("NFKC", value.strip()).casefold()
     )
-    if not normalized or any(unicodedata.category(char) == "Cc" for char in normalized):
+    if (
+        not normalized
+        or len(normalized) > 300
+        or any(unicodedata.category(char) == "Cc" for char in normalized)
+    ):
         raise InvalidFeedSuppressionTarget("invalid CUSTOM_TOPIC target")
     return normalized
 

@@ -804,8 +804,94 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
 
         event_id = UUID(str(projection["payload"]["event_id"]))
         reader = PostgresV2IntelligenceService(projection_reader, publisher)
+        hotspot_candidate_id = uuid7()
+        hotspot_evaluation_id = uuid7()
+        async with admin.begin() as connection:
+            await connection.execute(
+                text(
+                    "INSERT INTO hotspot_candidate_v2(id,event_id,document_version_id,"
+                    "claim_ids,reasons,model,prompt_version,schema_version,input_sha256,"
+                    "created_at) "
+                    "VALUES(:id,:event,:version,:claims,'[{\"text\":\"accepted evidence\","
+                    "\"claim_ids\":[]}]'::jsonb,'acceptance-stub','t44','v2',:hash,:now)"
+                ),
+                {
+                    "id": hotspot_candidate_id,
+                    "event": event_id,
+                    "version": version_id,
+                    "claims": [uuid7()],
+                    "hash": "8" * 64,
+                    "now": now,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO hotspot_evaluation_v2(id,candidate_id,event_id,"
+                    "document_version_id,primary_type,outcome,trigger_path,"
+                    "independent_source_count,components,evaluation_inputs,score,reasons,"
+                    "reason_codes,rule_version,evidence_sha256,evaluated_at) VALUES("
+                    ":id,:candidate,:event,:version,:primary,'AWARDED','AUTHORITY_SCORE',1,"
+                    "'{}'::jsonb,'{}'::jsonb,80,:reasons,:codes,'t44-acceptance',:hash,:now)"
+                ),
+                {
+                    "id": hotspot_evaluation_id,
+                    "candidate": hotspot_candidate_id,
+                    "event": event_id,
+                    "version": version_id,
+                    "primary": primary_type,
+                    "reasons": ["accepted evidence"],
+                    "codes": ["AUTHORITY_SCORE_THRESHOLD_MET"],
+                    "hash": "9" * 64,
+                    "now": now,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO hotspot_award_v2(id,event_id,trigger_path,"
+                    "independent_source_count,components,score,reasons,rule_version,awarded_at,"
+                    "evaluation_id,document_version_id,evidence_sha256) VALUES("
+                    ":id,:event,'AUTHORITY_SCORE',1,'{}'::jsonb,80,:reasons,'t44-acceptance',"
+                    ":now,:evaluation,:version,:hash)"
+                ),
+                {
+                    "id": uuid7(),
+                    "event": event_id,
+                    "reasons": ["accepted evidence"],
+                    "now": now,
+                    "evaluation": hotspot_evaluation_id,
+                    "version": version_id,
+                    "hash": "9" * 64,
+                },
+            )
+        async with admin.connect() as connection:
+            preserved_before = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT (SELECT count(*) FROM document_version WHERE id=:version) "
+                            "AS versions,(SELECT count(*) FROM raw_object raw JOIN "
+                            "document_version version ON version.raw_object_id=raw.id "
+                            "WHERE version.id=:version) AS raw_objects,"
+                            "(SELECT count(*) FROM claim JOIN event_identity_binding binding "
+                            "ON binding.item_id=claim.item_id WHERE binding.event_id=:event "
+                            "AND claim.document_version_id=:version) AS claims,"
+                            "(SELECT count(*) FROM claim_evidence evidence JOIN claim "
+                            "ON claim.id=evidence.claim_id JOIN event_identity_binding binding "
+                            "ON binding.item_id=claim.item_id WHERE binding.event_id=:event "
+                            "AND claim.document_version_id=:version) AS evidence,"
+                            "(SELECT count(*) FROM automated_qualification_decision_v2 "
+                            "WHERE document_version_id=:version) AS decisions"
+                        ),
+                        {"event": event_id, "version": version_id},
+                    )
+                )
+                .mappings()
+                .one()
+            )
         auto_feed = await reader.feed(limit=20, primary_type=None, cursor=None)
+        auto_hotspots = await reader.hotspots(limit=20, cursor=None)
         assert any(item.event_id == event_id for item in auto_feed.items)
+        assert any(item.event_id == event_id for item in auto_hotspots.items)
 
         activation = await publication.command_feed_suppression(
             command=FeedSuppressionCommand.model_validate(
@@ -822,8 +908,10 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
         )
         suppressed_feed = await reader.feed(limit=20, primary_type=None, cursor=None)
         suppressed_search = await reader.search(query=claim_value, limit=20, cursor=None)
+        suppressed_hotspots = await reader.hotspots(limit=20, cursor=None)
         assert all(item.event_id != event_id for item in suppressed_feed.items)
         assert all(item.event_id != event_id for item in suppressed_search.items)
+        assert all(item.event_id != event_id for item in suppressed_hotspots.items)
         with pytest.raises(ProjectionNotFound):
             await reader.event(event_id)
         with pytest.raises(ProjectionNotFound):
@@ -844,8 +932,44 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
             expected_rule_id=activation.id,
         )
         restored_feed = await reader.feed(limit=20, primary_type=None, cursor=None)
+        restored_hotspots = await reader.hotspots(limit=20, cursor=None)
         assert any(item.event_id == event_id for item in restored_feed.items)
+        assert any(item.event_id == event_id for item in restored_hotspots.items)
         assert (await reader.event(event_id)).event_id == event_id
+        async with admin.connect() as connection:
+            preserved_after = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT (SELECT count(*) FROM document_version WHERE id=:version) "
+                            "AS versions,(SELECT count(*) FROM raw_object raw JOIN "
+                            "document_version version ON version.raw_object_id=raw.id "
+                            "WHERE version.id=:version) AS raw_objects,"
+                            "(SELECT count(*) FROM claim JOIN event_identity_binding binding "
+                            "ON binding.item_id=claim.item_id WHERE binding.event_id=:event "
+                            "AND claim.document_version_id=:version) AS claims,"
+                            "(SELECT count(*) FROM claim_evidence evidence JOIN claim "
+                            "ON claim.id=evidence.claim_id JOIN event_identity_binding binding "
+                            "ON binding.item_id=claim.item_id WHERE binding.event_id=:event "
+                            "AND claim.document_version_id=:version) AS evidence,"
+                            "(SELECT count(*) FROM automated_qualification_decision_v2 "
+                            "WHERE document_version_id=:version) AS decisions"
+                        ),
+                        {"event": event_id, "version": version_id},
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            suppression_audits = await connection.scalar(
+                text(
+                    "SELECT count(*) FROM audit_log WHERE event_type IN "
+                    "('FEED_SUPPRESSION_ACTIVATE','FEED_SUPPRESSION_REVOKE') "
+                    "AND target_type='FEED_SUPPRESSION'"
+                )
+            )
+        assert dict(preserved_after) == dict(preserved_before)
+        assert suppression_audits >= 2
     finally:
         await admin.dispose()
         await worker.dispose()

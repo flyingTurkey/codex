@@ -30,7 +30,10 @@ def test_feed_suppression_projection_reuses_the_append_only_ledger() -> None:
     assert "CREATE VIEW visible_intelligence_projection_v2" in source
     assert "projection.projected_at<=rule.revoked_at" in source
     assert "INSERT INTO event_suppression_match_v2" in source
-    assert "qualification.cross_type_tags" in source
+    assert "JOIN topic_event membership" in source
+    assert "topic.status='CONFIRMED'" in source
+    assert 'unicodedata.normalize("NFKC"' in source
+    assert "qualification.cross_type_tags" not in source
 
 
 def test_feed_suppression_projection_preserves_media_event_authority() -> None:

@@ -20,6 +20,16 @@ describe('Owner Feed suppression UI', () => {
     expect(feed).toContain('role="alert"')
   })
 
+  it('offers the same server command from the unified Event reader', () => {
+    const reader = read('app/pages/events/[id].vue')
+
+    expect(reader).toContain('data-testid="suppress-event"')
+    expect(reader).toContain("scope: 'EVENT'")
+    expect(reader).toContain("'Idempotency-Key': createUuidV7()")
+    expect(reader).toContain('role="alertdialog"')
+    expect(reader).toContain('role="status"')
+  })
+
   it('provides a separate control plane that revokes append-only rules with If-Match', () => {
     const page = read('app/pages/feed-suppressions.vue')
     const navigation = read('app/navigation.ts')

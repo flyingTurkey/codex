@@ -672,6 +672,48 @@ class PostgresPublicationRepository:
             affected,
         )
 
+    async def prepare_feed_suppression_revocation(
+        self, *, command: FeedSuppressionCommand
+    ) -> list[tuple[UUID, UUID]]:
+        """Validate a revoke and snapshot matches before any irreversible append."""
+
+        if command.action is not FeedSuppressionAction.REVOKE:
+            raise FeedSuppressionConflict("Only revocations can be prepared")
+        async with self._engine.begin() as connection:
+            await connection.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key,0))"),
+                {"lock_key": f"{command.scope.value}:{command.target_key}"},
+            )
+            activation = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT id,scope,target_key FROM feed_suppression_rule_v2 "
+                            "WHERE id=:id AND action='ACTIVATE'"
+                        ),
+                        {"id": command.supersedes_rule_id},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if (
+                activation is None
+                or activation["scope"] != command.scope.value
+                or activation["target_key"] != command.target_key
+            ):
+                raise FeedSuppressionConflict("Suppression activation does not match")
+            revoked = await connection.scalar(
+                text(
+                    "SELECT EXISTS(SELECT 1 FROM feed_suppression_rule_v2 "
+                    "WHERE action='REVOKE' AND supersedes_rule_id=:id)"
+                ),
+                {"id": command.supersedes_rule_id},
+            )
+            if revoked:
+                raise FeedSuppressionConflict("Suppression is already revoked")
+            return await self._suppression_affected_events(connection, command)
+
     @staticmethod
     async def _suppression_affected_events(
         connection: AsyncConnection, command: FeedSuppressionCommand
@@ -812,7 +854,14 @@ class PostgresPublicationRepository:
                             "item.risk_level,item.source_published_at,item.first_discovered_at,"
                             "item.current_document_version_id,source.id AS source_id,"
                             "source.name AS source_name,"
-                            "source.source_type,review.state AS review_state,"
+                            "source.source_type,ARRAY(SELECT DISTINCT related.source_id::text "
+                            "FROM event_identity_binding related_binding "
+                            "JOIN intelligence_item related ON related.id=related_binding.item_id "
+                            "WHERE related_binding.event_id=:event_id) AS source_ids,"
+                            "ARRAY(SELECT DISTINCT topic.title FROM topic_event membership "
+                            "JOIN topic_cluster topic ON topic.id=membership.topic_id "
+                            "WHERE membership.event_id=:event_id AND topic.status='CONFIRMED') "
+                            "AS custom_topics,review.state AS review_state,"
                             "review.risk_tier AS review_risk,review.safe_metadata,raw.scan_status,"
                             "(EXISTS(SELECT 1 FROM raw_object_security_fact security "
                             "WHERE security.raw_object_id=raw.id AND security.status='CLEAN') "
@@ -897,7 +946,7 @@ class PostgresPublicationRepository:
         suppression_targets = (
             ("EVENT", str(event_id)),
             ("PRIMARY_TYPE", str(row["primary_type"])),
-            ("SOURCE", str(row["source_id"])),
+            *tuple(("SOURCE", str(value)) for value in (row["source_ids"] or ())),
             *tuple(
                 ("ENGINEERING_OBJECT", str(value))
                 for value in (row["engineering_objects"] or ())
@@ -912,7 +961,7 @@ class PostgresPublicationRepository:
             ),
             *tuple(
                 ("CUSTOM_TOPIC", canonical_custom_topic(str(value)))
-                for value in (row["cross_type_tags"] or ())
+                for value in (row["custom_topics"] or ())
             ),
         )
         if risk_tier == "R4":

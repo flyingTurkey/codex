@@ -31,7 +31,12 @@ def test_detail_appendix_and_media_authorize_suppression_in_sql() -> None:
 
 def test_projection_writer_rebuilds_all_suppression_match_keys_atomically() -> None:
     source = inspect.getsource(PostgresPublicationRepository.upsert_v2_projection)
+    refresh_source = inspect.getsource(PostgresPublicationRepository.refresh_v2_projection)
 
     assert "DELETE FROM event_suppression_match_v2" in source
     assert "INSERT INTO event_suppression_match_v2" in source
     assert "suppression_targets" in source
+    assert "ARRAY(SELECT DISTINCT related.source_id::text" in refresh_source
+    assert "FROM topic_event membership" in refresh_source
+    assert 'topic.status=\'CONFIRMED\'' in refresh_source
+    assert 'row["custom_topics"]' in refresh_source

@@ -4,6 +4,8 @@ Revision ID: 0052_feed_suppression_projection
 Revises: 0051_technical_exception_recovery
 """
 
+import re
+import unicodedata
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -13,6 +15,14 @@ revision = "0052_feed_suppression_projection"
 down_revision = "0051_technical_exception_recovery"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
+
+_CUSTOM_TOPIC_SPACES = re.compile(r"\s+")
+
+
+def _canonical_custom_topic(value: str) -> str:
+    return _CUSTOM_TOPIC_SPACES.sub(
+        "-", unicodedata.normalize("NFKC", value.strip()).casefold()
+    )
 
 
 def _uuid() -> sa.Uuid:
@@ -176,17 +186,38 @@ def upgrade() -> None:
           ON qualification.event_id=projection.event_id
          AND qualification.document_version_id=projection.document_version_id
         CROSS JOIN LATERAL unnest(qualification.equipment_domains) value
-        UNION ALL
-        SELECT projection.event_id,projection.document_version_id,'CUSTOM_TOPIC',
-          lower(regexp_replace(trim(value),'\\s+','-','g')),projection.projected_at
-        FROM intelligence_projection_v2 projection
-        JOIN qualification_acceptance_v2 qualification
-          ON qualification.event_id=projection.event_id
-         AND qualification.document_version_id=projection.document_version_id
-        CROSS JOIN LATERAL unnest(qualification.cross_type_tags) value
         ON CONFLICT DO NOTHING
         """
     )
+    connection = op.get_bind()
+    custom_topics = connection.execute(
+        sa.text(
+            "SELECT projection.event_id,projection.document_version_id,"
+            "projection.projected_at,topic.title FROM intelligence_projection_v2 projection "
+            "JOIN topic_event membership ON membership.event_id=projection.event_id "
+            "JOIN topic_cluster topic ON topic.id=membership.topic_id "
+            "WHERE topic.status='CONFIRMED'"
+        )
+    ).mappings()
+    custom_topic_rows = [
+        {
+            "event_id": row["event_id"],
+            "document_version_id": row["document_version_id"],
+            "target_key": _canonical_custom_topic(str(row["title"])),
+            "projected_at": row["projected_at"],
+        }
+        for row in custom_topics
+    ]
+    if custom_topic_rows:
+        connection.execute(
+            sa.text(
+                "INSERT INTO event_suppression_match_v2("
+                "event_id,document_version_id,scope,target_key,projected_at) VALUES("
+                ":event_id,:document_version_id,'CUSTOM_TOPIC',:target_key,:projected_at) "
+                "ON CONFLICT DO NOTHING"
+            ),
+            custom_topic_rows,
+        )
     op.execute(
         """
         CREATE VIEW visible_intelligence_projection_v2 WITH (security_barrier=true) AS

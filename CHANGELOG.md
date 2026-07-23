@@ -7,6 +7,7 @@
 - Routed Feed, search, hotspot, Event detail, appendix, preview, and download authorization through one PostgreSQL security-barrier visible projection before ranking, pagination, cursor, counts, or `LIMIT`. Suppression never deletes source material, evidence, claims, decisions, or historical facts.
 - Kept `AUTO_ACCEPTED` content entering Feed through the existing `PublicationService`. Revocation appends a fact and re-evaluates each affected current document through that same gate; successful current content restores automatically, while current gate failures remain closed without requiring Owner confirmation.
 - Added the shared Feed-card confirmation action and an accessible Nuxt Owner control page for creating and revoking rules, plus a v2 same-origin proxy, bounded metrics, migration replay, SQL-boundary tests, browser/axe coverage, and the existing unique SourceStream-to-Feed acceptance seam.
+- Added the same accessible hide action to the unified Event Reader, complete Event-wide SOURCE and confirmed custom-topic matching with shared Unicode canonicalization, failure-safe revalidation-before-REVOKE ordering, and a bounded failure alert/runbook.
 
 ## 2026-07-22 (Issue #43 technical exception control plane)
 

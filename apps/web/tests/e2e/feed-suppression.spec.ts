@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
 
-import { v2Feed } from './v2-fixtures'
+import { v2Appendix, v2Feed, v2Projection } from './v2-fixtures'
 
 const eventId = '019f9000-0000-7000-8000-000000000044'
 const rule = {
@@ -65,4 +65,28 @@ test('@a11y Owner revokes an active suppression with concurrency headers', async
   await expect(
     page.getByText('已撤销隐藏偏好；当前仍满足 PublicationService 门禁的内容会自动恢复。'),
   ).toBeVisible()
+})
+
+test('@a11y Owner can suppress the current Event from the unified reader', async ({ page }) => {
+  await page.route('**/api/v1/version', route => route.fulfill({ json: { api_version: 'v2', content_schema_version: '2.0.0' } }))
+  await page.route('**/api/v1/sources', route => route.fulfill({ json: [] }))
+  await page.route('**/api/v1/source-discovery/settings', route => route.fulfill({ json: { automation_enabled: false } }))
+  await page.route(`**/api/v2/events/${eventId}/appendix`, route => route.fulfill({ json: v2Appendix(eventId) }))
+  await page.route(`**/api/v2/events/${eventId}`, route => route.fulfill({ json: v2Projection({
+    id: eventId, title: '公路隧道监测更新', source_name: '权威来源', domain: 'SAFETY',
+  }) }))
+  await page.route('**/api/v2/owner/suppressions', async (route) => {
+    expect(route.request().postDataJSON()).toMatchObject({
+      action: 'ACTIVATE', scope: 'EVENT', target_key: eventId,
+    })
+    await route.fulfill({ status: 201, json: rule })
+  })
+
+  await page.goto(`/events/${eventId}`)
+  await page.getByTestId('suppress-event').click()
+  await expect(page.getByRole('alertdialog')).toBeVisible()
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
+  await page.getByRole('button', { name: '确认隐藏' }).click()
+  await expect(page.getByRole('status')).toContainText('已隐藏该情报')
+  await expect(page.getByText('公路隧道监测更新')).toHaveCount(0)
 })
