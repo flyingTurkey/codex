@@ -43,3 +43,10 @@ _Avoid_: SourceAdmission, rollout status
 **SourceCoverageMatrix**:
 A dated assessment of source evidence for an explicit subset of EngineeringObjects and facets; it neither defines the product domain nor grants DirectRelevance or SourceAdmission.
 _Avoid_: Domain boundary, admitted roster
+
+**Policy-bound content handoff**:
+The atomic transition that creates a LIVE pipeline run with the active
+`policy_bundle_id`. Acquisition supplies immutable content and SourceStream
+policy identity but does not choose a Challenger, promote a policy, or grant
+publication.
+_Avoid_: Re-reading the active policy during a callback

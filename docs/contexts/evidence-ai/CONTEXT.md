@@ -43,3 +43,7 @@ _Avoid_: Configured, runtime heartbeat
 **DurableContentHandoff**:
 A recoverable responsibility record for handing acquired content to the AI pipeline. Its terminality means the handoff is closed, not that AI succeeded, a claim was accepted, an Event exists or publication succeeded.
 _Avoid_: AISummary, publication result
+
+**RunPolicyBinding**:
+The immutable `policy_bundle_id` stored when an AI pipeline run is created. Every callback, physical retry, semantic recheck and technical recovery for that run resolves policy from this binding; a later policy activation applies only to later runs.
+_Avoid_: Current active policy, mutable runtime configuration

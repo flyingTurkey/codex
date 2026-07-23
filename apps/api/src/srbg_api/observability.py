@@ -83,6 +83,26 @@ INTELLIGENCE_QUALIFICATION_DECISIONS = Counter(
     "Civil-engineering qualification decisions by bounded outcome and reason.",
     ("outcome", "reason"),
 )
+QUALIFICATION_POLICY_ACTIVATIONS = Counter(
+    "srbg_qualification_policy_activations_total",
+    "Append-only qualification policy transitions by bounded action and outcome.",
+    ("action", "outcome"),
+)
+QUALIFICATION_POLICY_SHADOW_WINDOWS = Counter(
+    "srbg_qualification_policy_shadow_windows_total",
+    "Aggregate Challenger shadow windows by bounded gate outcome.",
+    ("outcome",),
+)
+QUALIFICATION_POLICY_ROLLBACKS = Counter(
+    "srbg_qualification_policy_rollbacks_total",
+    "Automatic policy rollback checks by bounded outcome.",
+    ("outcome",),
+)
+QUALIFICATION_POLICY_REGRESSIONS = Counter(
+    "srbg_qualification_policy_regressions_total",
+    "Bounded live policy regression signals.",
+    ("reason",),
+)
 INTELLIGENCE_QUALIFICATION_REVIEW_BACKLOG = Gauge(
     "srbg_intelligence_qualification_review_backlog",
     "Open civil-engineering qualification review cases from PostgreSQL authority.",

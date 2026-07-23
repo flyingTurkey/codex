@@ -56,8 +56,20 @@ _Avoid_: Publication denial, source deauthorization
 An aggregate-only offline replay or shadow evaluation. It never authorizes production and never exposes case-level private evidence.
 _Avoid_: Production GO, benchmark export
 
+**PolicyActivation**:
+An append-only `BOOTSTRAP`, `PROMOTE`, or `ROLLBACK` fact whose derived latest
+pointer selects the bundle for newly created runs of one SourceStream policy
+version.
+_Avoid_: Mutable bundle, evaluation authority, editing an in-flight run
+
+**Champion / Challenger**:
+The active bundle used by new LIVE runs and an offline-qualified bundle tested
+only through non-production SHADOW runs. Promotion requires separate complete
+offline and aggregate shadow evidence.
+_Avoid_: A/B publication, one-document shadow result
+
 ## Production flow
 
-For a currently authorized SourceStream, raw content and its document version are persisted before qualification. `AUTO_FILTERED` stops before Item/Event and reader projection creation. `AUTO_ACCEPTED` only authorizes continued evidence processing; it is not itself publication. Accepted claims, bidirectional evidence and SourceExcerpt are revalidated by `PublicationService`, which alone writes Feed, search, hotspot and Event projections. A replacement document version invalidates old claims/projections and is adjudicated under the current immutable policy bundle.
+For a currently authorized SourceStream, raw content and its document version are persisted before qualification. Run creation atomically stores the current active `policy_bundle_id`; callbacks, retries, semantic rechecks and technical recovery continue using that exact bundle. A later activation applies only to later runs. `AUTO_FILTERED` stops before Item/Event and reader projection creation. `AUTO_ACCEPTED` only authorizes continued evidence processing; it is not itself publication. Accepted claims, bidirectional evidence and SourceExcerpt are revalidated by `PublicationService`, which alone writes Feed, search, hotspot and Event projections. A replacement document version invalidates old claims/projections and is adjudicated under the bundle active when its new run is created.
 
 SourceAdmission is independent from document qualification. Its authoritative assessment writer and closeout verifier pause on hard public-network/access restrictions and explicit robots, terms or copyright results including `RESTRICTED`. Missing or genuinely unknown legal metadata, soft-yield observations and qualification leakage permit bounded collection; leakage informs policy iteration instead of source authorization. The assessment writer only appends the verdict and never changes runtime state. HUMAN_OWNER Gold and model output never authorize a source.

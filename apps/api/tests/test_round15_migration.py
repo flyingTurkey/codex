@@ -9,7 +9,7 @@ from srbg_api.connectors.config import CONNECTOR_DEFINITIONS, ConnectorKind
 
 def test_round15_migration_is_single_head_and_preserves_legacy_semantics() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
-    assert script.get_current_head() == "0053_safety_exception_lifecycle"
+    assert script.get_current_head() == "0054_policy_optimization"
     convergence = script.get_revision("0015b_source_center_convergence")
     assert convergence.down_revision == "0015_source_center_v2"
     revision = script.get_revision("0015_source_center_v2")

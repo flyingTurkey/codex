@@ -66,6 +66,7 @@ class PreparationDocument:
     title: str
     source_name: str
     blocks: tuple[DocumentBlock, ...]
+    policy_bundle: QualificationPolicyBundle
     run_mode: str = "LIVE"
     technical_retry_max_retries: int = 3
 
@@ -162,10 +163,20 @@ class _BufferedClassificationEdge:
 
 
 def production_policy_for(document: PreparationDocument) -> QualificationPolicyBundle:
+    """Return the immutable bundle fixed when this pipeline run was created."""
+
+    return document.policy_bundle
+
+
+def production_policy_for_stream(
+    source_stream_policy_version: str,
+) -> QualificationPolicyBundle:
+    """Build the ADR-0005 baseline used only for a stream's first activation."""
+
     return QualificationPolicyBundle.create(
         policy_version="qualification-policy-2.2.0",
         global_rule_version="global-rules-2.1.0",
-        source_stream_policy_version=document.source_stream_policy_version,
+        source_stream_policy_version=source_stream_policy_version,
         ai_provider="deepseek",
         ai_model="deepseek-v4-flash",
         prompt_version="autonomous-classify-2.7.0",
@@ -546,7 +557,11 @@ class AiContentPreparationService:
                 if step is AiStep.CLASSIFY and policy is not None
                 else f"{step.value.lower()}-output-v1"
             ),
-            model_profile="deepseek-v4-flash",
+            model_profile=(
+                policy.identity.ai_model
+                if step is AiStep.CLASSIFY and policy is not None
+                else "deepseek-v4-flash"
+            ),
             system_prompt=(
                 build_classification_system_prompt(policy)
                 if step is AiStep.CLASSIFY and policy is not None

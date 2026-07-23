@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx2 as httpx
+from sqlalchemy.ext.asyncio import create_async_engine
 from srbg_api.ai_pipeline.gateway import (
     HttpResponse,
     TransientProviderError,
@@ -20,7 +21,11 @@ from srbg_api.ai_pipeline.gateway import (
 from srbg_api.identifiers import uuid7
 from srbg_api.intelligence_v2.autonomous_policy import (
     AutomatedAdjudicationService,
+    ClassificationModelEdge,
     QualificationPolicyBundle,
+)
+from srbg_api.intelligence_v2.policy_optimization import (
+    PostgresPolicyOptimizationRepository,
 )
 from srbg_api.intelligence_v2.private_policy_replay import (
     CachingClassificationModelEdge,
@@ -56,6 +61,15 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--code-version", required=True)
     parser.add_argument("--attempt-manifest-sha256", required=True)
     parser.add_argument("--response-artifact-sha256", required=True)
+    parser.add_argument("--policy-version", default="qualification-policy-2.2.0")
+    parser.add_argument("--global-rule-version", default="global-rules-2.1.0")
+    parser.add_argument(
+        "--source-stream-policy-version",
+        default="owner-gold-private-v4",
+    )
+    parser.add_argument("--prompt-version", default="autonomous-classify-2.7.0")
+    parser.add_argument("--schema-version", default="autonomous-classify-output-2.0.0")
+    parser.add_argument("--persist-evaluation", action="store_true")
     parser.add_argument("--api-key-file", type=Path)
     parser.add_argument("--audit-output", type=Path)
     return parser
@@ -192,6 +206,31 @@ def _persist_private_audit(path: Path, records: tuple[dict[str, object], ...]) -
         json.dump(payload, handle, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
 
 
+async def _persist_evaluation(
+    *,
+    database_url: str,
+    policy: QualificationPolicyBundle,
+    report: object,
+) -> str:
+    from srbg_api.intelligence_v2.private_policy_replay import OfflineReplayReport
+
+    validated = report
+    if not isinstance(validated, OfflineReplayReport):
+        raise TypeError("PRIVATE_REPLAY_REPORT_INVALID")
+    repository = PostgresPolicyOptimizationRepository(
+        engine=create_async_engine(database_url)
+    )
+    try:
+        evaluation_id = await repository.record_offline_replay(
+            policy=policy,
+            report=validated,
+            evaluated_at=datetime.now(UTC),
+        )
+        return str(evaluation_id)
+    finally:
+        await repository.close()
+
+
 def main() -> int:
     try:
         args = _parser().parse_args()
@@ -204,13 +243,13 @@ def main() -> int:
         if use_live_model != (args.audit_output is not None):
             raise ValueError("PRIVATE_REPLAY_LIVE_AUDIT_REQUIRED")
         policy = QualificationPolicyBundle.create(
-            policy_version="qualification-policy-2.2.0",
-            global_rule_version="global-rules-2.1.0",
-            source_stream_policy_version="owner-gold-private-v4",
+            policy_version=args.policy_version,
+            global_rule_version=args.global_rule_version,
+            source_stream_policy_version=args.source_stream_policy_version,
             ai_provider="deepseek" if use_live_model else "protocol-equivalent-recorded",
             ai_model="deepseek-v4-flash" if use_live_model else "semantic-classifier-v2",
-            prompt_version="autonomous-classify-2.7.0",
-            schema_version="autonomous-classify-output-2.0.0",
+            prompt_version=args.prompt_version,
+            schema_version=args.schema_version,
             code_version=args.code_version,
         )
         live_fetcher = (
@@ -223,17 +262,16 @@ def main() -> int:
             if args.api_key_file is not None
             else None
         )
-        model_edge = (
-            CachingClassificationModelEdge(
+        if live_fetcher is not None:
+            model_edge: ClassificationModelEdge = CachingClassificationModelEdge(
                 evidence_locators_by_hash={
                     case.normalized_input_sha256: tuple(case.evidence_locators)
                     for case in pack.cases
                 },
                 fetch_candidate=live_fetcher,
             )
-            if args.api_key_file is not None
-            else MappingModelEdge(pack.responses)
-        )
+        else:
+            model_edge = MappingModelEdge(pack.responses)
         decision_sink = _ProcessLocalDecisionSink()
         service = AutomatedAdjudicationService(
             policy=policy,
@@ -264,9 +302,27 @@ def main() -> int:
             if not live_fetcher.audit_records:
                 raise ValueError("PRIVATE_REPLAY_AUDIT_INCOMPLETE")
         values = asdict(report)
+        if args.persist_evaluation:
+            database_url = os.environ.get("SRBG_DATABASE_URL", "")
+            if not database_url:
+                raise ValueError("PRIVATE_REPLAY_DATABASE_URL_REQUIRED")
+            values["evaluation_id"] = asyncio.run(
+                _persist_evaluation(
+                    database_url=database_url,
+                    policy=policy,
+                    report=report,
+                )
+            )
         print(
             json.dumps(
-                {name: values[name] for name in _PUBLIC_AGGREGATES},
+                {
+                    **{name: values[name] for name in _PUBLIC_AGGREGATES},
+                    **(
+                        {"evaluation_id": values["evaluation_id"]}
+                        if "evaluation_id" in values
+                        else {}
+                    ),
+                },
                 separators=(",", ":"),
                 sort_keys=True,
             )

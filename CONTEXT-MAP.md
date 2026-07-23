@@ -18,3 +18,6 @@
 
 - [ADR-0002](./docs/adr/0002-api-v2-empty-projection-cutover.md) freezes the v1/v2 generation boundary and empty v2 projection cutover.
 - [ADR-0003](./docs/adr/0003-intelligence-v2-closeout-profiles.md) separates engineering closeout from production readiness without weakening publication or safety boundaries.
+- [ADR-0004](./docs/adr/0004-autonomous-qualification-policy.md) defines immutable autonomous policy and non-authorizing aggregate replay/shadow facts.
+- [ADR-0005](./docs/adr/0005-autonomous-content-production-switch.md) connects the fixed autonomous policy to the real content pipeline.
+- [ADR-0006](./docs/adr/0006-qualification-policy-activation-and-rollback.md) freezes a bundle per run and defines append-only Champion/Challenger activation and automatic rollback.

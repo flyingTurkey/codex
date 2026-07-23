@@ -202,6 +202,7 @@ class PostgresAiPreparationRepository:
             title=str(facts["title"] or "交通运输部公开 PDF"),
             source_name=str(facts["source_name"]),
             blocks=tuple(blocks),
+            policy_bundle=_policy_bundle_from_facts(facts),
             run_mode=str(facts["run_mode"]),
             technical_retry_max_retries=int(facts["technical_retry_max_retries"]),
         )
@@ -225,6 +226,7 @@ class PostgresAiPreparationRepository:
             title=str(facts["title"] or "Untitled source document"),
             source_name=str(facts["source_name"]),
             blocks=(),
+            policy_bundle=_policy_bundle_from_facts(facts),
             run_mode=str(facts["run_mode"]),
             technical_retry_max_retries=int(facts["technical_retry_max_retries"]),
         )
@@ -408,7 +410,9 @@ class PostgresAiPreparationRepository:
                 )
             )
 
-    async def create_fixed_canary_run(self, *, input_sha256: str) -> tuple[UUID, UUID] | None:
+    async def create_fixed_canary_run(
+        self, *, input_sha256: str
+    ) -> tuple[UUID, UUID, QualificationPolicyBundle] | None:
         """Create one isolated SHADOW run only when every real-call gate is current."""
 
         now = datetime.now(UTC)
@@ -419,12 +423,57 @@ class PostgresAiPreparationRepository:
                     await connection.execute(
                         text(
                             "INSERT INTO ai_pipeline_run("
-                            "id,document_version_id,mode,status,input_sha256,started_at) "
-                            "SELECT :run_id,version.id,'SHADOW','QUEUED',:input_hash,:now "
+                            "id,document_version_id,mode,status,input_sha256,started_at,"
+                            "policy_bundle_id) "
+                            "SELECT :run_id,version.id,'SHADOW','QUEUED',:input_hash,:now,"
+                            "COALESCE(challenger.policy_bundle_id,active.policy_bundle_id) "
                             "FROM document doc JOIN document_version version "
                             "ON version.id=doc.current_version_id "
                             "JOIN raw_object raw ON raw.id=version.raw_object_id "
                             "JOIN source src ON src.id=doc.source_id "
+                            "JOIN LATERAL(SELECT COALESCE(config.config_sha256,"
+                            "source_policy.policy_version,'legacy-source-policy') AS version "
+                            "FROM (SELECT 1) seed "
+                            "LEFT JOIN LATERAL(SELECT stream_config.config_sha256 "
+                            "FROM raw_object_capture capture "
+                            "JOIN fetch_run fetch_row ON fetch_row.id=capture.fetch_run_id "
+                            "JOIN stream_config_version stream_config "
+                            "ON stream_config.id=fetch_row.stream_config_version_id "
+                            "WHERE capture.raw_object_id=raw.id "
+                            "ORDER BY capture.captured_at DESC LIMIT 1) config ON true "
+                            "LEFT JOIN LATERAL(SELECT policy.policy_version "
+                            "FROM source_policy policy WHERE policy.source_id=src.id "
+                            "AND policy.status='VALID' ORDER BY policy.created_at DESC "
+                            "LIMIT 1) source_policy ON true) stream_policy ON true "
+                            "JOIN active_qualification_policy_v2 active "
+                            "ON active.source_stream_policy_version=stream_policy.version "
+                            "LEFT JOIN LATERAL(SELECT evaluation.policy_bundle_id "
+                            "FROM qualification_policy_evaluation_v2 evaluation "
+                            "JOIN qualification_policy_evaluation_invariant_v2 invariant "
+                            "ON invariant.evaluation_id=evaluation.id "
+                            "JOIN qualification_policy_bundle_v2 bundle "
+                            "ON bundle.id=evaluation.policy_bundle_id "
+                            "WHERE evaluation.mode='OFFLINE_REPLAY' "
+                            "AND evaluation.gate_passed "
+                            "AND evaluation.authorizes_production=false "
+                            "AND evaluation.total_cases>0 "
+                            "AND invariant.terminal_cases=evaluation.total_cases "
+                            "AND evaluation.precision_bps>=9000 "
+                            "AND evaluation.recall_bps>=9000 "
+                            "AND evaluation.locked_negative_leaks=0 "
+                            "AND evaluation.schema_valid_bps=10000 "
+                            "AND evaluation.new_owner_semantic_tasks=0 "
+                            "AND invariant.authority_violations=0 "
+                            "AND invariant.evidence_violations=0 "
+                            "AND invariant.projection_failures=0 "
+                            "AND bundle.source_stream_policy_version=stream_policy.version "
+                            "AND bundle.ai_provider='deepseek' "
+                            "AND bundle.ai_model='deepseek-v4-flash' "
+                            "AND bundle.prompt_version='autonomous-classify-2.7.0' "
+                            "AND bundle.schema_version='autonomous-classify-output-2.0.0' "
+                            "AND evaluation.policy_bundle_id<>active.policy_bundle_id "
+                            "ORDER BY evaluation.evaluated_at DESC,evaluation.id DESC LIMIT 1) "
+                            "challenger ON true "
                             "JOIN LATERAL(SELECT assessment.verdict "
                             "FROM source_admission_assessment_v2 assessment "
                             "WHERE assessment.source_id=src.id "
@@ -434,10 +483,15 @@ class PostgresAiPreparationRepository:
                             "AND version.execution_domain IN ('TRIAL','PRODUCTION') "
                             "AND src.desired_enabled AND src.manual_disabled_at IS NULL "
                             "AND src.runtime_state='RUNNING' "
+                            "AND NOT EXISTS(SELECT 1 "
+                            "FROM qualification_shadow_decision_v2 prior_shadow "
+                            "WHERE prior_shadow.document_version_id=version.id "
+                            "AND prior_shadow.policy_bundle_id="
+                            "COALESCE(challenger.policy_bundle_id,active.policy_bundle_id)) "
                             "AND EXISTS(SELECT 1 FROM ai_budget_policy budget "
                             "WHERE budget.provider='deepseek' AND budget.active) "
                             "ORDER BY version.acquired_at DESC,version.id DESC LIMIT 1 "
-                            "RETURNING id,document_version_id"
+                            "RETURNING id,document_version_id,policy_bundle_id"
                         ),
                         {"run_id": run_id, "input_hash": input_sha256, "now": now},
                     )
@@ -447,7 +501,46 @@ class PostgresAiPreparationRepository:
             )
         if row is None:
             return None
-        return cast(UUID, row["id"]), cast(UUID, row["document_version_id"])
+        policy = await self.load_policy_bundle(cast(UUID, row["id"]))
+        return cast(UUID, row["id"]), cast(UUID, row["document_version_id"]), policy
+
+    async def bind_shadow_input(self, run_id: UUID, *, input_sha256: str) -> None:
+        """Replace the selection placeholder with the real document input digest."""
+
+        async with self._engine.begin() as connection:
+            result = await connection.execute(
+                text(
+                    "UPDATE ai_pipeline_run SET input_sha256=:input_hash "
+                    "WHERE id=:run_id AND mode='SHADOW' "
+                    "AND status IN ('QUEUED','PREPARING')"
+                ),
+                {"run_id": run_id, "input_hash": input_sha256},
+            )
+            if result.rowcount != 1:
+                raise RuntimeError("SHADOW_INPUT_BINDING_INVALID")
+
+    async def load_policy_bundle(self, run_id: UUID) -> QualificationPolicyBundle:
+        """Load the immutable bundle selected when the run was created."""
+
+        async with self._engine.connect() as connection:
+            facts = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT bundle.policy_version,bundle.global_rule_version,"
+                            "bundle.source_stream_policy_version,bundle.ai_provider,"
+                            "bundle.ai_model,bundle.prompt_version,bundle.schema_version,"
+                            "bundle.code_version,bundle.bundle_sha256,bundle.policy_payload "
+                            "FROM ai_pipeline_run run JOIN qualification_policy_bundle_v2 bundle "
+                            "ON bundle.id=run.policy_bundle_id WHERE run.id=:run_id"
+                        ),
+                        {"run_id": run_id},
+                    )
+                )
+                .mappings()
+                .one()
+            )
+        return _policy_bundle_from_facts(facts)
 
     async def complete_fixed_canary(
         self,
@@ -461,7 +554,7 @@ class PostgresAiPreparationRepository:
                 text(
                     "UPDATE ai_pipeline_run SET status=:status,completed_at=:now,"
                     "failure_code=:failure WHERE id=:id AND mode='SHADOW' "
-                    "AND status='QUEUED'"
+                    "AND status IN ('QUEUED','PREPARING')"
                 ),
                 {
                     "id": run_id,
@@ -2230,10 +2323,13 @@ SELECT run.mode AS run_mode,version.id AS document_version_id,version.raw_object
        version.content_hash,version.title,
        raw.object_key,document.canonical_url,source.registry_code,
        source.name AS source_name,COALESCE(raw.detected_mime,raw.declared_mime,'') AS mime_type,
-       COALESCE(stream_policy.config_sha256,source_policy.policy_version,'legacy-source-policy')
-         AS source_stream_policy_version,
+       bundle.policy_version,bundle.global_rule_version,
+       bundle.ai_provider,bundle.ai_model,bundle.prompt_version,bundle.schema_version,
+       bundle.code_version,bundle.bundle_sha256,bundle.policy_payload,
+       bundle.source_stream_policy_version,
        LEAST(COALESCE(stream_policy.max_attempts,3),3) AS technical_retry_max_retries
 FROM ai_pipeline_run run
+JOIN qualification_policy_bundle_v2 bundle ON bundle.id=run.policy_bundle_id
 JOIN document_version version ON version.id=run.document_version_id
 JOIN raw_object raw ON raw.id=version.raw_object_id
 JOIN document ON document.id=version.document_id
@@ -2245,11 +2341,6 @@ LEFT JOIN LATERAL (
   LEFT JOIN fetch_schedule schedule ON schedule.source_stream_id=fetch_row.source_stream_id
   WHERE capture.raw_object_id=raw.id ORDER BY capture.captured_at DESC LIMIT 1
 ) stream_policy ON true
-LEFT JOIN LATERAL (
-  SELECT policy.policy_version FROM source_policy policy
-  WHERE policy.source_id=source.id AND policy.status='VALID'
-  ORDER BY policy.created_at DESC LIMIT 1
-) source_policy ON true
 WHERE run.id=:run_id AND run.mode IN ('LIVE','SHADOW')
   AND run.status IN (
     'PREPARING','CLASSIFYING','EXTRACTING','EVIDENCE_GATING',
@@ -2257,6 +2348,22 @@ WHERE run.id=:run_id AND run.mode IN ('LIVE','SHADOW')
   )
   AND raw.scan_status='CLEAN' AND document.current_version_id=version.id
 """
+
+
+def _policy_bundle_from_facts(facts: RowMapping) -> QualificationPolicyBundle:
+    source_stream_policy_version = str(facts["source_stream_policy_version"])
+    return QualificationPolicyBundle.from_persisted(
+        policy_version=str(facts["policy_version"]),
+        global_rule_version=str(facts["global_rule_version"]),
+        source_stream_policy_version=source_stream_policy_version,
+        ai_provider=str(facts["ai_provider"]),
+        ai_model=str(facts["ai_model"]),
+        prompt_version=str(facts["prompt_version"]),
+        schema_version=str(facts["schema_version"]),
+        code_version=str(facts["code_version"]),
+        bundle_sha256=str(facts["bundle_sha256"]),
+        policy_payload=facts["policy_payload"],
+    )
 
 _BLOCKS_SQL = """
 SELECT block.id AS block_id,page.page_number,block.block_kind,block.normalized_text,

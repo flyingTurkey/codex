@@ -1,5 +1,9 @@
 # Issue #36：Owner Gold NO_GO 收口与当前盲标准备验收记录
 
+> 历史点时记录。父 Spec #40 与 ADR-0004/0005/0006 已取代其中的 Owner Gold
+> 生产授权路径。所有 NO-GO 数字继续原样保留；不得据本文恢复 Owner 语义分类队列，
+> 也不得把它解释为 Challenger 晋级或 `PRODUCTION_CLOSEOUT`。
+
 日期：2026-07-20  
 状态：`NO_GO_OVERRIDE_CONFLICT`
 

@@ -21,7 +21,7 @@ MIGRATION = Path("apps/api/migrations/versions/0018_source_automation.py")
 
 def test_round18_is_the_single_head_and_creates_isolated_automation_facts() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
-    assert script.get_current_head() == "0053_safety_exception_lifecycle"
+    assert script.get_current_head() == "0054_policy_optimization"
     revision = script.get_revision("0018_source_automation")
     assert revision.down_revision == "0017c_round17_flat_pilot"
 

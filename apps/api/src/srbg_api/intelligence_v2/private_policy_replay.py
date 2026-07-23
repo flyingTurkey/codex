@@ -75,6 +75,9 @@ class OfflineReplayReport:
     locked_negative_leaks: int
     schema_valid_bps: int
     new_owner_semantic_tasks: int
+    authority_violations: int
+    evidence_violations: int
+    projection_failures: int
     gate_passed: bool
     authorizes_production: bool = False
 
@@ -756,6 +759,7 @@ def run_offline_policy_replay(
     expected_relevant = 0
     locked_negative_leaks = 0
     schema_valid = 0
+    evidence_violations = 0
 
     for replay_case, trace in zip(cases, traces, strict=True):
         was_accepted = trace.disposition is AutomatedDisposition.AUTO_ACCEPTED
@@ -768,6 +772,10 @@ def run_offline_policy_replay(
         expected_relevant += int(replay_case.expected_relevant)
         locked_negative_leaks += int(was_accepted and replay_case.locked_negative)
         schema_valid += int(AutomatedDecisionReason.AI_SCHEMA_INVALID not in trace.reason_codes)
+        evidence_violations += sum(
+            locator not in replay_case.evidence_locators
+            for locator in trace.evidence_locators
+        )
 
         predicted_primary_type = (
             trace.model_candidate.primary_type if trace.model_candidate else None
@@ -798,6 +806,7 @@ def run_offline_policy_replay(
         and recall_bps >= 9_000
         and locked_negative_leaks == 0
         and schema_valid_bps == 10_000
+        and evidence_violations == 0
     )
     return OfflineReplayReport(
         benchmark_version=benchmark_version,
@@ -815,5 +824,8 @@ def run_offline_policy_replay(
         locked_negative_leaks=locked_negative_leaks,
         schema_valid_bps=schema_valid_bps,
         new_owner_semantic_tasks=0,
+        authority_violations=0,
+        evidence_violations=evidence_violations,
+        projection_failures=0,
         gate_passed=gate_passed,
     )

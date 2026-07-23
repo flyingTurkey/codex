@@ -4,9 +4,17 @@
 
 ## 当前维护状态
 
-已验证的 v2 工程基线为提交 `8e5bb02`；核心产品票 #2–#13 与 SourceStream 发现轮次已经完成。生产链当前仍被 GitHub Issue #36 阻塞：40 条 Owner 标注已经形成，但标准校准未达到 20/10/10、precision/recall ≥90% 和锁定负例零泄漏，结论必须保持 `NO_GO`。本地工作区和数据库中另有一个未批准的 0047 override `GO`，不得据此启动 #14、来源准入、发布或 production closeout。
+父 Spec #40 的自动内容机制已推进至 Issue #46：SourceStream 内容 run 在创建时固定不可变 `policy_bundle_id`，离线回放与 SHADOW 事实不具备生产授权，Champion/Challenger 通过独立追加式激活账本切换，并由生产健康窗口自动回滚。Issue #36 的历史 Owner Gold `.4` 仍是 70% precision、70% recall、5 条锁定负例泄漏的标准 `NO_GO`；该事实未被改写、降阈值或伪造通过，也不再作为 ADR-0005/0006 自主机制的全局阻断。
 
-下一轮开始前请先阅读[土木工程情报 v2 维护入口](docs/operations/intelligence-v2-maintainer-guide.md)，其中区分了稳定基线、当前 dirty worktree、本地数据库风险、现行门槛和真实 ticket 依赖链。
+机制工程完成不等于某个 Challenger 已晋级，更不等于 `PRODUCTION_CLOSEOUT`。真实来源、真实 DeepSeek、真实 Feed 抽检和运行窗口仍必须分别形成可审计证据。下一轮开始前请先阅读[土木工程情报 v2 维护入口](docs/operations/intelligence-v2-maintainer-guide.md)与 [ADR-0006](docs/adr/0006-qualification-policy-activation-and-rollback.md)。
+
+## Qualification Policy 生命周期
+
+- LIVE run 的 bundle 在 PostgreSQL handoff 事务中固定；同一 run 的回调、重试、recheck 和技术恢复不读取后来激活的策略。
+- 私有 replay 可通过 `scripts/replay_autonomous_policy_private_benchmark.py --persist-evaluation` 追加聚合评估；`authorizes_production` 固定为 `false`。
+- 通过离线门禁的 Challenger 只进入固定 canary 的 SHADOW 执行；SHADOW 在 Item、claim、Event 和 Feed 之前终止，`affects_production` 固定为 `false`。
+- 每分钟策略生命周期任务只消费完整聚合窗口。晋级要求离线与 SHADOW 两套门禁同时通过；生产回归会追加一次回滚到前任 Champion。
+- 当前激活状态来自 `active_qualification_policy_v2` 派生视图；历史 bundle、decision、evaluation、shadow、activation 和 health 事实均不修改。
 
 ## 当前架构
 
@@ -32,7 +40,7 @@
 
 输入包含精确的 `corpus_version` 和 360 条 `{case_id, directly_relevant, primary_type}`。输出始终标记 `label_authority=STRUCTURAL_REPLAY`、`authorizes_auto_pass=false`；它只能验证结构与失败关闭行为，不能冒充 HUMAN_OWNER Gold、来源准入、真实 DeepSeek Schema 成功、运行窗口或 GO 证据。
 
-20 条人工试标只用于熟悉流程：10 条正例、5 条边界例、5 条锁定负例。它应保留真实哈希、UTC 标注时间和证据定位，但固定不授权自动通过，也不输入生产校准器冒充完整语料。生产级要求由 GitHub Issue #36 的独立 40 条协议承接。
+20 条人工试标只用于熟悉流程：10 条正例、5 条边界例、5 条锁定负例。它应保留真实哈希、UTC 标注时间和证据定位，但固定不授权自动通过，也不输入生产校准器冒充完整语料。Issue #36 的独立 40 条协议与 `.4` NO-GO 作为历史校准事实保留；现行自主策略生命周期由父 Spec #40、ADR-0004/0005/0006 和对应聚合门禁约束。
 
 真实生产 Owner Gold 校准使用独立私有标注与候选预测文件；仓库不附带这些私有文件。`.1` 已以 Owner 分布 `NO_GO` 退役，仅保留 15 条正例培训回放；`.2` 因标注前发现正例中心事实错配而整版退役；`.3` 因标注前发现三个工程对象元数据没有正文证据而整版退役。生产消费者只接受重新封存的 `.4`：
 

@@ -276,6 +276,53 @@ class QualificationPolicyBundle:
             source_exclude_terms=normalized_exclude_terms,
         )
 
+    @classmethod
+    def from_persisted(
+        cls,
+        *,
+        policy_version: str,
+        global_rule_version: str,
+        source_stream_policy_version: str,
+        ai_provider: str,
+        ai_model: str,
+        prompt_version: str,
+        schema_version: str,
+        code_version: str,
+        bundle_sha256: str,
+        policy_payload: object,
+    ) -> QualificationPolicyBundle:
+        if not isinstance(policy_payload, dict):
+            raise ValueError("QUALIFICATION_POLICY_PAYLOAD_INVALID")
+        allow = policy_payload.get("source_allow_terms", [])
+        exclude = policy_payload.get("source_exclude_terms", [])
+        if (
+            not isinstance(allow, list)
+            or not isinstance(exclude, list)
+            or any(not isinstance(value, str) for value in [*allow, *exclude])
+        ):
+            raise ValueError("QUALIFICATION_POLICY_TERMS_INVALID")
+        rebuilt = cls.create(
+            policy_version=policy_version,
+            global_rule_version=global_rule_version,
+            source_stream_policy_version=source_stream_policy_version,
+            ai_provider=ai_provider,
+            ai_model=ai_model,
+            prompt_version=prompt_version,
+            schema_version=schema_version,
+            code_version=code_version,
+            source_allow_terms=tuple(allow),
+            source_exclude_terms=tuple(exclude),
+        )
+        identity = rebuilt.identity
+        if identity.bundle_sha256 != bundle_sha256:
+            raise ValueError("QUALIFICATION_POLICY_BUNDLE_DIGEST_MISMATCH")
+        payload_identity = policy_payload.get("identity")
+        if payload_identity is not None:
+            persisted_identity = QualificationPolicyIdentity.model_validate(payload_identity)
+            if persisted_identity != identity:
+                raise ValueError("QUALIFICATION_POLICY_IDENTITY_MISMATCH")
+        return rebuilt
+
 
 @dataclass(frozen=True, slots=True)
 class AdjudicationInput:
