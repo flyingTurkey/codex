@@ -45,7 +45,12 @@ from srbg_api.source_registry.v2_rollout import (
     SourceAdmissionMetrics,
     append_production_admission_assessment,
 )
-from srbg_contracts import FeedSuppressionCommand, PersonalSourceCreateRequest
+from srbg_contracts import (
+    EventAppendixV2,
+    EventFullProjectionV2,
+    FeedSuppressionCommand,
+    PersonalSourceCreateRequest,
+)
 from srbg_worker.ai_content_preparation import PostgresAiPreparationRepository
 from srbg_worker.source_content_bridge import (
     PostgresSourceContentGateway,
@@ -803,7 +808,82 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
         assert review_count == 0
 
         event_id = UUID(str(projection["payload"]["event_id"]))
-        reader = PostgresV2IntelligenceService(projection_reader, publisher)
+        attachment_id = uuid7()
+        media_id = uuid7()
+        media_source_url = "https://example.com/accepted-source-object"
+        async with admin.begin() as connection:
+            raw = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT raw.id,raw.object_key,raw.sha256,raw.byte_size,"
+                            "raw.detected_mime FROM raw_object raw JOIN document_version version "
+                            "ON version.raw_object_id=raw.id WHERE version.id=:version"
+                        ),
+                        {"version": version_id},
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO document_attachment_attempt(id,document_version_id,"
+                    "content_sha256,object_key,byte_size,declared_mime,detected_mime,"
+                    "filename_sha256,normalized_path_sha256,canonical_url_sha256,outcome,"
+                    "occurred_at) VALUES(:id,:version,:content_hash,:object_key,:byte_size,"
+                    ":mime,:mime,:filename_hash,:path_hash,:url_hash,'ACCEPTED',:now)"
+                ),
+                {
+                    "id": uuid7(),
+                    "version": version_id,
+                    "content_hash": raw["sha256"],
+                    "object_key": raw["object_key"],
+                    "byte_size": raw["byte_size"],
+                    "mime": raw["detected_mime"],
+                    "filename_hash": "a" * 64,
+                    "path_hash": "b" * 64,
+                    "url_hash": sha256(media_source_url.encode()).hexdigest(),
+                    "now": now,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO document_attachment(id,document_version_id,raw_object_id,"
+                    "filename,role,created_at,detected_mime,byte_size,security_status) VALUES("
+                    ":id,:version,:raw,'accepted-source-object','SOURCE',:now,:mime,:bytes,"
+                    "'CLEAN')"
+                ),
+                {
+                    "id": attachment_id,
+                    "version": version_id,
+                    "raw": raw["id"],
+                    "now": now,
+                    "mime": raw["detected_mime"],
+                    "bytes": raw["byte_size"],
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO media_rights_v2(id,document_version_id,name,object_key,"
+                    "source_url,mime_type,rights_basis,redistribution_allowed,scan_status,"
+                    "created_at,attachment_id,rights_evidence_ref) VALUES(:id,:version,"
+                    "'accepted source object',:object_key,:source_url,:mime,'OWNER_OWNED',true,"
+                    "'CLEAN',:now,:attachment,'acceptance:t44')"
+                ),
+                {
+                    "id": media_id,
+                    "version": version_id,
+                    "object_key": raw["object_key"],
+                    "source_url": media_source_url,
+                    "mime": raw["detected_mime"],
+                    "now": now,
+                    "attachment": attachment_id,
+                },
+            )
+        reader = PostgresV2IntelligenceService(
+            projection_reader, publisher, S3ObjectStore(Settings())
+        )
         hotspot_candidate_id = uuid7()
         hotspot_evaluation_id = uuid7()
         async with admin.begin() as connection:
@@ -892,6 +972,7 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
         auto_hotspots = await reader.hotspots(limit=20, cursor=None)
         assert any(item.event_id == event_id for item in auto_feed.items)
         assert any(item.event_id == event_id for item in auto_hotspots.items)
+        assert await reader.media_download(media_id, max_age_seconds=300)
 
         activation = await publication.command_feed_suppression(
             command=FeedSuppressionCommand.model_validate(
@@ -906,6 +987,31 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
             idempotency_key=uuid7(),
             expected_rule_id=None,
         )
+        future_version_id = uuid7()
+        async with admin.begin() as connection:
+            await connection.execute(
+                text(
+                    "INSERT INTO document_version(id,document_id,raw_object_id,version_number,"
+                    "content_hash,original_filename,title,acquired_at) SELECT :future,document_id,"
+                    "raw_object_id,version_number+1000,:hash,original_filename,title,:now "
+                    "FROM document_version WHERE id=:current"
+                ),
+                {
+                    "future": future_version_id,
+                    "hash": sha256(str(future_version_id).encode()).hexdigest(),
+                    "now": now + timedelta(minutes=2),
+                    "current": version_id,
+                },
+            )
+        projection_writer = PostgresPublicationRepository(publisher)
+        await projection_writer.upsert_v2_projection(
+            document_version_id=future_version_id,
+            projection=EventFullProjectionV2.model_validate(projection["payload"]),
+            appendix=EventAppendixV2(event_id=event_id),
+            risk_tier="R1",
+            projected_at=now + timedelta(minutes=2),
+            suppression_targets=(("EVENT", str(event_id)),),
+        )
         suppressed_feed = await reader.feed(limit=20, primary_type=None, cursor=None)
         suppressed_search = await reader.search(query=claim_value, limit=20, cursor=None)
         suppressed_hotspots = await reader.hotspots(limit=20, cursor=None)
@@ -916,26 +1022,47 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
             await reader.event(event_id)
         with pytest.raises(ProjectionNotFound):
             await reader.appendix(event_id)
+        with pytest.raises(ProjectionNotFound):
+            await reader.media_download(media_id, max_age_seconds=300)
+        await projection_writer.refresh_v2_projection(
+            event_id=event_id,
+            document_version_id=version_id,
+            projected_at=now + timedelta(minutes=3),
+        )
+        assert all(
+            item.event_id != event_id
+            for item in (await reader.feed(limit=20, primary_type=None, cursor=None)).items
+        )
 
-        await publication.command_feed_suppression(
-            command=FeedSuppressionCommand.model_validate(
-                {
-                    "action": "REVOKE",
-                    "scope": "EVENT",
-                    "target_key": str(event_id),
-                    "feedback_reason": "OWNER_PREFERENCE",
-                    "supersedes_rule_id": str(activation.id),
-                }
-            ),
+        revoke_command = FeedSuppressionCommand.model_validate(
+            {
+                "action": "REVOKE",
+                "scope": "EVENT",
+                "target_key": str(event_id),
+                "feedback_reason": "OWNER_PREFERENCE",
+                "supersedes_rule_id": str(activation.id),
+            }
+        )
+        revoke_key = uuid7()
+        revoked = await publication.command_feed_suppression(
+            command=revoke_command,
             owner_id=uuid7(),
-            idempotency_key=uuid7(),
+            idempotency_key=revoke_key,
             expected_rule_id=activation.id,
         )
+        replayed_revoke = await publication.command_feed_suppression(
+            command=revoke_command,
+            owner_id=uuid7(),
+            idempotency_key=revoke_key,
+            expected_rule_id=activation.id,
+        )
+        assert replayed_revoke == revoked
         restored_feed = await reader.feed(limit=20, primary_type=None, cursor=None)
         restored_hotspots = await reader.hotspots(limit=20, cursor=None)
         assert any(item.event_id == event_id for item in restored_feed.items)
         assert any(item.event_id == event_id for item in restored_hotspots.items)
         assert (await reader.event(event_id)).event_id == event_id
+        assert await reader.media_download(media_id, max_age_seconds=300)
         async with admin.connect() as connection:
             preserved_after = (
                 (

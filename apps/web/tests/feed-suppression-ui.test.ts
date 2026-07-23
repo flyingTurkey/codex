@@ -41,6 +41,8 @@ describe('Owner Feed suppression UI', () => {
     expect(page).toContain("'Idempotency-Key': createUuidV7()")
     expect(navigation).toContain("to: '/feed-suppressions'")
     expect(page).not.toContain('SAFETY_DENIAL')
+    expect(page).toContain("data?.detail?.code === 'SUPPRESSION_CONFLICT'")
+    expect(page).toContain('隐藏规则已发生变化，请刷新列表后再操作。')
     expect(proxy).toContain('`${config.internalApiBase}/api/v2/${path}${search}`')
   })
 })

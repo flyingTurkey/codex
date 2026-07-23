@@ -90,3 +90,19 @@ test('@a11y Owner can suppress the current Event from the unified reader', async
   await expect(page.getByRole('status')).toContainText('已隐藏该情报')
   await expect(page.getByText('公路隧道监测更新')).toHaveCount(0)
 })
+
+test('Owner sees an explicit suppression conflict state', async ({ page }) => {
+  await page.route('**/api/v2/owner/suppressions?**', route => route.fulfill({ json: [] }))
+  await page.route('**/api/v2/owner/suppressions', route => route.fulfill({
+    status: 412,
+    json: {
+      type: 'about:blank', title: 'Suppression conflict', status: 412,
+      detail: { code: 'SUPPRESSION_CONFLICT', title: 'Suppression is already active' },
+    },
+  }))
+
+  await page.goto('/feed-suppressions')
+  await page.getByLabel('精确匹配键').fill('隧道监测')
+  await page.getByRole('button', { name: '创建隐藏规则' }).click()
+  await expect(page.getByRole('alert')).toContainText('相同范围与匹配键的隐藏规则已存在')
+})

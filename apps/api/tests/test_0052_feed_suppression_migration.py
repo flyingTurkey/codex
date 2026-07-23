@@ -33,6 +33,8 @@ def test_feed_suppression_projection_reuses_the_append_only_ledger() -> None:
     assert "JOIN topic_event membership" in source
     assert "topic.status='CONFIRMED'" in source
     assert 'unicodedata.normalize("NFKC"' in source
+    assert "len(normalized) > 300" in source
+    assert 'unicodedata.category(char) == "Cc"' in source
     assert "qualification.cross_type_tags" not in source
 
 

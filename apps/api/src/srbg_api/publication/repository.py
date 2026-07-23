@@ -55,7 +55,7 @@ from srbg_api.intelligence_v2.domain import (
 )
 from srbg_api.intelligence_v2.feed_suppressions import (
     FeedSuppressionConflict,
-    canonical_custom_topic,
+    canonical_custom_topic_match,
 )
 from srbg_api.intelligence_v2.gold_calibration import AutoPassCalibrationGrant
 from srbg_api.intelligence_v2.media import projectable_download, projectable_preview
@@ -673,8 +673,8 @@ class PostgresPublicationRepository:
         )
 
     async def prepare_feed_suppression_revocation(
-        self, *, command: FeedSuppressionCommand
-    ) -> list[tuple[UUID, UUID]]:
+        self, *, command: FeedSuppressionCommand, idempotency_key: UUID
+    ) -> list[tuple[UUID, UUID]] | None:
         """Validate a revoke and snapshot matches before any irreversible append."""
 
         if command.action is not FeedSuppressionAction.REVOKE:
@@ -684,6 +684,32 @@ class PostgresPublicationRepository:
                 text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key,0))"),
                 {"lock_key": f"{command.scope.value}:{command.target_key}"},
             )
+            existing = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT action,scope,target_key,feedback_reason,"
+                            "supersedes_rule_id FROM feed_suppression_rule_v2 "
+                            "WHERE idempotency_key=:key"
+                        ),
+                        {"key": idempotency_key},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if existing is not None:
+                if any(
+                    (
+                        existing["action"] != command.action.value,
+                        existing["scope"] != command.scope.value,
+                        existing["target_key"] != command.target_key,
+                        existing["feedback_reason"] != command.feedback_reason.value,
+                        existing["supersedes_rule_id"] != command.supersedes_rule_id,
+                    )
+                ):
+                    raise FeedSuppressionConflict("Idempotency-Key was already used")
+                return None
             activation = (
                 (
                     await connection.execute(
@@ -943,6 +969,11 @@ class PostgresPublicationRepository:
                 projected_at,
             )
         risk_tier = str(row["review_risk"] or row["risk_level"])
+        custom_topic_targets = tuple(
+            ("CUSTOM_TOPIC", key)
+            for value in (row["custom_topics"] or ())
+            if (key := canonical_custom_topic_match(str(value))) is not None
+        )
         suppression_targets = (
             ("EVENT", str(event_id)),
             ("PRIMARY_TYPE", str(row["primary_type"])),
@@ -959,10 +990,7 @@ class PostgresPublicationRepository:
                 ("EQUIPMENT_DOMAIN", str(value))
                 for value in (row["equipment_domains"] or ())
             ),
-            *tuple(
-                ("CUSTOM_TOPIC", canonical_custom_topic(str(value)))
-                for value in (row["custom_topics"] or ())
-            ),
+            *custom_topic_targets,
         )
         if risk_tier == "R4":
             await self._deny_v2_projection(

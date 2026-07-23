@@ -4,7 +4,10 @@ from unittest.mock import AsyncMock, Mock, call
 from uuid import UUID
 
 import pytest
-from srbg_api.intelligence_v2.feed_suppressions import InvalidFeedSuppressionTarget
+from srbg_api.intelligence_v2.feed_suppressions import (
+    InvalidFeedSuppressionTarget,
+    canonical_custom_topic_match,
+)
 from srbg_api.publication.service import PublicationDenied, PublicationService
 from srbg_contracts import FeedSuppressionCommand, FeedSuppressionRuleView
 
@@ -98,6 +101,10 @@ async def test_revocation_rechecks_current_publication_gate_and_does_not_blindly
     )
 
     assert result.action.value == "REVOKE"
+    repository.prepare_feed_suppression_revocation.assert_awaited_once_with(
+        command=repository.command_feed_suppression.await_args.kwargs["command"],
+        idempotency_key=IDEMPOTENCY_KEY,
+    )
     repository.refresh_v2_projection.assert_awaited_once_with(
         event_id=EVENT_ID,
         document_version_id=VERSION_ID,
@@ -147,6 +154,46 @@ async def test_revocation_does_not_append_when_revalidation_crashes() -> None:
 
 
 @pytest.mark.asyncio
+async def test_successful_revocation_idempotency_replay_does_not_rebuild_again() -> None:
+    repository = AsyncMock()
+    repository.prepare_feed_suppression_revocation.return_value = None
+    repository.command_feed_suppression.return_value = (
+        FeedSuppressionRuleView.model_validate(
+            {
+                "id": RULE_ID,
+                "action": "REVOKE",
+                "scope": "EVENT",
+                "target_key": str(EVENT_ID),
+                "feedback_reason": "OWNER_PREFERENCE",
+                "supersedes_rule_id": RULE_ID,
+                "effective_at": NOW,
+                "created_at": NOW,
+            }
+        ),
+        [(EVENT_ID, VERSION_ID)],
+    )
+    command = FeedSuppressionCommand.model_validate(
+        {
+            "action": "REVOKE",
+            "scope": "EVENT",
+            "target_key": str(EVENT_ID),
+            "feedback_reason": "OWNER_PREFERENCE",
+            "supersedes_rule_id": str(RULE_ID),
+        }
+    )
+
+    result = await _service(repository).command_feed_suppression(
+        command=command,
+        owner_id=OWNER_ID,
+        idempotency_key=IDEMPOTENCY_KEY,
+        expected_rule_id=RULE_ID,
+    )
+
+    assert result.action.value == "REVOKE"
+    repository.refresh_v2_projection.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_scope_targets_are_strictly_validated() -> None:
     repository = AsyncMock()
     service = _service(repository)
@@ -190,6 +237,11 @@ async def test_custom_topic_is_revalidated_after_unicode_canonicalization() -> N
         )
 
     repository.command_feed_suppression.assert_not_awaited()
+
+
+def test_legacy_custom_topic_outside_frozen_target_limit_is_not_projected() -> None:
+    assert canonical_custom_topic_match("x" * 301) is None
+    assert canonical_custom_topic_match("valid topic") == "valid-topic"
 
 
 def test_suppression_metrics_have_only_bounded_labels() -> None:

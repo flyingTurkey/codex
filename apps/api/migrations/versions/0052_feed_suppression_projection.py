@@ -19,10 +19,17 @@ depends_on: str | Sequence[str] | None = None
 _CUSTOM_TOPIC_SPACES = re.compile(r"\s+")
 
 
-def _canonical_custom_topic(value: str) -> str:
-    return _CUSTOM_TOPIC_SPACES.sub(
+def _canonical_custom_topic(value: str) -> str | None:
+    normalized = _CUSTOM_TOPIC_SPACES.sub(
         "-", unicodedata.normalize("NFKC", value.strip()).casefold()
     )
+    if (
+        not normalized
+        or len(normalized) > 300
+        or any(unicodedata.category(char) == "Cc" for char in normalized)
+    ):
+        return None
+    return normalized
 
 
 def _uuid() -> sa.Uuid:
@@ -199,15 +206,18 @@ def upgrade() -> None:
             "WHERE topic.status='CONFIRMED'"
         )
     ).mappings()
-    custom_topic_rows = [
-        {
-            "event_id": row["event_id"],
-            "document_version_id": row["document_version_id"],
-            "target_key": _canonical_custom_topic(str(row["title"])),
-            "projected_at": row["projected_at"],
-        }
-        for row in custom_topics
-    ]
+    custom_topic_rows = []
+    for row in custom_topics:
+        target_key = _canonical_custom_topic(str(row["title"]))
+        if target_key is not None:
+            custom_topic_rows.append(
+                {
+                    "event_id": row["event_id"],
+                    "document_version_id": row["document_version_id"],
+                    "target_key": target_key,
+                    "projected_at": row["projected_at"],
+                }
+            )
     if custom_topic_rows:
         connection.execute(
             sa.text(

@@ -55,6 +55,15 @@ def canonical_custom_topic(value: str) -> str:
     return normalized
 
 
+def canonical_custom_topic_match(value: str) -> str | None:
+    """Return a ledger-expressible key, skipping legacy oversized topic titles."""
+
+    try:
+        return canonical_custom_topic(value)
+    except InvalidFeedSuppressionTarget:
+        return None
+
+
 OwnerPrincipal = Annotated[Principal, Depends(require_local_owner)]
 router = APIRouter(prefix="/api/v2/owner/suppressions", tags=["owner-feed-suppressions"])
 

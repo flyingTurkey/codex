@@ -17,6 +17,12 @@ const creating = ref(false)
 const message = ref<string | null>(null)
 const problem = ref<string | null>(null)
 
+function isConflict(value: unknown): boolean {
+  const data = (value as { data?: { detail?: { code?: string } } })?.data
+  return data?.detail?.code === 'SUPPRESSION_CONFLICT'
+    || data?.detail?.code === 'SUPPRESSION_VERSION_MISMATCH'
+}
+
 const scopeLabels: Readonly<Record<string, string>> = {
   EVENT: '单条 Event',
   PRIMARY_TYPE: '主类型',
@@ -58,8 +64,10 @@ async function revoke(item: FeedSuppressionRuleView): Promise<void> {
     message.value = '已撤销隐藏偏好；当前仍满足 PublicationService 门禁的内容会自动恢复。'
     await refresh()
   }
-  catch {
-    problem.value = '撤销失败，原有隐藏偏好保持不变，请刷新后重试。'
+  catch (cause) {
+    problem.value = isConflict(cause)
+      ? '隐藏规则已发生变化，请刷新列表后再操作。'
+      : '撤销失败，原有隐藏偏好保持不变，请刷新后重试。'
   }
   finally {
     revokingIds.value = revokingIds.value.filter(id => id !== item.id)
@@ -88,8 +96,10 @@ async function createRule(): Promise<void> {
     message.value = '新的 Feed 隐藏偏好已生效。'
     await refresh()
   }
-  catch {
-    problem.value = '创建失败；请检查匹配键是否符合所选范围。'
+  catch (cause) {
+    problem.value = isConflict(cause)
+      ? '相同范围与匹配键的隐藏规则已存在，请刷新列表。'
+      : '创建失败；请检查匹配键是否符合所选范围。'
   }
   finally {
     creating.value = false
