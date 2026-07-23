@@ -1,4 +1,4 @@
-"""Owner-safe projection and commands for autonomous technical exceptions."""
+"""Shared Owner-safe projection and commands for technical and Safety exceptions."""
 
 from __future__ import annotations
 
@@ -13,23 +13,47 @@ from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 from srbg_contracts import (
+    ExceptionKind,
+    FeedSuppressionAction,
+    FeedSuppressionCommand,
+    FeedSuppressionFeedbackReason,
+    FeedSuppressionScope,
     OwnerExceptionCommand,
     OwnerExceptionEventType,
     OwnerExceptionEventView,
     OwnerExceptionView,
+    SafetyOverrideability,
 )
 
 from srbg_api.auth import Principal, require_local_owner
 from srbg_api.identifiers import uuid7
 from srbg_api.observability import (
+    OWNER_SAFETY_EXCEPTION_BACKLOG,
+    OWNER_SAFETY_EXCEPTION_COMMANDS,
     OWNER_TECHNICAL_EXCEPTION_BACKLOG,
     OWNER_TECHNICAL_EXCEPTION_COMMANDS,
 )
+from srbg_api.publication.service import PublicationDenied
 
 TECHNICAL_RETRY_QUEUE_KEY = "srbg:owner:technical-retry-requests:v1"
 TECHNICAL_RETRY_PROCESSING_KEY = "srbg:owner:technical-retry-processing:v1"
 TECHNICAL_RETRY_DEDUPE_KEY = "srbg:owner:technical-retry-dedupe:v1"
 _SYSTEM_ACTOR = UUID("019b0000-0000-7000-8000-000000009002")
+_EXCEPTION_VIEW_COLUMNS = (
+    "id,kind,status,overrideability,source_id,source_stream_id,"
+    "document_version_id,decision_id,reason_codes,"
+    "safe_metadata->>'technical_reason_code' AS technical_reason_code,"
+    "safe_metadata->>'safety_reason_code' AS safety_reason_code,"
+    "safe_metadata->>'safe_title' AS safe_title,"
+    "safe_metadata->>'source_name' AS source_name,"
+    "CAST(safe_metadata->>'discovered_at' AS timestamptz) AS discovered_at,"
+    "CASE WHEN jsonb_typeof(safe_metadata->'safe_evidence_ids')='array' THEN "
+    "ARRAY(SELECT value::uuid FROM jsonb_array_elements_text("
+    "safe_metadata->'safe_evidence_ids') value WHERE value ~* "
+    "'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$') "
+    "ELSE ARRAY[]::uuid[] END AS safe_evidence_ids,"
+    "attempt_count,version,opened_at,updated_at,resolved_at"
+)
 
 
 class OwnerTechnicalExceptionService(Protocol):
@@ -56,6 +80,19 @@ class OwnerTechnicalExceptionService(Protocol):
     ) -> OwnerExceptionEventView: ...
 
 
+class OwnerSafetyPublicationService(Protocol):
+    async def refresh_v2_projection(self, *, event_id: UUID, document_version_id: UUID) -> None: ...
+
+    async def command_feed_suppression(
+        self,
+        *,
+        command: FeedSuppressionCommand,
+        owner_id: UUID,
+        idempotency_key: UUID,
+        expected_rule_id: UUID | None,
+    ) -> Any: ...
+
+
 class TechnicalExceptionNotFound(LookupError):
     pass
 
@@ -64,8 +101,16 @@ class TechnicalExceptionConflict(RuntimeError):
     pass
 
 
+class SafetyExceptionHardBlock(RuntimeError):
+    pass
+
+
+class SafetyPublicationGateDenied(RuntimeError):
+    pass
+
+
 OwnerPrincipal = Annotated[Principal, Depends(require_local_owner)]
-router = APIRouter(prefix="/api/v2/owner/exceptions", tags=["owner-technical-exceptions"])
+router = APIRouter(prefix="/api/v2/owner/exceptions", tags=["owner-exceptions"])
 
 
 def _service(request: Request) -> OwnerTechnicalExceptionService:
@@ -127,14 +172,6 @@ async def command_owner_exception(
     if_match: Annotated[str, Header(alias="If-Match")],
     idempotency_key: Annotated[UUID, Header(alias="Idempotency-Key")],
 ) -> OwnerExceptionEventView:
-    if payload.event_type is not OwnerExceptionEventType.RETRY_REQUESTED:
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "code": "TECHNICAL_EXCEPTION_COMMAND_UNSUPPORTED",
-                "title": "Technical exceptions only support retry requests",
-            },
-        )
     if if_match != f'"{payload.expected_version}"':
         raise HTTPException(
             status_code=status.HTTP_412_PRECONDITION_FAILED,
@@ -144,6 +181,40 @@ async def command_owner_exception(
             },
         )
     try:
+        current = OwnerExceptionView.model_validate(
+            await _service(request).get_exception(exception_id)
+        )
+        if current.kind is ExceptionKind.TECHNICAL and (
+            payload.event_type is not OwnerExceptionEventType.RETRY_REQUESTED
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "TECHNICAL_EXCEPTION_COMMAND_UNSUPPORTED",
+                    "title": "Technical exceptions only support retry requests",
+                },
+            )
+        if current.kind is ExceptionKind.SAFETY and payload.event_type not in {
+            OwnerExceptionEventType.OWNER_ALLOWED,
+            OwnerExceptionEventType.OWNER_DENIED,
+        }:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "SAFETY_EXCEPTION_COMMAND_UNSUPPORTED",
+                    "title": "Safety exceptions only support allow or deny",
+                },
+            )
+        if (
+            current.kind is ExceptionKind.SAFETY
+            and current.overrideability is SafetyOverrideability.HARD_BLOCK
+            and payload.event_type is OwnerExceptionEventType.OWNER_ALLOWED
+        ):
+            raise SafetyExceptionHardBlock(
+                current.safety_reason_code.value
+                if current.safety_reason_code is not None
+                else "HARD_BLOCK"
+            )
         return await _service(request).command(
             exception_id=exception_id,
             command=payload,
@@ -164,20 +235,40 @@ async def command_owner_exception(
                 "detail": "Refresh the exception and retry with its current version",
             },
         ) from exc
+    except SafetyExceptionHardBlock as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "SAFETY_HARD_BLOCK_NON_OVERRIDABLE",
+                "title": "Hard safety blocks cannot be overridden",
+                "detail": str(exc),
+            },
+        ) from exc
+    except SafetyPublicationGateDenied as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "SAFETY_PUBLICATION_REEVALUATION_DENIED",
+                "title": "Current publication gates denied the safety decision",
+                "detail": str(exc),
+            },
+        ) from exc
 
 
 class PostgresOwnerTechnicalExceptionService:
-    """Project technical decisions into the API-owned Owner control surface."""
+    """Project technical and Safety decisions into the shared Owner control surface."""
 
     def __init__(
         self,
         *,
         engine: AsyncEngine,
         retry_queue: Redis | None = None,
+        publication_service: OwnerSafetyPublicationService | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._engine = engine
         self._retry_queue = retry_queue
+        self._publication_service = publication_service
         self._clock = clock or (lambda: datetime.now(UTC))
 
     async def close(self) -> None:
@@ -674,8 +765,8 @@ class PostgresOwnerTechnicalExceptionService:
         cursor: str | None,
         limit: int,
     ) -> list[OwnerExceptionView]:
-        if kind not in {None, "TECHNICAL"}:
-            return []
+        if kind not in {None, "TECHNICAL", "SAFETY"}:
+            raise ValueError("owner exception kind is invalid")
         if status not in {None, "OPEN", "RESOLVED"}:
             raise ValueError("owner exception status is invalid")
         if not 1 <= limit <= 100:
@@ -690,21 +781,30 @@ class PostgresOwnerTechnicalExceptionService:
                 (
                     await connection.execute(
                         text(
-                            "SELECT id,kind,status,overrideability,source_id,source_stream_id,"
-                            "document_version_id,decision_id,reason_codes,"
-                            "safe_metadata->>'technical_reason_code' AS technical_reason_code,"
-                            "attempt_count,version,"
-                            "opened_at,updated_at,resolved_at FROM owner_exception_v2 "
-                            "WHERE kind='TECHNICAL' AND (CAST(:status AS text) IS NULL "
+                            f"SELECT {_EXCEPTION_VIEW_COLUMNS} "  # noqa: S608
+                            "FROM owner_exception_v2 "
+                            "WHERE (CAST(:kind AS text) IS NULL OR kind=:kind) "
+                            "AND (CAST(:status AS text) IS NULL "
                             "OR status=:status) AND (CAST(:cursor_id AS uuid) IS NULL OR "
                             "(updated_at,id)<(SELECT updated_at,id FROM owner_exception_v2 "
                             "WHERE id=CAST(:cursor_id AS uuid))) "
                             "ORDER BY updated_at DESC,id DESC LIMIT :limit"
                         ),
-                        {"status": status, "cursor_id": cursor_id, "limit": limit},
+                        {
+                            "kind": kind,
+                            "status": status,
+                            "cursor_id": cursor_id,
+                            "limit": limit,
+                        },
                     )
                 ).mappings()
             )
+            safety_open_count = await connection.scalar(
+                text(
+                    "SELECT count(*) FROM owner_exception_v2 WHERE kind='SAFETY' AND status='OPEN'"
+                )
+            )
+        OWNER_SAFETY_EXCEPTION_BACKLOG.set(int(safety_open_count or 0))
         return [_view(row) for row in rows]
 
     async def get_exception(self, exception_id: UUID) -> OwnerExceptionView:
@@ -714,12 +814,8 @@ class PostgresOwnerTechnicalExceptionService:
                 (
                     await connection.execute(
                         text(
-                            "SELECT id,kind,status,overrideability,source_id,source_stream_id,"
-                            "document_version_id,decision_id,reason_codes,"
-                            "safe_metadata->>'technical_reason_code' AS technical_reason_code,"
-                            "attempt_count,version,"
-                            "opened_at,updated_at,resolved_at FROM owner_exception_v2 "
-                            "WHERE id=:id AND kind='TECHNICAL'"
+                            f"SELECT {_EXCEPTION_VIEW_COLUMNS} "  # noqa: S608
+                            "FROM owner_exception_v2 WHERE id=:id"
                         ),
                         {"id": exception_id},
                     )
@@ -742,6 +838,16 @@ class PostgresOwnerTechnicalExceptionService:
         payload = OwnerExceptionCommand.model_validate(command)
         if payload.exception_id != exception_id:
             raise ValueError("owner exception command target does not match path")
+        if payload.event_type in {
+            OwnerExceptionEventType.OWNER_ALLOWED,
+            OwnerExceptionEventType.OWNER_DENIED,
+        }:
+            return await self._command_safety(
+                exception_id=exception_id,
+                payload=payload,
+                owner_id=owner_id,
+                idempotency_key=idempotency_key,
+            )
         if payload.event_type is not OwnerExceptionEventType.RETRY_REQUESTED:
             raise ValueError("technical exception only supports retry requested")
         now = self._clock()
@@ -881,10 +987,415 @@ class PostgresOwnerTechnicalExceptionService:
         OWNER_TECHNICAL_EXCEPTION_COMMANDS.labels(outcome="RETRY_REQUESTED").inc()
         return _event_view(row)
 
+    async def _command_safety(
+        self,
+        *,
+        exception_id: UUID,
+        payload: OwnerExceptionCommand,
+        owner_id: UUID,
+        idempotency_key: UUID,
+    ) -> OwnerExceptionEventView:
+        async with self._engine.begin() as guard:
+            await guard.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:key,0))"),
+                {"key": f"owner-safety:{exception_id}"},
+            )
+            return await self._command_safety_locked(
+                exception_id=exception_id,
+                payload=payload,
+                owner_id=owner_id,
+                idempotency_key=idempotency_key,
+            )
+
+    async def _command_safety_locked(
+        self,
+        *,
+        exception_id: UUID,
+        payload: OwnerExceptionCommand,
+        owner_id: UUID,
+        idempotency_key: UUID,
+    ) -> OwnerExceptionEventView:
+        now = self._clock()
+        event_id: UUID | None = None
+        document_version_id: UUID
+        row: Any
+        async with self._engine.begin() as connection:
+            duplicate = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT event.id,event.exception_id,event.event_type,"
+                            "event.expected_version,event.idempotency_key,event.created_at,"
+                            "exception.safe_metadata,exception.status,"
+                            "exception.document_version_id,"
+                            "context.event_id AS publication_event_id "
+                            "FROM owner_exception_event_v2 event "
+                            "JOIN owner_exception_v2 exception ON exception.id=event.exception_id "
+                            "LEFT JOIN LATERAL("
+                            "SELECT binding.event_id FROM intelligence_item item "
+                            "JOIN event_identity_binding binding ON binding.item_id=item.id "
+                            "WHERE item.current_document_version_id="
+                            "exception.document_version_id "
+                            "ORDER BY binding.created_at DESC,binding.event_id DESC LIMIT 1"
+                            ") context ON true "
+                            "WHERE event.idempotency_key=:key"
+                        ),
+                        {"key": idempotency_key},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if duplicate is not None:
+                if (
+                    duplicate["exception_id"] != exception_id
+                    or duplicate["event_type"] != payload.event_type.value
+                    or duplicate["expected_version"] != payload.expected_version
+                ):
+                    raise TechnicalExceptionConflict("idempotency key belongs to another command")
+                metadata = dict(duplicate["safe_metadata"] or {})
+                if (
+                    metadata.get("last_owner_action_id") == str(duplicate["id"])
+                    and metadata.get("last_reevaluation_status") == "DENIED"
+                ):
+                    OWNER_SAFETY_EXCEPTION_COMMANDS.labels(
+                        action=payload.event_type.value, outcome="GATE_DENIED_REPLAY"
+                    ).inc()
+                    raise SafetyPublicationGateDenied(
+                        str(
+                            metadata.get("last_reevaluation_reason")
+                            or "SAFETY_PUBLICATION_GATE_DENIED"
+                        )
+                    )
+                if metadata.get("last_reevaluation_status") == "PENDING":
+                    return await self._apply_safety_action(
+                        exception_id=exception_id,
+                        row=duplicate,
+                        event_id=duplicate["publication_event_id"],
+                        document_version_id=cast(UUID, duplicate["document_version_id"]),
+                        payload=payload,
+                        owner_id=owner_id,
+                        idempotency_key=idempotency_key,
+                        now=now,
+                    )
+                OWNER_SAFETY_EXCEPTION_COMMANDS.labels(
+                    action=payload.event_type.value, outcome="IDEMPOTENT_REPLAY"
+                ).inc()
+                return _event_view(duplicate)
+
+            exception = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT exception.id,exception.status,exception.version,"
+                            "exception.overrideability,exception.document_version_id,"
+                            "exception.safe_metadata,context.event_id "
+                            "FROM owner_exception_v2 exception "
+                            "LEFT JOIN LATERAL("
+                            "SELECT binding.event_id FROM intelligence_item item "
+                            "JOIN event_identity_binding binding ON binding.item_id=item.id "
+                            "WHERE item.current_document_version_id="
+                            "exception.document_version_id "
+                            "ORDER BY binding.created_at DESC,binding.event_id DESC LIMIT 1"
+                            ") context ON true "
+                            "WHERE exception.id=:id AND exception.kind='SAFETY' "
+                            "FOR UPDATE OF exception"
+                        ),
+                        {"id": exception_id},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if exception is None:
+                raise TechnicalExceptionNotFound(str(exception_id))
+            if exception["status"] != "OPEN" or exception["version"] != payload.expected_version:
+                raise TechnicalExceptionConflict(str(exception_id))
+            if (
+                exception["overrideability"] == "HARD_BLOCK"
+                and payload.event_type is OwnerExceptionEventType.OWNER_ALLOWED
+            ):
+                OWNER_SAFETY_EXCEPTION_COMMANDS.labels(
+                    action=payload.event_type.value, outcome="HARD_BLOCKED"
+                ).inc()
+                raise SafetyExceptionHardBlock(
+                    str(exception["safe_metadata"].get("safety_reason_code") or "HARD_BLOCK")
+                )
+            owner_event_id = uuid7()
+            await connection.execute(
+                text(
+                    "INSERT INTO owner_exception_event_v2("
+                    "id,exception_id,event_type,expected_version,idempotency_key,"
+                    "safe_metadata,created_at) VALUES("
+                    ":id,:exception,:event_type,:version,:key,"
+                    "jsonb_build_object('action_status','PENDING'),:now)"
+                ),
+                {
+                    "id": owner_event_id,
+                    "exception": exception_id,
+                    "event_type": payload.event_type.value,
+                    "version": payload.expected_version,
+                    "key": idempotency_key,
+                    "now": now,
+                },
+            )
+            await connection.execute(
+                text(
+                    "SELECT append_audit_event(:audit_id,CAST(:event_type AS text),:actor,"
+                    "'OWNER_EXCEPTION',:target,NULL,"
+                    "jsonb_build_object('event_type',CAST(:event_type AS text),"
+                    "'expected_version',CAST(:version AS integer)),"
+                    "'OWNER_SAFETY_DECISION',:request_id,:now)"
+                ),
+                {
+                    "audit_id": uuid7(),
+                    "event_type": payload.event_type.value,
+                    "actor": owner_id,
+                    "target": exception_id,
+                    "version": payload.expected_version,
+                    "request_id": str(idempotency_key),
+                    "now": now,
+                },
+            )
+            await connection.execute(
+                text(
+                    "UPDATE owner_exception_v2 SET version=version+1,updated_at=:now,"
+                    "safe_metadata=safe_metadata || jsonb_build_object("
+                    "'last_owner_action_id',CAST(:action_id AS text),"
+                    "'last_reevaluation_status','PENDING') WHERE id=:id"
+                ),
+                {
+                    "id": exception_id,
+                    "action_id": str(owner_event_id),
+                    "now": now,
+                },
+            )
+            event_id = exception["event_id"]
+            document_version_id = cast(UUID, exception["document_version_id"])
+            row = {
+                "id": owner_event_id,
+                "exception_id": exception_id,
+                "event_type": payload.event_type.value,
+                "expected_version": payload.expected_version,
+                "idempotency_key": idempotency_key,
+                "created_at": now,
+            }
+
+        return await self._apply_safety_action(
+            exception_id=exception_id,
+            row=row,
+            event_id=event_id,
+            document_version_id=document_version_id,
+            payload=payload,
+            owner_id=owner_id,
+            idempotency_key=idempotency_key,
+            now=now,
+        )
+
+    async def _apply_safety_action(
+        self,
+        *,
+        exception_id: UUID,
+        row: Any,
+        event_id: UUID | None,
+        document_version_id: UUID,
+        payload: OwnerExceptionCommand,
+        owner_id: UUID,
+        idempotency_key: UUID,
+        now: datetime,
+    ) -> OwnerExceptionEventView:
+        denial_reason: str | None = None
+        try:
+            if self._publication_service is None:
+                raise SafetyPublicationGateDenied("SAFETY_PUBLICATION_SERVICE_UNAVAILABLE")
+            if event_id is None:
+                raise SafetyPublicationGateDenied("SAFETY_PUBLICATION_CONTEXT_MISSING")
+            if payload.event_type is OwnerExceptionEventType.OWNER_ALLOWED:
+                await self._publication_service.refresh_v2_projection(
+                    event_id=event_id,
+                    document_version_id=document_version_id,
+                )
+            else:
+                await self._publication_service.command_feed_suppression(
+                    command=FeedSuppressionCommand(
+                        action=FeedSuppressionAction.ACTIVATE,
+                        scope=FeedSuppressionScope.EVENT,
+                        target_key=str(event_id),
+                        feedback_reason=FeedSuppressionFeedbackReason.SAFETY_DENIAL,
+                    ),
+                    owner_id=owner_id,
+                    idempotency_key=idempotency_key,
+                    expected_rule_id=None,
+                )
+        except PublicationDenied as exc:
+            denial_reason = exc.reasons[0] if exc.reasons else "SAFETY_PUBLICATION_GATE_DENIED"
+        except SafetyPublicationGateDenied as exc:
+            denial_reason = str(exc)
+        except Exception:
+            denial_reason = "SAFETY_PUBLICATION_SERVICE_FAILED"
+
+        if denial_reason is not None:
+            await self._record_safety_reevaluation(
+                exception_id=exception_id,
+                owner_event_id=cast(UUID, row["id"]),
+                status_value="DENIED",
+                reason=denial_reason,
+                now=now,
+            )
+            OWNER_SAFETY_EXCEPTION_COMMANDS.labels(
+                action=payload.event_type.value, outcome="GATE_DENIED"
+            ).inc()
+            raise SafetyPublicationGateDenied(denial_reason)
+
+        await self._resolve_safety_exception(
+            exception_id=exception_id,
+            owner_event_id=cast(UUID, row["id"]),
+            action=payload.event_type,
+            expected_version=payload.expected_version + 1,
+            now=now,
+        )
+        OWNER_SAFETY_EXCEPTION_COMMANDS.labels(
+            action=payload.event_type.value, outcome="APPLIED"
+        ).inc()
+        return _event_view(row)
+
+    async def _record_safety_reevaluation(
+        self,
+        *,
+        exception_id: UUID,
+        owner_event_id: UUID,
+        status_value: str,
+        reason: str,
+        now: datetime,
+    ) -> None:
+        safe_reason = reason if reason.isupper() and len(reason) <= 80 else "GATE_DENIED"
+        async with self._engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "UPDATE owner_exception_v2 SET updated_at=:now,"
+                    "safe_metadata=safe_metadata || jsonb_build_object("
+                    "'last_reevaluation_status',CAST(:status AS text),"
+                    "'last_reevaluation_reason',CAST(:reason AS text)) "
+                    "WHERE id=:id AND status='OPEN' "
+                    "AND safe_metadata->>'last_owner_action_id'=:action_id"
+                ),
+                {
+                    "id": exception_id,
+                    "action_id": str(owner_event_id),
+                    "status": status_value,
+                    "reason": safe_reason,
+                    "now": now,
+                },
+            )
+            await connection.execute(
+                text(
+                    "SELECT append_audit_event(:audit_id,"
+                    "'SAFETY_PUBLICATION_REEVALUATED',:actor,'OWNER_EXCEPTION',"
+                    ":target,NULL,jsonb_build_object("
+                    "'outcome',CAST(:status AS text),"
+                    "'reason',CAST(:reason AS text)),"
+                    "'SAFETY_REEVALUATION_RESULT',:request_id,:now)"
+                ),
+                {
+                    "audit_id": uuid7(),
+                    "actor": _SYSTEM_ACTOR,
+                    "target": exception_id,
+                    "status": status_value,
+                    "reason": safe_reason,
+                    "request_id": str(owner_event_id),
+                    "now": now,
+                },
+            )
+
+    async def _resolve_safety_exception(
+        self,
+        *,
+        exception_id: UUID,
+        owner_event_id: UUID,
+        action: OwnerExceptionEventType,
+        expected_version: int,
+        now: datetime,
+    ) -> None:
+        outcome = (
+            "PUBLICATION_GATE_PASSED"
+            if action is OwnerExceptionEventType.OWNER_ALLOWED
+            else "SAFETY_DENIAL_SUPPRESSED"
+        )
+        async with self._engine.begin() as connection:
+            resolved_event_id = uuid7()
+            result = await connection.execute(
+                text(
+                    "UPDATE owner_exception_v2 SET status='RESOLVED',version=version+1,"
+                    "updated_at=:now,resolved_at=:now,"
+                    "safe_metadata=safe_metadata || jsonb_build_object("
+                    "'last_reevaluation_status','PASSED',"
+                    "'last_reevaluation_reason',CAST(:outcome AS text)) "
+                    "WHERE id=:id AND kind='SAFETY' AND status='OPEN' "
+                    "AND version=:version "
+                    "AND safe_metadata->>'last_owner_action_id'=:action_id"
+                ),
+                {
+                    "id": exception_id,
+                    "version": expected_version,
+                    "action_id": str(owner_event_id),
+                    "outcome": outcome,
+                    "now": now,
+                },
+            )
+            if result.rowcount != 1:
+                raise TechnicalExceptionConflict(str(exception_id))
+            await connection.execute(
+                text(
+                    "INSERT INTO owner_exception_event_v2("
+                    "id,exception_id,event_type,expected_version,idempotency_key,"
+                    "safe_metadata,created_at) VALUES("
+                    ":id,:exception,'AUTO_RESOLVED',:version,:key,"
+                    "jsonb_build_object('outcome',CAST(:outcome AS text)),:now)"
+                ),
+                {
+                    "id": resolved_event_id,
+                    "exception": exception_id,
+                    "version": expected_version,
+                    "key": uuid7(),
+                    "outcome": outcome,
+                    "now": now,
+                },
+            )
+            await connection.execute(
+                text(
+                    "SELECT append_audit_event(:audit_id,"
+                    "'SAFETY_PUBLICATION_REEVALUATED',:actor,'OWNER_EXCEPTION',"
+                    ":target,NULL,jsonb_build_object("
+                    "'outcome',CAST(:outcome AS text)),"
+                    "'SAFETY_REEVALUATION_RESULT',:request_id,:now)"
+                ),
+                {
+                    "audit_id": uuid7(),
+                    "actor": _SYSTEM_ACTOR,
+                    "target": exception_id,
+                    "outcome": outcome,
+                    "request_id": str(owner_event_id),
+                    "now": now,
+                },
+            )
+
 
 def _view(row: Any) -> OwnerExceptionView:
     return OwnerExceptionView.model_validate(dict(row))
 
 
 def _event_view(row: Any) -> OwnerExceptionEventView:
-    return OwnerExceptionEventView.model_validate(dict(row))
+    value = dict(row)
+    return OwnerExceptionEventView.model_validate(
+        {
+            key: value[key]
+            for key in (
+                "id",
+                "exception_id",
+                "event_type",
+                "expected_version",
+                "idempotency_key",
+                "created_at",
+            )
+        }
+    )

@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-07-23 (Issue #45 Safety holds and Owner decisions)
+
+- Unified deterministic prompt-injection pre-scan findings and AI `security_signals` into the existing `owner_exception_v2` Safety lifecycle. The server maps the frozen closed reason set to `OWNER_DECIDABLE` or fail-closed `HARD_BLOCK`; `SAFETY_INTELLIGENCE` remains an ordinary primary content type.
+- Kept Safety authority orthogonal to qualification: pre-scan holds continue through the normal classifier, while AI-signal candidates must pass every non-safety relevance, axis, and evidence rule before any publication context is materialized. Invalid candidates remain held but cannot acquire a qualification acceptance; their server-normalized Safety reason is preserved independently.
+- Extended the existing `/api/v2/owner/exceptions` list, detail, and optimistic/idempotent command surface without a second router, exception ledger, or semantic review queue. Safety projections expose only bounded substitute metadata and safe evidence references, never dangerous content, attachments, media, or raw model output.
+- Added linear migration `0053_safety_exception_lifecycle`. Its security-definer writer creates one append-only Safety exception/event/audit trail per durable `SAFETY_HOLD`, while the shared security-barrier projection excludes every open hold from Feed, search, hotspots, Event detail, appendix, and media authorization.
+- Made Owner allow/deny decisions append-only and concurrency-safe. Allow applies only to `OWNER_DECIDABLE` and calls `PublicationService` for current authoritative re-evaluation before automatic Feed visibility; deny reuses the #44 suppression service to create the sole `SAFETY_DENIAL` terminal rule. Neither path writes publication status directly or asks for a second confirmation.
+- Serialized the complete Owner Safety command around its external publication effect and made a durable `PENDING` action resumable, so same-key races and process interruption converge on one truthful final result instead of returning provisional success.
+- Kept private-network, loopback, cloud-metadata, malicious-payload, access-control-bypass, mandatory-malware-scan, missing-safe-bytes, and unknown security signals non-overridable. A hard-block allow command returns deterministic Problem Details and cannot create a projection.
+- Expanded the same accessible Nuxt Owner exception workspace with a Safety partition, safe reason labels, explicit hard-block state, one-click allow/deny, keyboard/zoom/axe coverage, low-cardinality backlog/command metrics, migration replay, and the existing highest SourceStream-to-Feed acceptance seam.
+
 ## 2026-07-23 (Issue #44 Feed suppression and automatic restoration)
 
 - Activated the frozen `feed_suppression_rule_v2` contract as an append-only, idempotent, audited Owner control plane under `/api/v2/owner/suppressions`, with canonical scope targets, serialized concurrent commands, explicit revoke preconditions, and no Safety allow/deny or technical-retry authority.

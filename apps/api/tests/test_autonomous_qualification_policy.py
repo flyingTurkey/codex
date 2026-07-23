@@ -348,7 +348,31 @@ def test_security_signal_enters_safety_hold_without_semantic_override() -> None:
     assert trace.disposition.value == "SAFETY_HOLD"
     assert [reason.value for reason in trace.reason_codes] == ["SAFETY_SIGNAL"]
     assert trace.semantic_recheck_count == 0
+    assert trace.model_candidate is not None
+    assert "NON_SAFETY_QUALIFICATION_PASSED" in trace.rule_signals
     assert model.calls == 1
+
+
+def test_security_signal_cannot_grant_an_invalid_non_safety_qualification() -> None:
+    invalid = _candidate(
+        direct_relevance="IRRELEVANT",
+        engineering_objects=[],
+        evidence_locators=["invented"],
+        security_signals=["PROMPT_INJECTION"],
+    )
+    service = AutomatedAdjudicationService(
+        policy=_bundle(),
+        model_edge=RecordingModelEdge([invalid]),
+        clock=lambda: datetime(2026, 7, 21, 8, tzinfo=UTC),
+        id_factory=lambda: UUID("019b1d00-0000-7000-8000-000000000041"),
+    )
+
+    trace = service.adjudicate(_input("铁路隧道施工启动安全整治。"))
+
+    assert trace.disposition.value == "SAFETY_HOLD"
+    assert trace.model_candidate is None
+    assert "NON_SAFETY_QUALIFICATION_FAILED" in trace.rule_signals
+    assert "SAFETY_SIGNAL:PROMPT_INJECTION_DETECTED" in trace.rule_signals
 
 
 def test_security_signal_from_bounded_recheck_enters_safety_hold() -> None:

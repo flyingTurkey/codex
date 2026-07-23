@@ -22,6 +22,7 @@ from srbg_contracts import (
     QualificationDecisionTrace,
     QualificationPolicyIdentity,
     SafetyOverrideability,
+    SafetyRiskReason,
     ShadowDecisionView,
 )
 
@@ -162,6 +163,11 @@ def test_owner_exception_contract_separates_technical_and_safety_controls() -> N
         "status": "OPEN",
         "overrideability": "HARD_BLOCK",
         "reason_codes": ["SAFETY_SIGNAL"],
+        "safety_reason_code": "MALICIOUS_PAYLOAD",
+        "safe_title": "恶意载荷已阻断",
+        "source_name": "安全扫描",
+        "discovered_at": "2026-07-21T08:00:00Z",
+        "safe_evidence_ids": [],
         "attempt_count": 0,
         "version": 1,
         "opened_at": "2026-07-21T08:00:00Z",
@@ -179,6 +185,11 @@ def test_owner_exception_contract_separates_technical_and_safety_controls() -> N
             "kind": "TECHNICAL",
             "overrideability": None,
             "technical_reason_code": "PROVIDER_TIMEOUT",
+            "safety_reason_code": None,
+            "safe_title": None,
+            "source_name": None,
+            "discovered_at": None,
+            "safe_evidence_ids": [],
         }
     )
     assert technical.technical_reason_code == "PROVIDER_TIMEOUT"
@@ -192,6 +203,49 @@ def test_owner_exception_contract_separates_technical_and_safety_controls() -> N
                 "overrideability": None,
                 "technical_reason_code": "unsafe reason",
             }
+        )
+
+
+def test_safety_exception_projection_is_sanitized_and_uses_closed_reasons() -> None:
+    assert {value.value for value in SafetyRiskReason} == {
+        "PROMPT_INJECTION_DETECTED",
+        "SUSPICIOUS_MODEL_SIGNAL",
+        "PRIVATE_NETWORK_TARGET",
+        "LOOPBACK_TARGET",
+        "CLOUD_METADATA_TARGET",
+        "MALICIOUS_PAYLOAD",
+        "ACCESS_CONTROL_BYPASS",
+        "MANDATORY_MALWARE_SCAN_FAILED",
+        "SAFE_BYTES_UNAVAILABLE",
+        "UNRECOGNIZED_SECURITY_SIGNAL",
+    }
+    payload = {
+        "id": "019b1d00-0000-7000-8000-000000000058",
+        "kind": "SAFETY",
+        "status": "OPEN",
+        "overrideability": "OWNER_DECIDABLE",
+        "source_id": "019b1d00-0000-7000-8000-000000000059",
+        "document_version_id": "019b1d00-0000-7000-8000-00000000005a",
+        "reason_codes": ["SAFETY_SIGNAL"],
+        "safety_reason_code": "PROMPT_INJECTION_DETECTED",
+        "safe_title": "疑似提示词注入内容",
+        "source_name": "交通运输部",
+        "discovered_at": "2026-07-21T08:00:00Z",
+        "safe_evidence_ids": ["019b1d00-0000-7000-8000-00000000005b"],
+        "attempt_count": 0,
+        "version": 1,
+        "opened_at": "2026-07-21T08:00:00Z",
+        "updated_at": "2026-07-21T08:00:00Z",
+    }
+    safety = OwnerExceptionView.model_validate(payload)
+    assert safety.safety_reason_code is SafetyRiskReason.PROMPT_INJECTION_DETECTED
+    assert safety.safe_evidence_ids == [UUID("019b1d00-0000-7000-8000-00000000005b")]
+    for unsafe_field in ("raw_content", "media_url", "attachment_url", "model_raw_output"):
+        with pytest.raises(ValidationError):
+            OwnerExceptionView.model_validate(payload | {unsafe_field: "unsafe"})
+    with pytest.raises(ValidationError):
+        OwnerExceptionView.model_validate(
+            payload | {"kind": "TECHNICAL", "overrideability": None}
         )
 
 

@@ -101,6 +101,15 @@ OWNER_TECHNICAL_EXCEPTION_COMMANDS = Counter(
     "Owner technical exception commands by bounded outcome.",
     ("outcome",),
 )
+OWNER_SAFETY_EXCEPTION_BACKLOG = Gauge(
+    "srbg_owner_safety_exception_backlog",
+    "Open Owner Safety exceptions in PostgreSQL.",
+)
+OWNER_SAFETY_EXCEPTION_COMMANDS = Counter(
+    "srbg_owner_safety_exception_commands_total",
+    "Owner Safety exception commands by bounded action and outcome.",
+    ("action", "outcome"),
+)
 OWNER_FEED_SUPPRESSION_COMMANDS = Counter(
     "srbg_owner_feed_suppression_commands_total",
     "Owner Feed suppression commands by bounded scope, action, and outcome.",

@@ -37,8 +37,7 @@ def _isolated_database_url() -> str:
     database = parsed.path.removeprefix("/")
     try:
         loopback = parsed.hostname == "localhost" or (
-            parsed.hostname is not None
-            and ipaddress.ip_address(parsed.hostname).is_loopback
+            parsed.hostname is not None and ipaddress.ip_address(parsed.hostname).is_loopback
         )
     except ValueError:
         loopback = False
@@ -57,12 +56,11 @@ async def _verify(database_url: str, revision: str) -> None:
         "0050_autonomous_handoff_state_order",
         "0051_technical_exception_recovery",
         "0052_feed_suppression_projection",
+        "0053_safety_exception_lifecycle",
     }
     try:
         async with engine.connect() as connection:
-            current = await connection.scalar(
-                text("SELECT version_num FROM alembic_version")
-            )
+            current = await connection.scalar(text("SELECT version_num FROM alembic_version"))
             _require(current == revision, "unexpected Alembic revision")
             table_count = await connection.scalar(
                 text(
@@ -74,7 +72,14 @@ async def _verify(database_url: str, revision: str) -> None:
             _require(
                 int(table_count or 0)
                 == (
-                    len(_TABLES) + (revision == "0052_feed_suppression_projection")
+                    len(_TABLES)
+                    + (
+                        revision
+                        in {
+                            "0052_feed_suppression_projection",
+                            "0053_safety_exception_lifecycle",
+                        }
+                    )
                     if expected
                     else 0
                 ),
@@ -114,6 +119,7 @@ async def _verify(database_url: str, revision: str) -> None:
                 "0050_autonomous_handoff_state_order",
                 "0051_technical_exception_recovery",
                 "0052_feed_suppression_projection",
+                "0053_safety_exception_lifecycle",
             }:
                 handoff_definition = await connection.scalar(
                     text(
@@ -137,7 +143,10 @@ async def _verify(database_url: str, revision: str) -> None:
                     "event.event_type='RETRY_REQUESTED'" in str(retry_definition),
                     "technical retry is not bound to an Owner command",
                 )
-            if revision == "0052_feed_suppression_projection":
+            if revision in {
+                "0052_feed_suppression_projection",
+                "0053_safety_exception_lifecycle",
+            }:
                 views = await connection.scalar(
                     text(
                         "SELECT count(*) FROM information_schema.views "
@@ -147,6 +156,29 @@ async def _verify(database_url: str, revision: str) -> None:
                     )
                 )
                 _require(int(views or 0) == 2, "suppression security views are incomplete")
+            if revision == "0053_safety_exception_lifecycle":
+                safety_function = await connection.scalar(
+                    text(
+                        "SELECT pg_get_functiondef("
+                        "'record_safety_exception_v2("
+                        "uuid,uuid,uuid,uuid,timestamptz)'::regprocedure)"
+                    )
+                )
+                _require(
+                    "UNRECOGNIZED_SECURITY_SIGNAL" in str(safety_function),
+                    "safety exception creation is not fail-closed",
+                )
+                safety_filter = await connection.scalar(
+                    text(
+                        "SELECT definition FROM pg_views "
+                        "WHERE schemaname='public' "
+                        "AND viewname='visible_intelligence_projection_v2'"
+                    )
+                )
+                _require(
+                    "owner_exception_v2" in str(safety_filter),
+                    "open safety exceptions are not enforced by the reader view",
+                )
     finally:
         await engine.dispose()
 
@@ -181,10 +213,16 @@ def main() -> None:
     asyncio.run(_verify(database_url, "0051_technical_exception_recovery"))
     command.upgrade(config, "0052_feed_suppression_projection")
     asyncio.run(_verify(database_url, "0052_feed_suppression_projection"))
+    command.upgrade(config, "0053_safety_exception_lifecycle")
+    asyncio.run(_verify(database_url, "0053_safety_exception_lifecycle"))
+    command.downgrade(config, "0052_feed_suppression_projection")
+    asyncio.run(_verify(database_url, "0052_feed_suppression_projection"))
+    command.upgrade(config, "0053_safety_exception_lifecycle")
+    asyncio.run(_verify(database_url, "0053_safety_exception_lifecycle"))
     print(
         "Autonomous-policy migration replay passed: "
         "0048 -> 0049 -> 0048 -> 0049 -> 0050 -> 0049 -> 0050 -> 0051 -> 0050 -> "
-        "0051 -> 0052 -> 0051 -> 0052"
+        "0051 -> 0052 -> 0051 -> 0052 -> 0053 -> 0052 -> 0053"
     )
 
 

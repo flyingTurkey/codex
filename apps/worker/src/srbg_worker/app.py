@@ -12,10 +12,7 @@ from celery.signals import task_failure
 from pydantic import AwareDatetime, BaseModel, ConfigDict, ValidationError
 from redis.asyncio import Redis, from_url
 from sqlalchemy import text
-from srbg_api.ai_pipeline.ai_judgments import (
-    AiJudgmentResultType,
-    SummarizeOutput,
-)
+from srbg_api.ai_pipeline.ai_judgments import SummarizeOutput
 from srbg_api.ai_pipeline.content_preparation import (
     AiContentPreparationService,
     PreparationDocument,
@@ -77,8 +74,10 @@ from srbg_api.source_profiles import (
     build_source_profile,
 )
 from srbg_contracts import (
+    AutomatedDecisionReason,
     AutomatedDisposition,
     AutonomousClassificationCandidate,
+    QualificationDecisionTrace,
     SourceProfileModelOutput,
 )
 
@@ -1151,20 +1150,35 @@ async def _start_ai_content_preparation(run_id: UUID) -> dict[str, object]:
     try:
         document, classify_input, extract_input = await _prepare_ai_inputs(repository, run_id)
         local_fact_count = 0
+        policy = production_policy_for(document)
         scan = PromptInjectionScanner().scan(extract_input.text)
         await repository.record_security(document, scan.detected)
         if scan.detected:
-            await repository.materialize_judgment(
-                document,
-                None,
-                None,
-                AiJudgmentResultType.AI_PROCESSING_FAILED.value,
-                ("PROMPT_INJECTION_RISK",),
+            decided_at = datetime.now(UTC)
+            trace = QualificationDecisionTrace(
+                decision_id=uuid7(),
+                document_version_id=document.document_version_id,
+                raw_object_id=document.raw_object_id,
+                normalized_input_sha256=extract_input.input_sha256,
+                policy=policy.identity,
+                disposition=AutomatedDisposition.SAFETY_HOLD,
+                reason_codes=[AutomatedDecisionReason.SAFETY_SIGNAL],
+                rule_signals=["PROMPT_INJECTION_DETECTED"],
+                model_candidate=None,
+                evidence_locators=list(extract_input.block_ids),
+                semantic_recheck_count=0,
+                attempt_number=0,
+                decided_at=decided_at,
             )
-            await repository.fail(run_id, "DEGRADED", "PROMPT_INJECTION_R4")
-            return {"run_id": str(run_id), "status": "DEGRADED"}
+            if document.run_mode == "SHADOW":
+                await repository.append_shadow_decision(trace, policy)
+            else:
+                await repository.append_automated_decision(trace, policy)
+            INTELLIGENCE_QUALIFICATION_DECISIONS.labels(
+                outcome=AutomatedDisposition.SAFETY_HOLD.value,
+                reason=AutomatedDecisionReason.SAFETY_SIGNAL.value,
+            ).inc()
         await repository.transition(run_id, "CLASSIFYING")
-        policy = production_policy_for(document)
         deterministic_trace = try_deterministic_adjudication(
             document=document, prepared=classify_input, policy=policy
         )
@@ -1406,13 +1420,29 @@ async def _handle_ai_content_result(
                         "disposition": trace.disposition.value,
                         "projection_eligible": False,
                     }
-                if trace.disposition is not AutomatedDisposition.AUTO_ACCEPTED:
+                if trace.disposition not in {
+                    AutomatedDisposition.AUTO_ACCEPTED,
+                    AutomatedDisposition.SAFETY_HOLD,
+                }:
                     await repository.transition(run_id, "SUCCEEDED")
                     return {
                         "run_id": str(run_id),
                         "status": "SUCCEEDED",
                         "disposition": trace.disposition.value,
                     }
+                if (
+                    trace.disposition is AutomatedDisposition.SAFETY_HOLD
+                    and trace.model_candidate is None
+                ):
+                    await repository.transition(run_id, "SUCCEEDED")
+                    return {
+                        "run_id": str(run_id),
+                        "status": "SUCCEEDED",
+                        "disposition": trace.disposition.value,
+                        "projection_eligible": False,
+                    }
+                if trace.model_candidate is None:
+                    raise RuntimeError("AUTO_ACCEPTED_MODEL_CANDIDATE_REQUIRED")
                 await repository.transition(run_id, "EXTRACTING")
                 await _dispatch_ai_attempt(
                     repository,

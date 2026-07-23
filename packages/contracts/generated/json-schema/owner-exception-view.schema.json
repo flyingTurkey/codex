@@ -47,6 +47,22 @@
       ],
       "title": "SafetyOverrideability",
       "type": "string"
+    },
+    "SafetyRiskReason": {
+      "enum": [
+        "PROMPT_INJECTION_DETECTED",
+        "SUSPICIOUS_MODEL_SIGNAL",
+        "PRIVATE_NETWORK_TARGET",
+        "LOOPBACK_TARGET",
+        "CLOUD_METADATA_TARGET",
+        "MALICIOUS_PAYLOAD",
+        "ACCESS_CONTROL_BYPASS",
+        "MANDATORY_MALWARE_SCAN_FAILED",
+        "SAFE_BYTES_UNAVAILABLE",
+        "UNRECOGNIZED_SECURITY_SIGNAL"
+      ],
+      "title": "SafetyRiskReason",
+      "type": "string"
     }
   },
   "additionalProperties": false,
@@ -69,6 +85,19 @@
       ],
       "default": null,
       "title": "Decision Id"
+    },
+    "discovered_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Discovered At"
     },
     "document_version_id": {
       "anyOf": [
@@ -129,6 +158,40 @@
       "default": null,
       "title": "Resolved At"
     },
+    "safe_evidence_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Safe Evidence Ids",
+      "type": "array"
+    },
+    "safe_title": {
+      "anyOf": [
+        {
+          "maxLength": 300,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Safe Title"
+    },
+    "safety_reason_code": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SafetyRiskReason"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "source_id": {
       "anyOf": [
         {
@@ -141,6 +204,20 @@
       ],
       "default": null,
       "title": "Source Id"
+    },
+    "source_name": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Name"
     },
     "source_stream_id": {
       "anyOf": [

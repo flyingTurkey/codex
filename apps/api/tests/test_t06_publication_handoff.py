@@ -66,9 +66,12 @@ def test_automatic_acceptance_is_machine_unreviewed_and_not_forced_to_r3() -> No
 def test_filtered_decisions_have_no_publication_materialization_path() -> None:
     callback = inspect.getsource(worker._handle_ai_content_result)
 
-    terminal = callback.index("trace.disposition is not AutomatedDisposition.AUTO_ACCEPTED")
+    terminal = callback.index("trace.disposition not in")
     extraction = callback.index('transition(run_id, "EXTRACTING")')
     assert terminal < extraction
+    guarded_branch = callback[terminal:extraction]
+    assert "AutomatedDisposition.AUTO_ACCEPTED" in guarded_branch
+    assert "AutomatedDisposition.SAFETY_HOLD" in guarded_branch
     assert "queue_qualification_review" not in callback
 
 

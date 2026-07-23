@@ -102,6 +102,42 @@ def test_repository_persists_policy_identity_and_decision_append_only() -> None:
     assert "owner_gold" not in source.casefold()
 
 
+def test_live_safety_hold_projects_through_server_owned_exception_function() -> None:
+    source = inspect.getsource(append_qualification_decision)
+
+    assert "classify_safety_signals" in source
+    assert "record_safety_exception_v2" in source
+    assert "SafetyOverrideability" not in source
+
+
+def test_prompt_injection_prescan_enters_the_same_safety_hold_lifecycle() -> None:
+    source = inspect.getsource(worker._start_ai_content_preparation)
+    detected_branch = source.split("if scan.detected:", 1)[1].split(
+        "deterministic_trace = try_deterministic_adjudication", 1
+    )[0]
+
+    assert "SAFETY_HOLD" in detected_branch
+    assert "append_automated_decision" in detected_branch
+    assert "PROMPT_INJECTION_R4" not in detected_branch
+    assert "extract_input.input_sha256" in detected_branch
+    assert "list(extract_input.block_ids)" in detected_branch
+    assert 'transition(run_id, "SUCCEEDED")' not in detected_branch
+    assert 'transition(run_id, "CLASSIFYING")' in detected_branch
+    assert "_dispatch_ai_attempt" in source
+
+
+def test_model_safety_hold_continues_to_prepare_gated_publication_context() -> None:
+    source = " ".join(inspect.getsource(worker._handle_ai_content_result).split())
+
+    branch = source.split("trace.disposition not in", 1)[1].split(
+        "await repository.transition(run_id, \"EXTRACTING\")", 1
+    )[0]
+    assert "AutomatedDisposition.AUTO_ACCEPTED" in branch
+    assert "AutomatedDisposition.SAFETY_HOLD" in branch
+    assert "trace.model_candidate is None" in branch
+    assert '"projection_eligible": False' in branch
+
+
 @dataclass
 class RevokedAuthorizationRepository:
     settled: list[ModelResponse | None] = field(default_factory=list)
