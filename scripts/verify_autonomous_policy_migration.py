@@ -23,6 +23,7 @@ _TABLES = (
     "qualification_policy_evaluation_v2",
     "qualification_shadow_decision_v2",
 )
+_SUPPRESSION_READ_MODEL_TABLE = "event_suppression_match_v2"
 
 
 def _require(condition: bool, message: str) -> None:
@@ -55,6 +56,7 @@ async def _verify(database_url: str, revision: str) -> None:
         "0049_autonomous_content_switch",
         "0050_autonomous_handoff_state_order",
         "0051_technical_exception_recovery",
+        "0052_feed_suppression_projection",
     }
     try:
         async with engine.connect() as connection:
@@ -67,10 +69,15 @@ async def _verify(database_url: str, revision: str) -> None:
                     "SELECT count(*) FROM information_schema.tables "
                     "WHERE table_schema='public' AND table_name=ANY(:tables)"
                 ),
-                {"tables": list(_TABLES)},
+                {"tables": [*_TABLES, _SUPPRESSION_READ_MODEL_TABLE]},
             )
             _require(
-                int(table_count or 0) == (len(_TABLES) if expected else 0),
+                int(table_count or 0)
+                == (
+                    len(_TABLES) + (revision == "0052_feed_suppression_projection")
+                    if expected
+                    else 0
+                ),
                 "autonomous-policy table set mismatch",
             )
             historical_count = await connection.scalar(
@@ -106,6 +113,7 @@ async def _verify(database_url: str, revision: str) -> None:
             if revision in {
                 "0050_autonomous_handoff_state_order",
                 "0051_technical_exception_recovery",
+                "0052_feed_suppression_projection",
             }:
                 handoff_definition = await connection.scalar(
                     text(
@@ -129,6 +137,16 @@ async def _verify(database_url: str, revision: str) -> None:
                     "event.event_type='RETRY_REQUESTED'" in str(retry_definition),
                     "technical retry is not bound to an Owner command",
                 )
+            if revision == "0052_feed_suppression_projection":
+                views = await connection.scalar(
+                    text(
+                        "SELECT count(*) FROM information_schema.views "
+                        "WHERE table_schema='public' AND table_name IN ("
+                        "'feed_suppression_effective_v2',"
+                        "'visible_intelligence_projection_v2')"
+                    )
+                )
+                _require(int(views or 0) == 2, "suppression security views are incomplete")
     finally:
         await engine.dispose()
 
@@ -157,9 +175,16 @@ def main() -> None:
     asyncio.run(_verify(database_url, "0050_autonomous_handoff_state_order"))
     command.upgrade(config, "0051_technical_exception_recovery")
     asyncio.run(_verify(database_url, "0051_technical_exception_recovery"))
+    command.upgrade(config, "0052_feed_suppression_projection")
+    asyncio.run(_verify(database_url, "0052_feed_suppression_projection"))
+    command.downgrade(config, "0051_technical_exception_recovery")
+    asyncio.run(_verify(database_url, "0051_technical_exception_recovery"))
+    command.upgrade(config, "0052_feed_suppression_projection")
+    asyncio.run(_verify(database_url, "0052_feed_suppression_projection"))
     print(
         "Autonomous-policy migration replay passed: "
-        "0048 -> 0049 -> 0048 -> 0049 -> 0050 -> 0049 -> 0050 -> 0051 -> 0050 -> 0051"
+        "0048 -> 0049 -> 0048 -> 0049 -> 0050 -> 0049 -> 0050 -> 0051 -> 0050 -> "
+        "0051 -> 0052 -> 0051 -> 0052"
     )
 
 

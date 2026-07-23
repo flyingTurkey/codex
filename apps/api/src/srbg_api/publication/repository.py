@@ -20,6 +20,9 @@ from srbg_contracts import (
     EventFullProjectionV2,
     EventMetadataProjectionV2,
     EventProjectionV2,
+    FeedSuppressionAction,
+    FeedSuppressionCommand,
+    FeedSuppressionRuleView,
     HotspotCandidateV2,
     HotspotReasonV2,
     IntelligenceFacetsV2,
@@ -49,6 +52,10 @@ from srbg_api.intelligence_v2.domain import (
     HotspotComponentEvidence,
     HotspotSourceEvidence,
     evaluate_hotspot_candidate,
+)
+from srbg_api.intelligence_v2.feed_suppressions import (
+    FeedSuppressionConflict,
+    canonical_custom_topic,
 )
 from srbg_api.intelligence_v2.gold_calibration import AutoPassCalibrationGrant
 from srbg_api.intelligence_v2.media import projectable_download, projectable_preview
@@ -491,6 +498,198 @@ class PostgresPublicationRepository:
             "last_anchor_success_timestamp": float(row["anchor_timestamp"]),
         }
 
+    async def list_feed_suppressions(
+        self, *, active_only: bool
+    ) -> list[FeedSuppressionRuleView]:
+        predicate = (
+            "WHERE rule.action='ACTIVATE' AND NOT EXISTS("
+            "SELECT 1 FROM feed_suppression_rule_v2 revoke "
+            "WHERE revoke.action='REVOKE' AND revoke.supersedes_rule_id=rule.id)"
+            if active_only
+            else ""
+        )
+        async with self._engine.connect() as connection:
+            rows = list(
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT rule.id,rule.action,rule.scope,rule.target_key,"
+                            "rule.feedback_reason,rule.supersedes_rule_id,rule.effective_at,"
+                            f"rule.created_at FROM feed_suppression_rule_v2 rule {predicate} "
+                            "ORDER BY rule.created_at DESC,rule.id DESC"
+                        )
+                    )
+                ).mappings()
+            )
+        return [FeedSuppressionRuleView.model_validate(row) for row in rows]
+
+    async def command_feed_suppression(
+        self,
+        *,
+        command: FeedSuppressionCommand,
+        owner_id: UUID,
+        idempotency_key: UUID,
+        effective_at: datetime,
+    ) -> tuple[FeedSuppressionRuleView, list[tuple[UUID, UUID]]]:
+        """Serialize one append-only preference command and its audit fact."""
+
+        async with self._engine.begin() as connection:
+            await connection.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key,0))"),
+                {"lock_key": f"{command.scope.value}:{command.target_key}"},
+            )
+            existing = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT id,action,scope,target_key,feedback_reason,"
+                            "supersedes_rule_id,effective_at,created_at "
+                            "FROM feed_suppression_rule_v2 WHERE idempotency_key=:key"
+                        ),
+                        {"key": idempotency_key},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if existing is not None:
+                if any(
+                    (
+                        existing["action"] != command.action.value,
+                        existing["scope"] != command.scope.value,
+                        existing["target_key"] != command.target_key,
+                        existing["feedback_reason"] != command.feedback_reason.value,
+                        existing["supersedes_rule_id"] != command.supersedes_rule_id,
+                    )
+                ):
+                    raise FeedSuppressionConflict("Idempotency-Key was already used")
+                affected = await self._suppression_affected_events(connection, command)
+                return FeedSuppressionRuleView.model_validate(existing), affected
+
+            if command.action is FeedSuppressionAction.ACTIVATE:
+                active = await connection.scalar(
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM feed_suppression_effective_v2 rule "
+                        "WHERE rule.scope=:scope AND rule.target_key=:target "
+                        "AND rule.revoked_at IS NULL)"
+                    ),
+                    {"scope": command.scope.value, "target": command.target_key},
+                )
+                if active:
+                    raise FeedSuppressionConflict("Suppression is already active")
+            else:
+                activation = (
+                    (
+                        await connection.execute(
+                            text(
+                                "SELECT id,scope,target_key FROM feed_suppression_rule_v2 "
+                                "WHERE id=:id AND action='ACTIVATE'"
+                            ),
+                            {"id": command.supersedes_rule_id},
+                        )
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
+                if (
+                    activation is None
+                    or activation["scope"] != command.scope.value
+                    or activation["target_key"] != command.target_key
+                ):
+                    raise FeedSuppressionConflict("Suppression activation does not match")
+                revoked = await connection.scalar(
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM feed_suppression_rule_v2 "
+                        "WHERE action='REVOKE' AND supersedes_rule_id=:id)"
+                    ),
+                    {"id": command.supersedes_rule_id},
+                )
+                if revoked:
+                    raise FeedSuppressionConflict("Suppression is already revoked")
+
+            affected = await self._suppression_affected_events(connection, command)
+            rule_id = uuid7()
+            await connection.execute(
+                text(
+                    "INSERT INTO feed_suppression_rule_v2("
+                    "id,scope,target_key,action,supersedes_rule_id,feedback_reason,owner_id,"
+                    "idempotency_key,effective_at,created_at) VALUES("
+                    ":id,:scope,:target,:action,:supersedes,:reason,:owner,:key,:now,:now)"
+                ),
+                {
+                    "id": rule_id,
+                    "scope": command.scope.value,
+                    "target": command.target_key,
+                    "action": command.action.value,
+                    "supersedes": command.supersedes_rule_id,
+                    "reason": command.feedback_reason.value,
+                    "owner": owner_id,
+                    "key": idempotency_key,
+                    "now": effective_at,
+                },
+            )
+            after_state = json.dumps(
+                {
+                    "action": command.action.value,
+                    "scope": command.scope.value,
+                    "target_key": command.target_key,
+                    "feedback_reason": command.feedback_reason.value,
+                    "supersedes_rule_id": (
+                        str(command.supersedes_rule_id)
+                        if command.supersedes_rule_id is not None
+                        else None
+                    ),
+                }
+            )
+            await connection.execute(
+                text(
+                    "SELECT append_audit_event(:audit_id,:event_type,:actor_id,"
+                    "'FEED_SUPPRESSION',:target_id,NULL,CAST(:after_state AS jsonb),"
+                    ":reason,:request_id,:created_at)"
+                ),
+                {
+                    "audit_id": uuid7(),
+                    "event_type": f"FEED_SUPPRESSION_{command.action.value}",
+                    "actor_id": owner_id,
+                    "target_id": rule_id,
+                    "after_state": after_state,
+                    "reason": command.feedback_reason.value,
+                    "request_id": str(idempotency_key),
+                    "created_at": effective_at,
+                },
+            )
+        return (
+            FeedSuppressionRuleView(
+                id=rule_id,
+                action=command.action,
+                scope=command.scope,
+                target_key=command.target_key,
+                feedback_reason=command.feedback_reason,
+                supersedes_rule_id=command.supersedes_rule_id,
+                effective_at=effective_at,
+                created_at=effective_at,
+            ),
+            affected,
+        )
+
+    @staticmethod
+    async def _suppression_affected_events(
+        connection: AsyncConnection, command: FeedSuppressionCommand
+    ) -> list[tuple[UUID, UUID]]:
+        rows = list(
+            (
+                await connection.execute(
+                    text(
+                        "SELECT DISTINCT event_id,document_version_id "
+                        "FROM event_suppression_match_v2 "
+                        "WHERE scope=:scope AND target_key=:target ORDER BY event_id"
+                    ),
+                    {"scope": command.scope.value, "target": command.target_key},
+                )
+            ).mappings()
+        )
+        return [(row["event_id"], row["document_version_id"]) for row in rows]
+
     async def upsert_v2_projection(
         self,
         *,
@@ -499,6 +698,7 @@ class PostgresPublicationRepository:
         appendix: EventAppendixV2,
         risk_tier: str,
         projected_at: datetime,
+        suppression_targets: tuple[tuple[str, str], ...],
     ) -> None:
         """Write reader and search projections in one publisher transaction."""
 
@@ -570,6 +770,28 @@ class PostgresPublicationRepository:
                     "updated_at": projected_at,
                 },
             )
+            await connection.execute(
+                text("DELETE FROM event_suppression_match_v2 WHERE event_id=:event_id"),
+                {"event_id": projection.event_id},
+            )
+            if suppression_targets:
+                await connection.execute(
+                    text(
+                        "INSERT INTO event_suppression_match_v2("
+                        "event_id,document_version_id,scope,target_key,projected_at) VALUES("
+                        ":event_id,:document_version_id,:scope,:target_key,:projected_at)"
+                    ),
+                    [
+                        {
+                            "event_id": projection.event_id,
+                            "document_version_id": document_version_id,
+                            "scope": scope,
+                            "target_key": target_key,
+                            "projected_at": projected_at,
+                        }
+                        for scope, target_key in sorted(set(suppression_targets))
+                    ],
+                )
 
     async def refresh_v2_projection(
         self,
@@ -588,7 +810,8 @@ class PostgresPublicationRepository:
                         text(
                             "SELECT item.id AS item_id,item.title,item.original_url,"
                             "item.risk_level,item.source_published_at,item.first_discovered_at,"
-                            "item.current_document_version_id,source.name AS source_name,"
+                            "item.current_document_version_id,source.id AS source_id,"
+                            "source.name AS source_name,"
                             "source.source_type,review.state AS review_state,"
                             "review.risk_tier AS review_risk,review.safe_metadata,raw.scan_status,"
                             "(EXISTS(SELECT 1 FROM raw_object_security_fact security "
@@ -671,6 +894,27 @@ class PostgresPublicationRepository:
                 projected_at,
             )
         risk_tier = str(row["review_risk"] or row["risk_level"])
+        suppression_targets = (
+            ("EVENT", str(event_id)),
+            ("PRIMARY_TYPE", str(row["primary_type"])),
+            ("SOURCE", str(row["source_id"])),
+            *tuple(
+                ("ENGINEERING_OBJECT", str(value))
+                for value in (row["engineering_objects"] or ())
+            ),
+            *tuple(
+                ("SPECIALTY_FACET", str(value))
+                for value in (row["specialty_facets"] or ())
+            ),
+            *tuple(
+                ("EQUIPMENT_DOMAIN", str(value))
+                for value in (row["equipment_domains"] or ())
+            ),
+            *tuple(
+                ("CUSTOM_TOPIC", canonical_custom_topic(str(value)))
+                for value in (row["cross_type_tags"] or ())
+            ),
+        )
         if risk_tier == "R4":
             await self._deny_v2_projection(
                 event_id,
@@ -703,6 +947,7 @@ class PostgresPublicationRepository:
                 appendix=EventAppendixV2(event_id=event_id),
                 risk_tier="R3",
                 projected_at=projected_at,
+                suppression_targets=suppression_targets,
             )
             await self._record_v2_publication_decision(
                 event_id=event_id,
@@ -978,6 +1223,7 @@ class PostgresPublicationRepository:
             appendix=appendix,
             risk_tier=risk_tier,
             projected_at=projected_at,
+            suppression_targets=suppression_targets,
         )
         await self._record_v2_publication_decision(
             event_id=event_id,

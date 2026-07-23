@@ -8,7 +8,7 @@ MIGRATION = Path("apps/api/migrations/versions/0024_automatic_source_profiles.py
 
 def test_pers04_is_the_single_head_after_pers03() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
-    assert script.get_current_head() == "0051_technical_exception_recovery"
+    assert script.get_current_head() == "0052_feed_suppression_projection"
     revision = script.get_revision("0024_automatic_source_profiles")
     assert revision is not None
     assert revision.down_revision == "0023_personal_source_runtime"

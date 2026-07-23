@@ -53,6 +53,7 @@ from srbg_api.health import HealthChecker, build_default_checkers, run_check
 from srbg_api.identifiers import uuid7
 from srbg_api.intelligence_v2.api import V2IntelligenceService
 from srbg_api.intelligence_v2.api import router as intelligence_v2_router
+from srbg_api.intelligence_v2.feed_suppressions import router as feed_suppression_router
 from srbg_api.intelligence_v2.service import PostgresV2IntelligenceService
 from srbg_api.intelligence_v2.technical_exceptions import (
     OwnerTechnicalExceptionService,
@@ -484,6 +485,7 @@ def create_app(
     app.include_router(source_vault_router)
     app.include_router(intelligence_router)
     app.include_router(intelligence_v2_router)
+    app.include_router(feed_suppression_router)
     app.include_router(technical_exception_router)
     app.include_router(portal_router)
     app.include_router(personal_ai_settings_router)

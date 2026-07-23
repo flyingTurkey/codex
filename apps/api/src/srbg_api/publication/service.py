@@ -1,20 +1,35 @@
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 from uuid import UUID
 
 from srbg_contracts import (
+    EngineeringObject,
+    EquipmentFacet,
+    FeedSuppressionAction,
+    FeedSuppressionCommand,
+    FeedSuppressionRuleView,
+    FeedSuppressionScope,
     HotspotCandidateV2,
     OwnerRelationshipCorrectionRequest,
     OwnerRelationshipCorrectionResponse,
+    PrimaryIntelligenceType,
+    SpecialtyFacet,
 )
 
 from srbg_api.intelligence_v2.domain import EvaluatedHotspotAward
+from srbg_api.intelligence_v2.feed_suppressions import (
+    InvalidFeedSuppressionTarget,
+    canonical_custom_topic,
+)
 from srbg_api.intelligence_v2.gold_calibration import (
     AutoPassCalibrationGrant,
     exact_auto_pass_calibration,
 )
-from srbg_api.observability import PERSONAL_RELATIONSHIP_CORRECTIONS
+from srbg_api.observability import (
+    OWNER_FEED_SUPPRESSION_COMMANDS,
+    PERSONAL_RELATIONSHIP_CORRECTIONS,
+)
 from srbg_api.publication.gate import PublicationGate
 
 
@@ -22,6 +37,28 @@ class PublicationDenied(PermissionError):
     def __init__(self, reasons: tuple[str, ...]) -> None:
         super().__init__(", ".join(reasons))
         self.reasons = reasons
+
+
+def _canonical_suppression_target(command: FeedSuppressionCommand) -> str:
+    raw = command.target_key.strip()
+    try:
+        if command.scope in {FeedSuppressionScope.EVENT, FeedSuppressionScope.SOURCE}:
+            return str(UUID(raw))
+        enum_type = {
+            FeedSuppressionScope.PRIMARY_TYPE: PrimaryIntelligenceType,
+            FeedSuppressionScope.ENGINEERING_OBJECT: EngineeringObject,
+            FeedSuppressionScope.SPECIALTY_FACET: SpecialtyFacet,
+            FeedSuppressionScope.EQUIPMENT_DOMAIN: EquipmentFacet,
+        }.get(command.scope)
+        if enum_type is not None:
+            return str(enum_type(raw).value)
+    except ValueError as exc:
+        raise InvalidFeedSuppressionTarget(
+            f"invalid {command.scope.value} target"
+        ) from exc
+    if command.scope is FeedSuppressionScope.CUSTOM_TOPIC:
+        return canonical_custom_topic(raw)
+    raise InvalidFeedSuppressionTarget(f"unsupported {command.scope.value} target")
 
 
 class PublicationRepository(Protocol):
@@ -65,6 +102,19 @@ class PublicationRepository(Protocol):
         document_version_id: UUID,
         projected_at: datetime,
     ) -> None: ...
+
+    async def list_feed_suppressions(
+        self, *, active_only: bool
+    ) -> list[FeedSuppressionRuleView]: ...
+
+    async def command_feed_suppression(
+        self,
+        *,
+        command: FeedSuppressionCommand,
+        owner_id: UUID,
+        idempotency_key: UUID,
+        effective_at: datetime,
+    ) -> tuple[FeedSuppressionRuleView, list[tuple[UUID, UUID]]]: ...
 
     async def process_v2_review_reprocessing(
         self,
@@ -199,6 +249,61 @@ class PublicationService:
             document_version_id=document_version_id,
             projected_at=self._now(),
         )
+
+    async def list_feed_suppressions(
+        self, *, active_only: bool
+    ) -> list[FeedSuppressionRuleView]:
+        return await self._repository.list_feed_suppressions(active_only=active_only)
+
+    async def command_feed_suppression(
+        self,
+        *,
+        command: FeedSuppressionCommand,
+        owner_id: UUID,
+        idempotency_key: UUID,
+        expected_rule_id: UUID | None,
+    ) -> FeedSuppressionRuleView:
+        """Append a preference fact and re-run the current gate after revocation."""
+
+        if command.supersedes_rule_id != expected_rule_id:
+            raise InvalidFeedSuppressionTarget("superseded rule does not match If-Match")
+        canonical = command.model_copy(
+            update={"target_key": _canonical_suppression_target(command)}
+        )
+        effective_at = self._now()
+        gate_denied = False
+        try:
+            result, affected = await self._repository.command_feed_suppression(
+                command=canonical,
+                owner_id=owner_id,
+                idempotency_key=idempotency_key,
+                effective_at=effective_at,
+            )
+            if canonical.action is FeedSuppressionAction.REVOKE:
+                restore_at = effective_at + timedelta(microseconds=1)
+                for event_id, document_version_id in affected:
+                    try:
+                        await self._repository.refresh_v2_projection(
+                            event_id=event_id,
+                            document_version_id=document_version_id,
+                            projected_at=restore_at,
+                        )
+                    except PublicationDenied:
+                        # The current PublicationService gate deliberately failed closed.
+                        gate_denied = True
+        except Exception:
+            OWNER_FEED_SUPPRESSION_COMMANDS.labels(
+                scope=canonical.scope.value,
+                action=canonical.action.value,
+                outcome="failed",
+            ).inc()
+            raise
+        OWNER_FEED_SUPPRESSION_COMMANDS.labels(
+            scope=canonical.scope.value,
+            action=canonical.action.value,
+            outcome="gate_denied" if gate_denied else "applied",
+        ).inc()
+        return result
 
     async def process_v2_review_reprocessing(self, *, outbox_id: UUID) -> None:
         """Apply one durable Owner decision identified only by its Outbox fact."""

@@ -28,6 +28,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   evidence: [itemId: string]
+  suppress: [itemId: string]
 }>()
 const scoreOpen = ref(false)
 const saved = ref(Boolean(props.item.is_saved))
@@ -621,6 +622,15 @@ function formatLoss(amountMinor: number, currency: string): string {
         @click="toggleSaved"
       >
         {{ saving ? '处理中…' : saved ? '已收藏' : '收藏' }}
+      </button>
+      <button
+        v-if="!isWithdrawn"
+        type="button"
+        data-testid="suppress-event"
+        :aria-label="`不再在情报 Feed 中显示：${item.title}`"
+        @click="emit('suppress', item.id)"
+      >
+        隐藏此条
       </button>
       <span v-if="item.publication_revision_id && !isWithdrawn" class="intelligence-card__feedback">
         <span>这条情报有用吗？</span>

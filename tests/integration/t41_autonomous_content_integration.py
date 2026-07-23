@@ -1,10 +1,12 @@
 # ruff: noqa: RUF001
+import asyncio
 import json
 import os
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from typing import Any, cast
+from uuid import UUID
 
 import pytest
 from sqlalchemy import text
@@ -25,6 +27,8 @@ from srbg_api.intelligence_v2.content_candidate_repository import (
     PostgresContentCandidateRepository,
 )
 from srbg_api.intelligence_v2.content_candidates import StructuredSummaryCandidate
+from srbg_api.intelligence_v2.feed_suppressions import FeedSuppressionConflict
+from srbg_api.intelligence_v2.service import PostgresV2IntelligenceService, ProjectionNotFound
 from srbg_api.intelligence_v2.technical_exceptions import (
     PostgresOwnerTechnicalExceptionService,
     TechnicalExceptionConflict,
@@ -41,7 +45,7 @@ from srbg_api.source_registry.v2_rollout import (
     SourceAdmissionMetrics,
     append_production_admission_assessment,
 )
-from srbg_contracts import PersonalSourceCreateRequest
+from srbg_contracts import FeedSuppressionCommand, PersonalSourceCreateRequest
 from srbg_worker.ai_content_preparation import PostgresAiPreparationRepository
 from srbg_worker.source_content_bridge import (
     PostgresSourceContentGateway,
@@ -57,6 +61,56 @@ pytestmark = [
         reason="isolated integration database is required",
     ),
 ]
+
+
+async def test_feed_suppression_concurrent_activation_has_one_append_only_winner() -> None:
+    admin = create_async_engine(os.environ["SRBG_TEST_ADMIN_DATABASE_URL"])
+    publisher = create_async_engine(os.environ["SRBG_PUBLICATION_DATABASE_URL"])
+    target = uuid7()
+    now = datetime.now(UTC)
+    service = PublicationService(
+        repository=PostgresPublicationRepository(publisher),
+        gate=cast(Any, object()),
+        now=lambda: now,
+    )
+    command = FeedSuppressionCommand.model_validate(
+        {
+            "action": "ACTIVATE",
+            "scope": "EVENT",
+            "target_key": str(target),
+            "feedback_reason": "OWNER_PREFERENCE",
+        }
+    )
+    try:
+        results = await asyncio.gather(
+            service.command_feed_suppression(
+                command=command,
+                owner_id=uuid7(),
+                idempotency_key=uuid7(),
+                expected_rule_id=None,
+            ),
+            service.command_feed_suppression(
+                command=command,
+                owner_id=uuid7(),
+                idempotency_key=uuid7(),
+                expected_rule_id=None,
+            ),
+            return_exceptions=True,
+        )
+        assert sum(not isinstance(result, Exception) for result in results) == 1, repr(results)
+        assert sum(isinstance(result, FeedSuppressionConflict) for result in results) == 1
+        async with admin.connect() as connection:
+            count = await connection.scalar(
+                text(
+                    "SELECT count(*) FROM feed_suppression_rule_v2 "
+                    "WHERE action='ACTIVATE' AND scope='EVENT' AND target_key=:target"
+                ),
+                {"target": str(target)},
+            )
+        assert count == 1
+    finally:
+        await admin.dispose()
+        await publisher.dispose()
 
 
 class ModelMustNotRun:
@@ -521,6 +575,7 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
     admin = create_async_engine(os.environ["SRBG_TEST_ADMIN_DATABASE_URL"])
     worker = create_async_engine(os.environ["SRBG_WORKER_DATABASE_URL"])
     publisher = create_async_engine(os.environ["SRBG_PUBLICATION_DATABASE_URL"])
+    projection_reader = create_async_engine(os.environ["SRBG_PROJECTION_DATABASE_URL"])
     step_run_id = uuid7()
     now = datetime.now(UTC)
     try:
@@ -746,10 +801,56 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
         assert projection["projection_kind"] == "FULL"
         assert projection["payload"]["human_reviewed"] is False
         assert review_count == 0
+
+        event_id = UUID(str(projection["payload"]["event_id"]))
+        reader = PostgresV2IntelligenceService(projection_reader, publisher)
+        auto_feed = await reader.feed(limit=20, primary_type=None, cursor=None)
+        assert any(item.event_id == event_id for item in auto_feed.items)
+
+        activation = await publication.command_feed_suppression(
+            command=FeedSuppressionCommand.model_validate(
+                {
+                    "action": "ACTIVATE",
+                    "scope": "EVENT",
+                    "target_key": str(event_id),
+                    "feedback_reason": "OWNER_PREFERENCE",
+                }
+            ),
+            owner_id=uuid7(),
+            idempotency_key=uuid7(),
+            expected_rule_id=None,
+        )
+        suppressed_feed = await reader.feed(limit=20, primary_type=None, cursor=None)
+        suppressed_search = await reader.search(query=claim_value, limit=20, cursor=None)
+        assert all(item.event_id != event_id for item in suppressed_feed.items)
+        assert all(item.event_id != event_id for item in suppressed_search.items)
+        with pytest.raises(ProjectionNotFound):
+            await reader.event(event_id)
+        with pytest.raises(ProjectionNotFound):
+            await reader.appendix(event_id)
+
+        await publication.command_feed_suppression(
+            command=FeedSuppressionCommand.model_validate(
+                {
+                    "action": "REVOKE",
+                    "scope": "EVENT",
+                    "target_key": str(event_id),
+                    "feedback_reason": "OWNER_PREFERENCE",
+                    "supersedes_rule_id": str(activation.id),
+                }
+            ),
+            owner_id=uuid7(),
+            idempotency_key=uuid7(),
+            expected_rule_id=activation.id,
+        )
+        restored_feed = await reader.feed(limit=20, primary_type=None, cursor=None)
+        assert any(item.event_id == event_id for item in restored_feed.items)
+        assert (await reader.event(event_id)).event_id == event_id
     finally:
         await admin.dispose()
         await worker.dispose()
         await publisher.dispose()
+        await projection_reader.dispose()
 
 
 async def test_technical_failure_retries_survive_restart_and_owner_recovery_is_idempotent() -> None:

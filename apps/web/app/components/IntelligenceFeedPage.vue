@@ -8,6 +8,7 @@ import type {
   FeedContentTypeFilter,
   FeedContentTypeOption,
 } from '../composables/useIntelligenceFeed'
+import { createUuidV7 } from '../utils/uuid-v7'
 import FilterPanel from './FilterPanel.vue'
 import TimelineFeed from './TimelineFeed.vue'
 
@@ -121,7 +122,49 @@ const selectedType = computed({
     emit('content-type-change', value)
   },
 })
-const visibleItems = computed(() => props.feed?.items ?? [])
+const suppressedIds = ref<string[]>([])
+const pendingSuppressionId = ref<string | null>(null)
+const suppressing = ref(false)
+const suppressionMessage = ref<string | null>(null)
+const suppressionProblem = ref<string | null>(null)
+const visibleItems = computed(() => (props.feed?.items ?? []).filter(
+  item => !suppressedIds.value.includes(item.id),
+))
+
+function requestSuppression(itemId: string): void {
+  pendingSuppressionId.value = itemId
+  suppressionMessage.value = null
+  suppressionProblem.value = null
+}
+
+async function confirmSuppression(): Promise<void> {
+  const eventId = pendingSuppressionId.value
+  if (!eventId || suppressing.value) return
+  suppressing.value = true
+  try {
+    await $fetch('/api/v2/owner/suppressions', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': createUuidV7() },
+      body: {
+        action: 'ACTIVATE',
+        scope: 'EVENT',
+        target_key: eventId,
+        feedback_reason: 'OWNER_PREFERENCE',
+      },
+      retry: 0,
+      timeout: 5_000,
+    })
+    suppressedIds.value = [...suppressedIds.value, eventId]
+    pendingSuppressionId.value = null
+    suppressionMessage.value = '已隐藏该情报；可在“Feed 偏好”中撤销。'
+  }
+  catch {
+    suppressionProblem.value = '隐藏操作失败，服务端内容未改变，请稍后重试。'
+  }
+  finally {
+    suppressing.value = false
+  }
+}
 </script>
 
 <template>
@@ -193,6 +236,25 @@ const visibleItems = computed(() => props.feed?.items ?? [])
     />
 
     <div class="intelligence-feed-page__content">
+      <section
+        v-if="pendingSuppressionId"
+        role="alertdialog"
+        aria-labelledby="feed-suppression-confirm-title"
+        class="intelligence-feed-page__suppression-confirm"
+      >
+        <strong id="feed-suppression-confirm-title">确认隐藏这条情报？</strong>
+        <p>只影响 Feed 展示，不会删除原文、证据、claims 或历史记录。</p>
+        <div>
+          <button type="button" :disabled="suppressing" @click="confirmSuppression">
+            {{ suppressing ? '正在隐藏…' : '确认隐藏' }}
+          </button>
+          <button type="button" :disabled="suppressing" @click="pendingSuppressionId = null">
+            取消
+          </button>
+        </div>
+      </section>
+      <p v-if="suppressionMessage" role="status">{{ suppressionMessage }}</p>
+      <p v-if="suppressionProblem" role="alert">{{ suppressionProblem }}</p>
       <slot v-if="$slots.default" />
       <Skeleton
         v-else-if="loading"
@@ -207,7 +269,7 @@ const visibleItems = computed(() => props.feed?.items ?? [])
         @retry="emit('retry')"
       />
       <template v-else-if="visibleItems.length">
-        <TimelineFeed :items="visibleItems" />
+        <TimelineFeed :items="visibleItems" @suppress="requestSuppression" />
         <button
           v-if="feed?.next_cursor"
           type="button"
@@ -252,6 +314,19 @@ const visibleItems = computed(() => props.feed?.items ?? [])
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
 }
+
+.intelligence-feed-page__suppression-confirm {
+  display: grid;
+  padding: var(--spacing-4);
+  background: var(--color-reviewPending-50);
+  border: 1px solid var(--color-borderStrong);
+  border-radius: var(--radius-md);
+  gap: var(--spacing-2);
+}
+
+.intelligence-feed-page__suppression-confirm p { margin: 0; }
+.intelligence-feed-page__suppression-confirm div { display: flex; flex-wrap: wrap; gap: var(--spacing-2); }
+.intelligence-feed-page__suppression-confirm button { min-height: 2.75rem; }
 
 .intelligence-feed-page__more {
   display: block;

@@ -5,6 +5,7 @@ import { computed } from 'vue'
 import IntelligenceCard from './IntelligenceCard.vue'
 
 const props = defineProps<{ items: FeedPage['items'] }>()
+const emit = defineEmits<{ suppress: [itemId: string] }>()
 
 const dateFormatter = new Intl.DateTimeFormat('zh-CN', {
   dateStyle: 'long',
@@ -35,7 +36,11 @@ async function openEvidence(itemId: string): Promise<void> {
       <ol>
         <li v-for="item in group.items" :key="item.signal_id ?? item.id">
           <span class="timeline-feed__marker" aria-hidden="true" />
-          <IntelligenceCard :item="item" @evidence="openEvidence" />
+          <IntelligenceCard
+            :item="item"
+            @evidence="openEvidence"
+            @suppress="emit('suppress', $event)"
+          />
         </li>
       </ol>
     </section>
