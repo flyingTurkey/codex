@@ -608,8 +608,11 @@ async def test_hard_safety_block_from_live_source_cannot_be_owner_allowed() -> N
 
         service = PostgresOwnerTechnicalExceptionService(engine=api, clock=lambda: now)
         page = await service.list_exceptions(kind="SAFETY", status="OPEN", cursor=None, limit=20)
-        assert len(page) == 1
-        safety_exception = page[0]
+        matching_exceptions = [
+            item for item in page if item.document_version_id == acquired.document_version_id
+        ]
+        assert len(matching_exceptions) == 1
+        safety_exception = matching_exceptions[0]
         assert safety_exception.overrideability == "HARD_BLOCK"
         assert safety_exception.safety_reason_code == "MALICIOUS_PAYLOAD"
         with pytest.raises(SafetyExceptionHardBlock):
@@ -1390,8 +1393,11 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
         safety_page = await safety_service.list_exceptions(
             kind="SAFETY", status="OPEN", cursor=None, limit=20
         )
-        assert len(safety_page) == 1
-        safety_exception = safety_page[0]
+        matching_exceptions = [
+            item for item in safety_page if item.document_version_id == version_id
+        ]
+        assert len(matching_exceptions) == 1
+        safety_exception = matching_exceptions[0]
         assert safety_exception.overrideability == "OWNER_DECIDABLE"
         assert safety_exception.safety_reason_code == "PROMPT_INJECTION_DETECTED"
         assert safety_exception.safe_title == "内容安全风险待处理"
