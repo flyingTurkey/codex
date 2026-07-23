@@ -1,5 +1,9 @@
 # v2 T02：Owner Gold 与自动通过阈值校准验收记录
 
+> 历史点时记录。父 Spec #40 与 ADR-0004/0005/0006 已取代其中的 Owner Gold
+> 和手工语义授权路径；实测失败仍是不可改写证据，不是策略晋级或
+> `PRODUCTION_CLOSEOUT`。
+
 日期：2026-07-19
 
 对应 GitHub Issue：`flyingTurkey/codex#3`；父 Spec：`#1`；原生 blocker `#2` 已于开工前确认关闭。

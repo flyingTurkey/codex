@@ -2,6 +2,11 @@
 
 Publication & Reader Projection grants Event visibility through one service and presents evidence-led reading views.
 
+Qualification replay, Challenger evaluation and SHADOW execution never enter this
+context: their facts remain non-authorizing and non-production. Promotion changes
+only which immutable policy bundle future pipeline runs bind. It does not publish,
+re-evaluate or rewrite historical runs, claims, Events or reader projections.
+
 ## Language
 
 **FullProjection**:

@@ -9,6 +9,7 @@ from srbg_api.ai_pipeline.ai_judgments import EvidenceFactInput, EvidenceSnippet
 from srbg_api.ai_pipeline.content_preparation import (
     AiContentPreparationService,
     PreparationDocument,
+    production_policy_for_stream,
 )
 from srbg_api.ai_pipeline.contracts import AiStep, ModelRequest, ModelResponse, ModelUsage
 from srbg_api.ai_pipeline.preparation import DocumentBlock
@@ -55,6 +56,7 @@ class FakeRepository:
                     locator_value="page=1&box=1,2,3,4",
                 ),
             ),
+            policy_bundle=production_policy_for_stream("stream-policy-7"),
         )
 
     async def authorize_real_run(self, document: PreparationDocument) -> bool:

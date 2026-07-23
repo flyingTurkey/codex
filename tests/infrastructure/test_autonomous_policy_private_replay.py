@@ -324,6 +324,49 @@ def test_private_replay_runs_real_adjudication_and_returns_aggregate_only() -> N
     )
 
 
+def test_private_replay_gate_rejects_evidence_locator_violation() -> None:
+    case = _case(
+        suffix=3,
+        text="Railway tunnel construction safety remediation started.",
+        expected_relevant=True,
+        expected_primary_type="SAFETY_INTELLIGENCE",
+        locked_negative=False,
+    )
+    service = AutomatedAdjudicationService(
+        policy=_bundle(),
+        model_edge=MappingModelEdge(
+            {case.normalized_input_sha256: [_candidate()]}
+        ),
+        clock=lambda: datetime(2026, 7, 21, 8, tzinfo=UTC),
+        id_factory=lambda: UUID("019b1d00-0000-7000-8000-000000000041"),
+    )
+    valid = service.adjudicate(
+        AdjudicationInput(
+            document_version_id=case.document_version_id,
+            raw_object_id=case.raw_object_id,
+            normalized_input_sha256=case.normalized_input_sha256,
+            document_text=case.document_text,
+            allowed_evidence_locators=case.evidence_locators,
+        )
+    )
+
+    class _EvidenceViolatingService:
+        @staticmethod
+        def adjudicate(_input: AdjudicationInput) -> object:
+            return valid.model_copy(update={"evidence_locators": ("outside:1",)})
+
+    report = run_offline_policy_replay(
+        (case,),
+        service=_EvidenceViolatingService(),  # type: ignore[arg-type]
+        benchmark_version="private-evidence-violation",
+        corpus_manifest_sha256="c" * 64,
+        policy_bundle_sha256=_bundle().identity.bundle_sha256,
+    )
+
+    assert report.evidence_violations == 1
+    assert report.gate_passed is False
+
+
 def test_private_replay_can_bound_parallelism_without_changing_case_semantics() -> None:
     barrier = threading.Barrier(2)
 

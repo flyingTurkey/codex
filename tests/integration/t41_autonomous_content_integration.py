@@ -23,12 +23,17 @@ from srbg_api.identifiers import uuid7
 from srbg_api.intelligence_v2.autonomous_policy import (
     AdjudicationInput,
     AutomatedAdjudicationService,
+    QualificationPolicyBundle,
 )
 from srbg_api.intelligence_v2.content_candidate_repository import (
     PostgresContentCandidateRepository,
 )
 from srbg_api.intelligence_v2.content_candidates import StructuredSummaryCandidate
 from srbg_api.intelligence_v2.feed_suppressions import FeedSuppressionConflict
+from srbg_api.intelligence_v2.policy_optimization import (
+    PostgresPolicyOptimizationRepository,
+)
+from srbg_api.intelligence_v2.private_policy_replay import OfflineReplayReport
 from srbg_api.intelligence_v2.service import PostgresV2IntelligenceService, ProjectionNotFound
 from srbg_api.intelligence_v2.technical_exceptions import (
     PostgresOwnerTechnicalExceptionService,
@@ -53,6 +58,7 @@ from srbg_contracts import (
     PersonalSourceCreateRequest,
 )
 from srbg_worker.ai_content_preparation import PostgresAiPreparationRepository
+from srbg_worker.app import _monitor_policy_health
 from srbg_worker.source_content_bridge import (
     PostgresSourceContentGateway,
     SourceContentOutboxExecutor,
@@ -167,6 +173,7 @@ class AcquiredDocument:
     document_id: Any
     document_version_id: Any
     raw_object_id: Any
+    outbox_id: Any
     pipeline_run_id: Any
     content_sha256: str
 
@@ -490,6 +497,7 @@ async def acquire_through_live_source_stream(
         document_id=row["document_id"],
         document_version_id=row["version_id"],
         raw_object_id=row["raw_object_id"],
+        outbox_id=row["outbox_id"],
         pipeline_run_id=handoff.pipeline_run_id,
         content_sha256=row["content_hash"],
     )
@@ -1960,6 +1968,305 @@ async def test_exhausted_source_fetch_is_retried_as_a_new_auditable_run() -> Non
         await exceptions.reconcile()
         resolved = await exceptions.get_exception(source_exception.id)
         assert resolved.status.value == "RESOLVED"
+    finally:
+        await admin.dispose()
+        await api.dispose()
+        await worker.dispose()
+
+
+async def test_policy_switch_freezes_run_and_rollback_restores_champion() -> None:
+    """Exercise policy lifecycle through the same live SourceStream seam used above."""
+
+    admin = create_async_engine(os.environ["SRBG_TEST_ADMIN_DATABASE_URL"])
+    api = create_async_engine(os.environ["SRBG_DATABASE_URL"])
+    worker = create_async_engine(os.environ["SRBG_WORKER_DATABASE_URL"])
+    now = datetime.now(UTC) - timedelta(minutes=5)
+    try:
+        excerpt = "Construction machinery completed direct highway monitoring work."
+        acquired = await acquire_through_live_source_stream(
+            admin=admin,
+            worker=worker,
+            excerpt=excerpt,
+            now=now,
+        )
+        preparation_repository = PostgresAiPreparationRepository(
+            engine=worker,
+            object_store=S3ObjectStore(Settings()),
+            parser=cast(Any, object()),
+            environment="acceptance",
+            max_document_bytes=1024 * 1024,
+        )
+        document = await preparation_repository.begin(acquired.pipeline_run_id)
+        champion = production_policy_for(document)
+        locator = str(document.blocks[0].block_id)
+
+        def decision(
+            policy: QualificationPolicyBundle,
+            decided_at: datetime,
+            *,
+            document_version_id: UUID = acquired.document_version_id,
+        ) -> Any:
+            return AutomatedAdjudicationService(
+                policy=policy,
+                model_edge=AcceptedModel(
+                    locator,
+                    primary_type="INDUSTRY_UPDATE",
+                    core_new_fact=(
+                        "Construction machinery completed direct highway monitoring work."
+                    ),
+                    content_form="OPERATION_UPDATE",
+                ),
+                clock=lambda: decided_at,
+                id_factory=uuid7,
+            ).adjudicate(
+                AdjudicationInput(
+                    document_version_id=document_version_id,
+                    raw_object_id=acquired.raw_object_id,
+                    normalized_input_sha256=acquired.content_sha256,
+                    document_text=excerpt,
+                    allowed_evidence_locators=frozenset({locator}),
+                )
+            )
+
+        await preparation_repository.append_automated_decision(
+            decision(champion, now),
+            champion,
+        )
+        challenger = QualificationPolicyBundle.create(
+            policy_version="qualification-policy-2.3.0",
+            global_rule_version=champion.identity.global_rule_version,
+            source_stream_policy_version=champion.identity.source_stream_policy_version,
+            ai_provider=champion.identity.ai_provider,
+            ai_model=champion.identity.ai_model,
+            prompt_version=champion.identity.prompt_version,
+            schema_version=champion.identity.schema_version,
+            code_version="issue-46-policy-optimization",
+        )
+        optimization = PostgresPolicyOptimizationRepository(engine=api)
+        await optimization.record_offline_replay(
+            policy=challenger,
+            report=OfflineReplayReport(
+                benchmark_version="private-challenger-v5",
+                corpus_manifest_sha256="b" * 64,
+                policy_bundle_sha256=challenger.identity.bundle_sha256,
+                total_cases=20,
+                auto_accepted=10,
+                auto_filtered=10,
+                technical_retry=0,
+                technical_failed=0,
+                safety_hold=0,
+                owner_suppressed=0,
+                precision_bps=10_000,
+                recall_bps=10_000,
+                locked_negative_leaks=0,
+                schema_valid_bps=10_000,
+                new_owner_semantic_tasks=0,
+                authority_violations=0,
+                evidence_violations=0,
+                projection_failures=0,
+                gate_passed=True,
+            ),
+            evaluated_at=now + timedelta(seconds=1),
+        )
+        async with admin.connect() as connection:
+            challenger_bundle_id = await connection.scalar(
+                text(
+                    "SELECT id FROM qualification_policy_bundle_v2 "
+                    "WHERE bundle_sha256=:digest"
+                ),
+                {"digest": challenger.identity.bundle_sha256},
+            )
+        canary_runs = [(uuid7(), True), (uuid7(), False)]
+        async with admin.begin() as connection:
+            for canary_run_id, _ in canary_runs:
+                await connection.execute(
+                    text(
+                        "INSERT INTO ai_pipeline_run(id,document_version_id,mode,status,"
+                        "input_sha256,started_at,policy_bundle_id) VALUES("
+                        ":id,:version,'SHADOW','QUEUED',:hash,:now,:bundle)"
+                    ),
+                    {
+                        "id": canary_run_id,
+                        "version": acquired.document_version_id,
+                        "hash": acquired.content_sha256,
+                        "now": now,
+                        "bundle": challenger_bundle_id,
+                    },
+                )
+        for canary_run_id, succeeded in canary_runs:
+            await preparation_repository.begin(canary_run_id)
+            await preparation_repository.complete_fixed_canary(
+                run_id=canary_run_id,
+                succeeded=succeeded,
+                failure_code=None if succeeded else "AI_CANARY_FAILED",
+            )
+        async with admin.connect() as connection:
+            canary_statuses = dict(
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT id,status FROM ai_pipeline_run "
+                            "WHERE id=ANY(:ids)"
+                        ),
+                        {"ids": [run_id for run_id, _ in canary_runs]},
+                    )
+                ).all()
+            )
+        assert canary_statuses[canary_runs[0][0]] == "SUCCEEDED"
+        assert canary_statuses[canary_runs[1][0]] == "FAILED"
+        shadow_documents = [acquired.document_version_id]
+        async with admin.begin() as connection:
+            source_id = await connection.scalar(
+                text("SELECT source_id FROM document WHERE id=:id"),
+                {"id": acquired.document_id},
+            )
+            capture_id = await connection.scalar(
+                text("SELECT raw_object_capture_id FROM document_version WHERE id=:id"),
+                {"id": acquired.document_version_id},
+            )
+            for offset in range(19):
+                document_id = uuid7()
+                version_id = uuid7()
+                await connection.execute(
+                    text(
+                        "INSERT INTO document(id,source_id,canonical_url,document_kind,"
+                        "first_discovered_at,current_version_id,admission_fixture) VALUES("
+                        ":document,:source,:url,'HTML',:now,NULL,false)"
+                    ),
+                    {
+                        "document": document_id,
+                        "source": source_id,
+                        "url": f"https://shadow-{offset}.example.test/item",
+                        "now": now,
+                    },
+                )
+                await connection.execute(
+                    text(
+                        "INSERT INTO document_version(id,document_id,raw_object_id,"
+                        "version_number,content_hash,original_filename,title,acquired_at,"
+                        "execution_domain,raw_object_capture_id) VALUES("
+                        ":version,:document,:raw,1,:hash,'shadow.html','Shadow case',"
+                        ":now,'PRODUCTION',:capture)"
+                    ),
+                    {
+                        "version": version_id,
+                        "document": document_id,
+                        "raw": acquired.raw_object_id,
+                        "hash": acquired.content_sha256,
+                        "now": now,
+                        "capture": capture_id,
+                    },
+                )
+                await connection.execute(
+                    text("UPDATE document SET current_version_id=:version WHERE id=:document"),
+                    {"version": version_id, "document": document_id},
+                )
+                shadow_documents.append(version_id)
+        for offset, version_id in enumerate(shadow_documents):
+            await preparation_repository.append_automated_decision(
+                decision(
+                    champion,
+                    now + timedelta(seconds=2 + offset),
+                    document_version_id=version_id,
+                ),
+                champion,
+            )
+            await preparation_repository.append_shadow_decision(
+                decision(
+                    challenger,
+                    now + timedelta(seconds=2 + offset),
+                    document_version_id=version_id,
+                ),
+                challenger,
+            )
+
+        monitor_result = await _monitor_policy_health()
+        assert monitor_result["promoted"] == 1
+        promoted = await optimization.active(champion.identity.source_stream_policy_version)
+        frozen = await preparation_repository.load_policy_bundle(acquired.pipeline_run_id)
+        assert frozen.identity.bundle_sha256 == champion.identity.bundle_sha256
+        async with admin.connect() as connection:
+            champion_bundle_id = await connection.scalar(
+                text(
+                    "SELECT id FROM qualification_policy_bundle_v2 "
+                    "WHERE bundle_sha256=:digest"
+                ),
+                {"digest": champion.identity.bundle_sha256},
+            )
+            challenger_bundle_id = await connection.scalar(
+                text(
+                    "SELECT id FROM qualification_policy_bundle_v2 "
+                    "WHERE bundle_sha256=:digest"
+                ),
+                {"digest": challenger.identity.bundle_sha256},
+            )
+        assert promoted.policy_bundle_id == challenger_bundle_id
+        live_now = datetime.now(UTC)
+        async with admin.begin() as connection:
+            for version_id in shadow_documents:
+                run_id = uuid7()
+                await connection.execute(
+                    text(
+                        "INSERT INTO ai_pipeline_run(id,document_version_id,mode,status,"
+                        "input_sha256,started_at,completed_at,failure_code,policy_bundle_id) "
+                        "VALUES(:id,:version,'LIVE','SUCCEEDED',:hash,:now,:now,NULL,:bundle)"
+                    ),
+                    {
+                        "id": run_id,
+                        "version": version_id,
+                        "hash": acquired.content_sha256,
+                        "now": live_now,
+                        "bundle": promoted.policy_bundle_id,
+                    },
+                )
+                await preparation_repository.append_automated_decision(
+                    decision(
+                        challenger,
+                        live_now,
+                        document_version_id=version_id,
+                    ),
+                    challenger,
+                )
+        rollback_result = await _monitor_policy_health()
+        assert rollback_result["rolled_back"] == 1
+        rolled_back = await optimization.active(champion.identity.source_stream_policy_version)
+        assert rolled_back.policy_bundle_id == champion_bundle_id
+
+        async with admin.connect() as connection:
+            facts = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT active.policy_bundle_id,"
+                            "(SELECT count(*) FROM owner_review_case_v2 "
+                            "WHERE document_version_id=:version) AS semantic_tasks,"
+                            "(SELECT bool_and(NOT evaluation.authorizes_production) "
+                            "FROM qualification_policy_evaluation_v2 evaluation "
+                            "WHERE evaluation.policy_bundle_id=:challenger) "
+                            "AS evaluations_non_authoritative,"
+                            "(SELECT bool_and(NOT shadow.affects_production) "
+                            "FROM qualification_shadow_decision_v2 shadow "
+                            "WHERE shadow.policy_bundle_id=:challenger) "
+                            "AS shadows_non_production "
+                            "FROM active_qualification_policy_v2 active "
+                            "WHERE active.source_stream_policy_version=:stream"
+                        ),
+                        {
+                            "version": acquired.document_version_id,
+                            "challenger": promoted.policy_bundle_id,
+                            "stream": champion.identity.source_stream_policy_version,
+                        },
+                    )
+                )
+                .mappings()
+                .one()
+            )
+        assert dict(facts) == {
+            "policy_bundle_id": champion_bundle_id,
+            "semantic_tasks": 0,
+            "evaluations_non_authoritative": True,
+            "shadows_non_production": True,
+        }
     finally:
         await admin.dispose()
         await api.dispose()

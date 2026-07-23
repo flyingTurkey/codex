@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-07-21
 - Production switch: extended by ADR-0005
+- Policy lifecycle: extended by ADR-0006
 - Supersedes: the HUMAN_OWNER Gold, semantic human-review, and manual Feed-sampling production-authorization clauses in ADR-0003
 
 ## Context

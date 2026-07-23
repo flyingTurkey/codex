@@ -5,10 +5,10 @@
 ## 当前任务必须遵守
 
 1. 先完整阅读仓库根目录 `AGENTS.md`；根规则是本目录及其所有子目录的唯一现行产品与工程权威。
-2. 再按根目录 `CONTEXT-MAP.md`、四个当前 Context、ADR、GitHub Spec #1 和当前 ticket 工作。
+2. 再按根目录 `CONTEXT-MAP.md`、四个当前 Context、ADR、GitHub 当前父 Spec（现为 #40）和当前 ticket 工作。
 3. 本目录旧 PRD、Codex rounds、prompt、v1 Item 契约、企业/OIDC/多角色说明和旧门槛均为 Legacy，不得作为可执行需求或 production 配置。
 4. 除非当前任务明确授权，不得继续运行本目录的 bootstrap/round 命令，不得从历史 fixture 或原型反推当前业务事实，不得把 prototype 代码提升为生产依赖。
 5. 根规则明确引用的资产仍按其限定用途有效，例如 `assets/ui/design_tokens.json`、选定视觉参考和步骤 Schema；有效资产不使同目录其他历史文档自动恢复为现行规范。
 6. 修改历史材料时保留其点时语义，并在顶部增加当前替代指针；不要把旧事实悄悄改写成今天的事实。
 
-当前维护入口：`docs/operations/intelligence-v2-maintainer-guide.md`。当前生产状态和门槛必须以 GitHub Spec #1、Issue #36 及其原生依赖为准。
+当前维护入口：`docs/operations/intelligence-v2-maintainer-guide.md`。自主策略现行边界以父 Spec #40、ADR-0004/0005/0006 和当前 ticket 为准。Issue #36、旧 Owner Gold 与手工 Feed 抽样材料只保留其历史点时事实；不得恢复为生产语义分类或授权路径。

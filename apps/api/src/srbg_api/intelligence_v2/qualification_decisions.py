@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
+from typing import cast
+from uuid import UUID
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -13,13 +16,13 @@ from srbg_api.intelligence_v2.autonomous_policy import QualificationPolicyBundle
 from srbg_api.intelligence_v2.safety_exceptions import classify_safety_signals
 
 
-async def append_qualification_decision(
+async def persist_qualification_policy_bundle(
     connection: AsyncConnection,
     *,
-    trace: QualificationDecisionTrace,
     policy: QualificationPolicyBundle,
-) -> None:
-    """Persist the exact policy identity and decision in the caller's transaction."""
+    created_at: datetime,
+) -> UUID:
+    """Persist an immutable bundle and return its stable database identity."""
 
     identity = policy.identity
     policy_payload = {
@@ -51,7 +54,7 @@ async def append_qualification_decision(
             "code_version": identity.code_version,
             "payload": json.dumps(policy_payload, ensure_ascii=False, sort_keys=True),
             "bundle_sha256": identity.bundle_sha256,
-            "now": trace.decided_at,
+            "now": created_at,
         },
     )
     bundle_id = await connection.scalar(
@@ -60,6 +63,22 @@ async def append_qualification_decision(
     )
     if bundle_id is None:
         raise RuntimeError("QUALIFICATION_POLICY_BUNDLE_NOT_PERSISTED")
+    return cast(UUID, bundle_id)
+
+
+async def append_qualification_decision(
+    connection: AsyncConnection,
+    *,
+    trace: QualificationDecisionTrace,
+    policy: QualificationPolicyBundle,
+) -> None:
+    """Persist the exact policy identity and decision in the caller's transaction."""
+
+    bundle_id = await persist_qualification_policy_bundle(
+        connection,
+        policy=policy,
+        created_at=trace.decided_at,
+    )
     await connection.execute(
         text(
             "INSERT INTO automated_qualification_decision_v2("

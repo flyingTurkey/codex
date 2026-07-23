@@ -18,6 +18,7 @@ from srbg_worker.source_content_bridge import (
 OUTBOX_ID = UUID("019d2000-0000-7000-8000-000000000001")
 VERSION_ID = UUID("019d2000-0000-7000-8000-000000000002")
 PIPELINE_ID = UUID("019d2000-0000-7000-8000-000000000003")
+POLICY_BUNDLE_ID = UUID("019d2000-0000-7000-8000-000000000004")
 
 
 class _RecordingGateway:
@@ -111,6 +112,11 @@ class _Result:
     def one_or_none(self) -> Mapping[str, object] | None:
         return self.rows[0] if self.rows else None
 
+    def one(self) -> Mapping[str, object]:
+        if len(self.rows) != 1:
+            raise AssertionError(f"expected one row, got {len(self.rows)}")
+        return self.rows[0]
+
 
 class _Connection:
     def __init__(self, results: list[list[Mapping[str, object]]]) -> None:
@@ -162,6 +168,12 @@ async def test_postgres_gateway_uses_only_security_definer_commands() -> None:
             [{"id": OUTBOX_ID}],
             [
                 {
+                    "source_stream_policy_version": "stream-policy-7",
+                    "policy_bundle_id": POLICY_BUNDLE_ID,
+                }
+            ],
+            [
+                {
                     "outbox_id": OUTBOX_ID,
                     "document_version_id": VERSION_ID,
                     "pipeline_run_id": PIPELINE_ID,
@@ -188,15 +200,22 @@ async def test_postgres_gateway_uses_only_security_definer_commands() -> None:
         queued=True,
     )
     assert "list_pending_source_content_ids" in connection.statements[0]
-    assert "handoff_source_content_to_ai" in connection.statements[1]
-    assert "fail_source_content_handoff" in connection.statements[2]
+    assert "source_content_policy_context_v2" in connection.statements[1]
+    assert "handoff_source_content_to_ai" in connection.statements[2]
+    assert "fail_source_content_handoff" in connection.statements[3]
     for statement in connection.statements:
         assert " FROM source_content_outbox" not in statement
         assert "INSERT INTO ai_pipeline_run" not in statement
         assert "UPDATE source_content_outbox" not in statement
-    assert set(connection.parameters[1]) == {"outbox_id", "pipeline_run_id", "now"}
-    assert connection.parameters[1]["outbox_id"] == OUTBOX_ID
-    assert connection.parameters[1]["pipeline_run_id"] == PIPELINE_ID
+    assert set(connection.parameters[2]) == {
+        "outbox_id",
+        "pipeline_run_id",
+        "policy_bundle_id",
+        "now",
+    }
+    assert connection.parameters[2]["outbox_id"] == OUTBOX_ID
+    assert connection.parameters[2]["pipeline_run_id"] == PIPELINE_ID
+    assert connection.parameters[2]["policy_bundle_id"] == POLICY_BUNDLE_ID
     assert engine.disposed is True
 
 

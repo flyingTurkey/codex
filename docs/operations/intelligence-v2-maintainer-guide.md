@@ -1,7 +1,7 @@
 # 土木工程情报 v2：下一轮开发与维护入口
 
-更新时间：2026-07-20  
-状态：`BLOCKED_BY_OWNER_GOLD_CALIBRATION`
+更新时间：2026-07-23
+状态：`AUTONOMOUS_POLICY_MECHANISM_COMPLETE / PRODUCTION_CLOSEOUT_NOT_CLAIMED`
 
 本文是当前状态的维护入口，不替代历史验收记录。历史文档中的数字只描述当时的验收事实；下一轮执行前必须按下列权威顺序重新核验。
 
@@ -9,14 +9,41 @@
 
 1. 根目录 `AGENTS.md`：强制产品、证据、PublicationService、R3/R4、UI、安全和质量规则。
 2. `CONTEXT-MAP.md` 及 Acquisition、Intelligence Qualification、Evidence & AI、Publication & Reader Projection 四个 Context：领域术语和边界。
-3. GitHub Spec [#1](https://github.com/flyingTurkey/codex/issues/1) 与当前 blocker [#36](https://github.com/flyingTurkey/codex/issues/36)：现行产品门槛和依赖。
-4. ADR-0002、ADR-0003：投影切换以及 engineering/production 失败关闭语义。
+3. GitHub 父 Spec [#40](https://github.com/flyingTurkey/codex/issues/40) 与当前 ticket：自主内容机制、依赖和验收。
+4. ADR-0002 至 ADR-0006：投影、engineering/production 隔离、自主策略、生产切换与策略生命周期。
 5. 当前验收记录与 handoff：只证明其时间点已经形成的事实，不自动代表当前运行态。
 6. README、研究报告和历史 Codex kit：用于操作导航或设计溯源，不得覆盖以上规则。
 
 遇到冲突时，停止执行会扩大生产状态的动作，并把冲突交给 Owner；不得靠降低阈值、构造 fixture 或追加绕过标记获得 `GO`。
 
-## 已稳定完成的产品基线
+## 当前自主机制基线
+
+Issue #41、#43、#44、#45 与 #46 形成一条唯一真实最高层路径：
+
+`SourceStream -> raw/document -> policy-bound pipeline run -> automatic decision -> evidence/PublicationService -> Feed`
+
+- 0054 在 run 创建事务中固定 `policy_bundle_id`；回调、技术重试、语义 recheck 和恢复复制或读取该固定值。
+- 离线评估固定 `authorizes_production=false`；SHADOW 决策与聚合窗口固定 `affects_production=false`，并在任何生产物化前终止。
+- 通过完整离线门禁的 Challenger 由固定 canary 自动产生 SHADOW 事实。至少 20 个终态的聚合窗口通过稳定性、技术、安全、suppression、类别漂移和零违规门禁后，才可追加 `PROMOTE`。
+- 激活和回滚只追加 `qualification_policy_activation_v2`；`active_qualification_policy_v2` 是派生指针，不修改 bundle、decision、evaluation、shadow 或历史 activation。
+- 每分钟健康任务监测 Feed yield、技术异常、安全、suppression、Schema/投影失败、硬负例、成本预算和类别漂移；达到失败条件时追加一次幂等 `ROLLBACK` 到前任 Champion。
+- Prometheus 只暴露低基数晋级、shadow-window 和回滚结果；自动回滚与晋级拒绝均有告警。
+
+私有 replay 的持久化入口：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\replay_autonomous_policy_private_benchmark.py `
+  --pack-root <private-pack-root> `
+  --code-version <candidate-code-version> `
+  --source-stream-policy-version <exact-stream-policy-version> `
+  --attempt-manifest-sha256 <sha256> `
+  --response-artifact-sha256 <sha256> `
+  --persist-evaluation
+```
+
+该命令只追加聚合事实，不能输出或提交逐案私有内容。记录成功也只表示 Challenger 获得 SHADOW 资格，不表示晋级或 production closeout。
+
+## 历史工程基线
 
 提交 `8e5bb02` 是目前已验证的 v2 工程基线。核心产品票 #2–#13 和全部 SourceStream 发现/替代研究票已经关闭；这些工作已经交付以下稳定边界：
 
@@ -30,7 +57,7 @@
 
 基线验收见 `docs/acceptance/phase-2/intelligence-v2-engineering-baseline-2026-07-20.md`。该基线没有宣称真实来源、真实 DeepSeek、Owner Gold、Feed precision 或 production closeout `GO`。
 
-## 当前阻断：Issue #36
+## 历史 Owner Gold `.4` NO-GO（不得改写）
 
 #36 要求冻结 40 条语料、40 条真实 `HUMAN_OWNER` 标注和标注前独立封存的 40 条预测。冻结协议仍要求：
 
@@ -40,13 +67,13 @@
 - 锁定负例泄漏为 0；
 - 只有服务端校验通过的精确版本 `GO` 才能授权自动通过。
 
-2026-07-20 的只读核验显示，`.4` 已经完成 40 条 Owner 标注和 40 条独立预测，但实际聚合结果为正例 20、边界例 0、负例 20；标准校准的 precision 为 55.55%、recall 为 75%，锁定负例泄漏为 9。因此标准结论必须是 `NO_GO`，#36 仍为 `OPEN / ready-for-human`，#14 仍被阻塞。
+2026-07-20 的早期只读核验曾记录正例 20、边界例 0、负例 20，precision 55.55%、recall 75% 和 9 条锁定负例泄漏。#41 最终验收中的同一历史 `.4` replay 聚合记录为 precision 70%、recall 70%、5 条锁定负例泄漏。两次点时记录都明确为原阈值下的 `NO_GO`；不得删除、挑选或改写任一历史记录来制造通过。ADR-0005/0006 后，该历史失败也不再是自主机制的全局阻断。
 
 不要公开、提交或复制私有逐案正文、标签和预测。仓库文档只记录以上聚合结论；私有验收材料继续保存在仓库外。
 
-## 本地环境的未批准 override 风险
+## 2026-07-20 本地环境 override 风险（历史时点）
 
-当前工作树并不等同于已验证基线：它包含大量 #36 未提交改动，以及未跟踪的 `0047_owner_gold_override_go`、override CLI 和相关测试。只读数据库核验还显示：
+本节只描述 2026-07-20 当时的工作树和本地数据库，不描述当前 integration 或 Issue #46 独立工作树。当时的只读核验显示：
 
 - 本地 PostgreSQL 的 Alembic 版本已是 `0047_owner_gold_override_go`；
 - 数据库已有一条 `authorizes_auto_pass=true` 的 Owner override `GO`；
@@ -73,7 +100,7 @@
 
 可变数字应最终落到版本化规则和对应 TDD；ADR-0003 只应稳定表达 engineering 与 production 语义隔离以及失败关闭，不应继续充当易漂移的数字配置源。
 
-## 剩余执行顺序
+## 2026-07-20 旧生产票顺序（已被 Spec #40 后续决策覆盖）
 
 真实 blocking chain 为：
 
@@ -87,13 +114,13 @@
 
 这些生产票有原生依赖，不能并行越过 blocker。与生产链无状态冲突的文档归档、历史入口标记和只读审计可以并行，但不得修改同一工作树中的 #36 代码。
 
-## 下一轮建议动作
+## 当前后续动作
 
-1. 先保持 #14 和真实来源运行暂停，检查调度、Publisher、SourceAdmission 和自动通过消费者没有使用本地 override 事实。
-2. 由 Owner 决定 override 的处置。推荐结论是拒绝旁路、保留标准 `NO_GO`，并把 `.4` 作为失败样本用于修正规则、候选构成或分类器后生成新的冻结 corpus/version；不得改标签追逐 `GO`。
-3. 将 #36 工作树拆成可审计范围：合法的 0046 prediction seal/40 条流程改动与未批准的 0047 override 分开处理；不要在当前 dirty worktree 上盲目提交全部文件。
-4. 在 #14 前用独立 TDD 切片同步 production closeout 的新数字门槛。保留 AI 24 小时新鲜度、200 条工程结构审计和两个 14 天退出窗口。
-5. 只有新的标准校准确实满足 #36 并通过服务端耐久消费验证后，关闭 #36、恢复 `ready-for-agent` 流程并开始 #14。
+1. 只从当前父 Spec #40 integration 创建新工作树；不得从旧 Owner Gold 或单票分支接续。
+2. 为候选策略使用新的不可变 bundle 身份和精确 SourceStream policy version，运行私有 replay 并追加真实聚合结果；失败结果同样保留。
+3. 等待真实 SHADOW canary 累积完整聚合窗口。单文档 shadow、0 precision/recall 占位或人工改表都不能晋级。
+4. 观察激活账本、health windows、低基数指标和告警。自动回滚后先诊断回归，不修改旧 activation、decision、evaluation 或 shadow。
+5. 分别报告 `MECHANISM_ENGINEERING`、`CHALLENGER_PROMOTION` 和 `PRODUCTION_CLOSEOUT`；没有真实来源、真实 DeepSeek、真实 Feed 抽检和运行窗口证据时，最后一项保持未完成。
 
 ## 文档债务与误导入口
 

@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-07-22
 - Extends: ADR-0004
+- Policy lifecycle: extended by ADR-0006
 
 ## Context
 

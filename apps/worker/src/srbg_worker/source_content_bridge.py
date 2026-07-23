@@ -10,8 +10,12 @@ from typing import Protocol
 from uuid import UUID
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
+from srbg_api.ai_pipeline.content_preparation import production_policy_for_stream
 from srbg_api.identifiers import uuid7
+from srbg_api.intelligence_v2.qualification_decisions import (
+    persist_qualification_policy_bundle,
+)
 
 logger = logging.getLogger("srbg.worker.source_content_bridge")
 
@@ -100,7 +104,13 @@ class PostgresSourceContentGateway:
         *,
         pipeline_run_id: UUID,
     ) -> ContentPipelineHandoff | None:
+        now = datetime.now(UTC)
         async with self._engine.begin() as connection:
+            policy_bundle_id = await self._active_policy_bundle(
+                connection,
+                outbox_id=outbox_id,
+                now=now,
+            )
             row = (
                 (
                     await connection.execute(
@@ -108,7 +118,8 @@ class PostgresSourceContentGateway:
                         {
                             "outbox_id": outbox_id,
                             "pipeline_run_id": pipeline_run_id,
-                            "now": datetime.now(UTC),
+                            "policy_bundle_id": policy_bundle_id,
+                            "now": now,
                         },
                     )
                 )
@@ -126,6 +137,53 @@ class PostgresSourceContentGateway:
             status=str(row.get("status")),
             queued=row.get("queued") is True,
         )
+
+    async def _active_policy_bundle(
+        self,
+        connection: AsyncConnection,
+        *,
+        outbox_id: UUID,
+        now: datetime,
+    ) -> UUID:
+        policy_context = (
+            (
+                await connection.execute(
+                    text(_POLICY_CONTEXT_SQL),
+                    {"outbox_id": outbox_id},
+                )
+            )
+            .mappings()
+            .one()
+        )
+        stream_version = str(policy_context["source_stream_policy_version"])
+        active_bundle_id = policy_context.get("policy_bundle_id")
+        if isinstance(active_bundle_id, UUID):
+            return active_bundle_id
+        policy = production_policy_for_stream(stream_version)
+        bundle_id = await persist_qualification_policy_bundle(
+            connection,
+            policy=policy,
+            created_at=now,
+        )
+        await connection.execute(
+            text(_BOOTSTRAP_POLICY_SQL),
+            {
+                "activation_id": uuid7(),
+                "stream_version": stream_version,
+                "bundle_id": bundle_id,
+                "now": now,
+            },
+        )
+        resolved = await connection.scalar(
+            text(
+                "SELECT policy_bundle_id FROM active_qualification_policy_v2 "
+                "WHERE source_stream_policy_version=:stream_version"
+            ),
+            {"stream_version": stream_version},
+        )
+        if not isinstance(resolved, UUID):
+            raise RuntimeError("ACTIVE_QUALIFICATION_POLICY_NOT_PERSISTED")
+        return resolved
 
     async def mark_failed(self, outbox_id: UUID, *, reason_code: str) -> None:
         if re.fullmatch(r"[A-Z0-9_]{1,80}", reason_code) is None:
@@ -161,7 +219,21 @@ SELECT outbox_id AS id FROM list_pending_source_content_ids(:now,:limit)
 
 _HANDOFF_SQL = """
 SELECT outbox_id,document_version_id,pipeline_run_id,status,queued
-  FROM handoff_source_content_to_ai(:outbox_id,:pipeline_run_id,:now)
+  FROM handoff_source_content_to_ai(
+    :outbox_id,:pipeline_run_id,:policy_bundle_id,:now
+  )
+"""
+
+_POLICY_CONTEXT_SQL = """
+SELECT source_stream_policy_version,policy_bundle_id
+  FROM source_content_policy_context_v2(:outbox_id)
+"""
+
+_BOOTSTRAP_POLICY_SQL = """
+SELECT append_qualification_policy_activation_v2(
+  :activation_id,:stream_version,:bundle_id,NULL,'BOOTSTRAP',
+  'ADR_0005_PRODUCTION_BASELINE',NULL,NULL,:now
+)
 """
 
 _FAIL_SQL = """

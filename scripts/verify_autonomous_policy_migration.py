@@ -24,6 +24,12 @@ _TABLES = (
     "qualification_shadow_decision_v2",
 )
 _SUPPRESSION_READ_MODEL_TABLE = "event_suppression_match_v2"
+_OPTIMIZATION_TABLES = (
+    "qualification_policy_evaluation_invariant_v2",
+    "qualification_policy_shadow_window_v2",
+    "qualification_policy_activation_v2",
+    "qualification_policy_health_v2",
+)
 
 
 def _require(condition: bool, message: str) -> None:
@@ -57,6 +63,7 @@ async def _verify(database_url: str, revision: str) -> None:
         "0051_technical_exception_recovery",
         "0052_feed_suppression_projection",
         "0053_safety_exception_lifecycle",
+        "0054_policy_optimization",
     }
     try:
         async with engine.connect() as connection:
@@ -67,7 +74,13 @@ async def _verify(database_url: str, revision: str) -> None:
                     "SELECT count(*) FROM information_schema.tables "
                     "WHERE table_schema='public' AND table_name=ANY(:tables)"
                 ),
-                {"tables": [*_TABLES, _SUPPRESSION_READ_MODEL_TABLE]},
+                {
+                    "tables": [
+                        *_TABLES,
+                        _SUPPRESSION_READ_MODEL_TABLE,
+                        *_OPTIMIZATION_TABLES,
+                    ]
+                },
             )
             _require(
                 int(table_count or 0)
@@ -78,8 +91,10 @@ async def _verify(database_url: str, revision: str) -> None:
                         in {
                             "0052_feed_suppression_projection",
                             "0053_safety_exception_lifecycle",
+                            "0054_policy_optimization",
                         }
                     )
+                    + (len(_OPTIMIZATION_TABLES) if revision == "0054_policy_optimization" else 0)
                     if expected
                     else 0
                 ),
@@ -120,6 +135,7 @@ async def _verify(database_url: str, revision: str) -> None:
                 "0051_technical_exception_recovery",
                 "0052_feed_suppression_projection",
                 "0053_safety_exception_lifecycle",
+                "0054_policy_optimization",
             }:
                 handoff_definition = await connection.scalar(
                     text(
@@ -146,6 +162,7 @@ async def _verify(database_url: str, revision: str) -> None:
             if revision in {
                 "0052_feed_suppression_projection",
                 "0053_safety_exception_lifecycle",
+                "0054_policy_optimization",
             }:
                 views = await connection.scalar(
                     text(
@@ -178,6 +195,54 @@ async def _verify(database_url: str, revision: str) -> None:
                 _require(
                     "owner_exception_v2" in str(safety_filter),
                     "open safety exceptions are not enforced by the reader view",
+                )
+            if revision == "0054_policy_optimization":
+                bundle_column = await connection.scalar(
+                    text(
+                        "SELECT count(*) FROM information_schema.columns "
+                        "WHERE table_schema='public' AND table_name='ai_pipeline_run' "
+                        "AND column_name='policy_bundle_id'"
+                    )
+                )
+                _require(int(bundle_column or 0) == 1, "pipeline bundle binding is missing")
+                activation_view = await connection.scalar(
+                    text(
+                        "SELECT count(*) FROM information_schema.views "
+                        "WHERE table_schema='public' "
+                        "AND table_name='active_qualification_policy_v2'"
+                    )
+                )
+                _require(int(activation_view or 0) == 1, "active policy pointer is missing")
+                handoff_definition = await connection.scalar(
+                    text(
+                        "SELECT pg_get_functiondef("
+                        "'handoff_source_content_to_ai(uuid,uuid,uuid,timestamptz)'"
+                        "::regprocedure)"
+                    )
+                )
+                _require(
+                    "policy_bundle_id" in str(handoff_definition),
+                    "source handoff does not freeze the active bundle",
+                )
+                evaluation_constraint = await connection.scalar(
+                    text(
+                        "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+                        "WHERE conname='ck_policy_evaluation_not_production_authority_v2'"
+                    )
+                )
+                shadow_constraint = await connection.scalar(
+                    text(
+                        "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+                        "WHERE conname='ck_policy_shadow_window_no_production_effect_v2'"
+                    )
+                )
+                _require(
+                    "authorizes_production = false" in str(evaluation_constraint).lower(),
+                    "evaluation authority remains immutable false",
+                )
+                _require(
+                    "affects_production = false" in str(shadow_constraint).lower(),
+                    "shadow production effect remains immutable false",
                 )
     finally:
         await engine.dispose()
@@ -219,10 +284,16 @@ def main() -> None:
     asyncio.run(_verify(database_url, "0052_feed_suppression_projection"))
     command.upgrade(config, "0053_safety_exception_lifecycle")
     asyncio.run(_verify(database_url, "0053_safety_exception_lifecycle"))
+    command.upgrade(config, "0054_policy_optimization")
+    asyncio.run(_verify(database_url, "0054_policy_optimization"))
+    command.downgrade(config, "0053_safety_exception_lifecycle")
+    asyncio.run(_verify(database_url, "0053_safety_exception_lifecycle"))
+    command.upgrade(config, "0054_policy_optimization")
+    asyncio.run(_verify(database_url, "0054_policy_optimization"))
     print(
         "Autonomous-policy migration replay passed: "
         "0048 -> 0049 -> 0048 -> 0049 -> 0050 -> 0049 -> 0050 -> 0051 -> 0050 -> "
-        "0051 -> 0052 -> 0051 -> 0052 -> 0053 -> 0052 -> 0053"
+        "0051 -> 0052 -> 0051 -> 0052 -> 0053 -> 0052 -> 0053 -> 0054 -> 0053 -> 0054"
     )
 
 

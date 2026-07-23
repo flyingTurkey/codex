@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-07-23 (Issue #46 Champion/Challenger policy optimization)
+
+- Bound every newly created LIVE and SHADOW AI pipeline run to an immutable policy bundle so callbacks, physical retries, semantic rechecks and technical recovery cannot change policy mid-run; later activation affects only later runs.
+- Added append-only offline evaluation, aggregate shadow-window, activation and live-health facts. A derived active pointer supports exact-baseline bootstrap, gated Challenger promotion and idempotent rollback without modifying historical bundles, decisions, evaluations or shadow facts.
+- Kept replay evaluations structurally `authorizes_production=false` and shadow decisions `affects_production=false`. Offline success grants only shadow eligibility, and shadow work terminates before Item, claim, Event, PublicationService or Feed materialization.
+- Added automatic Challenger selection, aggregate Champion comparison, hard promotion gates and production-health rollback across Feed yield, filtering, technical exceptions, Safety holds, suppression/restoration, Schema/projection failures, hard-negative leakage, budget and category drift.
+- Extended the single governed SourceStream-to-Feed integration seam to prove policy freezing, promotion and rollback with zero Owner semantic-classification tasks. Added migration replay, low-cardinality observability, alerts, ADR-0006, maintenance/context documentation and an honest acceptance split between mechanism completion, real Challenger promotion and production closeout.
+- Preserved the historical `.4` result at 70% precision, 70% recall and five locked-negative leaks: it remains `NO-GO`; no threshold or historical fact was rewritten.
+
 ## 2026-07-23 (Issue #45 Safety holds and Owner decisions)
 
 - Unified deterministic prompt-injection pre-scan findings and AI `security_signals` into the existing `owner_exception_v2` Safety lifecycle. The server maps the frozen closed reason set to `OWNER_DECIDABLE` or fail-closed `HARD_BLOCK`; `SAFETY_INTELLIGENCE` remains an ordinary primary content type.

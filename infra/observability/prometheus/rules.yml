@@ -180,6 +180,21 @@ groups:
         for: 1m
         labels: {severity: p2}
         annotations: {summary: "Autonomous content technical retries were exhausted"}
+      - alert: QualificationPolicyAutomaticRollback
+        expr: increase(srbg_qualification_policy_rollbacks_total{outcome="APPLIED"}[15m]) > 0
+        for: 0m
+        labels: {severity: warning}
+        annotations: {summary: "A Challenger policy was automatically rolled back"}
+      - alert: QualificationPolicyPromotionRejected
+        expr: increase(srbg_qualification_policy_shadow_windows_total{outcome="REJECTED"}[1h]) > 0
+        for: 0m
+        labels: {severity: info}
+        annotations: {summary: "A Challenger aggregate shadow window failed promotion gates"}
+      - alert: QualificationPolicyLiveRegression
+        expr: increase(srbg_qualification_policy_regressions_total[15m]) > 0
+        for: 0m
+        labels: {severity: warning}
+        annotations: {summary: "Qualification policy live regression detected ({{ $labels.reason }})"}
       - alert: FeedSuppressionCommandFailed
         expr: increase(srbg_owner_feed_suppression_commands_total{outcome="failed"}[15m]) > 0
         for: 1m

@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal, cast
 from uuid import UUID
@@ -33,6 +33,11 @@ from srbg_api.document_vault.storage import S3ObjectStore
 from srbg_api.identifiers import uuid7
 from srbg_api.intelligence_v2.ai_runtime import summary_state_for_failure
 from srbg_api.intelligence_v2.autonomous_policy import QualificationPolicyBundle
+from srbg_api.intelligence_v2.policy_optimization import (
+    PolicyGateRejected,
+    PolicyOptimizationService,
+    PostgresPolicyOptimizationRepository,
+)
 from srbg_api.intelligence_v2.t06_content_summary import (
     validate_content_summary_output,
 )
@@ -48,6 +53,10 @@ from srbg_api.observability import (
     PERSONAL_AUTO_ENABLE_RESULTS,
     PERSONAL_DISCOVERY_RESULTS,
     PERSONAL_SOURCE_PROBE_QUEUE,
+    QUALIFICATION_POLICY_ACTIVATIONS,
+    QUALIFICATION_POLICY_REGRESSIONS,
+    QUALIFICATION_POLICY_ROLLBACKS,
+    QUALIFICATION_POLICY_SHADOW_WINDOWS,
     SOURCE_PROFILE_MODEL_ATTEMPTS,
     SOURCE_PROFILE_QUEUE,
     SOURCE_PROFILE_RUNS,
@@ -202,6 +211,11 @@ celery_app.conf.update(
             "schedule": 5.0,
             "options": {"queue": "parser"},
         },
+        "monitor-policy-health": {
+            "task": "srbg.policy.health_monitor",
+            "schedule": 60.0,
+            "options": {"queue": "parser"},
+        },
     },
     task_routes={
         "srbg.safety_regulations.discover": {"queue": "parser"},
@@ -217,6 +231,7 @@ celery_app.conf.update(
         "srbg.ai_content.start": {"queue": "parser"},
         "srbg.ai_content.result": {"queue": "parser"},
         "srbg.ai.technical_retry_dispatch": {"queue": "parser"},
+        "srbg.policy.health_monitor": {"queue": "parser"},
         "srbg.ai.generate": {"queue": "ai"},
         "srbg.ai.generate_attempt": {"queue": "ai"},
         "srbg.ai.runtime_probe_dispatch": {"queue": "celery"},
@@ -303,9 +318,13 @@ async def _dispatch_ai_v2_canary() -> dict[str, object]:
         created = await repository.create_fixed_canary_run(input_sha256=template.input_sha256)
         if created is None:
             return {"dispatched": 0, "reason": "AI_CANARY_RUNTIME_GATES_DENIED"}
-        run_id, document_version_id = created
-        prepared = fixed_canary_input(str(document_version_id))
-        request = AiContentPreparationService.build_request(AiStep.CLASSIFY, prepared)
+        run_id, document_version_id, policy_bundle = created
+        document = await repository.begin(run_id)
+        prepared, _ = _prepare_ai_inputs_for_document(document)
+        await repository.bind_shadow_input(run_id, input_sha256=prepared.input_sha256)
+        request = AiContentPreparationService.build_request(
+            AiStep.CLASSIFY, prepared, policy=policy_bundle
+        )
         reservation = await repository.reserve(run_id, AiStep.CLASSIFY, 1)
         callback = celery_app.signature(
             "srbg.ai.v2_canary_result",
@@ -372,10 +391,18 @@ async def _record_ai_v2_canary_result(
     campaign_id: UUID | None = None,
 ) -> dict[str, str]:
     repository = _ai_repository()
-    prepared = fixed_canary_input(str(document_version_id))
-    request = AiContentPreparationService.build_request(AiStep.CLASSIFY, prepared)
     try:
-        if result.get("status") == "SUCCEEDED" and result.get("runtime_provider") == "deepseek":
+        document = await repository.begin(run_id)
+        prepared, _ = _prepare_ai_inputs_for_document(document)
+        policy_bundle = production_policy_for(document)
+        request = AiContentPreparationService.build_request(
+            AiStep.CLASSIFY, prepared, policy=policy_bundle
+        )
+        if (
+            result.get("status") == "SUCCEEDED"
+            and result.get("runtime_provider") == policy_bundle.identity.ai_provider
+            and result.get("runtime_model") == policy_bundle.identity.ai_model
+        ):
             try:
                 response = ModelResponse.model_validate(result.get("response"))
                 validated = validate_step_output(response.output, request)
@@ -408,7 +435,16 @@ async def _record_ai_v2_canary_result(
                 kind.value,
                 response,
                 request.input_sha256,
+                prompt_version=request.prompt_version,
+                schema_version=request.schema_version,
             )
+            trace = adjudicate_candidates(
+                document=document,
+                prepared=prepared,
+                policy=policy_bundle,
+                candidates=[validated.model_dump(mode="json", exclude_none=True)],
+            )
+            await repository.append_shadow_decision(trace, policy_bundle)
             await repository.complete_fixed_canary(run_id=run_id, succeeded=True)
             await repository.complete_compensation(run_id=run_id, succeeded=True)
             if campaign_id is not None:
@@ -473,9 +509,11 @@ async def _run_v2_campaign_fault_injection(
         created = await repository.create_fixed_canary_run(input_sha256=template.input_sha256)
         if created is None:
             return {"dispatched": 0, "reason": "FAULT_INJECTION_RUNTIME_GATES_DENIED"}
-        run_id, document_version_id = created
+        run_id, document_version_id, policy_bundle = created
         prepared = fixed_canary_input(str(document_version_id))
-        request = AiContentPreparationService.build_request(AiStep.CLASSIFY, prepared)
+        request = AiContentPreparationService.build_request(
+            AiStep.CLASSIFY, prepared, policy=policy_bundle
+        )
         if fault_kind == "PERMANENT":
             await repository.complete_fixed_canary(
                 run_id=run_id,
@@ -620,6 +658,87 @@ def handle_ai_content_result(
 @celery_app.task(name="srbg.ai.technical_retry_dispatch")  # type: ignore[untyped-decorator]
 def dispatch_technical_retries() -> dict[str, int]:
     return asyncio.run(_dispatch_due_technical_retries())
+
+
+@celery_app.task(name="srbg.policy.health_monitor")  # type: ignore[untyped-decorator]
+def monitor_policy_health() -> dict[str, object]:
+    return asyncio.run(_monitor_policy_health())
+
+
+async def _monitor_policy_health() -> dict[str, object]:
+    repository = PostgresPolicyOptimizationRepository(engine=create_database_engine(settings))
+    service = PolicyOptimizationService(repository=repository)
+    observed_at = datetime.now(UTC)
+    monitored = 0
+    promoted = 0
+    rejected = 0
+    rolled_back = 0
+    try:
+        for candidate in await repository.promotion_candidates(observed_at=observed_at):
+            shadow = await repository.aggregate_shadow_window(
+                challenger_policy_bundle_id=candidate.challenger_policy_bundle_id,
+                champion_policy_bundle_id=candidate.champion_policy_bundle_id,
+                window_started_at=candidate.window_started_at,
+                window_ended_at=observed_at,
+                recorded_at=observed_at,
+            )
+            try:
+                await service.promote(
+                    source_stream_policy_version=candidate.source_stream_policy_version,
+                    challenger_policy_bundle_id=candidate.challenger_policy_bundle_id,
+                    offline_evaluation_id=candidate.offline_evaluation_id,
+                    shadow_window_id=shadow.id,
+                    now=observed_at,
+                )
+            except PolicyGateRejected:
+                rejected += 1
+                QUALIFICATION_POLICY_SHADOW_WINDOWS.labels(outcome="REJECTED").inc()
+                QUALIFICATION_POLICY_ACTIVATIONS.labels(
+                    action="PROMOTE", outcome="REJECTED"
+                ).inc()
+            else:
+                promoted += 1
+                QUALIFICATION_POLICY_SHADOW_WINDOWS.labels(outcome="PASSED").inc()
+                QUALIFICATION_POLICY_ACTIVATIONS.labels(
+                    action="PROMOTE", outcome="APPLIED"
+                ).inc()
+        for activation in await repository.active_promotions():
+            window_started_at = max(
+                activation.activated_at,
+                observed_at - timedelta(hours=1),
+            )
+            if window_started_at >= observed_at:
+                continue
+            health = await repository.record_live_health(
+                activation=activation,
+                window_started_at=window_started_at,
+                window_ended_at=observed_at,
+                recorded_at=observed_at,
+            )
+            monitored += 1
+            regression_reason = service.regression_reason(health)
+            if regression_reason is not None:
+                QUALIFICATION_POLICY_REGRESSIONS.labels(reason=regression_reason).inc()
+            rollback = await service.rollback_if_regressed(
+                health=health,
+                now=observed_at,
+            )
+            rolled_back += int(rollback is not None)
+            QUALIFICATION_POLICY_ROLLBACKS.labels(
+                outcome="APPLIED" if rollback is not None else "HEALTHY"
+            ).inc()
+            if rollback is not None:
+                QUALIFICATION_POLICY_ACTIVATIONS.labels(
+                    action="ROLLBACK", outcome="APPLIED"
+                ).inc()
+        return {
+            "promoted": promoted,
+            "promotion_rejected": rejected,
+            "monitored": monitored,
+            "rolled_back": rolled_back,
+        }
+    finally:
+        await repository.close()
 
 
 @celery_app.task(name="srbg.personal_source.probe")  # type: ignore[untyped-decorator]

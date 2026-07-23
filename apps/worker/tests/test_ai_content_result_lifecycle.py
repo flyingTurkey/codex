@@ -8,11 +8,17 @@ from uuid import UUID
 
 import pytest
 import srbg_worker.app as worker
-from srbg_api.ai_pipeline.content_preparation import PreparationDocument
+from srbg_api.ai_pipeline.content_preparation import (
+    PreparationDocument,
+    production_policy_for_stream,
+)
 from srbg_api.ai_pipeline.contracts import AiStep, ModelResponse
 from srbg_api.ai_pipeline.preparation import DocumentBlock
 from srbg_api.ai_pipeline.runtime import AttemptKind
-from srbg_api.intelligence_v2.qualification_decisions import append_qualification_decision
+from srbg_api.intelligence_v2.qualification_decisions import (
+    append_qualification_decision,
+    persist_qualification_policy_bundle,
+)
 from srbg_worker.ai_content_preparation import PostgresAiPreparationRepository
 
 RUN_ID = UUID("019f7900-0000-7000-8000-000000000001")
@@ -36,6 +42,50 @@ def test_fixed_canary_orders_versions_by_the_real_acquisition_column() -> None:
 
     assert "version.acquired_at" in source
     assert "version.created_at" not in source
+    assert "policy_bundle_id" in source
+    assert "active_qualification_policy_v2" in source
+    assert "OFFLINE_REPLAY" in source
+    assert "challenger.policy_bundle_id" in source
+    assert "bundle.ai_provider='deepseek'" in source
+    assert "bundle.ai_model='deepseek-v4-flash'" in source
+    assert "bundle.prompt_version='autonomous-classify-2.7.0'" in source
+    assert "bundle.schema_version='autonomous-classify-output-2.0.0'" in source
+
+
+def test_fixed_canary_terminal_state_accepts_real_document_preparation() -> None:
+    source = inspect.getsource(PostgresAiPreparationRepository.complete_fixed_canary)
+
+    assert "status IN ('QUEUED','PREPARING')" in source
+
+
+def test_fixed_canary_dispatch_and_callback_use_the_run_bound_bundle() -> None:
+    dispatch_source = inspect.getsource(worker._dispatch_ai_v2_canary)
+    callback_source = inspect.getsource(worker._record_ai_v2_canary_result)
+
+    assert "policy_bundle" in dispatch_source
+    assert "policy=policy_bundle" in dispatch_source
+    assert "_prepare_ai_inputs_for_document(document)" in dispatch_source
+    assert "bind_shadow_input" in dispatch_source
+    assert "production_policy_for(document)" in callback_source
+    assert "policy=policy_bundle" in callback_source
+    assert "_prepare_ai_inputs_for_document(document)" in callback_source
+    assert "fixed_canary_input" not in callback_source
+    assert "runtime_model" in callback_source
+    assert "prompt_version=request.prompt_version" in callback_source
+    assert "schema_version=request.schema_version" in callback_source
+    assert "append_shadow_decision(trace, policy_bundle)" in callback_source
+
+
+def test_policy_health_monitor_is_scheduled_and_can_auto_rollback() -> None:
+    schedule = worker.celery_app.conf.beat_schedule
+    source = inspect.getsource(worker._monitor_policy_health)
+
+    assert schedule["monitor-policy-health"]["schedule"] == 60.0
+    assert "promotion_candidates" in source
+    assert "aggregate_shadow_window" in source
+    assert ".promote(" in source
+    assert "record_live_health" in source
+    assert "rollback_if_regressed" in source
 
 
 def test_every_physical_model_dispatch_reauthorizes_before_budget_reservation() -> None:
@@ -94,12 +144,13 @@ def test_semantic_recheck_flag_survives_every_failure_redispatch() -> None:
 def test_repository_persists_policy_identity_and_decision_append_only() -> None:
     repository_source = inspect.getsource(PostgresAiPreparationRepository.append_automated_decision)
     source = inspect.getsource(append_qualification_decision)
+    bundle_source = inspect.getsource(persist_qualification_policy_bundle)
 
     assert "append_qualification_decision" in repository_source
-    assert "qualification_policy_bundle_v2" in source
+    assert "qualification_policy_bundle_v2" in bundle_source
     assert "automated_qualification_decision_v2" in source
-    assert "ON CONFLICT (bundle_sha256) DO NOTHING" in source
-    assert "owner_gold" not in source.casefold()
+    assert "ON CONFLICT (bundle_sha256) DO NOTHING" in bundle_source
+    assert "owner_gold" not in (source + bundle_source).casefold()
 
 
 def test_live_safety_hold_projects_through_server_owned_exception_function() -> None:
@@ -166,6 +217,7 @@ class RevokedAuthorizationRepository:
                     locator_value="page=1",
                 ),
             ),
+            policy_bundle=production_policy_for_stream("stream-policy-7"),
         )
 
     async def authorize_real_run(self, document: PreparationDocument) -> bool:
