@@ -1,5 +1,9 @@
 # 运行手册执行入口
 
+## feed_suppression_failure
+
+收到 `FeedSuppressionCommandFailed` 后，先按时间窗口核对低基数的 `scope`、`action`、`outcome` 指标和对应审计 request ID；禁止把 target、URL 或正文写入日志。REVOKE 的门禁重建发生在追加撤销事实之前，因此失败时原 suppression 仍有效。修复数据库、对象存储或当前 PublicationService 门禁依赖后，由 Owner 从仍生效的规则再次撤销；不得直接 UPDATE 规则账本、发布状态或 reader projection。恢复条件是命令成功、审计链连续，并确认 Feed/search/hotspot/detail/media 对生效规则仍统一不可见。
+
 ## PERS-01 本地身份与远程访问
 
 PERS-01 仅支持单机回环访问。执行 `make dev` 后，从宿主机打开 `http://127.0.0.1:3000/sources`；Nuxt 服务端代理会删除浏览器传入的 `X-SRBG-Local-*` 头，并在 development/demo/test 环境为固定 UUIDv7 注入 `owner` 和旧读角色。API 仍只监听宿主机 `127.0.0.1` 映射。

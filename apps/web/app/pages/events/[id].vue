@@ -3,6 +3,8 @@ import type { EventFullProjectionV2, EventMetadataProjectionV2, ProblemDetails }
 import type { StatusBadgeTone } from '@srbg/ui'
 import { EmptyState, PageHeader, ProblemNotice, Skeleton, StatusBadge } from '@srbg/ui'
 
+import { createUuidV7 } from '../../utils/uuid-v7'
+
 type EventProjection = EventFullProjectionV2 | EventMetadataProjectionV2
 type SummaryStatus = EventFullProjectionV2['ai_summary']['status']
 
@@ -43,6 +45,36 @@ const detail = computed(() => result.data.value)
 const full = computed(() => detail.value?.projection_kind === 'FULL' ? detail.value : null)
 const problem = computed(() => result.error.value?.data as ProblemDetails ?? null)
 const shanghai = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'long', timeStyle: 'short', timeZone: 'Asia/Shanghai' })
+const suppressionConfirmationOpen = ref(false)
+const suppressing = ref(false)
+const suppressed = ref(false)
+const suppressionProblem = ref<string | null>(null)
+
+async function suppressEvent(): Promise<void> {
+  if (suppressing.value) return
+  suppressing.value = true
+  suppressionProblem.value = null
+  try {
+    await $fetch('/api/v2/owner/suppressions', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': createUuidV7() },
+      body: {
+        action: 'ACTIVATE', scope: 'EVENT', target_key: eventId,
+        feedback_reason: 'OWNER_PREFERENCE',
+      },
+      retry: 0,
+      timeout: 5_000,
+    })
+    suppressionConfirmationOpen.value = false
+    suppressed.value = true
+  }
+  catch {
+    suppressionProblem.value = '隐藏操作失败，服务端内容未改变，请稍后重试。'
+  }
+  finally {
+    suppressing.value = false
+  }
+}
 
 function formatDate(value: string | null | undefined): string {
   return value ? shanghai.format(new Date(value)) : '原文未提供'
@@ -63,15 +95,39 @@ function summaryTone(status: SummaryStatus): StatusBadgeTone {
 
 <template>
   <section class="reader-page">
-    <PageHeader :title="detail?.title ?? '情报阅读'" eyebrow="土木工程情报阅读页">
-      <template v-if="detail" #status>
+    <PageHeader :title="suppressed ? '情报已隐藏' : detail?.title ?? '情报阅读'" eyebrow="土木工程情报阅读页">
+      <template v-if="detail && !suppressed" #status>
         <StatusBadge tone="info" :label="primaryTypeLabels[detail.primary_type]" />
         <span>{{ formatDate(detail.source_published_at) }}</span>
       </template>
     </PageHeader>
+    <div v-if="detail && !suppressed" class="reader-page__suppression-action">
+      <button type="button" data-testid="suppress-event" @click="suppressionConfirmationOpen = true">
+        从 Feed 隐藏
+      </button>
+    </div>
+    <section
+      v-if="suppressionConfirmationOpen"
+      role="alertdialog"
+      aria-labelledby="reader-suppression-confirm-title"
+      class="reader-page__suppression-confirm"
+    >
+      <strong id="reader-suppression-confirm-title">确认隐藏这条情报？</strong>
+      <p>只影响个人展示，不会删除原文、证据、claims 或历史记录。</p>
+      <div>
+        <button type="button" :disabled="suppressing" @click="suppressEvent">
+          {{ suppressing ? '正在隐藏…' : '确认隐藏' }}
+        </button>
+        <button type="button" :disabled="suppressing" @click="suppressionConfirmationOpen = false">
+          取消
+        </button>
+      </div>
+    </section>
+    <p v-if="suppressionProblem" role="alert">{{ suppressionProblem }}</p>
+    <p v-if="suppressed" role="status">已隐藏该情报；原始证据仍私有保留，可在“Feed 偏好”中撤销。</p>
     <Skeleton v-if="result.status.value === 'idle' || result.status.value === 'pending'" :lines="8" label="正在加载情报" />
     <ProblemNotice v-else-if="problem" :problem="problem" @retry="result.refresh" />
-    <template v-else-if="detail">
+    <template v-else-if="detail && !suppressed">
       <aside v-if="full?.correction_alert" class="reader-page__correction" role="alert">
         <strong>更正或撤回提醒</strong>
         <span>{{ full.correction_alert }}</span>
@@ -178,7 +234,7 @@ function summaryTone(status: SummaryStatus): StatusBadgeTone {
         </section>
       </div>
     </template>
-    <EmptyState v-else title="情报不可见" description="该内容未通过普通阅读投影门禁。" />
+    <EmptyState v-else-if="!suppressed" title="情报不可见" description="该内容未通过普通阅读投影门禁。" />
   </section>
 </template>
 
@@ -207,6 +263,26 @@ function summaryTone(status: SummaryStatus): StatusBadgeTone {
   border: 1px solid currentColor;
   border-radius: var(--radius-sm);
 }
+
+.reader-page__suppression-action,
+.reader-page__suppression-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+}
+
+.reader-page__suppression-confirm {
+  flex-direction: column;
+  padding: var(--spacing-4);
+  background: var(--color-reviewPending-50);
+  border: 1px solid var(--color-borderStrong);
+  border-radius: var(--radius-md);
+}
+
+.reader-page__suppression-confirm p { margin: 0; }
+.reader-page__suppression-confirm div { display: flex; flex-wrap: wrap; gap: var(--spacing-2); }
+.reader-page__suppression-action button,
+.reader-page__suppression-confirm button { min-height: 2.75rem; }
 
 .reader-layout {
   display: grid;

@@ -180,3 +180,8 @@ groups:
         for: 1m
         labels: {severity: p2}
         annotations: {summary: "Autonomous content technical retries were exhausted"}
+      - alert: FeedSuppressionCommandFailed
+        expr: increase(srbg_owner_feed_suppression_commands_total{outcome="failed"}[15m]) > 0
+        for: 1m
+        labels: {severity: p2}
+        annotations: {summary: "Owner Feed suppression command or gated restoration failed"}

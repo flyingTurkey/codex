@@ -52,7 +52,7 @@ describe('application shell contract', () => {
 
     const { personalNavigation, primaryNavigation } = navigation
     expect(personalNavigation.map(item => item.to)).toEqual([
-      '/sources', '/technical-exceptions', '/settings/ai',
+      '/sources', '/technical-exceptions', '/feed-suppressions', '/settings/ai',
     ])
     expect(primaryNavigation.map((item) => [item.label, item.to])).toEqual([
       ['今日精选', '/'],

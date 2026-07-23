@@ -209,7 +209,7 @@ class PostgresV2IntelligenceService:
             except (ValueError, TypeError) as exc:
                 raise InvalidV2Cursor("invalid feed cursor") from exc
         sql = (
-            "SELECT payload,projected_at,event_id FROM intelligence_projection_v2 "
+            "SELECT payload,projected_at,event_id FROM visible_intelligence_projection_v2 "
             "WHERE (CAST(:primary_type AS varchar) IS NULL "
             "OR primary_type=CAST(:primary_type AS varchar)) "
             "AND (CAST(:cursor_time AS timestamptz) IS NULL OR (projected_at,event_id)<"
@@ -261,7 +261,8 @@ class PostgresV2IntelligenceService:
               WHERE claim->>'decision_status'='ACCEPTED'),'') AS claims_text,
             COALESCE(projection.payload#>>'{source_excerpt,text}','') AS excerpt_text
           FROM search_projection_v2 search
-          JOIN intelligence_projection_v2 projection ON projection.event_id=search.event_id
+          JOIN visible_intelligence_projection_v2 projection
+            ON projection.event_id=search.event_id
         ), ranked AS (
           SELECT payload,projected_at,event_id,
             floor(ts_rank(search_vector,plainto_tsquery('simple',:query))*1000000)::bigint
@@ -324,7 +325,8 @@ class PostgresV2IntelligenceService:
             "ORDER BY event_id,awarded_at DESC,id DESC) "
             "SELECT projection.payload,award.awarded_at,projection.event_id "
             "FROM current_awards award "
-            "JOIN intelligence_projection_v2 projection ON projection.event_id=award.event_id "
+            "JOIN visible_intelligence_projection_v2 projection "
+            "ON projection.event_id=award.event_id "
             "WHERE (CAST(:cursor_time AS timestamptz) IS NULL OR "
             "(award.awarded_at,projection.event_id)<"
             "(CAST(:cursor_time AS timestamptz),CAST(:cursor_id AS uuid))) "
@@ -338,7 +340,10 @@ class PostgresV2IntelligenceService:
     async def event(self, event_id: UUID) -> EventProjectionV2:
         async with self._reader.connect() as connection:
             payload = await connection.scalar(
-                text("SELECT payload FROM intelligence_projection_v2 WHERE event_id=:event_id"),
+                text(
+                    "SELECT payload FROM visible_intelligence_projection_v2 "
+                    "WHERE event_id=:event_id"
+                ),
                 {"event_id": event_id},
             )
         if payload is None:
@@ -351,12 +356,17 @@ class PostgresV2IntelligenceService:
                 (
                     await connection.execute(
                         text(
-                            "SELECT event_id,appendix_payload,evidence,evidence_total,"
-                            "automatic_results,automatic_results_total,relationships,"
-                            "relationships_total,automatic_relationships,"
-                            "automatic_relationships_total,corrections,corrections_total,"
-                            "review_case_id FROM reader_appendix_governance_v2 "
-                            "WHERE event_id=:event_id"
+                            "SELECT appendix.event_id,appendix.appendix_payload,"
+                            "appendix.evidence,appendix.evidence_total,"
+                            "appendix.automatic_results,appendix.automatic_results_total,"
+                            "appendix.relationships,appendix.relationships_total,"
+                            "appendix.automatic_relationships,"
+                            "appendix.automatic_relationships_total,appendix.corrections,"
+                            "appendix.corrections_total,appendix.review_case_id "
+                            "FROM reader_appendix_governance_v2 appendix "
+                            "JOIN visible_intelligence_projection_v2 projection "
+                            "ON projection.event_id=appendix.event_id "
+                            "WHERE appendix.event_id=:event_id"
                         ),
                         {"event_id": event_id},
                     )
@@ -425,6 +435,8 @@ class PostgresV2IntelligenceService:
                             "media.attachment_scan_status,media.raw_scan_status,"
                             "media.preview_object_key,"
                             "media.preview_mime_type FROM media_delivery_reader_v2 media "
+                            "JOIN visible_intelligence_projection_v2 projection "
+                            "ON media.event_id=projection.event_id "
                             "WHERE media.id=:media_id"
                         ),
                         {"media_id": media_id},

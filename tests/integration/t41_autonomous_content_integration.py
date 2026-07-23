@@ -1,10 +1,13 @@
 # ruff: noqa: RUF001
+import asyncio
 import json
 import os
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from typing import Any, cast
+from uuid import UUID
 
 import pytest
 from sqlalchemy import text
@@ -25,6 +28,8 @@ from srbg_api.intelligence_v2.content_candidate_repository import (
     PostgresContentCandidateRepository,
 )
 from srbg_api.intelligence_v2.content_candidates import StructuredSummaryCandidate
+from srbg_api.intelligence_v2.feed_suppressions import FeedSuppressionConflict
+from srbg_api.intelligence_v2.service import PostgresV2IntelligenceService, ProjectionNotFound
 from srbg_api.intelligence_v2.technical_exceptions import (
     PostgresOwnerTechnicalExceptionService,
     TechnicalExceptionConflict,
@@ -41,7 +46,10 @@ from srbg_api.source_registry.v2_rollout import (
     SourceAdmissionMetrics,
     append_production_admission_assessment,
 )
-from srbg_contracts import PersonalSourceCreateRequest
+from srbg_contracts import (
+    FeedSuppressionCommand,
+    PersonalSourceCreateRequest,
+)
 from srbg_worker.ai_content_preparation import PostgresAiPreparationRepository
 from srbg_worker.source_content_bridge import (
     PostgresSourceContentGateway,
@@ -57,6 +65,56 @@ pytestmark = [
         reason="isolated integration database is required",
     ),
 ]
+
+
+async def test_feed_suppression_concurrent_activation_has_one_append_only_winner() -> None:
+    admin = create_async_engine(os.environ["SRBG_TEST_ADMIN_DATABASE_URL"])
+    publisher = create_async_engine(os.environ["SRBG_PUBLICATION_DATABASE_URL"])
+    target = uuid7()
+    now = datetime.now(UTC)
+    service = PublicationService(
+        repository=PostgresPublicationRepository(publisher),
+        gate=cast(Any, object()),
+        now=lambda: now,
+    )
+    command = FeedSuppressionCommand.model_validate(
+        {
+            "action": "ACTIVATE",
+            "scope": "EVENT",
+            "target_key": str(target),
+            "feedback_reason": "OWNER_PREFERENCE",
+        }
+    )
+    try:
+        results = await asyncio.gather(
+            service.command_feed_suppression(
+                command=command,
+                owner_id=uuid7(),
+                idempotency_key=uuid7(),
+                expected_rule_id=None,
+            ),
+            service.command_feed_suppression(
+                command=command,
+                owner_id=uuid7(),
+                idempotency_key=uuid7(),
+                expected_rule_id=None,
+            ),
+            return_exceptions=True,
+        )
+        assert sum(not isinstance(result, Exception) for result in results) == 1, repr(results)
+        assert sum(isinstance(result, FeedSuppressionConflict) for result in results) == 1
+        async with admin.connect() as connection:
+            count = await connection.scalar(
+                text(
+                    "SELECT count(*) FROM feed_suppression_rule_v2 "
+                    "WHERE action='ACTIVATE' AND scope='EVENT' AND target_key=:target"
+                ),
+                {"target": str(target)},
+            )
+        assert count == 1
+    finally:
+        await admin.dispose()
+        await publisher.dispose()
 
 
 class ModelMustNotRun:
@@ -78,13 +136,14 @@ class AcceptedModel:
     def classify(
         self, *, system_prompt: str, document_text: str, semantic_recheck: bool
     ) -> dict[str, object]:
+        is_safety = self._primary_type == "SAFETY_INTELLIGENCE"
         return {
             "direct_relevance": "RELEVANT",
             "core_new_fact": self._core_new_fact,
             "primary_type": self._primary_type,
-            "engineering_objects": ["HIGHWAY"],
-            "specialty_facets": [],
-            "equipment_domains": [],
+            "engineering_objects": ["HIGHWAY", "TUNNEL"] if is_safety else ["HIGHWAY"],
+            "specialty_facets": ["TUNNEL_GAS_MONITORING"] if is_safety else [],
+            "equipment_domains": [] if is_safety else ["CONSTRUCTION_MACHINERY"],
             "content_form": self._content_form,
             "evidence_locators": [self._locator],
             "confidence": 0.91,
@@ -176,6 +235,7 @@ async def acquire_through_live_source_stream(
     worker: Any,
     excerpt: str,
     now: datetime,
+    before_fetch: Callable[[UUID], Awaitable[None]] | None = None,
 ) -> AcquiredDocument:
     unique = uuid7().hex
     host = f"t41-{unique[:12]}.example.test"
@@ -318,6 +378,8 @@ async def acquire_through_live_source_stream(
                 "now": now,
             },
         )
+    if before_fetch is not None:
+        await before_fetch(source.id)
     scheduling = PostgresSchedulingService(worker)
     claimed = await scheduling.claim_due(now=now)
     assert claimed is not None and claimed.source_id == source.id
@@ -494,9 +556,10 @@ async def test_filtered_decision_is_idempotent_and_has_no_reader_materialization
     (
         (
             "INDUSTRY_UPDATE",
-            "A highway construction section opened to traffic.",
+            "Construction machinery completed work before a highway section opened to traffic.",
             "OPERATION_UPDATE",
-            "A highway construction section opened to traffic after completion.",
+            "Construction machinery completed direct highway work "
+            "before the section opened to traffic.",
             "project_status",
             "opened to traffic",
         ),
@@ -521,14 +584,38 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
     admin = create_async_engine(os.environ["SRBG_TEST_ADMIN_DATABASE_URL"])
     worker = create_async_engine(os.environ["SRBG_WORKER_DATABASE_URL"])
     publisher = create_async_engine(os.environ["SRBG_PUBLICATION_DATABASE_URL"])
+    projection_reader = create_async_engine(os.environ["SRBG_PROJECTION_DATABASE_URL"])
     step_run_id = uuid7()
     now = datetime.now(UTC)
+    source_activation: Any = None
+
+    async def suppress_source_before_fetch(source_id: UUID) -> None:
+        nonlocal source_activation
+        source_activation = await PublicationService(
+            repository=PostgresPublicationRepository(publisher),
+            gate=cast(Any, object()),
+            now=lambda: now - timedelta(minutes=1),
+        ).command_feed_suppression(
+            command=FeedSuppressionCommand.model_validate(
+                {
+                    "action": "ACTIVATE",
+                    "scope": "SOURCE",
+                    "target_key": str(source_id),
+                    "feedback_reason": "OWNER_PREFERENCE",
+                }
+            ),
+            owner_id=uuid7(),
+            idempotency_key=uuid7(),
+            expected_rule_id=None,
+        )
+
     try:
         acquired = await acquire_through_live_source_stream(
             admin=admin,
             worker=worker,
             excerpt=excerpt,
             now=now,
+            before_fetch=suppress_source_before_fetch,
         )
         version_id = acquired.document_version_id
         raw_id = acquired.raw_object_id
@@ -746,10 +833,450 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
         assert projection["projection_kind"] == "FULL"
         assert projection["payload"]["human_reviewed"] is False
         assert review_count == 0
+
+        event_id = UUID(str(projection["payload"]["event_id"]))
+        attachment_id = uuid7()
+        media_id = uuid7()
+        media_source_url = "https://example.com/accepted-source-object"
+        async with admin.begin() as connection:
+            raw = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT raw.id,raw.object_key,raw.sha256,raw.byte_size,"
+                            "raw.detected_mime FROM raw_object raw JOIN document_version version "
+                            "ON version.raw_object_id=raw.id WHERE version.id=:version"
+                        ),
+                        {"version": version_id},
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO document_attachment_attempt(id,document_version_id,"
+                    "content_sha256,object_key,byte_size,declared_mime,detected_mime,"
+                    "filename_sha256,normalized_path_sha256,canonical_url_sha256,outcome,"
+                    "occurred_at) VALUES(:id,:version,:content_hash,:object_key,:byte_size,"
+                    ":mime,:mime,:filename_hash,:path_hash,:url_hash,'ACCEPTED',:now)"
+                ),
+                {
+                    "id": uuid7(),
+                    "version": version_id,
+                    "content_hash": raw["sha256"],
+                    "object_key": raw["object_key"],
+                    "byte_size": raw["byte_size"],
+                    "mime": raw["detected_mime"],
+                    "filename_hash": "a" * 64,
+                    "path_hash": "b" * 64,
+                    "url_hash": sha256(media_source_url.encode()).hexdigest(),
+                    "now": now,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO document_attachment(id,document_version_id,raw_object_id,"
+                    "filename,role,created_at,detected_mime,byte_size,security_status) VALUES("
+                    ":id,:version,:raw,'accepted-source-object','SOURCE',:now,:mime,:bytes,"
+                    "'CLEAN')"
+                ),
+                {
+                    "id": attachment_id,
+                    "version": version_id,
+                    "raw": raw["id"],
+                    "now": now,
+                    "mime": raw["detected_mime"],
+                    "bytes": raw["byte_size"],
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO media_rights_v2(id,document_version_id,name,object_key,"
+                    "source_url,mime_type,rights_basis,redistribution_allowed,scan_status,"
+                    "created_at,attachment_id,rights_evidence_ref) VALUES(:id,:version,"
+                    "'accepted source object',:object_key,:source_url,:mime,'OWNER_OWNED',true,"
+                    "'CLEAN',:now,:attachment,'acceptance:t44')"
+                ),
+                {
+                    "id": media_id,
+                    "version": version_id,
+                    "object_key": raw["object_key"],
+                    "source_url": media_source_url,
+                    "mime": raw["detected_mime"],
+                    "now": now,
+                    "attachment": attachment_id,
+                },
+            )
+        reader = PostgresV2IntelligenceService(
+            projection_reader, publisher, S3ObjectStore(Settings())
+        )
+        hotspot_candidate_id = uuid7()
+        hotspot_evaluation_id = uuid7()
+        async with admin.begin() as connection:
+            await connection.execute(
+                text(
+                    "INSERT INTO hotspot_candidate_v2(id,event_id,document_version_id,"
+                    "claim_ids,reasons,model,prompt_version,schema_version,input_sha256,"
+                    "created_at) "
+                    "VALUES(:id,:event,:version,:claims,'[{\"text\":\"accepted evidence\","
+                    "\"claim_ids\":[]}]'::jsonb,'acceptance-stub','t44','v2',:hash,:now)"
+                ),
+                {
+                    "id": hotspot_candidate_id,
+                    "event": event_id,
+                    "version": version_id,
+                    "claims": [uuid7()],
+                    "hash": "8" * 64,
+                    "now": now,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO hotspot_evaluation_v2(id,candidate_id,event_id,"
+                    "document_version_id,primary_type,outcome,trigger_path,"
+                    "independent_source_count,components,evaluation_inputs,score,reasons,"
+                    "reason_codes,rule_version,evidence_sha256,evaluated_at) VALUES("
+                    ":id,:candidate,:event,:version,:primary,'AWARDED','AUTHORITY_SCORE',1,"
+                    "'{}'::jsonb,'{}'::jsonb,80,:reasons,:codes,'t44-acceptance',:hash,:now)"
+                ),
+                {
+                    "id": hotspot_evaluation_id,
+                    "candidate": hotspot_candidate_id,
+                    "event": event_id,
+                    "version": version_id,
+                    "primary": primary_type,
+                    "reasons": ["accepted evidence"],
+                    "codes": ["AUTHORITY_SCORE_THRESHOLD_MET"],
+                    "hash": "9" * 64,
+                    "now": now,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO hotspot_award_v2(id,event_id,trigger_path,"
+                    "independent_source_count,components,score,reasons,rule_version,awarded_at,"
+                    "evaluation_id,document_version_id,evidence_sha256) VALUES("
+                    ":id,:event,'AUTHORITY_SCORE',1,'{}'::jsonb,80,:reasons,'t44-acceptance',"
+                    ":now,:evaluation,:version,:hash)"
+                ),
+                {
+                    "id": uuid7(),
+                    "event": event_id,
+                    "reasons": ["accepted evidence"],
+                    "now": now,
+                    "evaluation": hotspot_evaluation_id,
+                    "version": version_id,
+                    "hash": "9" * 64,
+                },
+            )
+        async with admin.connect() as connection:
+            preserved_before = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT (SELECT count(*) FROM document_version WHERE id=:version) "
+                            "AS versions,(SELECT count(*) FROM raw_object raw JOIN "
+                            "document_version version ON version.raw_object_id=raw.id "
+                            "WHERE version.id=:version) AS raw_objects,"
+                            "(SELECT count(*) FROM claim JOIN event_identity_binding binding "
+                            "ON binding.item_id=claim.item_id WHERE binding.event_id=:event "
+                            "AND claim.document_version_id=:version) AS claims,"
+                            "(SELECT count(*) FROM claim_evidence evidence JOIN claim "
+                            "ON claim.id=evidence.claim_id JOIN event_identity_binding binding "
+                            "ON binding.item_id=claim.item_id WHERE binding.event_id=:event "
+                            "AND claim.document_version_id=:version) AS evidence,"
+                            "(SELECT count(*) FROM automated_qualification_decision_v2 "
+                            "WHERE document_version_id=:version) AS decisions"
+                        ),
+                        {"event": event_id, "version": version_id},
+                    )
+                )
+                .mappings()
+                .one()
+            )
+        assert source_activation is not None
+        assert all(
+            item.event_id != event_id
+            for item in (await reader.feed(limit=20, primary_type=None, cursor=None)).items
+        )
+        assert all(
+            item.event_id != event_id
+            for item in (await reader.search(query=claim_value, limit=20, cursor=None)).items
+        )
+        assert all(
+            item.event_id != event_id
+            for item in (await reader.hotspots(limit=20, cursor=None)).items
+        )
+        with pytest.raises(ProjectionNotFound):
+            await reader.event(event_id)
+        with pytest.raises(ProjectionNotFound):
+            await reader.media_download(media_id, max_age_seconds=300)
+        await publication.command_feed_suppression(
+            command=FeedSuppressionCommand.model_validate(
+                {
+                    "action": "REVOKE",
+                    "scope": "SOURCE",
+                    "target_key": str(acquired.source_id),
+                    "feedback_reason": "OWNER_PREFERENCE",
+                    "supersedes_rule_id": str(source_activation.id),
+                }
+            ),
+            owner_id=uuid7(),
+            idempotency_key=uuid7(),
+            expected_rule_id=source_activation.id,
+        )
+        auto_feed = await reader.feed(limit=20, primary_type=None, cursor=None)
+        auto_hotspots = await reader.hotspots(limit=20, cursor=None)
+        assert any(item.event_id == event_id for item in auto_feed.items)
+        assert any(item.event_id == event_id for item in auto_hotspots.items)
+        assert await reader.media_download(media_id, max_age_seconds=300)
+
+        topic_id = uuid7()
+        topic_title = f"t44-topic-{topic_id}"
+        async with admin.begin() as connection:
+            await connection.execute(
+                text(
+                    "INSERT INTO topic_cluster(id,title,domain,status,created_at,updated_at) "
+                    "VALUES(:id,:title,'SAFETY','CONFIRMED',:now,:now)"
+                ),
+                {"id": topic_id, "title": topic_title, "now": now},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO topic_event(topic_id,event_id,created_at) "
+                    "VALUES(:topic,:event,:now)"
+                ),
+                {"topic": topic_id, "event": event_id, "now": now},
+            )
+        await PostgresPublicationRepository(publisher).refresh_v2_projection(
+            event_id=event_id,
+            document_version_id=version_id,
+            projected_at=now + timedelta(minutes=2),
+        )
+        scope_targets = [
+            ("PRIMARY_TYPE", primary_type),
+            ("ENGINEERING_OBJECT", "HIGHWAY"),
+            ("CUSTOM_TOPIC", topic_title),
+        ]
+        if primary_type == "SAFETY_INTELLIGENCE":
+            scope_targets.append(("SPECIALTY_FACET", "TUNNEL_GAS_MONITORING"))
+        else:
+            scope_targets.append(("EQUIPMENT_DOMAIN", "CONSTRUCTION_MACHINERY"))
+        for scope, target_key in scope_targets:
+            scoped_activation = await publication.command_feed_suppression(
+                command=FeedSuppressionCommand.model_validate(
+                    {
+                        "action": "ACTIVATE",
+                        "scope": scope,
+                        "target_key": target_key,
+                        "feedback_reason": "OWNER_PREFERENCE",
+                    }
+                ),
+                owner_id=uuid7(),
+                idempotency_key=uuid7(),
+                expected_rule_id=None,
+            )
+            assert all(
+                item.event_id != event_id
+                for item in (await reader.feed(limit=20, primary_type=None, cursor=None)).items
+            )
+            assert all(
+                item.event_id != event_id
+                for item in (await reader.search(query=claim_value, limit=20, cursor=None)).items
+            )
+            assert all(
+                item.event_id != event_id
+                for item in (await reader.hotspots(limit=20, cursor=None)).items
+            )
+            with pytest.raises(ProjectionNotFound):
+                await reader.event(event_id)
+            await publication.command_feed_suppression(
+                command=FeedSuppressionCommand.model_validate(
+                    {
+                        "action": "REVOKE",
+                        "scope": scope,
+                        "target_key": target_key,
+                        "feedback_reason": "OWNER_PREFERENCE",
+                        "supersedes_rule_id": str(scoped_activation.id),
+                    }
+                ),
+                owner_id=uuid7(),
+                idempotency_key=uuid7(),
+                expected_rule_id=scoped_activation.id,
+            )
+            assert any(
+                item.event_id == event_id
+                for item in (await reader.feed(limit=20, primary_type=None, cursor=None)).items
+            )
+
+        activation = await publication.command_feed_suppression(
+            command=FeedSuppressionCommand.model_validate(
+                {
+                    "action": "ACTIVATE",
+                    "scope": "EVENT",
+                    "target_key": str(event_id),
+                    "feedback_reason": "OWNER_PREFERENCE",
+                }
+            ),
+            owner_id=uuid7(),
+            idempotency_key=uuid7(),
+            expected_rule_id=None,
+        )
+        suppressed_feed = await reader.feed(limit=20, primary_type=None, cursor=None)
+        suppressed_search = await reader.search(query=claim_value, limit=20, cursor=None)
+        suppressed_hotspots = await reader.hotspots(limit=20, cursor=None)
+        assert all(item.event_id != event_id for item in suppressed_feed.items)
+        assert all(item.event_id != event_id for item in suppressed_search.items)
+        assert all(item.event_id != event_id for item in suppressed_hotspots.items)
+        with pytest.raises(ProjectionNotFound):
+            await reader.event(event_id)
+        with pytest.raises(ProjectionNotFound):
+            await reader.appendix(event_id)
+        with pytest.raises(ProjectionNotFound):
+            await reader.media_download(media_id, max_age_seconds=300)
+        await PostgresPublicationRepository(publisher).refresh_v2_projection(
+            event_id=event_id,
+            document_version_id=version_id,
+            projected_at=now + timedelta(minutes=3),
+        )
+        assert all(
+            item.event_id != event_id
+            for item in (await reader.feed(limit=20, primary_type=None, cursor=None)).items
+        )
+
+        revoke_command = FeedSuppressionCommand.model_validate(
+            {
+                "action": "REVOKE",
+                "scope": "EVENT",
+                "target_key": str(event_id),
+                "feedback_reason": "OWNER_PREFERENCE",
+                "supersedes_rule_id": str(activation.id),
+            }
+        )
+        revoke_key = uuid7()
+        if primary_type == "INDUSTRY_UPDATE":
+            first_refresh_done = asyncio.Event()
+            allow_first_writer = asyncio.Event()
+
+            class DelayedRevokeRepository(PostgresPublicationRepository):
+                paused = False
+
+                async def refresh_v2_projection(
+                    self,
+                    *,
+                    event_id: UUID,
+                    document_version_id: UUID,
+                    projected_at: datetime,
+                ) -> None:
+                    if not self.paused:
+                        self.paused = True
+                        first_refresh_done.set()
+                        await allow_first_writer.wait()
+                    await super().refresh_v2_projection(
+                        event_id=event_id,
+                        document_version_id=document_version_id,
+                        projected_at=projected_at,
+                    )
+
+            losing_service = PublicationService(
+                repository=DelayedRevokeRepository(publisher),
+                gate=cast(Any, object()),
+                now=lambda: now + timedelta(minutes=4),
+            )
+            winning_service = PublicationService(
+                repository=PostgresPublicationRepository(publisher),
+                gate=cast(Any, object()),
+                now=lambda: now + timedelta(minutes=5),
+            )
+            losing_task = asyncio.create_task(
+                losing_service.command_feed_suppression(
+                    command=revoke_command,
+                    owner_id=uuid7(),
+                    idempotency_key=uuid7(),
+                    expected_rule_id=activation.id,
+                )
+            )
+            await asyncio.wait_for(first_refresh_done.wait(), timeout=5)
+            revoked = await winning_service.command_feed_suppression(
+                command=revoke_command,
+                owner_id=uuid7(),
+                idempotency_key=revoke_key,
+                expected_rule_id=activation.id,
+            )
+            allow_first_writer.set()
+            losing_result = await asyncio.gather(losing_task, return_exceptions=True)
+            assert isinstance(losing_result[0], FeedSuppressionConflict)
+            async with admin.connect() as connection:
+                converged_at = await connection.scalar(
+                    text(
+                        "SELECT projected_at FROM intelligence_projection_v2 "
+                        "WHERE event_id=:event"
+                    ),
+                    {"event": event_id},
+                )
+            assert converged_at == revoked.effective_at + timedelta(microseconds=1)
+            replay_service = winning_service
+        else:
+            revoked = await publication.command_feed_suppression(
+                command=revoke_command,
+                owner_id=uuid7(),
+                idempotency_key=revoke_key,
+                expected_rule_id=activation.id,
+            )
+            replay_service = publication
+        replayed_revoke = await replay_service.command_feed_suppression(
+            command=revoke_command,
+            owner_id=uuid7(),
+            idempotency_key=revoke_key,
+            expected_rule_id=activation.id,
+        )
+        assert replayed_revoke == revoked
+        restored_feed = await reader.feed(limit=20, primary_type=None, cursor=None)
+        restored_hotspots = await reader.hotspots(limit=20, cursor=None)
+        assert any(item.event_id == event_id for item in restored_feed.items)
+        assert any(item.event_id == event_id for item in restored_hotspots.items)
+        assert (await reader.event(event_id)).event_id == event_id
+        assert await reader.media_download(media_id, max_age_seconds=300)
+        async with admin.connect() as connection:
+            preserved_after = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT (SELECT count(*) FROM document_version WHERE id=:version) "
+                            "AS versions,(SELECT count(*) FROM raw_object raw JOIN "
+                            "document_version version ON version.raw_object_id=raw.id "
+                            "WHERE version.id=:version) AS raw_objects,"
+                            "(SELECT count(*) FROM claim JOIN event_identity_binding binding "
+                            "ON binding.item_id=claim.item_id WHERE binding.event_id=:event "
+                            "AND claim.document_version_id=:version) AS claims,"
+                            "(SELECT count(*) FROM claim_evidence evidence JOIN claim "
+                            "ON claim.id=evidence.claim_id JOIN event_identity_binding binding "
+                            "ON binding.item_id=claim.item_id WHERE binding.event_id=:event "
+                            "AND claim.document_version_id=:version) AS evidence,"
+                            "(SELECT count(*) FROM automated_qualification_decision_v2 "
+                            "WHERE document_version_id=:version) AS decisions"
+                        ),
+                        {"event": event_id, "version": version_id},
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            suppression_audits = await connection.scalar(
+                text(
+                    "SELECT count(*) FROM audit_log WHERE event_type IN "
+                    "('FEED_SUPPRESSION_ACTIVATE','FEED_SUPPRESSION_REVOKE') "
+                    "AND target_type='FEED_SUPPRESSION'"
+                )
+            )
+        assert dict(preserved_after) == dict(preserved_before)
+        assert suppression_audits >= 2
     finally:
         await admin.dispose()
         await worker.dispose()
         await publisher.dispose()
+        await projection_reader.dispose()
 
 
 async def test_technical_failure_retries_survive_restart_and_owner_recovery_is_idempotent() -> None:

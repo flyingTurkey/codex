@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-07-23 (Issue #44 Feed suppression and automatic restoration)
+
+- Activated the frozen `feed_suppression_rule_v2` contract as an append-only, idempotent, audited Owner control plane under `/api/v2/owner/suppressions`, with canonical scope targets, serialized concurrent commands, explicit revoke preconditions, and no Safety allow/deny or technical-retry authority.
+- Added linear migration `0052_feed_suppression_projection` from the actual `0051` head. Its rebuildable Event match model covers Event, primary type, engineering object, specialty, equipment, Source, and custom-topic keys; existing projections are backfilled without changing historical migrations or creating another suppression ledger.
+- Routed Feed, search, hotspot, Event detail, appendix, preview, and download authorization through one PostgreSQL security-barrier visible projection before ranking, pagination, cursor, counts, or `LIMIT`. Suppression never deletes source material, evidence, claims, decisions, or historical facts.
+- Kept `AUTO_ACCEPTED` content entering Feed through the existing `PublicationService`. Revocation appends a fact and re-evaluates each affected current document through that same gate; successful current content restores automatically, while current gate failures remain closed without requiring Owner confirmation.
+- Added the shared Feed-card confirmation action and an accessible Nuxt Owner control page for creating and revoking rules, plus a v2 same-origin proxy, bounded metrics, migration replay, SQL-boundary tests, browser/axe coverage, and the existing unique SourceStream-to-Feed acceptance seam.
+- Added the same accessible hide action to the unified Event Reader, complete Event-wide SOURCE and confirmed custom-topic matching with shared Unicode canonicalization, failure-safe revalidation-before-REVOKE ordering, and a bounded failure alert/runbook.
+- Hardened revocation convergence with same-key replay before rebuild work, winner-timestamp convergence for losing writers, explicit HTTP 412 conflict feedback, legacy-safe oversized custom-topic handling, and acceptance coverage for a rule predating the real raw/document handoff plus object-storage media suppression/restoration.
+- Serialized each Event projection write and made its timestamp monotonic, so an older reconstruction cannot overwrite a newer visibility decision. The production SourceStream seam now exercises all seven frozen scopes across Feed, search, hotspot, and Event reads, including a controlled losing-writer interleaving.
+
 ## 2026-07-22 (Issue #43 technical exception control plane)
 
 - Added retryable/non-retryable autonomous technical failure decisions with three PostgreSQL-backed exponential retry intervals, full jitter, leased restart recovery, terminal `TECHNICAL_FAILED`, and a separate retry-cycle counter so Owner recovery never reuses an immutable decision attempt number.

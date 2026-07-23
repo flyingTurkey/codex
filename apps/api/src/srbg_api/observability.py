@@ -101,6 +101,11 @@ OWNER_TECHNICAL_EXCEPTION_COMMANDS = Counter(
     "Owner technical exception commands by bounded outcome.",
     ("outcome",),
 )
+OWNER_FEED_SUPPRESSION_COMMANDS = Counter(
+    "srbg_owner_feed_suppression_commands_total",
+    "Owner Feed suppression commands by bounded scope, action, and outcome.",
+    ("scope", "action", "outcome"),
+)
 INTELLIGENCE_V2_PUBLICATION_DECISIONS = Counter(
     "srbg_intelligence_v2_publication_decisions_total",
     "Reader projection decisions by bounded outcome; safety failures are explicit.",
