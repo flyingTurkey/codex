@@ -9,6 +9,7 @@
 - Added the shared Feed-card confirmation action and an accessible Nuxt Owner control page for creating and revoking rules, plus a v2 same-origin proxy, bounded metrics, migration replay, SQL-boundary tests, browser/axe coverage, and the existing unique SourceStream-to-Feed acceptance seam.
 - Added the same accessible hide action to the unified Event Reader, complete Event-wide SOURCE and confirmed custom-topic matching with shared Unicode canonicalization, failure-safe revalidation-before-REVOKE ordering, and a bounded failure alert/runbook.
 - Hardened revocation convergence with same-key replay before rebuild work, winner-timestamp convergence for losing writers, explicit HTTP 412 conflict feedback, legacy-safe oversized custom-topic handling, and acceptance coverage for a rule predating the real raw/document handoff plus object-storage media suppression/restoration.
+- Serialized each Event projection write and made its timestamp monotonic, so an older reconstruction cannot overwrite a newer visibility decision. The production SourceStream seam now exercises all seven frozen scopes across Feed, search, hotspot, and Event reads, including a controlled losing-writer interleaving.
 
 ## 2026-07-22 (Issue #43 technical exception control plane)
 

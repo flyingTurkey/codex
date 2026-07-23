@@ -136,13 +136,14 @@ class AcceptedModel:
     def classify(
         self, *, system_prompt: str, document_text: str, semantic_recheck: bool
     ) -> dict[str, object]:
+        is_safety = self._primary_type == "SAFETY_INTELLIGENCE"
         return {
             "direct_relevance": "RELEVANT",
             "core_new_fact": self._core_new_fact,
             "primary_type": self._primary_type,
-            "engineering_objects": ["HIGHWAY"],
-            "specialty_facets": [],
-            "equipment_domains": [],
+            "engineering_objects": ["HIGHWAY", "TUNNEL"] if is_safety else ["HIGHWAY"],
+            "specialty_facets": ["TUNNEL_GAS_MONITORING"] if is_safety else [],
+            "equipment_domains": [] if is_safety else ["CONSTRUCTION_MACHINERY"],
             "content_form": self._content_form,
             "evidence_locators": [self._locator],
             "confidence": 0.91,
@@ -555,9 +556,10 @@ async def test_filtered_decision_is_idempotent_and_has_no_reader_materialization
     (
         (
             "INDUSTRY_UPDATE",
-            "A highway construction section opened to traffic.",
+            "Construction machinery completed work before a highway section opened to traffic.",
             "OPERATION_UPDATE",
-            "A highway construction section opened to traffic after completion.",
+            "Construction machinery completed direct highway work "
+            "before the section opened to traffic.",
             "project_status",
             "opened to traffic",
         ),
@@ -1020,6 +1022,84 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
         assert any(item.event_id == event_id for item in auto_hotspots.items)
         assert await reader.media_download(media_id, max_age_seconds=300)
 
+        topic_id = uuid7()
+        topic_title = f"t44-topic-{topic_id}"
+        async with admin.begin() as connection:
+            await connection.execute(
+                text(
+                    "INSERT INTO topic_cluster(id,title,domain,status,created_at,updated_at) "
+                    "VALUES(:id,:title,'SAFETY','CONFIRMED',:now,:now)"
+                ),
+                {"id": topic_id, "title": topic_title, "now": now},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO topic_event(topic_id,event_id,created_at) "
+                    "VALUES(:topic,:event,:now)"
+                ),
+                {"topic": topic_id, "event": event_id, "now": now},
+            )
+        await PostgresPublicationRepository(publisher).refresh_v2_projection(
+            event_id=event_id,
+            document_version_id=version_id,
+            projected_at=now + timedelta(minutes=2),
+        )
+        scope_targets = [
+            ("PRIMARY_TYPE", primary_type),
+            ("ENGINEERING_OBJECT", "HIGHWAY"),
+            ("CUSTOM_TOPIC", topic_title),
+        ]
+        if primary_type == "SAFETY_INTELLIGENCE":
+            scope_targets.append(("SPECIALTY_FACET", "TUNNEL_GAS_MONITORING"))
+        else:
+            scope_targets.append(("EQUIPMENT_DOMAIN", "CONSTRUCTION_MACHINERY"))
+        for scope, target_key in scope_targets:
+            scoped_activation = await publication.command_feed_suppression(
+                command=FeedSuppressionCommand.model_validate(
+                    {
+                        "action": "ACTIVATE",
+                        "scope": scope,
+                        "target_key": target_key,
+                        "feedback_reason": "OWNER_PREFERENCE",
+                    }
+                ),
+                owner_id=uuid7(),
+                idempotency_key=uuid7(),
+                expected_rule_id=None,
+            )
+            assert all(
+                item.event_id != event_id
+                for item in (await reader.feed(limit=20, primary_type=None, cursor=None)).items
+            )
+            assert all(
+                item.event_id != event_id
+                for item in (await reader.search(query=claim_value, limit=20, cursor=None)).items
+            )
+            assert all(
+                item.event_id != event_id
+                for item in (await reader.hotspots(limit=20, cursor=None)).items
+            )
+            with pytest.raises(ProjectionNotFound):
+                await reader.event(event_id)
+            await publication.command_feed_suppression(
+                command=FeedSuppressionCommand.model_validate(
+                    {
+                        "action": "REVOKE",
+                        "scope": scope,
+                        "target_key": target_key,
+                        "feedback_reason": "OWNER_PREFERENCE",
+                        "supersedes_rule_id": str(scoped_activation.id),
+                    }
+                ),
+                owner_id=uuid7(),
+                idempotency_key=uuid7(),
+                expected_rule_id=scoped_activation.id,
+            )
+            assert any(
+                item.event_id == event_id
+                for item in (await reader.feed(limit=20, primary_type=None, cursor=None)).items
+            )
+
         activation = await publication.command_feed_suppression(
             command=FeedSuppressionCommand.model_validate(
                 {
@@ -1079,15 +1159,15 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
                     document_version_id: UUID,
                     projected_at: datetime,
                 ) -> None:
+                    if not self.paused:
+                        self.paused = True
+                        first_refresh_done.set()
+                        await allow_first_writer.wait()
                     await super().refresh_v2_projection(
                         event_id=event_id,
                         document_version_id=document_version_id,
                         projected_at=projected_at,
                     )
-                    if not self.paused:
-                        self.paused = True
-                        first_refresh_done.set()
-                        await allow_first_writer.wait()
 
             losing_service = PublicationService(
                 repository=DelayedRevokeRepository(publisher),
@@ -1117,6 +1197,15 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
             allow_first_writer.set()
             losing_result = await asyncio.gather(losing_task, return_exceptions=True)
             assert isinstance(losing_result[0], FeedSuppressionConflict)
+            async with admin.connect() as connection:
+                converged_at = await connection.scalar(
+                    text(
+                        "SELECT projected_at FROM intelligence_projection_v2 "
+                        "WHERE event_id=:event"
+                    ),
+                    {"event": event_id},
+                )
+            assert converged_at == revoked.effective_at + timedelta(microseconds=1)
             replay_service = winning_service
         else:
             revoked = await publication.command_feed_suppression(

@@ -799,6 +799,19 @@ class PostgresPublicationRepository:
         )
         searchable = " ".join((projection.title, source_name, claim_text, excerpt)).strip()
         async with self._engine.begin() as connection:
+            await connection.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:event_key,0))"),
+                {"event_key": f"intelligence-projection:{projection.event_id}"},
+            )
+            current_projected_at = await connection.scalar(
+                text(
+                    "SELECT projected_at FROM intelligence_projection_v2 "
+                    "WHERE event_id=:event_id"
+                ),
+                {"event_id": projection.event_id},
+            )
+            if current_projected_at is not None and current_projected_at > projected_at:
+                return
             generation = await connection.scalar(
                 text(
                     "SELECT COALESCE(max(generation),0)+1 "
