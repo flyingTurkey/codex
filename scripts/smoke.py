@@ -75,7 +75,7 @@ def validate_version_contract(version: dict[str, Any]) -> None:
 
 
 def validate_homepage_contract(homepage: str, feed: dict[str, Any]) -> None:
-    """Require branding and an empty state only when the authoritative feed is empty."""
+    """Require the server-rendered brand shell and the authoritative feed shape."""
     require("四川路桥" in homepage, "homepage organization brand is missing")
     require("智安情报" in homepage, "homepage product brand is missing")
     items = feed.get("items")

@@ -85,11 +85,19 @@ make setup
 ```
 
 ```bash
-make dev
+make dev-lite
 make smoke
 ```
 
-正式业务数据、备份与验收报告的持久化根目录是 `D:\SRBGData`。七类在线服务数据位于 `srbg-data.vhdx` 的 ext4 文件系统；`make dev` 和 `make runtime-ready` 会先执行 `scripts/mount_personal_data.ps1`，挂载或目录校验失败时拒绝启动。切换前必须按备份恢复说明完成隔离恢复验证，不得直接移动仍在使用的数据目录；原 Docker 数据卷只停用并保留。
+`make dev-lite` 是日常个人运行入口：保留 PostgreSQL、Redis、ClamAV、两个 MinIO、API、Web，以及 Worker、Parser、Personal Source Worker、Publisher、Scheduler 组成的完整执行平面；默认不启动来源发现、AI Worker 和 Prometheus、Alertmanager、Grafana、OTel Collector。它包含 12 个常驻容器和 4 个一次性初始化任务，来源采集、解析、发布和调度状态不会因为“省资源”而被伪装成仍在运行。需要来源发现、AI 和观测能力时使用完整入口：
+
+```bash
+make dev
+```
+
+`discovery`、`ai` 和 `observability` Compose profile 是完整模式使用的能力分组，不是可以脱离 `automation` 单独运行的完整工作流。`make runtime-ready` 仍启动完整模式，供既有浏览器门禁复用。这里优化的是默认启动集合和 Celery 执行并发，不是把数据库、队列、对象存储、恶意内容解析、AI 和发布凭据合并进一个进程；这些隔离边界继续保留。
+
+正式业务数据、备份与验收报告的持久化根目录是 `D:\SRBGData`。七类在线服务数据位于 `srbg-data.vhdx` 的 ext4 文件系统；`make dev-lite`、`make dev` 和 `make runtime-ready` 都会先执行 `scripts/mount_personal_data.ps1`，挂载或目录校验失败时拒绝启动。切换前必须按备份恢复说明完成隔离恢复验证，不得直接移动仍在使用的数据目录；原 Docker 数据卷只停用并保留。
 
 Web 与 API 默认只绑定 `127.0.0.1`。不要把固定本地身份头、端口或数据库凭据代理到局域网或公网。Secret 只允许通过环境变量或 Git 忽略的本地 Secret 文件提供，不得提交到仓库。
 

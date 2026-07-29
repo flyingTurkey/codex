@@ -1,8 +1,50 @@
+import re
 from pathlib import Path
 
 from scripts.resilience_test import COMPOSE
 
 ROOT = Path(__file__).parents[2]
+
+PROFILED_SERVICES = {
+    "automation": (
+        "worker",
+        "parser",
+        "personal-source-worker",
+        "publisher",
+        "scheduler",
+    ),
+    "discovery": ("source-discovery",),
+    "ai": ("ai-worker",),
+    "observability": (
+        "prometheus",
+        "alertmanager",
+        "grafana",
+        "otel-collector",
+    ),
+}
+
+
+def _compose_service_section(compose: str, service: str) -> str:
+    marker = f"  {service}:\n"
+    start = compose.index(marker)
+    tail = compose[start + len(marker) :]
+    next_service = re.search(r"^  [a-z0-9][a-z0-9-]*:\n", tail, flags=re.MULTILINE)
+    end = next_service.start() if next_service else len(tail)
+    return marker + tail[:end]
+
+
+def _make_variable_words(makefile: str, name: str) -> tuple[str, ...]:
+    lines = makefile.splitlines()
+    prefix = f"{name} = "
+    for index, line in enumerate(lines):
+        if not line.startswith(prefix):
+            continue
+        value = line.removeprefix(prefix)
+        while value.endswith("\\"):
+            index += 1
+            value = f"{value[:-1].strip()} {lines[index].strip()}"
+        return tuple(value.split())
+    raise AssertionError(f"missing Make variable: {name}")
 
 
 def test_compose_uses_pinned_services_and_loopback_ports() -> None:
@@ -34,6 +76,163 @@ def test_primary_worker_healthcheck_has_bounded_startup_margin() -> None:
     assert "      timeout: 8s" in worker_section
 
 
+def test_healthchecks_poll_fast_only_during_startup() -> None:
+    compose = (ROOT / "infra/compose/compose.yaml").read_text(encoding="utf-8")
+
+    for service in (
+        "postgres",
+        "redis",
+        "minio",
+        "anchor-minio",
+        "api",
+        "worker",
+        "ai-worker",
+        "web",
+    ):
+        section = _compose_service_section(compose, service)
+        assert "      interval: 30s" in section
+        assert "      start_interval: 3s" in section
+        assert "      start_period: 30s" in section
+        assert "      retries: 4" in section
+
+
+def test_long_running_services_rotate_local_json_logs() -> None:
+    compose = (ROOT / "infra/compose/compose.yaml").read_text(encoding="utf-8")
+    example = (ROOT / ".env.example").read_text(encoding="utf-8")
+    runtime_services = (
+        "postgres",
+        "redis",
+        "clamav",
+        "minio",
+        "anchor-minio",
+        "api",
+        "worker",
+        "parser",
+        "source-discovery",
+        "personal-source-worker",
+        "ai-worker",
+        "publisher",
+        "scheduler",
+        "web",
+        "prometheus",
+        "alertmanager",
+        "grafana",
+        "otel-collector",
+    )
+
+    assert "x-runtime-logging: &runtime-logging" in compose
+    assert 'max-size: "${SRBG_DOCKER_LOG_MAX_SIZE:-10m}"' in compose
+    assert 'max-file: "${SRBG_DOCKER_LOG_MAX_FILES:-3}"' in compose
+    for service in runtime_services:
+        assert "    logging: *runtime-logging" in _compose_service_section(
+            compose, service
+        )
+    assert "SRBG_DOCKER_LOG_MAX_SIZE=10m" in example
+    assert "SRBG_DOCKER_LOG_MAX_FILES=3" in example
+
+
+def test_primary_worker_defaults_to_single_task_slot_concurrency() -> None:
+    compose = (ROOT / "infra/compose/compose.yaml").read_text(encoding="utf-8")
+    example = (ROOT / ".env.example").read_text(encoding="utf-8")
+    worker_section = compose.split("  worker:\n", 1)[1].split("  parser:\n", 1)[0]
+
+    assert "--concurrency=${SRBG_WORKER_CONCURRENCY:-1}" in worker_section
+    assert "SRBG_WORKER_CONCURRENCY=1" in example
+
+
+def test_compose_profiles_keep_core_small_and_capabilities_explicit() -> None:
+    compose = (ROOT / "infra/compose/compose.yaml").read_text(encoding="utf-8")
+    core_services = (
+        "postgres",
+        "redis",
+        "clamav",
+        "minio",
+        "minio-init",
+        "anchor-minio",
+        "anchor-minio-init",
+        "migrate",
+        "role-init",
+        "api",
+        "web",
+    )
+
+    for profile, services in PROFILED_SERVICES.items():
+        for service in services:
+            assert f"profiles: [{profile}]" in _compose_service_section(
+                compose, service
+            )
+    configured_profiled_services = {
+        service
+        for service in re.findall(r"^  ([a-z0-9][a-z0-9-]*):$", compose, re.MULTILINE)
+        if "profiles:" in _compose_service_section(compose, service)
+    }
+    assert configured_profiled_services == {
+        service
+        for services in PROFILED_SERVICES.values()
+        for service in services
+    }
+    for service in core_services:
+        assert "profiles:" not in _compose_service_section(compose, service)
+
+
+def test_makefile_offers_lite_runtime_without_disabling_execution_plane() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    expected_lite_disabled_services = {
+        service
+        for profile, services in PROFILED_SERVICES.items()
+        if profile != "automation"
+        for service in services
+    }
+
+    assert (
+        "COMPOSE_WORKFLOW_PROFILES = "
+        "--profile automation --profile discovery --profile ai"
+    ) in makefile
+    assert (
+        "COMPOSE_FULL_PROFILES = "
+        "$(COMPOSE_WORKFLOW_PROFILES) --profile observability"
+    ) in makefile
+    assert "COMPOSE_LITE_PROFILES = --profile automation" in makefile
+    assert set(
+        _make_variable_words(makefile, "COMPOSE_LITE_DISABLED_SERVICES")
+    ) == expected_lite_disabled_services
+    assert (
+        "setup:\n"
+        "\t$(UV) sync --frozen --all-packages\n"
+        "\t$(PNPM) install --frozen-lockfile"
+    ) in makefile
+    assert "\t$(COMPOSE) $(COMPOSE_FULL_PROFILES) build" in makefile
+    assert "dev-lite: personal-data-ready" in makefile
+    assert (
+        "$(COMPOSE) $(COMPOSE_FULL_PROFILES) stop "
+        "$(COMPOSE_LITE_DISABLED_SERVICES)"
+        in makefile
+    )
+    assert (
+        "$(COMPOSE) $(COMPOSE_LITE_PROFILES) up --build --detach --wait"
+        in makefile
+    )
+    dev_lite_recipe = makefile.split("dev-lite: personal-data-ready\n", 1)[1].split(
+        "\nruntime-ready:", 1
+    )[0]
+    assert dev_lite_recipe.count(" up ") == 1
+    assert "$(COMPOSE_LITE_PROFILES) up" in dev_lite_recipe
+    assert (
+        "dev: personal-data-ready\n"
+        "\t$(COMPOSE) $(COMPOSE_FULL_PROFILES) up --build --detach --wait"
+        in makefile
+    )
+    assert (
+        "runtime-ready: personal-data-ready\n"
+        "\t$(COMPOSE) $(COMPOSE_FULL_PROFILES) up --detach --wait"
+        in makefile
+    )
+    assert (
+        "down:\n\t$(COMPOSE) $(COMPOSE_FULL_PROFILES) down --remove-orphans"
+        in makefile
+    )
+
+
 def test_source_upload_runtime_requires_private_healthy_clamav() -> None:
     compose = (ROOT / "infra/compose/compose.yaml").read_text(encoding="utf-8")
 
@@ -62,6 +261,13 @@ def test_clean_database_bootstraps_login_roles_before_migrations() -> None:
     assert "postgres:\n        condition: service_healthy" in bootstrap
     assert "role-bootstrap:\n        condition: service_completed_successfully" in migrate
     assert "migrate:\n        condition: service_completed_successfully" in role_init
+
+
+def test_role_init_does_not_allocate_an_anonymous_postgres_data_volume() -> None:
+    compose = (ROOT / "infra/compose/compose.yaml").read_text(encoding="utf-8")
+    role_init_section = _compose_service_section(compose, "role-init")
+
+    assert "    tmpfs:\n      - /var/lib/postgresql/data" in role_init_section
 
 
 def test_makefile_exposes_required_quality_and_runtime_targets() -> None:
@@ -260,7 +466,10 @@ def test_compose_commands_use_repository_as_project_directory() -> None:
 def test_browser_gates_reuse_the_ready_runtime_without_forced_rebuilds() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
-    assert "runtime-ready: personal-data-ready\n\t$(COMPOSE) up --detach --wait" in makefile
+    assert (
+        "runtime-ready: personal-data-ready\n"
+        "\t$(COMPOSE) $(COMPOSE_FULL_PROFILES) up --detach --wait"
+    ) in makefile
     assert "web-e2e: runtime-ready" in makefile
     assert "web-a11y: runtime-ready" in makefile
 

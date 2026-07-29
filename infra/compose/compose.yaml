@@ -37,8 +37,15 @@ x-postgres-build: &postgres-build
   context: .
   dockerfile: infra/compose/Dockerfile.postgres
 
+x-runtime-logging: &runtime-logging
+  driver: json-file
+  options:
+    max-size: "${SRBG_DOCKER_LOG_MAX_SIZE:-10m}"
+    max-file: "${SRBG_DOCKER_LOG_MAX_FILES:-3}"
+
 services:
   postgres:
+    logging: *runtime-logging
     image: srbg-postgres:17.10-pgvector-0.8.2
     build: *postgres-build
     environment:
@@ -59,29 +66,35 @@ services:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 3s
+      interval: 30s
+      start_interval: 3s
+      start_period: 30s
       timeout: 2s
-      retries: 20
+      retries: 4
     volumes:
       - ${SRBG_DATA_ROOT:?SRBG_DATA_ROOT must point to the mounted D-drive ext4 data root}/postgres:/var/lib/postgresql/data
       - ${SRBG_DATA_ROOT:?SRBG_DATA_ROOT must point to the mounted D-drive ext4 data root}/postgres-wal:/wal-archive
     restart: unless-stopped
 
   redis:
+    logging: *runtime-logging
     image: redis:7.4.7-alpine3.21
     command: ["redis-server", "--appendonly", "yes"]
     ports:
       - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 3s
+      interval: 30s
+      start_interval: 3s
+      start_period: 30s
       timeout: 2s
-      retries: 20
+      retries: 4
     volumes:
       - ${SRBG_DATA_ROOT:?SRBG_DATA_ROOT must point to the mounted D-drive ext4 data root}/redis:/data
     restart: unless-stopped
 
   clamav:
+    logging: *runtime-logging
     image: clamav/clamav:1.5.2-debian13-slim@sha256:14e2e0805c6a5ff6728ea591c05565e0f0954d93e8701919012c3a8c44e20674
     expose:
       - "3310"
@@ -90,6 +103,7 @@ services:
     restart: unless-stopped
 
   minio:
+    logging: *runtime-logging
     image: minio/minio:RELEASE.2025-09-07T16-13-09Z
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
@@ -100,9 +114,11 @@ services:
       - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 3s
+      interval: 30s
+      start_interval: 3s
+      start_period: 30s
       timeout: 2s
-      retries: 20
+      retries: 4
     volumes:
       - ${SRBG_DATA_ROOT:?SRBG_DATA_ROOT must point to the mounted D-drive ext4 data root}/minio:/data
     restart: unless-stopped
@@ -126,6 +142,7 @@ services:
     restart: "no"
 
   anchor-minio:
+    logging: *runtime-logging
     image: minio/minio:RELEASE.2025-09-07T16-13-09Z
     command: ["server", "/data"]
     environment:
@@ -135,9 +152,11 @@ services:
       - "127.0.0.1:${ANCHOR_MINIO_PORT:-9002}:9000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 3s
+      interval: 30s
+      start_interval: 3s
+      start_period: 30s
       timeout: 2s
-      retries: 20
+      retries: 4
     volumes:
       - ${SRBG_DATA_ROOT:?SRBG_DATA_ROOT must point to the mounted D-drive ext4 data root}/anchor-minio:/data
     restart: unless-stopped
@@ -212,6 +231,8 @@ services:
   role-init:
     image: srbg-postgres:17.10-pgvector-0.8.2
     build: *postgres-build
+    tmpfs:
+      - /var/lib/postgresql/data
     environment:
       PGHOST: postgres
       PGDATABASE: ${POSTGRES_DB:-srbg}
@@ -260,6 +281,7 @@ services:
     restart: "no"
 
   api:
+    logging: *runtime-logging
     build:
       context: .
       dockerfile: infra/compose/Dockerfile.python
@@ -291,14 +313,18 @@ services:
         - >-
           import urllib.request;
           urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=2)
-      interval: 3s
+      interval: 30s
+      start_interval: 3s
+      start_period: 30s
       timeout: 3s
-      retries: 20
+      retries: 4
     volumes:
       - ai-secrets:/run/secrets/srbg-ai
     restart: unless-stopped
 
   worker:
+    logging: *runtime-logging
+    profiles: [automation]
     build:
       context: .
       dockerfile: infra/compose/Dockerfile.python
@@ -306,7 +332,7 @@ services:
     environment:
       <<: *python-environment
       SRBG_DATABASE_URL: postgresql+asyncpg://srbg_worker_login:${SRBG_WORKER_DB_PASSWORD:-srbg_worker_local_only}@postgres:5432/${POSTGRES_DB:-srbg}
-    command: ["celery", "-A", "srbg_worker.app:celery_app", "worker", "--loglevel=INFO"]
+    command: ["celery", "-A", "srbg_worker.app:celery_app", "worker", "--loglevel=INFO", "--concurrency=${SRBG_WORKER_CONCURRENCY:-1}"]
     depends_on:
       role-init:
         condition: service_completed_successfully
@@ -318,12 +344,16 @@ services:
       test:
         - CMD-SHELL
         - celery -A srbg_worker.app:celery_app inspect ping --destination celery@worker --timeout 2
-      interval: 10s
+      interval: 30s
+      start_interval: 3s
+      start_period: 30s
       timeout: 8s
-      retries: 12
+      retries: 4
     restart: unless-stopped
 
   parser:
+    logging: *runtime-logging
+    profiles: [automation]
     build:
       context: .
       dockerfile: infra/compose/Dockerfile.python
@@ -345,6 +375,8 @@ services:
     restart: unless-stopped
 
   source-discovery:
+    logging: *runtime-logging
+    profiles: [discovery]
     build:
       context: .
       dockerfile: infra/compose/Dockerfile.python
@@ -364,6 +396,8 @@ services:
     restart: unless-stopped
 
   personal-source-worker:
+    logging: *runtime-logging
+    profiles: [automation]
     build:
       context: .
       dockerfile: infra/compose/Dockerfile.python
@@ -387,6 +421,8 @@ services:
     restart: unless-stopped
 
   ai-worker:
+    logging: *runtime-logging
+    profiles: [ai]
     build:
       context: .
       dockerfile: infra/compose/Dockerfile.python
@@ -411,12 +447,16 @@ services:
       test:
         - CMD-SHELL
         - celery -A srbg_worker.ai_app:celery_app inspect ping --destination celery@ai-worker --timeout 2
-      interval: 10s
+      interval: 30s
+      start_interval: 3s
+      start_period: 30s
       timeout: 4s
-      retries: 12
+      retries: 4
     restart: unless-stopped
 
   publisher:
+    logging: *runtime-logging
+    profiles: [automation]
     build:
       context: .
       dockerfile: infra/compose/Dockerfile.python
@@ -439,6 +479,8 @@ services:
     restart: unless-stopped
 
   scheduler:
+    logging: *runtime-logging
+    profiles: [automation]
     build:
       context: .
       dockerfile: infra/compose/Dockerfile.python
@@ -456,6 +498,7 @@ services:
     restart: unless-stopped
 
   web:
+    logging: *runtime-logging
     build:
       context: .
       dockerfile: infra/compose/Dockerfile.web
@@ -479,12 +522,16 @@ services:
         - >-
           fetch('http://127.0.0.1:3000').then((response) => {
           if (!response.ok) process.exit(1) }).catch(() => process.exit(1))
-      interval: 5s
+      interval: 30s
+      start_interval: 3s
+      start_period: 30s
       timeout: 3s
-      retries: 20
+      retries: 4
     restart: unless-stopped
 
   prometheus:
+    logging: *runtime-logging
+    profiles: [observability]
     image: prom/prometheus:v3.5.0
     environment:
       METRICS_TOKEN: ${SRBG_METRICS_BEARER_TOKEN:-demo-only-round11-metrics-token-000000}
@@ -494,6 +541,8 @@ services:
         umask 077; printf %s "$${METRICS_TOKEN}" > /tmp/metrics-token;
         exec /bin/prometheus --config.file=/etc/prometheus/prometheus.yml
         --storage.tsdb.path=/prometheus
+        --storage.tsdb.retention.time=${SRBG_PROMETHEUS_RETENTION_TIME:-15d}
+        --storage.tsdb.retention.size=${SRBG_PROMETHEUS_RETENTION_SIZE:-2GB}
     volumes:
       - ./infra/observability/prometheus:/etc/prometheus:ro
       - ${SRBG_DATA_ROOT:?SRBG_DATA_ROOT must point to the mounted D-drive ext4 data root}/prometheus:/prometheus
@@ -505,6 +554,8 @@ services:
     restart: unless-stopped
 
   alertmanager:
+    logging: *runtime-logging
+    profiles: [observability]
     image: prom/alertmanager:v0.28.1
     command: ["--config.file=/etc/alertmanager/alertmanager.yml"]
     volumes:
@@ -514,6 +565,8 @@ services:
     restart: unless-stopped
 
   grafana:
+    logging: *runtime-logging
+    profiles: [observability]
     image: grafana/grafana:12.1.1
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
@@ -530,6 +583,8 @@ services:
     restart: unless-stopped
 
   otel-collector:
+    logging: *runtime-logging
+    profiles: [observability]
     image: otel/opentelemetry-collector-contrib:0.133.0
     command: ["--config=/etc/otelcol-contrib/config.yml"]
     volumes:

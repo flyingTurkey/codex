@@ -33,6 +33,10 @@ export MINIO_ROOT_USER MINIO_ROOT_PASSWORD
 export SRBG_API_DB_PASSWORD SRBG_PUBLISHER_DB_PASSWORD SRBG_PROJECTION_DB_PASSWORD
 export SRBG_S3_BUCKET SRBG_S3_REGION SRBG_EXTERNAL_IO_TIMEOUT_SECONDS
 COMPOSE = docker compose --project-directory . -f infra/compose/compose.yaml
+COMPOSE_WORKFLOW_PROFILES = --profile automation --profile discovery --profile ai
+COMPOSE_FULL_PROFILES = $(COMPOSE_WORKFLOW_PROFILES) --profile observability
+COMPOSE_LITE_PROFILES = --profile automation
+COMPOSE_LITE_DISABLED_SERVICES = source-discovery ai-worker prometheus alertmanager grafana otel-collector
 TRIVY_IMAGE = aquasec/trivy:0.69.3
 UV_CACHE_DIR ?= $(CURDIR)/.cache/uv
 UV_PYTHON_INSTALL_DIR ?= $(CURDIR)/.tools/python
@@ -43,7 +47,7 @@ export UV_CACHE_DIR
 export UV_PYTHON_INSTALL_DIR
 export PLAYWRIGHT_BROWSERS_PATH
 
-.PHONY: setup dev personal-data-ready runtime-ready down lint typecheck test contract-test security-check smoke \
+.PHONY: setup dev dev-lite personal-data-ready runtime-ready down lint typecheck test contract-test security-check smoke \
 	resilience-test fixture-replay quality-gate web-e2e web-a11y source-fixture-test \
 	safety-regulation-test pdf-ocr-test autonomous-content-integration-test digital-case-test paper-test product-test \
 	round08-test round08-eval round09-test round09-eval round10-test round10-eval \
@@ -60,7 +64,7 @@ setup:
 	$(UV) run python -m srbg_contracts.export
 	$(PNPM) contracts:generate
 	$(PNPM) --filter @srbg/web exec playwright install chromium
-	$(COMPOSE) build
+	$(COMPOSE) $(COMPOSE_FULL_PROFILES) build
 
 personal-data-ready:
 ifeq ($(OS),Windows_NT)
@@ -85,13 +89,17 @@ personal-pilot-control-test:
 		apps/api/tests/test_round15_http_security.py -q
 
 dev: personal-data-ready
-	$(COMPOSE) up --build --detach --wait
+	$(COMPOSE) $(COMPOSE_FULL_PROFILES) up --build --detach --wait
+
+dev-lite: personal-data-ready
+	$(COMPOSE) $(COMPOSE_FULL_PROFILES) stop $(COMPOSE_LITE_DISABLED_SERVICES)
+	$(COMPOSE) $(COMPOSE_LITE_PROFILES) up --build --detach --wait
 
 runtime-ready: personal-data-ready
-	$(COMPOSE) up --detach --wait
+	$(COMPOSE) $(COMPOSE_FULL_PROFILES) up --detach --wait
 
 down:
-	$(COMPOSE) down --remove-orphans
+	$(COMPOSE) $(COMPOSE_FULL_PROFILES) down --remove-orphans
 
 lint:
 	$(UV) run ruff check .

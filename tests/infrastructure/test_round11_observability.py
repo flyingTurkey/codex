@@ -32,6 +32,25 @@ def test_compose_provisions_observability_without_floating_images() -> None:
     assert ":latest" not in compose
 
 
+def test_prometheus_local_storage_has_time_and_size_retention_limits() -> None:
+    compose = (ROOT / "infra/compose/compose.yaml").read_text(encoding="utf-8")
+    example = (ROOT / ".env.example").read_text(encoding="utf-8")
+    prometheus_section = compose.split("  prometheus:\n", 1)[1].split(
+        "  alertmanager:\n", 1
+    )[0]
+
+    assert (
+        "--storage.tsdb.retention.time="
+        "${SRBG_PROMETHEUS_RETENTION_TIME:-15d}"
+    ) in prometheus_section
+    assert (
+        "--storage.tsdb.retention.size="
+        "${SRBG_PROMETHEUS_RETENTION_SIZE:-2GB}"
+    ) in prometheus_section
+    assert "SRBG_PROMETHEUS_RETENTION_TIME=15d" in example
+    assert "SRBG_PROMETHEUS_RETENTION_SIZE=2GB" in example
+
+
 def test_slo_rules_cover_source_queue_api_search_and_backup() -> None:
     rules = (ROOT / "infra/observability/prometheus/rules.yml").read_text(encoding="utf-8")
     for alert in (
