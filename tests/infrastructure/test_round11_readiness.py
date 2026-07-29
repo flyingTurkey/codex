@@ -95,13 +95,10 @@ def test_readiness_rejects_missing_or_mismatched_evidence(tmp_path: Path) -> Non
 def test_round11_required_checks_and_make_targets_are_declared() -> None:
     workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
-    for name in (
-        "schema-validation",
-        "publication-adversarial",
-        "security",
-        "evidence-integrity",
-    ):
-        assert f"  {name}:" in workflow
+    risk_matrix = (ROOT / "scripts/ci/risk_matrix.py").read_text(encoding="utf-8")
+    assert "make check-pr" in workflow
+    assert '"publication": ("publication-adversarial",)' in risk_matrix
+    assert '"dependency": ("security-check",)' in risk_matrix
     for target in (
         "round11-test",
         "observability-test",

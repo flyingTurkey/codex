@@ -305,7 +305,11 @@ def test_ci_uses_the_current_autonomous_content_integration_gate() -> None:
     assert "safety-case-test:" not in makefile
     assert "verify_autonomous_policy_migration.py" in target
     assert "tests/integration/t41_autonomous_content_integration.py" in target
-    assert "make autonomous-content-integration-test" in workflow
+    assert (
+        "migration-test: migration-head-check autonomous-content-integration-test"
+        in makefile
+    )
+    assert "make check-pr" in workflow
     assert "make safety-case-test" not in workflow
 
 
@@ -404,25 +408,18 @@ def test_runtime_build_context_includes_authoritative_publication_gate_assets() 
     assert included_assets <= set(dockerignore.splitlines())
 
 
-def test_ci_pins_actions_and_runs_all_round_zero_gates() -> None:
+def test_ci_pins_actions_and_delegates_to_the_risk_based_entry() -> None:
     workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
 
     assert "actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd" in workflow
     assert "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1" in workflow
     assert "actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e" in workflow
     assert "PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.cache/ms-playwright" in workflow
-    for command in (
-        "make lint",
-        "make typecheck",
-        "make test",
-        "make contract-test",
-        "make security-check",
-        "make smoke",
-        "make resilience-test",
-        "make web-e2e",
-        "make web-a11y",
-    ):
-        assert command in workflow
+    assert "make check-pr" in workflow
+    assert "scripts/ci/risk_matrix.py classify" in workflow
+    assert workflow.count("uv sync --frozen --all-packages") == 1
+    assert workflow.count("pnpm install --frozen-lockfile") == 1
+    assert "make security-check" not in workflow
 
 
 def test_round04_fixed_fixtures_remain_in_the_offline_replay_gate() -> None:

@@ -60,10 +60,13 @@ def test_runtime_refuses_to_start_without_the_verified_d_drive_vhd_mount() -> No
 def test_ci_integration_uses_an_explicit_ephemeral_data_root() -> None:
     workflow = CI_WORKFLOW.read_text(encoding="utf-8")
 
-    integration = workflow.split("  integration:\n", 1)[1].split(
-        "  schema-validation:\n", 1
-    )[0]
+    integration = workflow.split("  risk-based-checks:\n", 1)[1]
     assert "SRBG_DATA_ROOT: /tmp/srbg-data" in integration
+    assert "if: steps.risk.outputs.docker == 'true'" in integration
+    docker_gate_block = integration.split("docker_gates = {", 1)[1].split("}", 1)[0]
+    assert '"web-e2e"' in docker_gate_block
+    assert '"web-a11y"' in docker_gate_block
+    assert "if: always() && steps.risk.outputs.docker == 'true'" in integration
     for preparation in (
         'sudo install -d -m 0700 -o 999 -g 999 "$SRBG_DATA_ROOT/postgres"',
         'sudo install -d -m 0700 -o 999 -g 999 "$SRBG_DATA_ROOT/postgres-wal"',

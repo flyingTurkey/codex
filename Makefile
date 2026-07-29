@@ -46,8 +46,17 @@ V2_CLOSEOUT_EVIDENCE_ROOT ?= $(CURDIR)/.cache/intelligence-v2-evidence
 export UV_CACHE_DIR
 export UV_PYTHON_INSTALL_DIR
 export PLAYWRIGHT_BROWSERS_PATH
+BASE_REF ?=
+BASE_REF_ARG = $(if $(strip $(BASE_REF)),--base-ref "$(BASE_REF)",)
+CHECK_MAKE ?= $(MAKE)
+export CHECK_MAKE
 
-.PHONY: setup dev dev-lite personal-data-ready runtime-ready down lint typecheck test contract-test security-check smoke \
+.PHONY: setup dev dev-lite personal-data-ready runtime-ready down lint typecheck test \
+	check-fast check-pr check-release check-live diff-check docs-check risk-classifier-test \
+	python-unit-test python-integration-test python-affected-test web-unit-test frontend-fast \
+	contract-fast contract-test pytest-partitions orchestration-test compose-config compose-smoke migration-head-check migration-test \
+	acquisition-integration-test ai-integration-test isolated-integration-test publication-adversarial web-build live-acceptance \
+	security-check smoke \
 	resilience-test fixture-replay quality-gate web-e2e web-a11y source-fixture-test \
 	safety-regulation-test pdf-ocr-test autonomous-content-integration-test digital-case-test paper-test product-test \
 	round08-test round08-eval round09-test round09-eval round10-test round10-eval \
@@ -113,14 +122,116 @@ typecheck:
 	$(PNPM) --filter @srbg/web typecheck
 	$(PNPM) --filter @srbg/web exec tsc --noEmit --skipLibCheck false ../../packages/contracts/generated/types/index.d.ts
 
-test:
-	$(UV) run python -m pytest
+python-unit-test:
+	$(UV) run python -m pytest apps/api/tests apps/worker/tests tests/infrastructure -q
+
+python-integration-test:
+	$(UV) run python -m pytest \
+		tests/integration/t05_durable_projection_integration.py \
+		tests/integration/t07_controlled_stream_integration.py \
+		tests/integration/t11_reader_appendix_integration.py \
+		tests/integration/t41_autonomous_content_integration.py -q
+
+web-unit-test:
 	$(PNPM) --filter @srbg/ui test
 	$(PNPM) --filter @srbg/web test
+
+test: python-unit-test web-unit-test
 
 contract-test:
 	$(UV) run python scripts/check_contract_generation.py
 	$(UV) run python -m pytest packages/contracts/tests tests/contract -q
+
+diff-check:
+	$(UV) run python scripts/ci/risk_matrix.py diff-check \
+		--repository . $(BASE_REF_ARG)
+
+docs-check:
+	$(UV) run python scripts/ci/check_docs.py
+
+risk-classifier-test:
+	$(UV) run python -m pytest \
+		tests/infrastructure/test_risk_matrix.py \
+		tests/infrastructure/test_pytest_partitions.py -q
+
+pytest-partitions:
+	$(UV) run python scripts/ci/pytest_partitions.py
+
+orchestration-test:
+	$(UV) run python -m pytest \
+		tests/infrastructure/test_foundation_files.py \
+		tests/infrastructure/test_personal_data_root.py \
+		tests/infrastructure/test_risk_matrix.py -q
+
+python-affected-test:
+	$(UV) run python scripts/ci/affected_python.py
+
+frontend-fast:
+	$(PNPM) tokens:check
+	$(PNPM) --filter @srbg/ui lint
+	$(PNPM) --filter @srbg/ui typecheck
+	$(PNPM) --filter @srbg/ui test
+	$(PNPM) --filter @srbg/web lint
+	$(PNPM) --filter @srbg/web typecheck
+	$(PNPM) --filter @srbg/web test
+
+contract-fast: contract-test
+	$(PNPM) --filter @srbg/web exec tsc --noEmit --skipLibCheck false ../../packages/contracts/generated/types/index.d.ts
+
+compose-config:
+	$(COMPOSE) $(COMPOSE_FULL_PROFILES) config --quiet
+
+compose-smoke:
+	$(MAKE) dev
+	$(MAKE) smoke
+	$(MAKE) down
+
+migration-head-check:
+	$(UV) run python scripts/ci/check_migration_heads.py
+
+migration-test: migration-head-check autonomous-content-integration-test
+
+acquisition-integration-test: t07-source-shadow-test
+
+ai-integration-test: ai-content-preparation-test
+
+isolated-integration-test:
+	$(COMPOSE) up --detach --wait postgres minio redis
+	$(UV) run python scripts/run_isolated_integration.py \
+		--migration-verifier verify_autonomous_policy_migration.py -- \
+		tests/integration/t05_durable_projection_integration.py \
+		tests/integration/t07_controlled_stream_integration.py \
+		tests/integration/t11_reader_appendix_integration.py \
+		tests/integration/t41_autonomous_content_integration.py -q
+
+publication-adversarial:
+	$(UV) run python scripts/evaluate_round09.py
+	$(UV) run python scripts/audit_publication_paths.py
+
+web-build:
+	$(PNPM) --filter @srbg/web build
+
+live-acceptance:
+	$(MAKE) dev
+	$(MAKE) smoke
+	$(MAKE) intelligence-v2-engineering-campaign \
+		ACTION="$(LIVE_CAMPAIGN_ACTION)" CAMPAIGN_ID="$(CAMPAIGN_ID)"
+
+check-fast:
+	$(UV) run python scripts/ci/risk_matrix.py classify \
+		--repository . $(BASE_REF_ARG) --mode fast --execute
+
+check-pr:
+	$(UV) run python scripts/ci/risk_matrix.py classify \
+		--repository . $(BASE_REF_ARG) --mode pr --execute
+
+check-release:
+	$(UV) run python scripts/ci/risk_matrix.py classify \
+		--repository . $(BASE_REF_ARG) --mode release --execute
+
+check-live:
+	$(UV) run python scripts/ci/risk_matrix.py classify \
+		--repository . $(BASE_REF_ARG) --mode live --execute
 
 intelligence-v2-closeout:
 	$(UV) run python -m pytest \

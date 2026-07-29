@@ -1,0 +1,112 @@
+{
+  "categories": {
+    "documentation": [
+      "*.md",
+      "docs/**"
+    ],
+    "tooling": [
+      "scripts/ci/**",
+      "tests/infrastructure/test_risk_matrix.py",
+      "tests/infrastructure/test_pytest_partitions.py",
+      "tests/infrastructure/test_migration_gate.py"
+    ],
+    "orchestration": [
+      "Makefile",
+      ".github/**",
+      "infra/compose/**"
+    ],
+    "python": [
+      "apps/api/**/*.py",
+      "apps/worker/**/*.py",
+      "packages/contracts/**/*.py",
+      "scripts/**/*.py",
+      "tests/**/*.py"
+    ],
+    "integration": [
+      "tests/integration/**"
+    ],
+    "contract": [
+      "packages/contracts/**",
+      "tests/contract/**",
+      "docs/codex-kit/assets/content.schema.json",
+      "docs/codex-kit/assets/schemas/**",
+      "docs/codex-kit/assets/validation/*.schema.json"
+    ],
+    "migration": [
+      "apps/api/alembic.ini",
+      "apps/api/alembic/**",
+      "apps/api/migrations/**"
+    ],
+    "docker": [
+      ".dockerignore",
+      "infra/compose/**"
+    ],
+    "dependency": [
+      "pyproject.toml",
+      "uv.lock",
+      "package.json",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml",
+      "apps/*/pyproject.toml",
+      "apps/*/package.json",
+      "packages/*/pyproject.toml",
+      "packages/*/package.json"
+    ],
+    "acquisition": [
+      "apps/api/src/srbg_api/acquisition/**",
+      "apps/api/src/srbg_api/connectors/**",
+      "apps/api/src/srbg_api/discovery/**",
+      "apps/api/src/srbg_api/source_registry/**",
+      "apps/worker/src/srbg_worker/*source*.py"
+    ],
+    "content": [
+      "apps/api/src/srbg_api/digital_cases/**",
+      "apps/api/src/srbg_api/document_vault/**",
+      "apps/api/src/srbg_api/event_unification/**",
+      "apps/api/src/srbg_api/intelligence_resolution/**",
+      "apps/api/src/srbg_api/papers/**",
+      "apps/api/src/srbg_api/pdf_processing/**",
+      "apps/api/src/srbg_api/safety_regulations/**",
+      "apps/api/src/srbg_api/technology_products/**",
+      "apps/api/src/srbg_api/intelligence_v2/content_candidate*.py",
+      "apps/worker/src/srbg_worker/source_content_bridge.py"
+    ],
+    "ai": [
+      "apps/api/src/srbg_api/ai_admin/**",
+      "apps/api/src/srbg_api/ai_pipeline/**",
+      "apps/api/src/srbg_api/intelligence_v2/ai_runtime.py",
+      "apps/worker/src/srbg_worker/ai*.py"
+    ],
+    "publication": [
+      "apps/api/src/srbg_api/publication/**",
+      "apps/api/src/srbg_api/internal_projection/**",
+      "apps/api/src/srbg_api/intelligence_v2/feed_suppressions.py",
+      "apps/api/src/srbg_api/intelligence_v2/content_candidate*.py"
+    ],
+    "security": [
+      "apps/api/src/srbg_api/**/security.py",
+      "apps/api/src/srbg_api/acquisition/http.py",
+      "apps/api/src/srbg_api/document_vault/scanner.py",
+      "apps/api/src/srbg_api/intelligence_v2/safety_exceptions.py",
+      "apps/api/tests/*security*.py",
+      "apps/api/tests/**/*security*.py",
+      "scripts/prepare_security_scan.py",
+      "tests/infrastructure/test_security_scan.py",
+      "tests/infrastructure/test_web_dependency_security.py"
+    ],
+    "frontend": [
+      "apps/web/**",
+      "packages/ui/**",
+      "docs/codex-kit/assets/ui/**"
+    ],
+    "infrastructure": [
+      "infra/**"
+    ],
+    "repository": [
+      ".env.example",
+      ".gitignore",
+      ".gitattributes",
+      "LICENSE*"
+    ]
+  }
+}

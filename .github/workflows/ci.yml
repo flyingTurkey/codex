@@ -13,60 +13,95 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  quality:
+  risk-based-checks:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
-      - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: 3.12.13
-      - name: Set up Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
-        with:
-          node-version: 24.14.0
-      - name: Install pinned package managers and dependencies
-        run: |
-          python -m pip install uv==0.11.28
-          corepack enable
-          corepack prepare pnpm@11.12.0 --activate
-          uv sync --frozen --all-packages
-          pnpm install --frozen-lockfile
-      - run: make lint
-      - run: make typecheck
-      - run: make test
-      - run: make contract-test
-      - run: make security-check
-
-  integration:
-    needs: quality
-    runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 60
     env:
       SRBG_DATA_ROOT: /tmp/srbg-data
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.cache/ms-playwright
     steps:
-      - name: Check out repository
+      - name: Check out repository history
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0
+
+      - name: Resolve comparison base
+        id: base
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            base_ref="$PR_BASE_SHA"
+          elif [[ -n "$PUSH_BEFORE_SHA" ]] &&
+               [[ "$PUSH_BEFORE_SHA" != "0000000000000000000000000000000000000000" ]] &&
+               git cat-file -e "$PUSH_BEFORE_SHA^{commit}"; then
+            base_ref="$PUSH_BEFORE_SHA"
+          elif git rev-parse HEAD^ >/dev/null 2>&1; then
+            base_ref="$(git rev-parse HEAD^)"
+          else
+            base_ref="$(git rev-parse HEAD)"
+          fi
+          echo "base_ref=$base_ref" >> "$GITHUB_OUTPUT"
+
+      - name: Classify path risk
+        id: risk
+        shell: bash
+        run: |
+          risk_plan="$RUNNER_TEMP/risk-plan.json"
+          python scripts/ci/risk_matrix.py classify \
+            --repository . \
+            --base-ref "${{ steps.base.outputs.base_ref }}" \
+            --mode pr > "$RUNNER_TEMP/risk-plan.json"
+          cat "$RUNNER_TEMP/risk-plan.json"
+          export RISK_PLAN_PATH="$risk_plan"
+          python - <<'PY'
+          import json
+          import os
+
+          plan = json.load(open(os.environ["RISK_PLAN_PATH"], encoding="utf-8"))
+          gates = set(plan["gates"])
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print(f"browser={'true' if {'web-e2e', 'web-a11y'} & gates else 'false'}", file=output)
+              docker_gates = {
+                  "migration-test",
+                  "compose-smoke",
+                  "acquisition-integration-test",
+                  "ai-integration-test",
+                  "isolated-integration-test",
+                  "web-e2e",
+                  "web-a11y",
+              }
+              print(f"docker={'true' if docker_gates & gates else 'false'}", file=output)
+          PY
+
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: 3.12.13
+
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 24.14.0
-      - name: Install pinned test dependencies
+
+      - name: Install pinned package managers and dependencies once
         run: |
           python -m pip install uv==0.11.28
           corepack enable
           corepack prepare pnpm@11.12.0 --activate
           uv sync --frozen --all-packages
           pnpm install --frozen-lockfile
-          pnpm --filter @srbg/web exec playwright install --with-deps chromium
+
+      - name: Install browser only for frontend risk
+        if: steps.risk.outputs.browser == 'true'
+        run: pnpm --filter @srbg/web exec playwright install --with-deps chromium
+
       - name: Prepare isolated integration data root
+        if: steps.risk.outputs.docker == 'true'
+        shell: bash
         run: |
           sudo install -d -m 0700 -o 999 -g 999 "$SRBG_DATA_ROOT/postgres"
           sudo install -d -m 0700 -o 999 -g 999 "$SRBG_DATA_ROOT/postgres-wal"
@@ -75,59 +110,14 @@ jobs:
           sudo install -d -m 0750 -o 1000 -g 1000 "$SRBG_DATA_ROOT/anchor-minio"
           sudo install -d -m 0750 -o 65534 -g 65534 "$SRBG_DATA_ROOT/prometheus"
           sudo install -d -m 0750 -o 472 -g 0 "$SRBG_DATA_ROOT/grafana"
-      - run: make dev
-      - run: make autonomous-content-integration-test
-      - run: make smoke
-      - run: make resilience-test
-      - run: make web-e2e
-      - run: make web-a11y
+
+      - name: Run pull-request risk gates
+        run: make check-pr BASE_REF="${{ steps.base.outputs.base_ref }}"
+
       - name: Print service logs after failure
-        if: failure()
+        if: failure() && steps.risk.outputs.docker == 'true'
         run: docker compose -f infra/compose/compose.yaml logs --no-color
+
       - name: Stop Compose stack
-        if: always()
+        if: always() && steps.risk.outputs.docker == 'true'
         run: make down
-
-  schema-validation:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with: {python-version: 3.12.13}
-      - run: python -m pip install uv==0.11.28
-      - run: uv sync --frozen --all-packages
-      - run: uv run python -m pytest tests/infrastructure/test_round11_readiness.py -q
-
-  evidence-integrity:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with: {python-version: 3.12.13}
-      - run: python -m pip install uv==0.11.28
-      - run: uv sync --frozen --all-packages
-      - run: make round11-evidence-test
-
-  publication-adversarial:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with: {python-version: 3.12.13}
-      - run: python -m pip install uv==0.11.28
-      - run: uv sync --frozen --all-packages
-      - run: uv run python scripts/evaluate_round09.py
-      - run: uv run python scripts/audit_publication_paths.py
-
-  security:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with: {python-version: 3.12.13}
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
-        with: {node-version: 24.14.0}
-      - run: python -m pip install uv==0.11.28
-      - run: corepack enable && corepack prepare pnpm@11.12.0 --activate
-      - run: uv sync --frozen --all-packages && pnpm install --frozen-lockfile
-      - run: make security-check
