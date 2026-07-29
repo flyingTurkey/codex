@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-07-29 (Issue #40 isolated migration ACL rollback hardening)
+
+- Fixed downgrade grant symmetry in migrations `0049`, `0052`, and `0054`: Worker candidate-table access, Publisher Feed-suppression writes, and API/Worker policy-projection reads are now revoked at the revision that introduced them while older baseline grants remain intact.
+- Extended the real PostgreSQL migration verifier with direct `public` table/view ACL snapshots at `0048`, `0051`, `0053`, and the complete `0047 -> 0054 -> 0047 -> 0054` cycle. The three regressions were reproduced before implementation and are covered by focused migration tests.
+- Repeated the candidate chain against a read-only physical clone of the formal PostgreSQL data. Stepwise downgrades and the complete rollback restored the `0047` schema, data, and direct table ACL fingerprints exactly; re-upgrade to `0054` also passed. Formal PGDATA, WAL, and `alembic_version` were not changed.
+- Cleared newly published production dependency advisories by resolving `brace-expansion` to `5.0.8`, `postcss` to `8.5.18`, and `tar` to `7.5.21`; the frozen install, full test suite, production audit, and HIGH/CRITICAL security gate pass.
+- This result is an isolated candidate-fix `PASS`, not a formal-database migration or production closeout. The Owner authorized a local commit and fast-forward integration on 2026-07-29; remote push and formal-database migration remain separate actions.
+
 ## 2026-07-23 (Issue #46 Champion/Challenger policy optimization)
 
 - Bound every newly created LIVE and SHADOW AI pipeline run to an immutable policy bundle so callbacks, physical retries, semantic rechecks and technical recovery cannot change policy mid-run; later activation affects only later runs.

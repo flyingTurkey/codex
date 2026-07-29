@@ -45,3 +45,17 @@ def test_feed_suppression_projection_preserves_media_event_authority() -> None:
     assert "binding.event_id" in source
     assert "DROP VIEW IF EXISTS media_delivery_reader_v2" in source
     assert "def downgrade()" in source
+
+
+def test_feed_suppression_downgrade_restores_the_0051_table_acl() -> None:
+    migration = MIGRATION.read_text(encoding="utf-8")
+    verifier = Path("scripts/verify_autonomous_policy_migration.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert (
+        "REVOKE INSERT ON feed_suppression_rule_v2 FROM srbg_publication_writer"
+        in migration
+    )
+    assert "revision_0051_acl = asyncio.run(_acl_snapshot(database_url))" in verifier
+    assert "0052 downgrade did not restore the 0051 table ACL" in verifier

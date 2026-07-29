@@ -61,3 +61,18 @@ def test_0049_preserves_all_three_primary_types_in_legacy_storage() -> None:
     assert "ck_t41_item_type" in source
     assert "ck_t41_item_channel" in source
     assert "ck_t41_event_type" in source
+
+
+def test_0049_downgrade_restores_the_0048_table_acl() -> None:
+    migration = _source()
+    verifier = Path("scripts/verify_autonomous_policy_migration.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert (
+        "REVOKE INSERT ON qualification_policy_bundle_v2 FROM srbg_worker_role"
+        in migration
+    )
+    assert "REVOKE SELECT,INSERT ON " in migration
+    assert "revision_0048_acl = asyncio.run(_acl_snapshot(database_url))" in verifier
+    assert "0049 downgrade did not restore the 0048 table ACL" in verifier

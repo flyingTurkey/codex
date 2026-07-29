@@ -248,16 +248,55 @@ async def _verify(database_url: str, revision: str) -> None:
         await engine.dispose()
 
 
+async def _acl_snapshot(
+    database_url: str,
+) -> tuple[tuple[str, str, str, str, str, str, str], ...]:
+    engine = create_async_engine(database_url)
+    try:
+        async with engine.connect() as connection:
+            grants = await connection.execute(
+                text(
+                    "SELECT grantor,grantee,table_schema,table_name,privilege_type,"
+                    "is_grantable,with_hierarchy "
+                    "FROM information_schema.table_privileges "
+                    "WHERE table_schema='public' "
+                    "ORDER BY grantor,grantee,table_schema,table_name,privilege_type,"
+                    "is_grantable,with_hierarchy"
+                )
+            )
+            return tuple(
+                (
+                    row.grantor,
+                    row.grantee,
+                    row.table_schema,
+                    row.table_name,
+                    row.privilege_type,
+                    row.is_grantable,
+                    row.with_hierarchy,
+                )
+                for row in grants
+            )
+    finally:
+        await engine.dispose()
+
+
 def main() -> None:
     database_url = _isolated_database_url()
     config = Config("apps/api/alembic.ini")
     command.upgrade(config, "0047_owner_gold_override_go")
+    asyncio.run(_verify(database_url, "0047_owner_gold_override_go"))
+    revision_0047_acl = asyncio.run(_acl_snapshot(database_url))
     command.upgrade(config, "0048_autonomous_policy_foundation")
     asyncio.run(_verify(database_url, "0048_autonomous_policy_foundation"))
+    revision_0048_acl = asyncio.run(_acl_snapshot(database_url))
     command.upgrade(config, "0049_autonomous_content_switch")
     asyncio.run(_verify(database_url, "0049_autonomous_content_switch"))
     command.downgrade(config, "0048_autonomous_policy_foundation")
     asyncio.run(_verify(database_url, "0048_autonomous_policy_foundation"))
+    _require(
+        asyncio.run(_acl_snapshot(database_url)) == revision_0048_acl,
+        "0049 downgrade did not restore the 0048 table ACL",
+    )
     command.upgrade(config, "0049_autonomous_content_switch")
     asyncio.run(_verify(database_url, "0049_autonomous_content_switch"))
     command.upgrade(config, "0050_autonomous_handoff_state_order")
@@ -272,10 +311,15 @@ def main() -> None:
     asyncio.run(_verify(database_url, "0050_autonomous_handoff_state_order"))
     command.upgrade(config, "0051_technical_exception_recovery")
     asyncio.run(_verify(database_url, "0051_technical_exception_recovery"))
+    revision_0051_acl = asyncio.run(_acl_snapshot(database_url))
     command.upgrade(config, "0052_feed_suppression_projection")
     asyncio.run(_verify(database_url, "0052_feed_suppression_projection"))
     command.downgrade(config, "0051_technical_exception_recovery")
     asyncio.run(_verify(database_url, "0051_technical_exception_recovery"))
+    _require(
+        asyncio.run(_acl_snapshot(database_url)) == revision_0051_acl,
+        "0052 downgrade did not restore the 0051 table ACL",
+    )
     command.upgrade(config, "0052_feed_suppression_projection")
     asyncio.run(_verify(database_url, "0052_feed_suppression_projection"))
     command.upgrade(config, "0053_safety_exception_lifecycle")
@@ -284,16 +328,39 @@ def main() -> None:
     asyncio.run(_verify(database_url, "0052_feed_suppression_projection"))
     command.upgrade(config, "0053_safety_exception_lifecycle")
     asyncio.run(_verify(database_url, "0053_safety_exception_lifecycle"))
+    revision_0053_acl = asyncio.run(_acl_snapshot(database_url))
     command.upgrade(config, "0054_policy_optimization")
     asyncio.run(_verify(database_url, "0054_policy_optimization"))
+    revision_0054_acl = asyncio.run(_acl_snapshot(database_url))
     command.downgrade(config, "0053_safety_exception_lifecycle")
     asyncio.run(_verify(database_url, "0053_safety_exception_lifecycle"))
+    _require(
+        asyncio.run(_acl_snapshot(database_url)) == revision_0053_acl,
+        "0054 downgrade did not restore the 0053 table ACL",
+    )
     command.upgrade(config, "0054_policy_optimization")
     asyncio.run(_verify(database_url, "0054_policy_optimization"))
+    _require(
+        asyncio.run(_acl_snapshot(database_url)) == revision_0054_acl,
+        "0054 re-upgrade did not restore the 0054 table ACL",
+    )
+    command.downgrade(config, "0047_owner_gold_override_go")
+    asyncio.run(_verify(database_url, "0047_owner_gold_override_go"))
+    _require(
+        asyncio.run(_acl_snapshot(database_url)) == revision_0047_acl,
+        "0054 full downgrade did not restore the 0047 table ACL",
+    )
+    command.upgrade(config, "0054_policy_optimization")
+    asyncio.run(_verify(database_url, "0054_policy_optimization"))
+    _require(
+        asyncio.run(_acl_snapshot(database_url)) == revision_0054_acl,
+        "0054 full re-upgrade did not restore the 0054 table ACL",
+    )
     print(
         "Autonomous-policy migration replay passed: "
         "0048 -> 0049 -> 0048 -> 0049 -> 0050 -> 0049 -> 0050 -> 0051 -> 0050 -> "
-        "0051 -> 0052 -> 0051 -> 0052 -> 0053 -> 0052 -> 0053 -> 0054 -> 0053 -> 0054"
+        "0051 -> 0052 -> 0051 -> 0052 -> 0053 -> 0052 -> 0053 -> 0054 -> 0053 -> "
+        "0054 -> 0047 -> 0054"
     )
 
 

@@ -137,7 +137,10 @@ def downgrade() -> None:
         raise RuntimeError("AUTONOMOUS_CONTENT_SWITCH_DOWNGRADE_BLOCKED")
     _restore_legacy_storage_constraints()
     op.execute(
-        "REVOKE INSERT ON qualification_policy_bundle_v2,"
+        "REVOKE INSERT ON qualification_policy_bundle_v2 FROM srbg_worker_role"
+    )
+    op.execute(
+        "REVOKE SELECT,INSERT ON "
         "automated_qualification_decision_v2,qualification_policy_evaluation_v2,"
         "qualification_shadow_decision_v2 FROM srbg_worker_role"
     )

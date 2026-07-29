@@ -254,6 +254,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.execute(
+        "REVOKE INSERT ON feed_suppression_rule_v2 FROM srbg_publication_writer"
+    )
     op.execute("DROP VIEW IF EXISTS media_delivery_reader_v2")
     _create_media_reader_view(include_event_id=False)
     op.execute("DROP VIEW IF EXISTS visible_intelligence_projection_v2")

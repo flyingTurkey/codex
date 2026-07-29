@@ -746,6 +746,10 @@ def downgrade() -> None:
     if durable:
         raise RuntimeError("POLICY_ACTIVATION_DOWNGRADE_BLOCKED")
 
+    op.execute(
+        "REVOKE SELECT ON publication_decision_v2,event_suppression_match_v2,"
+        "feed_suppression_effective_v2 FROM srbg_api_role,srbg_worker_role"
+    )
     _replace_recovery_function(include_policy=False)
     op.execute(f"DROP FUNCTION {_POLICY_CONTEXT}")
     op.execute(f"REVOKE EXECUTE ON FUNCTION {_HANDOFF_V4} FROM srbg_worker_role")

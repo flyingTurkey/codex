@@ -53,3 +53,22 @@ def test_shadow_projection_guard_is_policy_causal_not_document_global() -> None:
     assert "production.normalized_input_sha256=" in implementation
     assert "shadow.decision_trace->>'normalized_input_sha256'" in implementation
     assert "FROM intelligence_item item" not in implementation
+
+
+def test_policy_optimization_downgrade_restores_prior_table_acls() -> None:
+    migration = MIGRATION.read_text(encoding="utf-8")
+    verifier = Path("scripts/verify_autonomous_policy_migration.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert (
+        "REVOKE SELECT ON publication_decision_v2,event_suppression_match_v2,"
+        in migration
+    )
+    assert (
+        "feed_suppression_effective_v2 FROM srbg_api_role,srbg_worker_role"
+        in migration
+    )
+    assert "0054 downgrade did not restore the 0053 table ACL" in verifier
+    assert 'command.downgrade(config, "0047_owner_gold_override_go")' in verifier
+    assert "0054 full downgrade did not restore the 0047 table ACL" in verifier
