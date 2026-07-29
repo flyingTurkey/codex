@@ -217,6 +217,13 @@ Docker Desktop 引擎在本机复验期间无响应，因此未重启 Docker Des
 `quality` / `security` job 负责执行相同的完整 Trivy 门禁；`integration` job 负责
 执行真实 PostgreSQL/MinIO、迁移 verifier 和本回归场景。
 
+首次 follow-up CI run `30444040841` 已证明完整 quality/security 和迁移 verifier
+通过，原二次 Owner recovery 失败也已消失。随后一条非重试错误场景发现测试隔离问题：
+前一场景领取最终恢复任务并模拟接受后，没有把对应 compensation 从 `PROCESSING`
+完结；30 天反向时钟令这条遗留租约在下一测试中可再次领取，导致全局
+`claim_due()` 返回两条。成功路径现显式完成该 compensation，使测试数据库状态与
+“恢复后接受”的叙述一致；这不改变生产恢复规则。
+
 ## 依赖安全门禁修复
 
 最终门禁首次执行时，生产依赖审计发现任务期间新发布的三个公告。经 Owner 授权，

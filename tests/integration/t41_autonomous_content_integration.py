@@ -1765,6 +1765,10 @@ async def test_technical_failure_retries_survive_restart_and_owner_recovery_is_i
         assert final_retry[0].original_pipeline_run_id != resumed_document.run_id
         assert final_retry[0].attempt_count == 0
         assert final_retry[0].next_attempt_number == 6
+        await preparation_repository.complete_compensation(
+            run_id=final_retry[0].original_pipeline_run_id,
+            succeeded=True,
+        )
 
         accepted = (
             AutomatedAdjudicationService(
