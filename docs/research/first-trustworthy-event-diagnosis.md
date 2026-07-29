@@ -1,12 +1,19 @@
 # 第一条可信 Event：历史能力审计与阻断诊断
 
 > 调查日期：2026-07-29（Asia/Shanghai）
+> 来源前置复核：2026-07-30（Asia/Shanghai）
 > 调查分支：`codex/phase-2-first-event-diagnosis`
 > 调查边界：只读 Git、源码、迁移、测试、正式 PostgreSQL 和本地只读 API
 > 数据边界：未调用公网、模型或任务队列；未修改来源、AI 配置、发布状态或数据库；
 > 未输出正文、Secret、Cookie、URL 全文或完整模型响应
 
 ## 1. 结论
+
+```text
+STAGE_2_STATUS=BLOCKED_BY_SOURCE_PREREQUISITE
+NEXT_STAGE_READY=false
+NEXT_REQUIRED_SLICE=2A_SOURCE_ADMISSION_PREREQUISITE
+```
 
 本轮选择了真实、已保存、来源边界明确且中心事实可归为低风险
 `INDUSTRY_UPDATE` 的 DocumentVersion：
@@ -22,6 +29,10 @@ current/READY DocumentVersion，以及 3 条 accepted claims 和 3 条有锚点 
 - 该文档的历史 SHADOW pipeline 启动时，所属 source 没有任何
   `source_admission_assessment_v2`；
 - 当前最新 SourceAdmission 为 `PAUSE`，不是生产资格所要求的 `ADMIT`；
+- 正式库全部 20 个 source 的最新 SourceAdmission 均为 `PAUSE`，`ADMIT=0`；
+- 正式库没有任何 SourceStream admission decision；
+- 满足 source-level ADMIT、stream authority、current production DocumentVersion 和
+  CLEAN raw/security 的候选数为 0；
 - 当前正式库也没有 active qualification policy bundle；
 - 因此当前权威代码会在任何真实模型调用前失败关闭，不能合法把旧 SHADOW 结果或现有
   claims 继续推向 publication。
@@ -32,9 +43,12 @@ SourceAdmission，也不能授予发布权。
 
 完整闭环需要代码和新迁移，但**修复首个 SourceAdmission 事实本身不需要改表**。
 首先需要在现有 Schema 中用当前、可审计的一手证据形成新的 `ADMIT` assessment，并在
-另行授权下激活精确的生产 qualification bundle。此后仍需选择性重实现 VERIFY 原子
-完成、自动发布 authority/revision、projection revision guard、invalidation/epoch/veto
-和最小 ACL；不得移植 transfer 或 849 的整提交和旧迁移。
+同一明确边界上形成有效的 SourceStream admission decision。由于当前不存在任何满足
+前置合同的 source/document，下一步不是原定第三阶段实现，而是 **2A 来源准入前置
+切片**；不得擅自启用来源。只有 2A 验收后，才能在另行授权下激活精确的 production
+qualification bundle，并选择性重实现 VERIFY 原子完成、自动发布
+authority/revision、projection revision guard、invalidation/epoch/veto 和最小 ACL。
+不得移植 transfer 或 849 的整提交和旧迁移。
 
 ## 2. Git 与数据库基线
 
@@ -62,6 +76,10 @@ SourceAdmission，也不能授予发布权。
 - `qualification_policy_activation_v2`：0
 - `active_qualification_policy_v2`：0
 - `source_stream_admission_decision_v2`：0
+- 最新 source-level admission：`PAUSE=20`，`ADMIT=0`
+- 满足 source-level admission 的 current production DocumentVersion：0
+- 同时满足 source-level 和 stream-level authority 的 current production
+  DocumentVersion：0
 - `automated_qualification_decision_v2`：0
 - `source_excerpt_version_v2`：0
 - `qualification_acceptance_v2`：0
@@ -152,6 +170,21 @@ active policy。迁移 `0054` 只提供 append-only activation ledger、派生 v
 命令，不会凭迁移 revision 自动授予一个策略生产权威。
 
 因此不能把“数据库已到 0054”解释为“AI qualification 已授权”。
+
+### 4.4 对应代码、表和事务边界
+
+| 责任 | 当前权威代码 | 权威表 | 事务边界 |
+|---|---|---|---|
+| 形成 source-level admission | `source_registry/v2_rollout.py::append_production_admission_assessment` | `source_admission_assessment_v2` | 使用调用方传入的 `AsyncConnection` append；必须与证据清单、规则版本和审计由服务端统一提交 |
+| 形成 stream-level admission | `source_registry/controlled_stream.py::record_admission_decision` | `source_stream_admission_decision_v2`、`source_stream_runtime_event_v2` | 在 repository transaction 中 append decision/runtime fact；不得直接改写 Owner intent 为授权 |
+| 创建 policy-bound handoff | `worker/source_content_bridge.py` 与 0054 handoff SQL | `source_content_outbox`、`ai_pipeline_run`、`active_qualification_policy_v2` | claim outbox、重查 current version/gates、绑定 active bundle、创建 LIVE run 必须同一数据库事务 |
+| 每次物理模型调用前复核 | `worker/ai_content_preparation.py::authorize_model_call` | source、assessment、raw/security、budget、provider activation | 独立的调用前权威快照；任一条件不是 current true 即不调用模型 |
+| 发布前复核 | `publication/service.py` 与 `publication/repository.py` | qualification、claims/evidence、excerpt、publication/projection | PublicationService 是唯一写边界；必须在 event lock/CAS 下重载数据库事实并原子形成 authority/revision/projection |
+
+当前 production model gate 直接读取最新 source-level assessment；stream-level decision
+属于独立 SourceStream controller 权威。2A 必须明确二者如何组成“合规、已授权
+SourceStream”的唯一服务端判定，不能继续依赖页面状态、`desired_enabled` 或散落 SQL
+各自解释。
 
 ## 5. 已到达节点和后续阻断
 
@@ -408,25 +441,63 @@ revision id，merge revision 无法检测或修复同名 migration 的语义差�
 10. 验收证据同时包含正式数据库只读 lineage 和本地 API 只读结果；`9d7a24c`、
     `t41`、fixture、mock 或截图只能补充确定性测试，不能替代真实闭环。
 
-## 12. 最小实现顺序
+## 12. 下一步只能是 2A 来源准入前置切片
 
-1. **先解除 authority 前置阻断**：不改来源状态；收集并核对当前 robots、terms、
-   copyright 和 public-network 一手证据，通过现有 append-only Schema 形成新的
-   SourceAdmission。只有证据确实允许时才可为 `ADMIT`。
-2. **显式建立 policy authority**：以另行授权激活精确 baseline bundle；不能由 migration
-   自动 bootstrap，也不能把 replay/shadow 结果当授权。
-3. **先写 current-line characterization tests**：固定选定 DocumentVersion 的历史
-   dead-letter 不可直接重放；为合法 current version 建受治理 requalification seam。
-4. **实现 EXTRACT/VERIFY**：注册 immutable prompt/schema，补 issued anchors、稳定错误码、
-   失败计费与 current-handoff lock；VERIFY 原子完成。
-5. **实现自动发布 authority/revision**：PublicationService 重载数据库事实、event lock、
-   epoch/hash CAS、automatic/human XOR 和 audit。
-6. **实现 revision-guarded projection**：durable rebuild outbox、atomic invalidation、
-   authority epoch、Owner veto 和 guarded reader view。
-7. **补最小 ACL**：用真实 Publisher/Reader SQL 确定精确 SELECT/EXECUTE，再做对称
-   upgrade/downgrade。
-8. **最后做真实只读验收**：仅在前述实现和显式运行授权完成后，让一篇 R1
-   `INDUSTRY_UPDATE` 通过唯一合同；不得用本轮旧 SHADOW 数据伪造成功。
+```text
+SLICE_2A_STATUS=REQUIRED
+SLICE_2A_MAY_ENABLE_SOURCE=false
+ORIGINAL_STAGE_3_IMPLEMENTATION=DEFERRED
+```
+
+2A 的目标不是“让 Feed 非空”，而是只建立一条可证明、服务端拥有的来源前置合同：
+
+1. **冻结现状**：不得修改 `desired_enabled`、`runtime_state`、SourceStream status、
+   schedule、队列或现有 admission 事实；先以只读查询固定 source/stream/document
+   lineage。
+2. **选择边界**：从已登记的来源中选择一个明确的 HTTPS host/path、工程对象子集和
+   低风险 `INDUSTRY_UPDATE` 内容边界。若必须访问公网取得新的 robots、terms、
+   copyright 或 public-network 证据，必须先取得该网络调查的显式授权；2A 不能自行
+   发起。
+3. **形成 source-level assessment**：使用当前一手证据和固定规则 append
+   `source_admission_assessment_v2`。证据缺失、未知被错误表示为禁止，或任何明确 hard
+   denial 时继续 `PAUSE`；不得为了推进阶段写 `ADMIT`。
+4. **形成 stream-level decision**：只对同一明确 boundary append
+   `source_stream_admission_decision_v2`，并记录对应 runtime fact。Owner intent、
+   discovery、fixture、SHADOW 和页面状态均不能作为 admission evidence。
+5. **统一服务端判定**：提供一个共享的 SourceAdmission/SourceStream authority
+   service 或 repository query，供 handoff、model-call gate 和 closeout 使用；不得由
+   三处散落 SQL 对“已授权”作不同解释。
+6. **选定可用文档**：证明至少一个 current、`PRODUCTION`、non-fixture
+   DocumentVersion 来自上述 stream，raw/security CLEAN，且题名/低敏感元数据足以将
+   其作为 R1 候选。2A 不执行 qualification、模型或发布。
+
+2A 的唯一完成条件：
+
+```text
+LATEST_SOURCE_ADMISSION=ADMIT
+LATEST_STREAM_ADMISSION=ADMIT
+STREAM_DECISION_CURRENT_AND_NOT_EXPIRED=true
+ELIGIBLE_CURRENT_PRODUCTION_DOCUMENT_VERSION_COUNT>=1
+SOURCE_STATE_CHANGED_BY_SLICE_2A=false
+MODEL_OR_PUBLICATION_CALLED=false
+```
+
+若任何条件不成立：
+
+```text
+SLICE_2A_STATUS=BLOCKED
+NEXT_STAGE_READY=false
+```
+
+只有 2A 全部通过后，才允许重新评估 `NEXT_STAGE_READY`，并按以下顺序考虑原定实现：
+
+1. 显式建立 production policy authority；
+2. 为合法 current version 建受治理 requalification seam；
+3. 实现 EXTRACT/VERIFY 原子完成；
+4. 实现 automatic publication authority/revision；
+5. 实现 revision-guarded projection、invalidation/epoch/veto；
+6. 补最小 ACL；
+7. 最后执行第一条真实 Event 的只读验收。
 
 ## 13. 是否需要新迁移
 
@@ -434,6 +505,8 @@ revision id，merge revision 无法检测或修复同名 migration 的语义差�
 |---|---|
 | 本轮诊断 | 不需要 |
 | 写入新的 SourceAdmission assessment | 现有表足够；不需要 |
+| 写入 stream admission/runtime fact | 现有 0042 表和 repository 足够；不需要 |
+| 统一 source/stream authority 判定 | 需要代码；若不改变持久状态机则不需要 migration |
 | 激活现有、已注册的 policy bundle | 现有 ledger/command 足够；前提是 bundle 已合法注册 |
 | 历史 current-version requalification | 优先用现有 outbox/exception Schema；若不扩大状态机可不迁移 |
 | EXTRACT/VERIFY prompt/schema registry | 需要 |
@@ -449,7 +522,12 @@ Schema 缺失，不能用迁移伪造 `ADMIT`。**
 
 | 改动 | 先写的失败测试 |
 |---|---|
-| SourceAdmission workflow | 缺失/PAUSE/显式 hard denial 均不能创建 LIVE run；只有 current ADMIT 可继续 |
+| 2A 状态冻结 | 执行前后 source intent/runtime/stream/schedule/queue 计数和状态完全相同 |
+| source-level admission | 缺失/PAUSE/显式 hard denial 均不能通过；只有 current server-owned ADMIT 可继续 |
+| stream-level admission | 缺失、PAUSE、过期、boundary/hash 不匹配均失败关闭；Owner intent 不能代替 decision |
+| 统一 authority query | handoff、model-call gate、closeout 对同一快照返回同一结论；任一事实并发变化则全部失败关闭 |
+| 2A eligible document | 只有同一 admitted stream 的 current PRODUCTION、non-fixture、CLEAN lineage 计数；旧 SHADOW/fixture 排除 |
+| 2A 无越权 | 测试证明不启用来源、不改队列、不调用模型、不写 publication |
 | historical requalification | 旧 SHADOW dead-letter 不可直接 reopen；current version + current gates 才创建新 LIVE run，幂等 |
 | EXTRACT anchors | 伪造 evidence id/block/locator/excerpt 或双向链接分别返回稳定 safe code |
 | failed billing | schema/evidence rejection 结算 sanitized usage 一次；无可验证 billing 才 UNKNOWN；无 raw 泄漏 |
