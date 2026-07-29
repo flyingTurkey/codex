@@ -562,6 +562,8 @@ services:
     command: ["--config.file=/etc/alertmanager/alertmanager.yml"]
     volumes:
       - ./infra/observability/alertmanager:/etc/alertmanager:ro
+    tmpfs:
+      - /alertmanager:uid=65534,gid=65534,mode=0750
     ports:
       - "127.0.0.1:${ALERTMANAGER_PORT:-9093}:9093"
     restart: unless-stopped

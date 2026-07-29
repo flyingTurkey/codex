@@ -51,6 +51,18 @@ def test_prometheus_local_storage_has_time_and_size_retention_limits() -> None:
     assert "SRBG_PROMETHEUS_RETENTION_SIZE=2GB" in example
 
 
+def test_alertmanager_runtime_state_does_not_allocate_anonymous_volumes() -> None:
+    compose = (ROOT / "infra/compose/compose.yaml").read_text(encoding="utf-8")
+    alertmanager_section = compose.split("  alertmanager:\n", 1)[1].split(
+        "  grafana:\n", 1
+    )[0]
+
+    assert (
+        "    tmpfs:\n"
+        "      - /alertmanager:uid=65534,gid=65534,mode=0750"
+    ) in alertmanager_section
+
+
 def test_slo_rules_cover_source_queue_api_search_and_backup() -> None:
     rules = (ROOT / "infra/observability/prometheus/rules.yml").read_text(encoding="utf-8")
     for alert in (

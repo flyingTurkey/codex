@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-07-29 (Docker dev-lite and formal 0054 migration)
+
+- Added a resource-conscious `make dev-lite` runtime: core services plus the automation plane remain available while discovery, AI, and observability are opt-in profiles. The default steady state is 12 long-lived containers instead of 18; Celery defaults to one task slot, health probes run less often after startup, runtime logs rotate, and Prometheus has both time and size retention limits.
+- Prevented one-shot PostgreSQL role tasks and Alertmanager from allocating anonymous image-declared volumes. Role tasks cover PGDATA with tmpfs; Alertmanager uses a writable uid/gid-scoped tmpfs. Full-to-lite replay holds the Docker volume count at 188 with zero project anonymous mounts.
+- Integrated the green `codex/issue-40-integration` candidate and formally migrated the Owner's local PostgreSQL from `0047_owner_gold_override_go` through all seven revisions to `0054_policy_optimization`. The migration ran only after a byte-identical, read-only-mounted VHD snapshot and an independent logical restore passed; critical business counts were unchanged and expected ACL/schema checks passed.
+- Restored the formal runtime in dev-lite, validated the full 23-entry / 18-long-lived profile, and returned Docker Desktop to the 17-entry / 12-long-lived light state. API live/ready, v2 Feed, Web SSR/proxy, Smoke, dependency audits, Trivy, lint, strict type checks, unit/integration tests, and contract generation gates pass.
+- Recorded the pre-0054 artifact hashes, the initial fail-closed logical restore caused by missing RLS roles, the safely cleaned local-port conflict, the Alertmanager tmpfs permission correction, and the VHD-first rollback boundary in the Docker and formal-migration acceptance records. This is a local formal-database migration and runtime closeout, not an external production deployment or production authorization.
+
 ## 2026-07-29 (Issue #40 isolated migration ACL rollback hardening)
 
 - Fixed downgrade grant symmetry in migrations `0049`, `0052`, and `0054`: Worker candidate-table access, Publisher Feed-suppression writes, and API/Worker policy-projection reads are now revoked at the revision that introduced them while older baseline grants remain intact.
