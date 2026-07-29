@@ -29,12 +29,12 @@
 | 正式数据只读物理克隆复验 | `PASS` |
 | 完整退回 `0047` 的结构、数据和 ACL 指纹 | `PASS` |
 | 五项仓库质量门禁 | `PASS` |
-| 候选修复本地提交/合入 | `AUTHORIZED` |
+| 候选修复本地提交/合入/远端推送 | `EXECUTED_AUTHORIZED` |
 | 正式 PostgreSQL 迁移 | `NOT_EXECUTED_NOT_AUTHORIZED` |
 
 本裁决证明本轮修复在隔离环境和正式数据的只读物理副本上满足迁移与回滚要求。
-Owner 已在后续消息中授权本地提交和快进合入；该授权不包含远端推送或正式数据库
-迁移，也不构成生产 closeout。
+Owner 已在后续消息中依次授权本地提交、快进合入、修复复验和远端候选分支推送；
+该授权不包含正式数据库迁移，也不构成生产 closeout。
 
 ## 修复内容
 
@@ -178,6 +178,44 @@ rows: 2244
 ec7ccd0e9cf09cf3c53c2bb53f8560c869e7380958d936d2014214f5429f102c
 ```
 
+## 远端 CI 暴露的技术异常恢复回归
+
+候选分支首次远端推送后，GitHub Actions run
+`30439776057` 的 integration job 连续两次稳定复现同一失败：第一次 Owner 恢复成功，
+恢复流水线再次耗尽后，第二次有效 Owner 恢复返回 `False`；后一条“存在两个 open
+exception”是前一测试未清理状态造成的级联失败。
+
+失败不是本轮 ACL downgrade 变更导致。根因是 `reconcile()` 按
+`ai_pipeline_run.started_at DESC` 从同一文档的历史流水线中猜测当前失败流水线，
+而 SourceStream handoff 使用墙钟、技术重试使用可注入时钟。旧固定测试时钟跨过
+2026-07-24 后，原始流水线时间反而晚于恢复流水线，Owner exception 因而被重新绑定
+回旧流水线；数据库恢复函数按 fail-closed 条件拒绝了不一致的请求。
+
+最小产品修复改为读取每个 document version 唯一的
+`source_content_outbox.pipeline_run_id`。该字段由既有恢复函数与 outbox 状态在同一
+事务中切换，是当前工作流水线的权威绑定，不依赖历史时间排序，也不需要新增迁移。
+投影还要求 outbox 已为 `DEAD_LETTER`、流水线已为
+`FAILED/TECHNICAL_FAILED`，并且 decision 与流水线的冻结 policy bundle 一致；
+decision 与流水线终结之间的短事务窗口因此只会等待下一轮 reconcile，不会提前错绑。
+回归场景把注入时钟固定在 handoff 墙钟之前 30 天，并在第二轮耗尽后直接断言
+exception metadata 已绑定到实际恢复流水线，随后仍通过公开 `retry_now()` 行为验证。
+
+修复后的本地复验结果：
+
+- `make lint` 与 `make typecheck` 通过，mypy strict 检查 156 个源文件；
+- `make test` 通过：Python `1553 passed / 27 skipped`、UI `53 passed`、
+  Web `106 passed`；
+- `make contract-test` 通过，生成物可复现，`123 passed`；
+- `make fixture-replay` 通过，`377 passed`，Round 09 证据、Schema、恶意样本和
+  unsupported-expansion 门禁全部通过；
+- `pip-audit` 与 `pnpm audit --prod --audit-level high` 均无已知漏洞，
+  security scan 输入成功冻结为 `1286` 个文件。
+
+Docker Desktop 引擎在本机复验期间无响应，因此未重启 Docker Desktop、未停止其他
+项目容器，也未把本地 Trivy 容器超时冒充为通过。推送后的 Linux GitHub Actions
+`quality` / `security` job 负责执行相同的完整 Trivy 门禁；`integration` job 负责
+执行真实 PostgreSQL/MinIO、迁移 verifier 和本回归场景。
+
 ## 依赖安全门禁修复
 
 最终门禁首次执行时，生产依赖审计发现任务期间新发布的三个公告。经 Owner 授权，
@@ -212,10 +250,11 @@ PyPI 的本地包；Trivy `0.69.3` 的 secret/misconfiguration 扫描及三个 D
 
 ## 当前状态与下一授权点
 
-- Owner 已授权在本地提交修复并快进合入 `codex/issue-40-integration`；未授权远端推送。
+- Owner 已授权本地提交、快进合入、修复复验和推送
+  `codex/issue-40-integration`；远端 CI 作为候选分支最终门禁持续跟踪。
 - 原候选工作树保持 clean；正式项目工作树的既有 Docker 优化改动未被覆盖。
 - 正式数据库未迁移，当前仍是 `0047`。
 - 任务级容器、网络、卷和候选迁移镜像均已清理。
 
-本地合入完成后，远端推送和正式数据库迁移仍是两个独立授权动作。正式迁移执行前
-必须生成并验证可恢复的 PGDATA/VHD 物理快照。
+正式数据库迁移仍是独立授权动作。执行前必须生成并验证可恢复的 PGDATA/VHD
+物理快照。

@@ -1521,7 +1521,9 @@ async def test_technical_failure_retries_survive_restart_and_owner_recovery_is_i
     admin = create_async_engine(os.environ["SRBG_TEST_ADMIN_DATABASE_URL"])
     api = create_async_engine(os.environ["SRBG_DATABASE_URL"])
     worker = create_async_engine(os.environ["SRBG_WORKER_DATABASE_URL"])
-    now = datetime(2026, 7, 22, 2, 0, tzinfo=UTC)
+    # Keep the injected retry clock behind the handoff wall clock so recovery
+    # must follow the authoritative outbox binding instead of timestamp order.
+    now = datetime.now(UTC) - timedelta(days=30)
     current_time = [now]
     try:
         acquired = await acquire_through_live_source_stream(
@@ -1734,7 +1736,15 @@ async def test_technical_failure_retries_survive_restart_and_owner_recovery_is_i
                 ),
                 {"id": exception.id},
             )
+            rebound_pipeline_run_id = await connection.scalar(
+                text(
+                    "SELECT safe_metadata->>'pipeline_run_id' "
+                    "FROM owner_exception_v2 WHERE id=:id"
+                ),
+                {"id": exception.id},
+            )
         assert reopened_event_count == 1
+        assert rebound_pipeline_run_id == str(resumed_document.run_id)
         current_time[0] += timedelta(seconds=1)
         second_request = await exceptions.command(
             exception_id=exception.id,
