@@ -300,7 +300,6 @@ class PostgresOwnerTechnicalExceptionService:
                             "ON capture.id=version.raw_object_capture_id "
                             "LEFT JOIN fetch_run fetch_row ON fetch_row.id=capture.fetch_run_id "
                             "WHERE decision.disposition='TECHNICAL_FAILED' "
-                            "AND decision.policy_bundle_id=run.policy_bundle_id "
                             "AND content.status='DEAD_LETTER' AND run.status='FAILED' "
                             "AND run.failure_code='TECHNICAL_FAILED' "
                             "ORDER BY decision.decided_at,decision.id"

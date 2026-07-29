@@ -28,7 +28,7 @@
 | `0047 -> 0054 -> 0047 -> 0054` 完整真实回放 | `PASS` |
 | 正式数据只读物理克隆复验 | `PASS` |
 | 完整退回 `0047` 的结构、数据和 ACL 指纹 | `PASS` |
-| 五项仓库质量门禁 | `PASS` |
+| ACL/依赖修复五项仓库质量门禁 | `PASS` |
 | 候选修复本地提交/合入/远端推送 | `EXECUTED_AUTHORIZED` |
 | 正式 PostgreSQL 迁移 | `NOT_EXECUTED_NOT_AUTHORIZED` |
 
@@ -195,8 +195,9 @@ exception”是前一测试未清理状态造成的级联失败。
 `source_content_outbox.pipeline_run_id`。该字段由既有恢复函数与 outbox 状态在同一
 事务中切换，是当前工作流水线的权威绑定，不依赖历史时间排序，也不需要新增迁移。
 投影还要求 outbox 已为 `DEAD_LETTER`、流水线已为
-`FAILED/TECHNICAL_FAILED`，并且 decision 与流水线的冻结 policy bundle 一致；
-decision 与流水线终结之间的短事务窗口因此只会等待下一轮 reconcile，不会提前错绑。
+`FAILED/TECHNICAL_FAILED`；decision 与流水线终结之间的短事务窗口因此只会等待
+下一轮 reconcile，不会提前错绑。该查询不要求 `0054` 新增的 nullable
+`pipeline.policy_bundle_id`，因此不会漏掉升级前已经存在的在途流水线。
 回归场景把注入时钟固定在 handoff 墙钟之前 30 天，并在第二轮耗尽后直接断言
 exception metadata 已绑定到实际恢复流水线，随后仍通过公开 `retry_now()` 行为验证。
 
@@ -230,7 +231,7 @@ Docker Desktop 引擎在本机复验期间无响应，因此未重启 Docker Des
 `pnpm install --frozen-lockfile`、完整前后端测试和 `pnpm audit --prod` 均通过；
 生产审计最终为 `0` 个已知漏洞。
 
-## 最终质量门禁
+## ACL 与依赖修复的既有质量门禁
 
 | 命令 | 最终结果 |
 |---|---|
