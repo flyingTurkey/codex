@@ -263,11 +263,12 @@ def test_clean_database_bootstraps_login_roles_before_migrations() -> None:
     assert "migrate:\n        condition: service_completed_successfully" in role_init
 
 
-def test_role_init_does_not_allocate_an_anonymous_postgres_data_volume() -> None:
+def test_role_tasks_do_not_allocate_anonymous_postgres_data_volumes() -> None:
     compose = (ROOT / "infra/compose/compose.yaml").read_text(encoding="utf-8")
-    role_init_section = _compose_service_section(compose, "role-init")
 
-    assert "    tmpfs:\n      - /var/lib/postgresql/data" in role_init_section
+    for service in ("role-bootstrap", "role-init"):
+        section = _compose_service_section(compose, service)
+        assert "    tmpfs:\n      - /var/lib/postgresql/data" in section
 
 
 def test_makefile_exposes_required_quality_and_runtime_targets() -> None:

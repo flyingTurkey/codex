@@ -7,7 +7,7 @@
 - PostgreSQL、Redis 和私有对象存储继续是不同运行时。
 - Parser 继续隔离不可信内容解析；AI Worker 不获得数据库或对象存储凭据；Publisher 继续使用独立发布写凭据。
 - `make dev-lite` 保留 `automation` 执行平面，避免来源仍显示“实际运行中”但 Scheduler/Worker 已停止的错误状态。
-- 轻量模式由完整模式的 18 个常驻容器降为 12 个；4 个一次性初始化任务成功后退出，不持续消耗 CPU。
+- 轻量模式由完整模式的 18 个常驻容器降为 12 个；5 个一次性初始化任务成功后退出，不持续消耗 CPU。
 - 隔离数据栈运行验收通过；正式 VHD 因既有迁移谱系与当前 checkout 不一致而保持关闭，数据库未被改写。
 
 当前结论为：
@@ -19,8 +19,8 @@
 
 ## 基线与范围
 
-- 分支：`codex/issue-36-owner-gold-40`
-- 固定起点：`8c690ae`
+- 分支：`codex/issue-40-docker-lite`
+- 固定起点：`889aab6`
 - Docker Engine：29.6.1
 - Docker Compose：5.3.0；支持本轮使用的 `start_interval`
 - Docker Desktop：4.80.0
@@ -70,10 +70,10 @@ Docker Desktop 当时显示运行，但 Engine 的 `version`、`ps`、Compose �
 
 ## 运行模型
 
-Compose 不带 profile 时只展开 11 个核心服务，其中 7 个常驻、4 个一次性：
+Compose 不带 profile 时只展开 12 个核心服务，其中 7 个常驻、5 个一次性：
 
 - 常驻：PostgreSQL、Redis、ClamAV、业务 MinIO、审计锚点 MinIO、API、Web
-- 一次性：`minio-init`、`anchor-minio-init`、`migrate`、`role-init`
+- 一次性：`minio-init`、`anchor-minio-init`、`role-bootstrap`、`migrate`、`role-init`
 
 能力分组如下：
 
@@ -84,7 +84,7 @@ Compose 不带 profile 时只展开 11 个核心服务，其中 7 个常驻、4 
 | `ai` | ai-worker | 否；需要核心和自动化调用/回调语义 |
 | `observability` | prometheus、alertmanager、grafana、otel-collector | 否；观测完整运行栈 |
 
-`make dev-lite` 启用核心加 `automation`，共 16 个容器条目、12 个常驻进程边界；显式停止 discovery、AI 和 observability 六个服务。`make dev`、`make runtime-ready`、`make setup` 和 `make down` 显式启用全部 profile，保留原有完整模式语义。
+`make dev-lite` 启用核心加 `automation`，共 17 个容器条目、12 个常驻进程边界；显式停止 discovery、AI 和 observability 六个服务。`make dev`、`make runtime-ready`、`make setup` 和 `make down` 显式启用全部 profile，保留原有完整模式语义。
 
 纯阅读核心没有在本轮暴露为正常可写模式。原因是现有来源 `actual_running` 投影不读取 Worker heartbeat；若停掉整个执行平面，页面仍可能显示来源正在运行，Owner 操作也可能长期停在 `QUEUED`。该模式只能在未来加入服务端执行平面暂停事实和相应投影后实现。
 
@@ -122,9 +122,9 @@ Prometheus 默认同时使用：
 
 正式指标目录只读测量为 21.4MiB；现有 block 从 2026-07-15 23:00 UTC 到 2026-07-20 15:00 UTC。按观察到的约 4.7 天摄入量线性外推，15 天约 69MiB，2GB 容量有约 29 倍余量。两个上限以先达到者为准；若未来指标基数显著上升，容量上限可能早于 15 天清理，需继续监测 14 天报表覆盖。
 
-### 一次性初始化卷
+### 一次性角色任务卷
 
-`role-init` 复用 PostgreSQL 镜像，镜像默认声明 `/var/lib/postgresql/data` 卷。此前每次新建角色初始化容器都会产生无用途的匿名卷。本轮用同路径 tmpfs 覆盖；新容器运行前后 Docker 卷数不再增加，任务退出码为 0，容器无数据卷挂载。
+`role-bootstrap` 和 `role-init` 复用 PostgreSQL 镜像，镜像默认声明 `/var/lib/postgresql/data` 卷。若不覆盖，两项任务每次重建都会产生无用途的匿名卷。本轮均用同路径 tmpfs 覆盖；运行验收会核对新容器前后 Docker 卷数不增加、任务退出码为 0，且两项任务都没有数据卷挂载。
 
 ## 隔离运行证据
 
@@ -132,9 +132,9 @@ Prometheus 默认同时使用：
 
 | 项目 | 实测 |
 |---|---:|
-| Compose 展开服务 | 16 |
+| Compose 展开服务 | 17 |
 | 常驻容器 | 12 |
-| 成功退出的一次性任务 | 4 |
+| 成功退出的一次性任务 | 5 |
 | discovery / AI / observability 容器 | 0 |
 | 项目容器内存快照 | 2743.5MiB |
 | `docker stats` PIDs 快照 | 72（包含线程） |
@@ -179,7 +179,7 @@ FAILED: Can't locate revision identified by '0047_owner_gold_override_go'
 - 健康检查启动/稳定期与失败窗口
 - 18 个常驻服务日志轮转
 - Prometheus 时间/容量双上限
-- `role-init` 不再创建匿名 PostgreSQL 数据卷
+- `role-bootstrap` 和 `role-init` 均不再创建匿名 PostgreSQL 数据卷
 - Smoke 使用 v2 Feed，且不把客户端水合前 SSR 壳误判为空状态缺失
 
 | 命令 | 结果 |

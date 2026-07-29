@@ -89,7 +89,7 @@ make dev-lite
 make smoke
 ```
 
-`make dev-lite` 是日常个人运行入口：保留 PostgreSQL、Redis、ClamAV、两个 MinIO、API、Web，以及 Worker、Parser、Personal Source Worker、Publisher、Scheduler 组成的完整执行平面；默认不启动来源发现、AI Worker 和 Prometheus、Alertmanager、Grafana、OTel Collector。它包含 12 个常驻容器和 4 个一次性初始化任务，来源采集、解析、发布和调度状态不会因为“省资源”而被伪装成仍在运行。需要来源发现、AI 和观测能力时使用完整入口：
+`make dev-lite` 是日常个人运行入口：保留 PostgreSQL、Redis、ClamAV、两个 MinIO、API、Web，以及 Worker、Parser、Personal Source Worker、Publisher、Scheduler 组成的完整执行平面；默认不启动来源发现、AI Worker 和 Prometheus、Alertmanager、Grafana、OTel Collector。它包含 12 个常驻容器和 5 个一次性初始化任务，来源采集、解析、发布和调度状态不会因为“省资源”而被伪装成仍在运行。需要来源发现、AI 和观测能力时使用完整入口：
 
 ```bash
 make dev

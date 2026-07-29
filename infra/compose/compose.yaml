@@ -182,6 +182,8 @@ services:
   role-bootstrap:
     image: srbg-postgres:17.10-pgvector-0.8.2
     build: *postgres-build
+    tmpfs:
+      - /var/lib/postgresql/data
     environment:
       PGHOST: postgres
       PGDATABASE: ${POSTGRES_DB:-srbg}
