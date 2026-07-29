@@ -30,7 +30,7 @@ make runtime-ready
 任何切换或试点前，先恢复到全新的隔离容器，禁止覆盖在线实例。依次验证：
 
 1. 备份文件 SHA-256 与清单一致；
-2. Alembic 头为 `0033_controlled_ai_budget_bridge`，并核对受控运行、来源绑定、物理请求、AI 预算预留和受控费用结算的记录数；
+2. Alembic 头为 `0054_policy_optimization`，并核对受控运行、来源绑定、物理请求、AI 预算预留、策略 bundle、技术异常、suppression、安全决定和策略激活事实的记录数；
 3. 关键表记录数和规范化哈希与备份基线完全一致；
 4. 对象版本数量、字节数和规范化清单哈希完全一致；
 5. 归档 manifest 数量/哈希一致，三个退场角色不存在；
@@ -45,8 +45,10 @@ make runtime-ready
 
 原 Docker named volumes 只停止使用并保留，不得自动删除。若 D 盘切换后验证失败，停止新栈，保留 VHD 现场，重新启用原卷并按切换前指纹验收；不要把部分新数据合并回旧卷。
 
-数据库降级严格执行 PERS-10 Runbook 的 `0030 → 0029 → 0028`。归档损坏必须拒绝降级；不得手工跳过验证或恢复部分数据。
+当前正式数据库的主回滚是恢复已经验证的同代 VHD 恢复点，不是执行 Alembic downgrade。不得从 `0054` 直接套用历史 PERS-10 的 `0030 → 0029 → 0028` 流程，也不得手改 `alembic_version`。如果确需恢复到旧应用代际，必须先在隔离实例使用与目标 revision 兼容的代码和备份完整验证；归档损坏时拒绝继续。
 
-恢复到 0031 后还要核对 `personal_controlled_run.requests_reserved` 与物理请求记录数、`bytes_settled` 与已结算响应字节汇总。存在活动或未结算请求时不得切换恢复库；0031 有运行事实时拒绝直接降至 0030。
+仅在隔离恢复 PERS-10 历史备份时，恢复到 0031 后还要核对 `personal_controlled_run.requests_reserved` 与物理请求记录数、`bytes_settled` 与已结算响应字节汇总。存在活动或未结算请求时不得切换恢复库；0031 有运行事实时拒绝直接降至 0030。
 
-2026-07-19 界面审查前数据隔离修复的恢复点为 `D:\SRBGData\backups\pre-ui-data-isolation-20260718T181239Z\postgres.dump`，大小 4,196,483 字节，SHA-256 `D3AE6EC0567D72ED1DC2D261F8E7E50922FE992EDC3D27F403D1E38A040F2065`。该备份保留测试来源显式隔离前的原始状态；只有在隔离实例中验证哈希、迁移头、归档 manifest 和来源计数后才可用于回退，不得覆盖在线数据库。
+2026-07-19 界面审查前数据隔离修复的恢复点为 `D:\SRBGData\backups\pre-ui-data-isolation-20260718T181239Z\postgres.dump`，大小 4,196,483 字节，SHA-256 `D3AE6EC0567D72ED1DC2D261F8E7E50922FE992EDC3D27F403D1E38A040F2065`。这是历史恢复点，不是当前 `0054` 恢复候选；只有在隔离实例中验证哈希、其历史迁移头、归档 manifest、来源计数和目标应用兼容性后才可用于旧代际取证或恢复，不得覆盖在线数据库。
+
+当前 `0054` 正式迁移的主恢复点、哈希和 VHD-first 步骤见[正式 PostgreSQL 迁移验收](../acceptance/personal/formal-0054-migration-2026-07-29.md)。该记录中的 `0047` 是迁移前恢复目标，不是当前运行 head。

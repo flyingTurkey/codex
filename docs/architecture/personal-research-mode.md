@@ -1,47 +1,75 @@
 # 个人研究模式架构
 
-- 状态：PERS-10 最终个人形态
-- 日期：2026-07-18
 - 产品形态：本机单一 Owner，无企业模式开关
+- 交互边界：回环地址上的固定 `owner`
+- 业务事实：PostgreSQL
+- 原始证据：私有对象存储
 
 ## 不可变边界
 
-1. `desired_enabled` 只表达 Owner 意图；公网安全、robots、条款、限速、预算、熔断和运行门禁共同决定实际运行状态。
-2. 原始响应先进入私有对象存储，再解析；解析失败不得损坏原始证据。
-3. 只有 accepted claims 与有效 Evidence ID 能形成证据事实。AI 判断独立存储，未验证 AI 不进入事实索引。
-4. `PublicationService` 是 Feed、搜索、日报和关系投影的唯一写入路径；原文版本变化会事务性失效旧 claim 与投影。
-5. 交互身份只有绑定回环地址的 `owner`；内部登录主体按 API、Worker、Publisher 和只读投影职责最小授权。
+1. `desired_enabled` 只表达 Owner 意图；公网安全、robots、条款、版权、限速、预算、熔断和运行门禁共同决定实际运行状态。
+2. 所有外部来源通过 `SourceAdapter` 接入。原始响应先进入私有对象存储，再解析；解析失败不得损坏原始证据。
+3. 只有当前 accepted claims 与有效 Evidence ID 能形成证据事实。AI 候选、判断和运行状态独立保存，未通过证据门禁的内容不进入事实投影。
+4. `PublicationService` 是发布状态以及 Feed、搜索、日报和相关读取投影的唯一业务写入路径；原文或 accepted claims 变化会使旧摘要和投影失效。
+5. R3 只通过服务端投影暴露有限元数据与待审核状态；R4 只进入隔离区。完整数据不得先发送到浏览器再隐藏。
+6. PostgreSQL 是业务事实唯一权威；Redis 只承担缓存、锁和队列；对象存储默认私有。
+7. API、Worker 和 Publisher 使用最小权限内部主体。旧企业角色不属于当前产品身份模型。
 
 ## 运行图
 
 ```text
-Loopback Owner → Personal API → Source/Profile/Content services → PostgreSQL
-                         │                         │
-                         └→ Celery personal tasks └→ private raw object storage
-Accepted claims + evidence → PublicationService → Feed/Search/Daily/Relations
+Loopback Owner
+  → Nuxt Web
+  → Personal/v1 API ───────────────→ Source、收藏、日报、版本、关系、AI 设置
+  → Intelligence/v2 API ───────────→ Feed、搜索、热点、Reader、Owner 复核
+                    │
+                    ├→ PostgreSQL（权威事实、门禁、审计、投影）
+                    ├→ Redis（队列、锁、缓存）
+                    └→ private object storage（raw、附件、OCR、哈希）
 
-legacy_governance_archive (read-only, no business dependency)
+SourceAdapter
+  → SourceAdmission / runtime gates
+  → raw object / DocumentVersion
+  → policy-bound AI and deterministic processing
+  → accepted claims ↔ evidence
+  → PublicationService
+  → v2 projections
 ```
 
-来源 URL 经公网边界、重定向、robots、条款和预算门禁后生成流。调度器只领取已通过门禁且未被 Owner 停用的流；停用会暂停全部调度并在执行前重新校验绑定。内容版本变化先失效 accepted claims，再由 durable outbox 驱动 PublicationService 撤销旧投影。
+来源 URL 必须先经过公网地址、逐跳重定向、robots、条款、版权、限速和预算门禁。调度器只领取已获得服务端运行授权且未被 Owner 停用的流，并在实际 I/O 前重新验证权威状态。
 
-## 企业治理退场
+## 模块边界
 
-迁移 `0029_legacy_governance_retirement` 在一个事务中归档并验证旧治理数据；`0030_pers10_role_archive_repair` 补齐三个企业数据库角色的可回滚快照并删除最后的来源治理角色。旧角色、审批 API、资格/批准 Worker、人工审核页面、生成契约和企业 Operations 已退出源树和执行图。归档 Schema 只供迁移完整性校验与受控降级，业务角色没有 USAGE，业务模块不得查询。
+- `apps/web`：Nuxt/Vue Owner 界面，只消费服务端投影，不持有发布或来源授权。
+- `apps/api`：模块化单体、权威业务服务和 API；模块不得直接读取其他模块的 ORM 表。
+- `apps/worker`：复用 API 侧业务服务与契约，执行采集、解析、AI 和耐久任务，不复制门禁。
+- `packages/contracts`：共享枚举、Schema 和生成契约。
+- `infra`：Compose、数据库角色、观测与部署配置。
 
-`0031_controlled_personal_runs` 是个人模式的内部运行安全层，不是产品角色或审批层。Probe 与 Fetch 在每次真实传输前向同一 PostgreSQL 账本预约次数和最大字节，结算实际字节及失败；数据库同时校验运行状态、四小时墙钟、五个来源的主机/路径边界和同域一分钟窗口。控制器只负责累加有效运行时间、暂停来源并等待已预约请求排空，无法放宽数据库上限。
+v1 保留收藏、日报、引用、版本/diff、关系纠正、来源和 AI 设置；v2 提供 Feed、搜索、热点、Event Reader、媒体与 Owner 复核。详情见 ADR-0002。
 
-`0032_controlled_run_worker_read` 只授予 Worker 读取停止权威的最小权限；`0033_controlled_ai_budget_bridge` 把受控运行 AI 费用与既有月度预算在一个事务中预留、结算和释放。未知账单按预留额结算，任何受控 AI 事实存在时拒绝破坏性降级；这些迁移不恢复企业角色或审批能力。
+## 发布与失效
 
-普通读取同时消费 `published_v1` 与个人信号投影，但按 Event ID 合并：有正式 publication revision 时优先正式投影，否则 `EVIDENCE_FACT` 优先于 metadata-only。详情在旧投影缺失时由个人信号构建，并以 accepted claims 和 Evidence IDs 补齐 metadata-only 详情。历史测试数据保留在业务库但必须显式标为 `FIXTURE_TEST`/`FIXTURE_REPLAY`；来源列表和 PublicationService backfill 按该权威状态隔离，不使用域名启发式判断。
+候选、模型输出或页面按钮不能直接写发布状态。`PublicationService` 使用当前 SourceAdmission、DocumentVersion、accepted claims、evidence、复核、风险、安全扫描与 suppression 事实统一评估。
 
-降级前必须停机并完成备份。迁移会重新验证逐行 SHA-256、逐类计数与汇总 SHA-256；损坏时拒绝降级。验证通过后才恢复旧表、约束、授权、触发器和原始数据。详见 [迁移回滚 Runbook](../operations/pers10-migration-rollback-runbook.md)。
+原文变更、撤回或更正时：
 
-## 回滚原则
+1. 保存新的 DocumentVersion 或来源状态事实；
+2. 失效旧 claims、`SourceExcerpt` 与 AI 摘要候选；
+3. 由耐久任务重新处理当前版本；
+4. 只经 `PublicationService` 撤销、重建或拒绝读取投影；
+5. 保留历史事实和审计记录。
 
-本地正式数据保存在 `D:\SRBGData\srbg-data.vhdx` 的 ext4 文件系统，Compose 只从 `/mnt/host/wsl/SRBGDataDisk/srv` 挂载七类业务状态目录。启动门禁先验证 VHD 和目录；不允许在挂载失败时隐式创建空 named volume。原 named volumes 作为切换前恢复点保留，未经人工确认不得删除。
+Feed suppression 不删除原始材料。安全 hold 在排序、分页、详情和媒体授权之前失败关闭；Owner 允许决定仍需重新通过 `PublicationService`。
 
-- 代码与数据库回滚分开，先备份 PostgreSQL 与对象存储并在隔离环境验证恢复。
-- 仅在应用版本已回退且企业代码确有兼容需求时执行 `0030 → 0029 → 0028`。
-- 降级不得自动启用来源，也不得降低公网安全、证据或发布边界。
-- 归档校验失败时保留当前个人模式，不得手工跳过验证或恢复部分数据。
+## 运行模式
+
+`make dev-lite` 启动核心和 automation 执行平面，默认停止 discovery、AI 和 observability。`make dev` 启动完整 profile。两种模式只控制服务集合，不改变 SourceAdmission、AI 授权或发布门禁。
+
+本地正式数据保存在 `D:\SRBGData\srbg-data.vhdx` 的 ext4 文件系统，Compose 从 `/mnt/host/wsl/SRBGDataDisk/srv` 挂载七类状态目录。挂载失败时不得隐式创建空卷继续运行。
+
+## 历史治理与恢复
+
+旧企业治理数据保留在只读归档中，仅用于迁移完整性、历史审计和受控恢复；业务代码不得依赖该归档。历史 PERS 迁移、角色退场和 Owner Gold 记录不能反向定义当前产品能力。
+
+数据库恢复优先使用经过哈希与隔离恢复验证的备份或 VHD 恢复点，不把破坏性 Alembic downgrade 当默认回滚。当前操作见[个人平台备份恢复](../operations/personal-backup-restore.md)；历史企业流程见[失效企业流程说明](../ENTERPRISE-PROCESSES-RETIRED.md)。

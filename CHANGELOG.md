@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-07-29 (Phase 1 authority cleanup)
+
+- Reframed `AGENTS.md` around durable product, architecture, evidence, publication, security and UI boundaries. Behavior changes remain test-first, while documentation and mechanical work use proportionate checks; validation now follows path risk and exact-SHA evidence instead of unconditional full-suite reruns.
+- Rebuilt the root README as an Owner-facing capability and startup guide. It distinguishes registration, research, runtime authorization, Worker activity, raw/document persistence, AI completion, accepted claims/evidence, PublicationService output, v2 Feed visibility and human review.
+- Corrected active user, maintenance, architecture and recovery guidance to the `0054_policy_optimization` baseline. Historical `0033`/`0045`/`0047`, Txx/PERS and Owner Gold evidence remains in its original history and acceptance records rather than being presented as current runtime state.
+- Recorded the remaining proof gap explicitly: this baseline has not yet demonstrated one real external source flowing through raw/document, AI, accepted claims/evidence and `PublicationService` into v2 Feed. No production data, source authorization, real AI configuration or Compose semantics changed.
+
 ## 2026-07-29 (Docker dev-lite and formal 0054 migration)
 
 - Added a resource-conscious `make dev-lite` runtime: core services plus the automation plane remain available while discovery, AI, and observability are opt-in profiles. The default steady state is 12 long-lived containers instead of 18; Celery defaults to one task slot, health probes run less often after startup, runtime logs rotate, and Prometheus has both time and size retention limits.
