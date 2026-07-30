@@ -71,3 +71,38 @@
 - 远端 CI：未触发；没有 Owner 单独推送授权。
 - live 验收：未运行。
 - `git status`：关闭记录提交后最终复核为 clean。
+
+## Authorized release retry and deterministic Web image correction
+
+The earlier release-candidate result is retained as historical evidence: its only
+terminal failure was the absent Playwright executable. The Owner subsequently
+authorized offline-browser preparation, Docker Desktop restart, a release retry,
+and an exact-SHA branch push for remote CI.
+
+The retry exposed a separate pre-freeze build defect before any release result was
+accepted. `Dockerfile.web` mounted the BuildKit pnpm cache at
+`/home/node/.local/share/pnpm/store`, while pnpm 11.12.0 used
+`/workspace/.pnpm-store/v11`. The image therefore re-downloaded dependencies and
+re-ran registry-wide lockfile policy checks on every rebuild. The permanent
+correction:
+
+- mounts and explicitly selects `/workspace/.pnpm-store`;
+- retains `--frozen-lockfile`;
+- uses pnpm's documented `--trust-lockfile` mode for this reviewed closed-source
+  lockfile, while leaving the independent dependency audit/security gate intact;
+- adds infrastructure contract coverage for both the cache path and reviewed
+  lockfile boundary.
+
+Pre-freeze evidence after the correction:
+
+- focused infrastructure contract: `28 passed`;
+- `make check-fast`: PASS (`1308 passed, 27 skipped`; contract `123 passed`);
+- `make check-pr`: PASS, including the single migration head, `0054 -> 0055 ->
+  0054 -> 0055`, isolated PostgreSQL/Redis/private-MinIO integration,
+  PublicationService path audit, AI/evidence adversarial tests, and Compose smoke;
+- the 27 skips are the same explicitly audited integration-environment skips
+  recorded separately; there is no unexplained skip or temporary bypass.
+
+The terminal `RELEASE_CANDIDATE_SHA`, local `make check-release`, exact-SHA remote
+CI, intentionally unrun live acceptance, and final `git status` are recorded only
+after the new candidate is committed and frozen.

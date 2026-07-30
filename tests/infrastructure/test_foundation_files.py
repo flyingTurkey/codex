@@ -496,7 +496,15 @@ def test_web_image_keeps_versioned_esbuild_binaries_isolated_and_cached() -> Non
     dockerfile = (ROOT / "infra/compose/Dockerfile.web").read_text(encoding="utf-8")
 
     assert "hoistPattern:\n  - '*'\n  - '!@esbuild/*'" in workspace
-    assert "target=/home/node/.local/share/pnpm/store" in dockerfile
+    assert "target=/workspace/.pnpm-store" in dockerfile
+    assert "--store-dir /workspace/.pnpm-store" in dockerfile
+
+
+def test_web_image_install_uses_the_reviewed_frozen_lockfile() -> None:
+    dockerfile = (ROOT / "infra/compose/Dockerfile.web").read_text(encoding="utf-8")
+
+    assert "pnpm install --frozen-lockfile --trust-lockfile" in dockerfile
+    assert "pnpm install --offline" not in dockerfile
 
 
 def test_security_scan_uses_only_git_delivery_files() -> None:

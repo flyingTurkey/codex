@@ -12,8 +12,8 @@ WORKDIR /workspace
 COPY --chown=node:node . .
 
 USER node
-RUN --mount=type=cache,id=srbg-pnpm-v11,target=/home/node/.local/share/pnpm/store,uid=1000,gid=1000 \
-    pnpm install --frozen-lockfile
+RUN --mount=type=cache,id=srbg-pnpm-v11,target=/workspace/.pnpm-store,uid=1000,gid=1000 \
+    pnpm install --frozen-lockfile --trust-lockfile --store-dir /workspace/.pnpm-store
 RUN pnpm --filter @srbg/web build
 
 FROM node:24.14.0-bookworm-slim AS runtime

@@ -8,6 +8,7 @@
 - Made `PublicationService` the sole automatic FULL publication path and committed publication revision, Reader projection, search projection, suppression matches, and publication decision in one Publisher transaction. Reader visibility now revalidates the exact current revision and authority epoch; stale projection writes cannot move visibility time backwards.
 - Added a disposable PostgreSQL/Redis/private-MinIO vertical acceptance that enters through the real SourceAdapter and raw-first flow, reaches `/api/v2/feed` and Event Reader, proves replay idempotency, R3/R4 non-leakage, machine-organized status, Owner veto/restore, and `0054 -> 0055 -> 0054 -> 0055` data/ACL replay.
 - Extended the risk classifier so migration, AI, content, publication, and integration changes automatically select `phase3-trustworthy-event-test`; no stop/drain plane, governed replay UI, dashboard, advanced Feed filtering, campaign ledger, multi-source expansion, or live connectivity was added.
+- Corrected the Web image's pnpm cache mount to the store path actually used inside `/workspace`, made that store path explicit, and used pnpm's reviewed-lockfile mode so cached rebuilds do not repeat registry-wide supply-chain metadata verification. Contract tests cover the frozen lockfile and cache-path boundary; the independent dependency security gate remains unchanged.
 
 ## 2026-07-29 (Phase 1 authority cleanup)
 
