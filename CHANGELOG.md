@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-07-30 (Phase 4 controlled real Event acceptance — NO_GO)
+
+- Added a guarded, one-document `phase4-real-event` live profile for a researched `cccc-project-briefs` SourceStream, fresh isolated PostgreSQL/Redis/MinIO resources, fixed DeepSeek model settings, an 80,000-micro-USD fail-closed cap, a 25-minute wall deadline, replay checks, and append-only evidence output. Ordinary pytest partitions collect but never execute the live profile.
+- Closed the pre-live publication-date gap by allowing `intelligence_item.source_published_at` to be projected only from an automatically accepted, directly evidenced `published_at` claim; invalid, future, and conflicting dates fail closed.
+- Made Playwright browser gates declare their pinned Chromium runtime dependency after the first release attempt proved a fresh worktree could otherwise fail before any browser assertion.
+- Recorded `NO_GO` before any real source or model call: the second frozen candidate passed `check-fast` and `check-pr`, but its only `check-release` attempt timed out in `compose-smoke` while Docker Compose waited for the full runtime. The release process tree was stopped, but Docker Engine HTTP 500/timeout prevented proof of container and queue drain. Nothing was pushed, no remote CI ran, no formal database was written, and Phase 5 was not started.
+
 ## 2026-07-30 (Phase 3 minimal trustworthy Event slice)
 
 - Closed the Phase 2 proven gap between accepted AI content and Reader visibility: the real Worker now continues from `SUMMARIZE` through deterministic `VERIFY`, and atomically persists the verified step, accepted SourceExcerpt, approved-content success, terminal handoff, and projection outbox. A billable provider response is still settled and recorded when callback validation fails.
