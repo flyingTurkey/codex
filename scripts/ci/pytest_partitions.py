@@ -11,6 +11,7 @@ from pathlib import Path
 
 UNIT_PATHS = ("apps/api/tests", "apps/worker/tests", "tests/infrastructure")
 CONTRACT_PATHS = ("packages/contracts/tests", "tests/contract")
+LIVE_PATHS = ("tests/live",)
 
 
 def compare_node_id_sets(
@@ -64,6 +65,7 @@ def verify(repository: Path) -> dict[str, int]:
     partitions = {
         "unit": _collect(repository, UNIT_PATHS),
         "contract": _collect(repository, CONTRACT_PATHS),
+        "live": _collect(repository, LIVE_PATHS),
     }
     compare_node_id_sets(old=old, partitions=partitions)
     return {

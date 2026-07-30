@@ -219,10 +219,14 @@ web-build:
 	$(PNPM) --filter @srbg/web build
 
 live-acceptance:
+ifeq ($(LIVE_ACCEPTANCE_PROFILE),phase4-real-event)
+	$(UV) run python scripts/run_phase4_real_event_acceptance.py
+else
 	$(MAKE) dev
 	$(MAKE) smoke
 	$(MAKE) intelligence-v2-engineering-campaign \
 		ACTION="$(LIVE_CAMPAIGN_ACTION)" CAMPAIGN_ID="$(CAMPAIGN_ID)"
+endif
 
 check-fast:
 	$(UV) run python scripts/ci/risk_matrix.py classify \

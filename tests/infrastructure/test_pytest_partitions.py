@@ -10,15 +10,20 @@ sys.path.insert(0, str(ROOT))
 
 from scripts.ci.pytest_partitions import (  # noqa: E402
     CONTRACT_PATHS,
+    LIVE_PATHS,
     UNIT_PATHS,
     compare_node_id_sets,
 )
 
 
 def test_python_partitions_are_path_disjoint() -> None:
-    partitions = [set(UNIT_PATHS), set(CONTRACT_PATHS)]
+    partitions = [set(UNIT_PATHS), set(CONTRACT_PATHS), set(LIVE_PATHS)]
 
-    assert not partitions[0] & partitions[1]
+    assert all(
+        not left & right
+        for index, left in enumerate(partitions)
+        for right in partitions[index + 1 :]
+    )
 
 
 def test_old_and_partitioned_node_id_sets_must_have_equal_union_and_no_overlap() -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from base64 import b64decode
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
@@ -1732,6 +1733,7 @@ class PostgresAiPreparationRepository:
             gate = AutomaticEvidenceGate()
             accepted_count = 0
             judgment_count = 0
+            accepted_published_at: datetime | None = None
             for candidate in extraction["claims"]:
                 candidate_evidence: dict[UUID, dict[str, Any]] = {}
                 for evidence_id in candidate["evidence_ids"]:
@@ -1823,6 +1825,17 @@ class PostgresAiPreparationRepository:
                     continue
                 if not isinstance(decision, EvidenceFact):
                     raise RuntimeError("AUTOMATIC_EVIDENCE_GATE_INVALID_RESULT")
+                candidate_published_at = None
+                if candidate["field"] == "published_at":
+                    candidate_published_at = _evidence_backed_published_at(
+                        candidate["value"],
+                        evaluated_at=now,
+                    )
+                    if (
+                        accepted_published_at is not None
+                        and accepted_published_at != candidate_published_at
+                    ):
+                        raise RuntimeError("SOURCE_PUBLISHED_AT_CONFLICT")
                 claim_id = uuid7()
                 result = await connection.execute(
                     text(_INSERT_CLAIM_SQL),
@@ -1897,6 +1910,19 @@ class PostgresAiPreparationRepository:
                     text(_INSERT_AUTOMATIC_FACT_STATE_SQL),
                     {"claim_id": claim_id, "actor": _SYSTEM_ACTOR, "event_id": uuid7(), "now": now},
                 )
+                if candidate_published_at is not None:
+                    accepted_published_at = candidate_published_at
+            if accepted_published_at is not None:
+                projected_published_at = await connection.scalar(
+                    text(_UPDATE_SOURCE_PUBLISHED_AT_SQL),
+                    {
+                        "item_id": item_id,
+                        "published_at": accepted_published_at,
+                        "now": now,
+                    },
+                )
+                if projected_published_at is None:
+                    raise RuntimeError("SOURCE_PUBLISHED_AT_CONFLICT")
             await connection.execute(
                 text(_INSERT_PERSONAL_CONTENT_OUTBOX_SQL),
                 {"id": uuid7(), "item_id": item_id, "version_id": facts["version_id"], "now": now},
@@ -2514,6 +2540,25 @@ def _legacy_storage_class_for_primary_type(primary_type: str) -> tuple[str, str]
     }[primary_type]
 
 
+def _evidence_backed_published_at(value: object, *, evaluated_at: datetime) -> datetime:
+    matched = re.search(r"(20\d{2})\D{0,3}(\d{1,2})\D{0,3}(\d{1,2})", str(value))
+    if matched is None:
+        raise ValueError("invalid accepted published_at")
+    try:
+        year, month, day = (int(part) for part in matched.groups())
+        published_at = datetime(
+            year,
+            month,
+            day,
+            tzinfo=UTC,
+        )
+    except ValueError as error:
+        raise ValueError("invalid accepted published_at") from error
+    if published_at > evaluated_at.astimezone(UTC):
+        raise ValueError("future accepted published_at")
+    return published_at
+
+
 async def _load_blocks(connection: Any, version_id: UUID) -> list[DocumentBlock]:
     rows = (
         (await connection.execute(text(_BLOCKS_SQL), {"version_id": version_id})).mappings().all()
@@ -2698,6 +2743,14 @@ INSERT INTO intelligence_item(
  :id,:source_id,:document_id,:version_id,:item_type,:channel,'R1',:title,:url,NULL,
  :discovered_at,:now,'READY','PENDING',:actor,false,false,:now,:now
 )
+"""
+
+_UPDATE_SOURCE_PUBLISHED_AT_SQL = """
+UPDATE intelligence_item
+   SET source_published_at=:published_at,activity_at=:published_at,updated_at=:now
+ WHERE id=:item_id
+   AND (source_published_at IS NULL OR source_published_at=:published_at)
+RETURNING source_published_at
 """
 
 _INSERT_DIGITAL_PROFILE_SQL = """
