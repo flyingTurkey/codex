@@ -103,6 +103,28 @@ Pre-freeze evidence after the correction:
 - the 27 skips are the same explicitly audited integration-environment skips
   recorded separately; there is no unexplained skip or temporary bypass.
 
-The terminal `RELEASE_CANDIDATE_SHA`, local `make check-release`, exact-SHA remote
-CI, intentionally unrun live acceptance, and final `git status` are recorded only
-after the new candidate is committed and frozen.
+## 第三阶段终态发布记录
+
+本节只补齐冻结候选的终态证据，不改写上文第一次冻结失败的历史记录。
+
+- `RELEASE_CANDIDATE_SHA`：`bcc81f2138c7c85f0b57edc344568a62f64363f0`。
+- 本地 `make check-release`：在该 SHA 上通过，耗时 502 秒；包括
+  diff/docs、Ruff/mypy、Python/Web/contract、migration、安全、fixture、
+  acquisition、隔离集成、AI/证据/发布对抗、Web build、78 项 E2E 和
+  25 项 a11y 门禁。
+- 远端 CI：同一 SHA 全绿；GitHub Actions run `30539022097` 于
+  `2026-07-30T11:37:52Z` 完成。
+- live 验收：按阶段约束未运行；没有运行 `make check-live`，没有访问真实来源、
+  真实模型或正式数据库。
+- skip：27 项 Python skip 已逐项审计为环境特定集成目标；远端跳过步骤均为条件
+  不适用。不存在未解释 skip、失败或临时绕过。
+- 发布和迁移不变量：`PublicationService` 唯一发布路径审计通过；Alembic 只有
+  `0055_phase3_trustworthy_event` 一个 head，且
+  `0054 -> 0055 -> 0054 -> 0055` 隔离往返通过。
+- 候选工作树：本地 release 验证前后均为 clean；候选 SHA 在本收口记录提交前
+  已推送到远端并完成同 SHA CI。
+
+`bcc81f2138c7c85f0b57edc344568a62f64363f0` 始终是不可变的第三阶段
+release candidate。本次仅文档收口的后继提交不是新的 release candidate。
+第四阶段可据此候选和本收口记录评估启动门禁；本次不创建第四阶段或第五阶段
+分支，也不启动其任务。
