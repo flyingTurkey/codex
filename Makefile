@@ -18,6 +18,7 @@ ANCHOR_MINIO_PORT ?= 9002
 POSTGRES_DB ?= srbg
 POSTGRES_USER ?= srbg
 POSTGRES_PASSWORD ?= srbg_local_only
+SRBG_DATA_ROOT ?= /mnt/host/wsl/SRBGDataDisk/srv
 V2_CAMPAIGN_DATABASE_URL ?=
 MINIO_ROOT_USER ?= srbg_local
 MINIO_ROOT_PASSWORD ?= srbg_local_storage_only
@@ -29,6 +30,7 @@ SRBG_S3_REGION ?= us-east-1
 SRBG_EXTERNAL_IO_TIMEOUT_SECONDS ?= 2
 export POSTGRES_PORT MINIO_PORT ANCHOR_MINIO_PORT
 export POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB
+export SRBG_DATA_ROOT
 export MINIO_ROOT_USER MINIO_ROOT_PASSWORD
 export SRBG_API_DB_PASSWORD SRBG_PUBLISHER_DB_PASSWORD SRBG_PROJECTION_DB_PASSWORD
 export SRBG_S3_BUCKET SRBG_S3_REGION SRBG_EXTERNAL_IO_TIMEOUT_SECONDS
@@ -78,7 +80,8 @@ setup:
 
 personal-data-ready:
 ifeq ($(OS),Windows_NT)
-	powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/mount_personal_data.ps1
+	powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/mount_personal_data.ps1 \
+		-DataRoot "$(SRBG_DATA_ROOT)"
 else
 	test -d "$(SRBG_DATA_ROOT)"
 endif

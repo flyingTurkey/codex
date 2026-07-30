@@ -57,6 +57,19 @@ def test_runtime_refuses_to_start_without_the_verified_d_drive_vhd_mount() -> No
     assert "runtime-ready: personal-data-ready" in makefile
 
 
+def test_windows_mount_readiness_repairs_the_actual_isolated_observability_root() -> None:
+    script = MOUNT_SCRIPT.read_text(encoding="utf-8")
+    makefile = MAKEFILE.read_text(encoding="utf-8")
+
+    assert '[string]$DataRoot = \'/mnt/host/wsl/SRBGDataDisk/srv\'' in script
+    assert "PERSONAL_DATA_ROOT_REJECTED" in script
+    assert "chown 65534:65534 '$mountRoot/prometheus'" in script
+    assert "chown 472:0 '$mountRoot/grafana'" in script
+    assert "chmod 0750 '$mountRoot/prometheus' '$mountRoot/grafana'" in script
+    assert "SRBG_DATA_ROOT ?= /mnt/host/wsl/SRBGDataDisk/srv" in makefile
+    assert "-DataRoot \"$(SRBG_DATA_ROOT)\"" in makefile
+
+
 def test_ci_integration_uses_an_explicit_ephemeral_data_root() -> None:
     workflow = CI_WORKFLOW.read_text(encoding="utf-8")
 
