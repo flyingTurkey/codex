@@ -60,14 +60,14 @@
 
 - `make check-fast`：通过；risk plan 无 unknown path，Python affected tests 为 `1307 passed, 27 skipped`，契约为 `123 passed`。
 - `make check-pr`：通过；Python unit/infrastructure 为 `1495 passed, 27 skipped`，隔离集成为 `13 passed`，第三阶段纵向集成为 `10 passed`；migration up/down/up、契约、最小权限和发布路径审计均通过。
-- `make check-release`：待代码完全冻结后仅执行一次。
+- `make check-release`：已在 release candidate 上执行唯一一次；后端、迁移、隔离集成、安全、契约、发布对抗和 `web-build` 等前序门禁通过，随后 `web-e2e` 因隔离工作树缺少本地 Playwright Chromium 可执行文件而失败。78 项浏览器用例均为同一个 `browserType.launch` 环境错误；未联网下载浏览器，且按单次运行约束未重跑。
 - `make check-live`：未运行，任务明确禁止。
-- 真实来源、真实模型、正式数据库和与改动无关的全量浏览器测试：未运行。
+- 真实来源、真实模型和正式数据库：未运行。`check-release` 虽调度了全量浏览器用例，但浏览器进程均未启动。
 
 ## 冻结状态
 
-- `RELEASE_CANDIDATE_SHA`：待冻结后写入。
-- 本地 `check-release`：待冻结后写入。
+- `RELEASE_CANDIDATE_SHA`：`1fc0d127a9861f119996d6443b103bcdc9d8b54b`。
+- 本地 `check-release`：失败；唯一失败门禁为 `web-e2e`，原因是本地 Playwright Chromium 缺失，不是测试断言或本阶段代码失败。不得据此宣称 release 门禁全绿。
 - 远端 CI：未触发；没有 Owner 单独推送授权。
 - live 验收：未运行。
-- `git status`：待关闭记录写入后确认。
+- `git status`：关闭记录提交后最终复核为 clean。
