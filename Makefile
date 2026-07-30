@@ -57,7 +57,7 @@ export CHECK_MAKE
 	contract-fast contract-test pytest-partitions orchestration-test compose-config compose-smoke migration-head-check migration-test \
 	acquisition-integration-test ai-integration-test isolated-integration-test publication-adversarial web-build live-acceptance \
 	security-check smoke \
-	resilience-test fixture-replay quality-gate web-e2e web-a11y source-fixture-test \
+	resilience-test fixture-replay quality-gate playwright-browser-ready web-e2e web-a11y source-fixture-test \
 	safety-regulation-test pdf-ocr-test autonomous-content-integration-test digital-case-test paper-test product-test \
 	round08-test round08-eval round09-test round09-eval round10-test round10-eval \
 	round11-test observability-test golden-replay load-test recovery-drill runbook-test \
@@ -608,10 +608,13 @@ round10-test:
 round10-eval: runtime-ready
 	$(UV) run python scripts/evaluate_round10.py --base-url http://127.0.0.1:$(API_PORT)
 
-web-e2e: runtime-ready
+playwright-browser-ready:
+	$(PNPM) --filter @srbg/web exec playwright install chromium
+
+web-e2e: runtime-ready playwright-browser-ready
 	$(PNPM) --filter @srbg/web e2e
 
-web-a11y: runtime-ready
+web-a11y: runtime-ready playwright-browser-ready
 	$(PNPM) --filter @srbg/web a11y
 
 round11-test:

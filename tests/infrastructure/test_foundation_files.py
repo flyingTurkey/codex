@@ -468,8 +468,12 @@ def test_browser_gates_reuse_the_ready_runtime_without_forced_rebuilds() -> None
         "runtime-ready: personal-data-ready\n"
         "\t$(COMPOSE) $(COMPOSE_FULL_PROFILES) up --detach --wait"
     ) in makefile
-    assert "web-e2e: runtime-ready" in makefile
-    assert "web-a11y: runtime-ready" in makefile
+    assert (
+        "playwright-browser-ready:\n"
+        "\t$(PNPM) --filter @srbg/web exec playwright install chromium"
+    ) in makefile
+    assert "web-e2e: runtime-ready playwright-browser-ready" in makefile
+    assert "web-a11y: runtime-ready playwright-browser-ready" in makefile
 
 
 def test_web_runtime_serves_prebuilt_nitro_output() -> None:
