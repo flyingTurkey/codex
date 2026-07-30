@@ -25,6 +25,15 @@ from srbg_api.ai_pipeline.contracts import (
 class ModelOutputRejected(ValueError):
     """Provider response failed a non-bypassable local check."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "MODEL_OUTPUT_REJECTED",
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+
 
 class TransientProviderError(RuntimeError):
     """A bounded-retry provider/network failure."""
@@ -97,9 +106,14 @@ class ControlledModelGateway:
             + usage.output_tokens * request.output_price_microusd_per_million
         )
         cost = (numerator + 999_999) // 1_000_000 if numerator else 0
+        normalized_output = validated.model_dump(mode="json", exclude_none=True)
+        if request.schema_version == "summarize-v2-output-1.0.0":
+            for paragraph in normalized_output["paragraphs"]:
+                if paragraph["kind"] == "JUDGMENT":
+                    paragraph.pop("claim_ids", None)
         return ModelResponse(
             raw_output=result.content,
-            output=validated.model_dump(mode="json", exclude_none=True),
+            output=normalized_output,
             usage=usage,
             cost_microusd=cost,
             latency_ms=latency_ms,
@@ -127,22 +141,43 @@ class ControlledModelGateway:
         for evidence in output.evidence:
             anchor = request.evidence_anchors.get(evidence.evidence_id)
             if anchor is None:
-                raise ModelOutputRejected("evidence id was not issued by the server")
+                raise ModelOutputRejected(
+                    "evidence id was not issued by the server",
+                    code="EVIDENCE_ID_NOT_ISSUED",
+                )
             if evidence.document_block_id != anchor.document_block_id:
-                raise ModelOutputRejected("evidence block does not match server anchor")
+                raise ModelOutputRejected(
+                    "evidence block does not match server anchor",
+                    code="EVIDENCE_BLOCK_MISMATCH",
+                )
             if anchor.locator_value is not None and evidence.locator.value != anchor.locator_value:
-                raise ModelOutputRejected("evidence locator does not match server anchor")
+                raise ModelOutputRejected(
+                    "evidence locator does not match server anchor",
+                    code="EVIDENCE_LOCATOR_MISMATCH",
+                )
             if evidence.excerpt not in anchor.normalized_text:
-                raise ModelOutputRejected("evidence excerpt is not present in source block")
+                raise ModelOutputRejected(
+                    "evidence excerpt is not present in source block",
+                    code="EVIDENCE_EXCERPT_MISMATCH",
+                )
             if not set(evidence.supports).issubset(claim_ids):
-                raise ModelOutputRejected("evidence supports an unknown claim")
+                raise ModelOutputRejected(
+                    "evidence supports an unknown claim",
+                    code="EVIDENCE_SUPPORT_UNKNOWN_CLAIM",
+                )
         for claim in output.claims:
             if not set(claim.evidence_ids).issubset(evidence_ids):
-                raise ModelOutputRejected("claim references unknown evidence")
+                raise ModelOutputRejected(
+                    "claim references unknown evidence",
+                    code="CLAIM_UNKNOWN_EVIDENCE",
+                )
             for evidence_id in claim.evidence_ids:
                 evidence = next(item for item in output.evidence if item.evidence_id == evidence_id)
                 if claim.claim_id not in evidence.supports:
-                    raise ModelOutputRejected("claim and evidence links are not bidirectional")
+                    raise ModelOutputRejected(
+                        "claim and evidence links are not bidirectional",
+                        code="CLAIM_EVIDENCE_NOT_BIDIRECTIONAL",
+                    )
 
 
 class MockProvider:

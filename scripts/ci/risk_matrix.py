@@ -35,16 +35,27 @@ BASE_GATES = {
 
 RISK_GATES = {
     "contract": ("contract-test",),
-    "migration": ("migration-test",),
+    "migration": ("migration-test", "phase3-trustworthy-event-test"),
     "docker": ("orchestration-test", "compose-config", "compose-smoke"),
     "dependency": ("security-check",),
     "acquisition": ("fixture-replay", "acquisition-integration-test"),
-    "content": ("fixture-replay", "isolated-integration-test"),
-    "ai": ("fixture-replay", "ai-integration-test"),
-    "publication": ("publication-adversarial",),
+    "content": (
+        "fixture-replay",
+        "isolated-integration-test",
+        "phase3-trustworthy-event-test",
+    ),
+    "ai": (
+        "fixture-replay",
+        "ai-integration-test",
+        "phase3-trustworthy-event-test",
+    ),
+    "publication": (
+        "publication-adversarial",
+        "phase3-trustworthy-event-test",
+    ),
     "security": ("fixture-replay", "security-check"),
     "frontend": ("web-build", "web-e2e", "web-a11y"),
-    "integration": ("isolated-integration-test",),
+    "integration": ("isolated-integration-test", "phase3-trustworthy-event-test"),
     "infrastructure": ("compose-config",),
     "orchestration": ("orchestration-test", "compose-config"),
 }

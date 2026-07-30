@@ -63,6 +63,7 @@ export CHECK_MAKE
 	round11-test observability-test golden-replay load-test recovery-drill runbook-test \
 	round11-evidence-test readiness-evidence slo-weekly-report \
 	phase2-round13-test phase2-round14-test ai-content-preparation-test pers01-test personal-source-test personal-pilot-control-test \
+	phase3-trustworthy-event-test \
 	personal-content-test personal-migration-test intelligence-v2-closeout \
 	intelligence-v2-engineering-campaign t05-publication-test t07-source-shadow-test \
 	t08-evidence-search-test t09-hotspot-test t11-reader-appendix-test t12-media-delivery-test t16-source-discovery-test t20-source-discovery-test t20r-source-discovery-test t27-source-discovery-test t29-source-discovery-test t29r-source-discovery-test t31r-source-discovery-test
@@ -198,11 +199,17 @@ ai-integration-test: ai-content-preparation-test
 isolated-integration-test:
 	$(COMPOSE) up --detach --wait postgres minio redis
 	$(UV) run python scripts/run_isolated_integration.py \
-		--migration-verifier verify_autonomous_policy_migration.py -- \
+		--migration-verifier verify_phase3_trustworthy_event_migration.py -- \
 		tests/integration/t05_durable_projection_integration.py \
 		tests/integration/t07_controlled_stream_integration.py \
 		tests/integration/t11_reader_appendix_integration.py \
 		tests/integration/t41_autonomous_content_integration.py -q
+
+phase3-trustworthy-event-test:
+	$(COMPOSE) up --detach --wait postgres minio redis
+	$(UV) run python scripts/run_isolated_integration.py \
+		--migration-verifier verify_phase3_trustworthy_event_migration.py -- \
+		tests/integration/t41_autonomous_content_integration.py::test_phase3_minimal_trustworthy_event_slice -q
 
 publication-adversarial:
 	$(UV) run python scripts/evaluate_round09.py
@@ -516,7 +523,7 @@ pdf-ocr-test:
 autonomous-content-integration-test:
 	$(COMPOSE) up --detach --wait postgres minio
 	$(UV) run python scripts/run_isolated_integration.py \
-		--migration-verifier verify_autonomous_policy_migration.py -- \
+		--migration-verifier verify_phase3_trustworthy_event_migration.py -- \
 		tests/integration/t41_autonomous_content_integration.py -q
 
 digital-case-test:

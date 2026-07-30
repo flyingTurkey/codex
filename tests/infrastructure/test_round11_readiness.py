@@ -97,7 +97,9 @@ def test_round11_required_checks_and_make_targets_are_declared() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     risk_matrix = (ROOT / "scripts/ci/risk_matrix.py").read_text(encoding="utf-8")
     assert "make check-pr" in workflow
-    assert '"publication": ("publication-adversarial",)' in risk_matrix
+    publication_gates = risk_matrix.split('"publication": (', 1)[1].split("),", 1)[0]
+    assert '"publication-adversarial"' in publication_gates
+    assert '"phase3-trustworthy-event-test"' in publication_gates
     assert '"dependency": ("security-check",)' in risk_matrix
     for target in (
         "round11-test",

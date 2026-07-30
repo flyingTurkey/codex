@@ -15,7 +15,7 @@ REQUIRED_TABLES = {
 
 def test_round11_migration_follows_round10_and_declares_operations_tables() -> None:
     script = ScriptDirectory.from_config(Config('apps/api/alembic.ini'))
-    assert script.get_current_head() == "0054_policy_optimization"
+    assert script.get_current_head() == "0055_phase3_trustworthy_event"
     revision = script.get_revision('0012_operations_readiness')
     assert revision.down_revision == '0011_feed_search_daily'
     migration = runpy.run_path('apps/api/migrations/versions/0012_operations_readiness.py')

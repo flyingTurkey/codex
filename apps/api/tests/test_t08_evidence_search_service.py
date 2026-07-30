@@ -9,6 +9,8 @@ pytestmark = pytest.mark.asyncio
 
 EVENT_ID = UUID("019f7c00-0000-7000-8000-000000000811")
 CLAIM_ID = UUID("019f7c00-0000-7000-8000-000000000812")
+DOCUMENT_VERSION_ID = UUID("019f7c00-0000-7000-8000-000000000813")
+PUBLICATION_REVISION_ID = UUID("019f7c00-0000-7000-8000-000000000814")
 NOW = datetime(2026, 7, 20, 8, 0, tzinfo=UTC)
 
 
@@ -47,6 +49,10 @@ def _full_payload() -> dict[str, object]:
     return {
         "projection_kind": "FULL",
         "event_id": str(EVENT_ID),
+        "document_version_id": str(DOCUMENT_VERSION_ID),
+        "publication_revision_id": str(PUBLICATION_REVISION_ID),
+        "accepted_claim_set_sha256": "a" * 64,
+        "authority_epoch": 1,
         "title": "铁路隧道安全监测更新",
         "primary_type": "SAFETY_INTELLIGENCE",
         "facets": {"engineering_objects": ["RAILWAY", "TUNNEL"]},

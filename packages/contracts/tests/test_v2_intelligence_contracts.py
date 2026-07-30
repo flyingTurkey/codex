@@ -14,6 +14,8 @@ from srbg_contracts import (
 
 EVENT_ID = UUID("019f7c00-0000-7000-8000-000000000001")
 CLAIM_ID = UUID("019f7c00-0000-7000-8000-000000000002")
+DOCUMENT_VERSION_ID = UUID("019f7c00-0000-7000-8000-000000000003")
+PUBLICATION_REVISION_ID = UUID("019f7c00-0000-7000-8000-000000000004")
 NOW = datetime(2026, 7, 19, tzinfo=UTC)
 
 
@@ -42,6 +44,10 @@ def test_full_projection_requires_claim_linked_excerpt_and_summary() -> None:
         {
             "projection_kind": "FULL",
             "event_id": EVENT_ID,
+            "document_version_id": DOCUMENT_VERSION_ID,
+            "publication_revision_id": PUBLICATION_REVISION_ID,
+            "accepted_claim_set_sha256": "a" * 64,
+            "authority_epoch": 1,
             "title": "某铁路隧道施工安全通报",
             "primary_type": "SAFETY_INTELLIGENCE",
             "facets": {"engineering_objects": ["RAILWAY", "TUNNEL"]},

@@ -9,6 +9,7 @@ export type ReviewState = 'PENDING_OWNER_REVIEW'
 export type SourceName = string
 export type SourcePublishedAt = string | null
 export type Title = string
+export type AcceptedClaimSetSha256 = string
 export type Body = string | null
 /**
  * @maxItems 100
@@ -59,6 +60,7 @@ export type SourceUrl = string
  * @maxItems 100
  */
 export type Attachments = AttachmentViewV2[]
+export type AuthorityEpoch = number
 export type ClaimBasisV2 =
   | 'MANUFACTURER_CLAIM'
   | 'RESEARCH_CONCLUSION'
@@ -71,6 +73,7 @@ export type ClaimBasisV2 =
  */
 export type ClaimBasis = ClaimBasisV2[]
 export type CorrectionAlert = string | null
+export type DocumentVersionId = string
 export type EventId1 = string
 /**
  * @maxItems 2
@@ -122,6 +125,7 @@ export type RightsBasis = 'PUBLIC_DOMAIN' | 'EXPLICIT_LICENSE' | 'SOURCE_AUTHORI
 export type Media = MediaViewV2[]
 export type OriginalUrl1 = string
 export type ProjectionKind1 = 'FULL'
+export type PublicationRevisionId = string
 export type AiSummaryAssisted = boolean
 /**
  * @maxItems 4
@@ -165,10 +169,13 @@ export interface EventMetadataProjectionV2 {
   title: Title
 }
 export interface EventFullProjectionV2 {
+  accepted_claim_set_sha256: AcceptedClaimSetSha256
   ai_summary: AiSummaryV2
   attachments?: Attachments
+  authority_epoch: AuthorityEpoch
   claim_basis: ClaimBasis
   correction_alert?: CorrectionAlert
+  document_version_id: DocumentVersionId
   event_id: EventId1
   facets: IntelligenceFacetsV2
   first_discovered_at: FirstDiscoveredAt1
@@ -178,6 +185,7 @@ export interface EventFullProjectionV2 {
   original_url: OriginalUrl1
   primary_type: PrimaryIntelligenceType
   projection_kind?: ProjectionKind1
+  publication_revision_id: PublicationRevisionId
   search_explanation?: SearchExplanationV2 | null
   source: SourceAttributionV2
   source_excerpt: SourceExcerptV2

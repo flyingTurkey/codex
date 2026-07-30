@@ -104,11 +104,18 @@ def test_owner_retry_separates_bounded_physical_and_immutable_decision_attempts(
 
 def test_success_persistence_reauthorizes_before_writing_model_content() -> None:
     append_source = inspect.getsource(PostgresAiPreparationRepository._append_step_row)
+    append_connection_source = inspect.getsource(
+        PostgresAiPreparationRepository._append_step_row_in_connection
+    )
     success_source = inspect.getsource(
         PostgresAiPreparationRepository.record_approved_content_success
     )
 
-    assert append_source.index("authorize_model_call") < append_source.index("raw_output")
+    assert "authorize_model_call" in append_source
+    assert append_source.index("authorize_model_call") < append_source.index(
+        "_append_step_row_in_connection"
+    )
+    assert "raw_output" in append_connection_source
     for token in (
         "raw.scan_status='CLEAN'",
         "source_admission_assessment_v2",
@@ -118,7 +125,7 @@ def test_success_persistence_reauthorizes_before_writing_model_content() -> None
         assert token in success_source
 
     callback_source = inspect.getsource(worker._handle_ai_content_result)
-    success_branch = callback_source.rsplit('if result.get("status") == "SUCCEEDED":', 1)[1]
+    success_branch = callback_source.split('if result.get("status") == "SUCCEEDED":', 1)[1]
     assert success_branch.index("authorize_model_call") < success_branch.index("repository.settle")
 
 

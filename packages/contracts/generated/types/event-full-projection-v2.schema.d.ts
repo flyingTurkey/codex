@@ -1,3 +1,4 @@
+export type AcceptedClaimSetSha256 = string
 export type Body = string | null
 /**
  * @maxItems 100
@@ -48,6 +49,7 @@ export type SourceUrl = string
  * @maxItems 100
  */
 export type Attachments = AttachmentViewV2[]
+export type AuthorityEpoch = number
 export type ClaimBasisV2 =
   | 'MANUFACTURER_CLAIM'
   | 'RESEARCH_CONCLUSION'
@@ -60,6 +62,7 @@ export type ClaimBasisV2 =
  */
 export type ClaimBasis = ClaimBasisV2[]
 export type CorrectionAlert = string | null
+export type DocumentVersionId = string
 export type EventId = string
 export type PrimaryIntelligenceType = 'DIGITAL_TRANSFORMATION' | 'SAFETY_INTELLIGENCE' | 'INDUSTRY_UPDATE'
 /**
@@ -112,6 +115,7 @@ export type RightsBasis = 'PUBLIC_DOMAIN' | 'EXPLICIT_LICENSE' | 'SOURCE_AUTHORI
 export type Media = MediaViewV2[]
 export type OriginalUrl = string
 export type ProjectionKind = 'FULL'
+export type PublicationRevisionId = string
 export type AiSummaryAssisted = boolean
 /**
  * @maxItems 4
@@ -134,10 +138,13 @@ export type SourcePublishedAt = string | null
 export type Title = string
 
 export interface EventFullProjectionV2 {
+  accepted_claim_set_sha256: AcceptedClaimSetSha256
   ai_summary: AiSummaryV2
   attachments?: Attachments
+  authority_epoch: AuthorityEpoch
   claim_basis: ClaimBasis
   correction_alert?: CorrectionAlert
+  document_version_id: DocumentVersionId
   event_id: EventId
   facets: IntelligenceFacetsV2
   first_discovered_at: FirstDiscoveredAt
@@ -147,6 +154,7 @@ export interface EventFullProjectionV2 {
   original_url: OriginalUrl
   primary_type: PrimaryIntelligenceType
   projection_kind?: ProjectionKind
+  publication_revision_id: PublicationRevisionId
   search_explanation?: SearchExplanationV2 | null
   source: SourceAttributionV2
   source_excerpt: SourceExcerptV2

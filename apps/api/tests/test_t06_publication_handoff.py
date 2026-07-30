@@ -1,6 +1,7 @@
 import asyncio
 import inspect
 from datetime import UTC, datetime
+from uuid import UUID
 
 import srbg_worker.app as worker
 from srbg_api.publication.repository import PostgresPublicationRepository
@@ -14,6 +15,8 @@ from srbg_worker.ai_content_preparation import (
 )
 
 NOW = datetime(2026, 7, 20, 9, 0, tzinfo=UTC)
+EVENT_ID = UUID("019fa300-0000-7000-8000-000000000001")
+OWNER_ID = UUID("019fa300-0000-7000-8000-000000000002")
 
 
 class FakeRepository:
@@ -23,6 +26,22 @@ class FakeRepository:
     async def process_ai_projection_refresh_once(self, *, processed_at: datetime) -> bool:
         self.processed_at = processed_at
         return True
+
+    async def command_event_publication_control(
+        self,
+        *,
+        event_id: UUID,
+        owner_id: UUID,
+        owner_veto: bool,
+        reason_code: str,
+        created_at: datetime,
+    ) -> int:
+        assert event_id == EVENT_ID
+        assert owner_id == OWNER_ID
+        assert owner_veto is True
+        assert reason_code == "OWNER_REJECTED_AUTOMATIC_PUBLICATION"
+        assert created_at == NOW
+        return 2
 
 
 def test_ai_result_reaches_reader_only_through_publication_service() -> None:
@@ -39,12 +58,46 @@ def test_ai_result_reaches_reader_only_through_publication_service() -> None:
     assert repository.processed_at == NOW
 
 
+def test_owner_veto_advances_authority_epoch_only_through_publication_service() -> None:
+    service = PublicationService(
+        repository=FakeRepository(),  # type: ignore[arg-type]
+        gate=None,  # type: ignore[arg-type]
+        now=lambda: NOW,
+    )
+
+    epoch = asyncio.run(
+        service.command_event_publication_control(
+            event_id=EVENT_ID,
+            owner_id=OWNER_ID,
+            owner_veto=True,
+            reason_code="OWNER_REJECTED_AUTOMATIC_PUBLICATION",
+        )
+    )
+
+    assert epoch == 2
+
+
 def test_projection_refresh_replay_does_not_duplicate_publication_decisions() -> None:
     source = inspect.getsource(PostgresPublicationRepository._record_v2_publication_decision)
 
     assert "pg_advisory_xact_lock" in source
     assert "WHERE NOT EXISTS" in source
     assert "projection_sha256 IS NOT DISTINCT FROM :hash" in source
+
+
+def test_full_projection_and_publication_revision_share_one_publisher_transaction() -> None:
+    refresh = inspect.getsource(PostgresPublicationRepository.refresh_v2_projection)
+    publish = inspect.getsource(
+        PostgresPublicationRepository.publish_full_v2_projection
+    )
+
+    assert "publish_full_v2_projection" in refresh
+    assert "async with self._engine.begin() as connection" in publish
+    assert "automatic_publication_authority_v2" in publish
+    assert "publication_revision" in publish
+    assert "intelligence_projection_v2" in publish
+    assert "publication_decision_v2" in publish
+    assert "owner_veto" in publish
 
 
 def test_reader_revalidates_exact_accepted_claim_fingerprint_before_projection() -> None:
@@ -109,6 +162,26 @@ def test_ai_projection_outbox_projects_accepted_content_into_the_v2_reader() -> 
     assert "process_ai_projection_refresh_once" in inspect.getsource(
         worker._drain_publication_projections
     )
+
+
+def test_summary_must_pass_verify_before_atomic_publication_handoff() -> None:
+    callback = inspect.getsource(worker._handle_ai_content_result)
+    summarize_branch = callback.split("if step is AiStep.SUMMARIZE:", 2)[2].split(
+        "if step is AiStep.VERIFY:", 1
+    )[0]
+    verify_branch = callback.split("if step is AiStep.VERIFY:", 1)[1].split(
+        'raise RuntimeError("UNEXPECTED_AI_STEP")', 1
+    )[0]
+
+    assert 'transition(run_id, "VERIFYING")' in summarize_branch
+    assert "step=AiStep.VERIFY" in summarize_branch
+    assert 'transition(run_id, "SUCCEEDED")' not in summarize_branch
+    assert "complete_verified_content" in verify_branch
+    verified_success_branch = verify_branch.split(
+        "candidate_id = await repository.complete_verified_content", 1
+    )[1]
+    assert "append_summary_state" not in verified_success_branch
+    assert "record_approved_content_success" not in summarize_branch
 
 
 def test_industry_update_keeps_an_independent_storage_type_and_channel() -> None:

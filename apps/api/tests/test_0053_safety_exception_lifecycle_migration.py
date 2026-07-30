@@ -10,7 +10,7 @@ VERIFIER = Path("scripts/verify_autonomous_policy_migration.py")
 def test_safety_exception_lifecycle_is_the_single_linear_head() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
 
-    assert script.get_heads() == ["0054_policy_optimization"]
+    assert script.get_heads() == ["0055_phase3_trustworthy_event"]
     source = MIGRATION.read_text(encoding="utf-8")
     assert 'revision = "0053_safety_exception_lifecycle"' in source
     assert 'down_revision = "0052_feed_suppression_projection"' in source

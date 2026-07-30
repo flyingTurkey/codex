@@ -488,6 +488,7 @@ def _migration_command(
         "verify_t11_migration.py",
         "verify_t12_migration.py",
         "verify_autonomous_policy_migration.py",
+        "verify_phase3_trustworthy_event_migration.py",
     }:
         raise ValueError("migration verifier is not approved")
     return (
@@ -639,6 +640,7 @@ def _parse_args(arguments: Sequence[str] | None) -> tuple[str, tuple[str, ...]]:
             "verify_t11_migration.py",
             "verify_t12_migration.py",
             "verify_autonomous_policy_migration.py",
+            "verify_phase3_trustworthy_event_migration.py",
         ),
         default="verify_round11_migration.py",
     )

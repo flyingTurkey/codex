@@ -230,6 +230,58 @@ def test_integration_and_infrastructure_paths_trigger_orchestration_gates(
     assert expected_gate in plan_for_mode("pr", result).gates
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "apps/api/migrations/versions/0055_phase3_trustworthy_event.py",
+        "apps/api/src/srbg_api/ai_pipeline/gateway.py",
+        "apps/api/src/srbg_api/publication/service.py",
+        "tests/integration/t41_autonomous_content_integration.py",
+    ],
+)
+def test_phase3_authority_changes_trigger_trustworthy_event_slice(
+    path: str,
+) -> None:
+    result = classify_changes(ChangeSet.from_paths([path]))
+
+    assert "phase3-trustworthy-event-test" in plan_for_mode("pr", result).gates
+
+
+def test_phase3_trustworthy_event_target_uses_isolated_verifier_and_business_test() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    target = makefile.split("phase3-trustworthy-event-test:", 1)[1].split(
+        "\n\n", 1
+    )[0]
+
+    assert "scripts/run_isolated_integration.py" in target
+    assert "verify_phase3_trustworthy_event_migration.py" in target
+    assert "test_phase3_minimal_trustworthy_event_slice" in target
+    for target_name in (
+        "isolated-integration-test",
+        "autonomous-content-integration-test",
+    ):
+        shared_target = makefile.split(f"{target_name}:", 1)[1].split("\n\n", 1)[0]
+        assert "verify_phase3_trustworthy_event_migration.py" in shared_target
+
+
+@pytest.mark.parametrize(
+    ("path", "expected_category"),
+    [
+        ("scripts/run_isolated_integration.py", "integration"),
+        ("scripts/verify_phase3_trustworthy_event_migration.py", "migration"),
+    ],
+)
+def test_isolated_gate_scripts_are_risk_classified(
+    path: str,
+    expected_category: str,
+) -> None:
+    result = classify_changes(ChangeSet.from_paths([path]))
+
+    assert result.unknown_paths == ()
+    assert expected_category in result.categories
+    assert "phase3-trustworthy-event-test" in plan_for_mode("pr", result).gates
+
+
 def test_classifier_cli_emits_machine_readable_sources_and_gates() -> None:
     completed = subprocess.run(
         [

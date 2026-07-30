@@ -73,6 +73,7 @@ from srbg_api.publication.personal_signals import (
 from srbg_api.publication.service import PublicationDenied
 
 logger = logging.getLogger(__name__)
+_SYSTEM_ACTOR = UUID("019b0000-0000-7000-8000-000000009002")
 _V2_PROJECTION_ADAPTER: TypeAdapter[EventProjectionV2] = TypeAdapter(EventProjectionV2)
 _V2_SAFETY_FAILURE_REASONS = frozenset(
     {
@@ -823,15 +824,20 @@ class PostgresPublicationRepository:
                 text(
                     "INSERT INTO intelligence_projection_v2("
                     "event_id,document_version_id,projection_kind,primary_type,risk_tier,"
-                    "payload,appendix_payload,generation,projected_at) VALUES("
+                    "payload,appendix_payload,generation,projected_at,"
+                    "publication_revision_id,accepted_claim_set_sha256,authority_epoch) VALUES("
                     ":event_id,:document_version_id,:projection_kind,:primary_type,:risk_tier,"
-                    "CAST(:payload AS jsonb),CAST(:appendix AS jsonb),:generation,:projected_at) "
+                    "CAST(:payload AS jsonb),CAST(:appendix AS jsonb),:generation,:projected_at,"
+                    ":revision_id,:claim_hash,:authority_epoch) "
                     "ON CONFLICT(event_id) DO UPDATE SET "
                     "document_version_id=EXCLUDED.document_version_id,"
                     "projection_kind=EXCLUDED.projection_kind,primary_type=EXCLUDED.primary_type,"
                     "risk_tier=EXCLUDED.risk_tier,payload=EXCLUDED.payload,"
                     "appendix_payload=EXCLUDED.appendix_payload,generation=EXCLUDED.generation,"
-                    "projected_at=EXCLUDED.projected_at"
+                    "projected_at=EXCLUDED.projected_at,"
+                    "publication_revision_id=EXCLUDED.publication_revision_id,"
+                    "accepted_claim_set_sha256=EXCLUDED.accepted_claim_set_sha256,"
+                    "authority_epoch=EXCLUDED.authority_epoch"
                 ),
                 {
                     "event_id": projection.event_id,
@@ -843,6 +849,19 @@ class PostgresPublicationRepository:
                     "appendix": appendix.model_dump_json(),
                     "generation": generation,
                     "projected_at": projected_at,
+                    "revision_id": (
+                        projection.publication_revision_id
+                        if projection.projection_kind == "FULL"
+                        else None
+                    ),
+                    "claim_hash": (
+                        projection.accepted_claim_set_sha256
+                        if projection.projection_kind == "FULL"
+                        else None
+                    ),
+                    "authority_epoch": (
+                        projection.authority_epoch if projection.projection_kind == "FULL" else None
+                    ),
                 },
             )
             await connection.execute(
@@ -889,6 +908,457 @@ class PostgresPublicationRepository:
                         for scope, target_key in sorted(set(suppression_targets))
                     ],
                 )
+
+    async def automatic_authority_epoch(self, *, event_id: UUID) -> int:
+        async with self._engine.connect() as connection:
+            value = await connection.scalar(
+                text(
+                    "SELECT authority_epoch FROM event_publication_control_event_v2 "
+                    "WHERE event_id=:event_id ORDER BY authority_epoch DESC,"
+                    "created_at DESC,id DESC LIMIT 1"
+                ),
+                {"event_id": event_id},
+            )
+        return int(value or 1)
+
+    async def command_event_publication_control(
+        self,
+        *,
+        event_id: UUID,
+        owner_id: UUID,
+        owner_veto: bool,
+        reason_code: str,
+        created_at: datetime,
+    ) -> int:
+        if not reason_code or len(reason_code) > 80:
+            raise ValueError("publication control reason code is invalid")
+        async with self._engine.begin() as connection:
+            await connection.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:event_key,0))"),
+                {"event_key": f"intelligence-projection:{event_id}"},
+            )
+            current = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT item.current_document_version_id "
+                            "FROM event_identity_binding binding "
+                            "JOIN intelligence_item item ON item.id=binding.item_id "
+                            "WHERE binding.event_id=:event_id "
+                            "ORDER BY item.created_at,item.id LIMIT 1 FOR SHARE OF item"
+                        ),
+                        {"event_id": event_id},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if current is None:
+                raise LookupError("event publication control target does not exist")
+            prior_epoch = await connection.scalar(
+                text(
+                    "SELECT authority_epoch FROM event_publication_control_event_v2 "
+                    "WHERE event_id=:event_id ORDER BY authority_epoch DESC,"
+                    "created_at DESC,id DESC LIMIT 1"
+                ),
+                {"event_id": event_id},
+            )
+            epoch = int(prior_epoch or 1) + 1
+            await connection.execute(
+                text(
+                    "INSERT INTO event_publication_control_event_v2("
+                    "id,event_id,authority_epoch,owner_veto,reason_code,created_by,created_at) "
+                    "VALUES(:id,:event_id,:epoch,:veto,:reason,:owner_id,:now)"
+                ),
+                {
+                    "id": uuid7(),
+                    "event_id": event_id,
+                    "epoch": epoch,
+                    "veto": owner_veto,
+                    "reason": reason_code,
+                    "owner_id": owner_id,
+                    "now": created_at,
+                },
+            )
+            await connection.execute(
+                text("DELETE FROM intelligence_projection_v2 WHERE event_id=:event_id"),
+                {"event_id": event_id},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO projection_rebuild_outbox_v2("
+                    "id,event_id,document_version_id,reason_code,status,attempt_count,"
+                    "available_at,created_at,processed_at) VALUES("
+                    ":id,:event_id,:version_id,:reason,'PENDING',0,:now,:now,NULL) "
+                    "ON CONFLICT(event_id,document_version_id,reason_code) DO NOTHING"
+                ),
+                {
+                    "id": uuid7(),
+                    "event_id": event_id,
+                    "version_id": current["current_document_version_id"],
+                    "reason": f"PUBLICATION_CONTROL_EPOCH_{epoch}",
+                    "now": created_at,
+                },
+            )
+        return epoch
+
+    async def publish_full_v2_projection(
+        self,
+        *,
+        document_version_id: UUID,
+        projection: EventFullProjectionV2,
+        appendix: EventAppendixV2,
+        risk_tier: str,
+        projected_at: datetime,
+        suppression_targets: tuple[tuple[str, str], ...],
+    ) -> None:
+        """Create automatic authority, revision and reader projection atomically."""
+
+        event_id = projection.event_id
+        async with self._engine.begin() as connection:
+            await connection.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:event_key,0))"),
+                {"event_key": f"intelligence-projection:{event_id}"},
+            )
+            current_projected_at = await connection.scalar(
+                text(
+                    "SELECT projected_at FROM intelligence_projection_v2 "
+                    "WHERE event_id=:event_id"
+                ),
+                {"event_id": event_id},
+            )
+            if current_projected_at is not None and projected_at < current_projected_at:
+                return
+            authority_context = (
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT * FROM load_automatic_publication_context(
+                              :event_id,:version_id,:now
+                            )
+                            """
+                        ),
+                        {
+                            "event_id": event_id,
+                            "version_id": document_version_id,
+                            "now": projected_at,
+                        },
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if authority_context is None:
+                raise PublicationDenied(("V2_CURRENT_VERIFY_AUTHORITY_REQUIRED",))
+            if authority_context["owner_veto"]:
+                raise PublicationDenied(("V2_OWNER_VETO_ACTIVE",))
+            epoch = int(authority_context["authority_epoch"])
+            if epoch != projection.authority_epoch:
+                raise PublicationDenied(("V2_AUTHORITY_EPOCH_CHANGED",))
+            authority_id = uuid7()
+            persisted_authority = await connection.scalar(
+                text(
+                    """
+                    INSERT INTO automatic_publication_authority_v2(
+                      id,event_id,item_id,document_version_id,verify_step_run_id,
+                      accepted_claim_set_sha256,authority_epoch,created_at
+                    ) VALUES(
+                      :id,:event_id,:item_id,:version_id,:verify_step_id,
+                      :claim_hash,:epoch,:now
+                    )
+                    ON CONFLICT(event_id,document_version_id,
+                      accepted_claim_set_sha256,authority_epoch) DO NOTHING
+                    RETURNING id
+                    """
+                ),
+                {
+                    "id": authority_id,
+                    "event_id": event_id,
+                    "item_id": authority_context["item_id"],
+                    "version_id": document_version_id,
+                    "verify_step_id": authority_context["verify_step_run_id"],
+                    "claim_hash": projection.accepted_claim_set_sha256,
+                    "epoch": epoch,
+                    "now": projected_at,
+                },
+            )
+            if persisted_authority is None:
+                persisted_authority = await connection.scalar(
+                    text(
+                        "SELECT id FROM automatic_publication_authority_v2 "
+                        "WHERE event_id=:event_id AND document_version_id=:version_id "
+                        "AND accepted_claim_set_sha256=:claim_hash "
+                        "AND authority_epoch=:epoch"
+                    ),
+                    {
+                        "event_id": event_id,
+                        "version_id": document_version_id,
+                        "claim_hash": projection.accepted_claim_set_sha256,
+                        "epoch": epoch,
+                    },
+                )
+            if persisted_authority is None:
+                raise RuntimeError("AUTOMATIC_PUBLICATION_AUTHORITY_NOT_PERSISTED")
+            authority_id = cast(UUID, persisted_authority)
+
+            publication = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT id,status,current_revision_id FROM publication "
+                            "WHERE item_id=:item_id FOR UPDATE"
+                        ),
+                        {"item_id": authority_context["item_id"]},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if publication is None:
+                publication_id = uuid7()
+                await connection.execute(
+                    text(
+                        "INSERT INTO publication(id,item_id,current_revision_id,status,"
+                        "published_at,withdrawn_at,updated_at) VALUES("
+                        ":id,:item_id,NULL,'PUBLISHED',:now,NULL,:now)"
+                    ),
+                    {
+                        "id": publication_id,
+                        "item_id": authority_context["item_id"],
+                        "now": projected_at,
+                    },
+                )
+                prior_status = None
+            else:
+                publication_id = cast(UUID, publication["id"])
+                prior_status = str(publication["status"])
+            existing_revision_id = await connection.scalar(
+                text(
+                    "SELECT id FROM publication_revision WHERE automatic_authority_id=:authority_id"
+                ),
+                {"authority_id": authority_id},
+            )
+            revision_id = (
+                cast(UUID, existing_revision_id)
+                if existing_revision_id is not None
+                else projection.publication_revision_id
+            )
+            projection = projection.model_copy(update={"publication_revision_id": revision_id})
+            if existing_revision_id is None:
+                revision_number = await connection.scalar(
+                    text(
+                        "SELECT COALESCE(max(revision_number),0)+1 "
+                        "FROM publication_revision WHERE publication_id=:publication_id"
+                    ),
+                    {"publication_id": publication_id},
+                )
+                evaluation = {
+                    "automatic_authority_id": str(authority_id),
+                    "accepted_claim_set_sha256": projection.accepted_claim_set_sha256,
+                    "authority_epoch": epoch,
+                    "verify_step_run_id": str(authority_context["verify_step_run_id"]),
+                }
+                evaluation_json = json.dumps(
+                    evaluation,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+                action = (
+                    "PUBLISH"
+                    if prior_status is None
+                    else "REPUBLISH"
+                    if prior_status == "WITHDRAWN"
+                    else "REVISE"
+                )
+                await connection.execute(
+                    text(
+                        """
+                        INSERT INTO publication_revision(
+                          id,publication_id,revision_number,document_version_id,
+                          source_policy_id,source_policy_sha256,review_task_id,
+                          source_stream_config_version_id,
+                          source_stream_config_sha256,
+                          automatic_authority_id,snapshot,evaluation,evaluation_sha256,
+                          action,valid,created_by,created_at
+                        ) VALUES(
+                          :id,:publication_id,:revision_number,:version_id,
+                          :policy_id,:policy_hash,NULL,:stream_config_id,
+                          :stream_config_hash,:authority_id,CAST(:snapshot AS jsonb),
+                          CAST(:evaluation AS jsonb),:evaluation_hash,:action,true,:actor,:now
+                        )
+                        """
+                    ),
+                    {
+                        "id": revision_id,
+                        "publication_id": publication_id,
+                        "revision_number": revision_number,
+                        "version_id": document_version_id,
+                        "policy_id": authority_context["source_policy_id"],
+                        "policy_hash": authority_context["source_policy_sha256"],
+                        "stream_config_id": authority_context["source_stream_config_version_id"],
+                        "stream_config_hash": authority_context["source_stream_config_sha256"],
+                        "authority_id": authority_id,
+                        "snapshot": projection.model_dump_json(),
+                        "evaluation": evaluation_json,
+                        "evaluation_hash": sha256(evaluation_json.encode()).hexdigest(),
+                        "action": action,
+                        "actor": _SYSTEM_ACTOR,
+                        "now": projected_at,
+                    },
+                )
+            await connection.execute(
+                text(
+                    "UPDATE publication SET current_revision_id=:revision_id,"
+                    "status='PUBLISHED',published_at=COALESCE(published_at,:now),"
+                    "withdrawn_at=NULL,updated_at=:now WHERE id=:publication_id"
+                ),
+                {
+                    "revision_id": revision_id,
+                    "publication_id": publication_id,
+                    "now": projected_at,
+                },
+            )
+            generation = int(
+                await connection.scalar(
+                    text(
+                        "SELECT COALESCE(max(generation),0)+1 "
+                        "FROM intelligence_projection_v2 WHERE event_id=:event_id"
+                    ),
+                    {"event_id": event_id},
+                )
+                or 1
+            )
+            claim_text = " ".join(
+                claim.value for claim in appendix.claims if claim.decision_status == "ACCEPTED"
+            )
+            searchable = " ".join(
+                (
+                    projection.title,
+                    projection.source.name,
+                    claim_text,
+                    projection.source_excerpt.text,
+                )
+            ).strip()
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO intelligence_projection_v2(
+                      event_id,document_version_id,projection_kind,primary_type,risk_tier,
+                      payload,appendix_payload,generation,projected_at,
+                      publication_revision_id,accepted_claim_set_sha256,authority_epoch
+                    ) VALUES(
+                      :event_id,:version_id,'FULL',:primary_type,:risk_tier,
+                      CAST(:payload AS jsonb),CAST(:appendix AS jsonb),:generation,:now,
+                      :revision_id,:claim_hash,:epoch
+                    )
+                    ON CONFLICT(event_id) DO UPDATE SET
+                      document_version_id=EXCLUDED.document_version_id,
+                      projection_kind=EXCLUDED.projection_kind,
+                      primary_type=EXCLUDED.primary_type,risk_tier=EXCLUDED.risk_tier,
+                      payload=EXCLUDED.payload,appendix_payload=EXCLUDED.appendix_payload,
+                      generation=EXCLUDED.generation,projected_at=EXCLUDED.projected_at,
+                      publication_revision_id=EXCLUDED.publication_revision_id,
+                      accepted_claim_set_sha256=EXCLUDED.accepted_claim_set_sha256,
+                      authority_epoch=EXCLUDED.authority_epoch
+                    """
+                ),
+                {
+                    "event_id": event_id,
+                    "version_id": document_version_id,
+                    "primary_type": projection.primary_type.value,
+                    "risk_tier": risk_tier,
+                    "payload": projection.model_dump_json(),
+                    "appendix": appendix.model_dump_json(),
+                    "generation": generation,
+                    "now": projected_at,
+                    "revision_id": revision_id,
+                    "claim_hash": projection.accepted_claim_set_sha256,
+                    "epoch": epoch,
+                },
+            )
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO search_projection_v2(
+                      event_id,title_source_claims_excerpt,ai_summary_low_weight,
+                      search_vector,generation,updated_at
+                    ) VALUES(
+                      :event_id,:searchable,:ai_text,
+                      setweight(to_tsvector('simple',:searchable),'A') ||
+                      setweight(to_tsvector('simple',COALESCE(:ai_text,'')),'D'),
+                      :generation,:now
+                    ) ON CONFLICT(event_id) DO UPDATE SET
+                      title_source_claims_excerpt=EXCLUDED.title_source_claims_excerpt,
+                      ai_summary_low_weight=EXCLUDED.ai_summary_low_weight,
+                      search_vector=EXCLUDED.search_vector,
+                      generation=EXCLUDED.generation,updated_at=EXCLUDED.updated_at
+                    """
+                ),
+                {
+                    "event_id": event_id,
+                    "searchable": searchable,
+                    "ai_text": projection.ai_summary.body,
+                    "generation": generation,
+                    "now": projected_at,
+                },
+            )
+            await connection.execute(
+                text("DELETE FROM event_suppression_match_v2 WHERE event_id=:event_id"),
+                {"event_id": event_id},
+            )
+            if suppression_targets:
+                await connection.execute(
+                    text(
+                        "INSERT INTO event_suppression_match_v2("
+                        "event_id,document_version_id,scope,target_key,projected_at) VALUES("
+                        ":event_id,:version_id,:scope,:target,:now)"
+                    ),
+                    [
+                        {
+                            "event_id": event_id,
+                            "version_id": document_version_id,
+                            "scope": scope,
+                            "target": target,
+                            "now": projected_at,
+                        }
+                        for scope, target in sorted(set(suppression_targets))
+                    ],
+                )
+            projection_hash = sha256(projection.model_dump_json().encode()).hexdigest()
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO publication_decision_v2(
+                      id,event_id,document_version_id,outcome,reason_codes,
+                      projection_sha256,created_at
+                    ) SELECT :id,:event_id,:version_id,'FULL',
+                      ARRAY[
+                        'CURRENT_ACCEPTED_CLAIMS',
+                        'VERIFY_PASSED_SERVER_GATE'
+                      ]::varchar[],
+                      CAST(:projection_hash AS varchar(64)),:now
+                    WHERE NOT EXISTS(
+                      SELECT 1 FROM publication_decision_v2
+                      WHERE document_version_id=:version_id AND outcome='FULL'
+                        AND reason_codes=ARRAY[
+                          'CURRENT_ACCEPTED_CLAIMS',
+                          'VERIFY_PASSED_SERVER_GATE'
+                        ]::varchar[]
+                        AND projection_sha256=CAST(:projection_hash AS varchar(64))
+                    )
+                    """
+                ),
+                {
+                    "id": uuid7(),
+                    "event_id": event_id,
+                    "version_id": document_version_id,
+                    "projection_hash": projection_hash,
+                    "now": projected_at,
+                },
+            )
+        INTELLIGENCE_V2_PUBLICATION_DECISIONS.labels(outcome="FULL").inc()
 
     async def refresh_v2_projection(
         self,
@@ -1276,8 +1746,13 @@ class PostgresPublicationRepository:
             for media_row in media_rows
             if not str(media_row["mime_type"]).startswith("image/")
         ]
+        authority_epoch = await self.automatic_authority_epoch(event_id=event_id)
         full_projection = EventFullProjectionV2(
             event_id=event_id,
+            document_version_id=document_version_id,
+            publication_revision_id=uuid7(),
+            accepted_claim_set_sha256=current_claim_hash,
+            authority_epoch=authority_epoch,
             title=str(row["title"]),
             primary_type=row["primary_type"],
             facets=IntelligenceFacetsV2(
@@ -1323,21 +1798,13 @@ class PostgresPublicationRepository:
             media=media,
             attachments=attachments,
         )
-        await self.upsert_v2_projection(
+        await self.publish_full_v2_projection(
             document_version_id=document_version_id,
             projection=full_projection,
             appendix=appendix,
             risk_tier=risk_tier,
             projected_at=projected_at,
             suppression_targets=suppression_targets,
-        )
-        await self._record_v2_publication_decision(
-            event_id=event_id,
-            document_version_id=document_version_id,
-            outcome="FULL",
-            reason_codes=("CURRENT_ACCEPTED_CLAIMS", f"AI_SUMMARY_{summary_status.value}"),
-            projection=full_projection,
-            created_at=projected_at,
         )
 
     async def process_ai_projection_refresh_once(self, *, processed_at: datetime) -> bool:
@@ -1411,6 +1878,72 @@ class PostgresPublicationRepository:
                 {"id": work["id"], "now": processed_at},
             )
         T06_AI_PROJECTION_REFRESH.labels(outcome="completed").inc()
+        return True
+
+    async def process_projection_rebuild_once(self, *, processed_at: datetime) -> bool:
+        async with self._engine.begin() as connection:
+            work = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT id,event_id,document_version_id FROM "
+                            "projection_rebuild_outbox_v2 WHERE status IN ('PENDING','FAILED') "
+                            "AND available_at<=:now AND attempt_count<3 "
+                            "ORDER BY available_at,id FOR UPDATE SKIP LOCKED LIMIT 1"
+                        ),
+                        {"now": processed_at},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if work is None:
+                return False
+            await connection.execute(
+                text(
+                    "UPDATE projection_rebuild_outbox_v2 SET status='PROCESSING',"
+                    "attempt_count=attempt_count+1 WHERE id=:id"
+                ),
+                {"id": work["id"]},
+            )
+            veto = bool(
+                await connection.scalar(
+                    text(
+                        "SELECT owner_veto FROM event_publication_control_event_v2 "
+                        "WHERE event_id=:event_id ORDER BY authority_epoch DESC,"
+                        "created_at DESC,id DESC LIMIT 1"
+                    ),
+                    {"event_id": work["event_id"]},
+                )
+            )
+        try:
+            if not veto:
+                await self.refresh_v2_projection(
+                    event_id=work["event_id"],
+                    document_version_id=work["document_version_id"],
+                    projected_at=processed_at,
+                )
+        except Exception:
+            async with self._engine.begin() as connection:
+                await connection.execute(
+                    text(
+                        "UPDATE projection_rebuild_outbox_v2 SET status='FAILED',"
+                        "available_at=:available WHERE id=:id AND status='PROCESSING'"
+                    ),
+                    {
+                        "id": work["id"],
+                        "available": processed_at + timedelta(seconds=15),
+                    },
+                )
+            raise
+        async with self._engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "UPDATE projection_rebuild_outbox_v2 SET status='SUCCEEDED',"
+                    "processed_at=:now WHERE id=:id AND status='PROCESSING'"
+                ),
+                {"id": work["id"], "now": processed_at},
+            )
         return True
 
     async def _record_v2_publication_decision(

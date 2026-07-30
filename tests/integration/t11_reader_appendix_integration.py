@@ -1,6 +1,6 @@
 import json
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 
 import pytest
@@ -26,6 +26,30 @@ async def test_reader_appendix_combines_current_facts_and_fails_closed_for_r3() 
         async with admin.begin() as connection:
             source_id = await connection.scalar(text("SELECT id FROM source ORDER BY id LIMIT 1"))
             assert source_id is not None
+            source_policy_id = uuid7()
+            source_policy_document = json.dumps(
+                {"fixture": "t11-human-review-authority"}, sort_keys=True
+            )
+            source_policy_hash = sha256(source_policy_document.encode()).hexdigest()
+            await connection.execute(
+                text(
+                    "INSERT INTO source_policy("
+                    "id,source_id,policy_version,status,document,document_sha256,valid_until,"
+                    "created_by,created_at) VALUES("
+                    ":id,:source,:version,'VALID',CAST(:document AS jsonb),:hash,"
+                    ":valid_until,:actor,:now)"
+                ),
+                {
+                    "id": source_policy_id,
+                    "source": source_id,
+                    "version": f"t11-{source_policy_id}",
+                    "document": source_policy_document,
+                    "hash": source_policy_hash,
+                    "valid_until": NOW + timedelta(days=365),
+                    "actor": uuid7(),
+                    "now": NOW,
+                },
+            )
             raw_id, document_id, version_id = uuid7(), uuid7(), uuid7()
             page_id, block_id = uuid7(), uuid7()
             item_id, event_id, claim_id, evidence_id, case_id = (
@@ -34,7 +58,7 @@ async def test_reader_appendix_combines_current_facts_and_fails_closed_for_r3() 
             await connection.execute(
                 text(
                     "INSERT INTO raw_object(id,sha256,object_key,byte_size,declared_mime,"
-                    "detected_mime,scan_status,created_at) VALUES(:id,repeat('1',64),"
+                    "detected_mime,scan_status,created_at) VALUES(:id,repeat('9',64),"
                     "'t11/raw',20,'application/pdf','application/pdf','CLEAN',:now)"
                 ),
                 {"id": raw_id, "now": NOW},
@@ -161,16 +185,163 @@ async def test_reader_appendix_combines_current_facts_and_fails_closed_for_r3() 
                 "evidence_ids": [str(evidence_id)],
                 "decision_status": "ACCEPTED",
             }
+            claim_set_hash = sha256(
+                json.dumps(claim_payload, sort_keys=True).encode()
+            ).hexdigest()
+            verify_registry = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT "
+                            "(SELECT id FROM ai_prompt_version WHERE step='VERIFY' "
+                            "ORDER BY created_at DESC,id DESC LIMIT 1) AS prompt_id,"
+                            "(SELECT id FROM ai_schema_version WHERE step='VERIFY' "
+                            "ORDER BY created_at DESC,id DESC LIMIT 1) AS schema_id,"
+                            "(SELECT id FROM ai_model_profile "
+                            "ORDER BY created_at DESC,id DESC LIMIT 1) AS model_id"
+                        )
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            assert all(verify_registry.values())
+            pipeline_run_id, verify_step_id, authority_id = uuid7(), uuid7(), uuid7()
+            await connection.execute(
+                text(
+                    "INSERT INTO ai_pipeline_run("
+                    "id,document_version_id,mode,status,input_sha256,started_at,completed_at) "
+                    "VALUES(:id,:version,'SHADOW','SUCCEEDED',:hash,:now,:now)"
+                ),
+                {
+                    "id": pipeline_run_id,
+                    "version": version_id,
+                    "hash": claim_set_hash,
+                    "now": NOW,
+                },
+            )
+            verify_output = json.dumps(
+                {
+                    "unsupported_claims": [],
+                    "number_or_date_conflicts": [],
+                    "legal_responsibility_or_causal_overreach": [],
+                    "enterprise_claims_missing_attribution": [],
+                    "stale_or_superseded_evidence": False,
+                    "prompt_injection_risk": False,
+                    "candidate_decision": "PASS_TO_SERVER_GATE",
+                }
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO ai_step_run("
+                    "id,pipeline_run_id,step,attempt,prompt_version_id,schema_version_id,"
+                    "model_profile_id,input_sha256,raw_output,validated_output,status,created_at) "
+                    "VALUES(:id,:run,'VERIFY',1,:prompt,:schema,:model,:hash,"
+                    "CAST(:output AS text),CAST(:output AS jsonb),'SUCCEEDED',:now)"
+                ),
+                {
+                    "id": verify_step_id,
+                    "run": pipeline_run_id,
+                    "prompt": verify_registry["prompt_id"],
+                    "schema": verify_registry["schema_id"],
+                    "model": verify_registry["model_id"],
+                    "hash": claim_set_hash,
+                    "output": verify_output,
+                    "now": NOW,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO ai_approved_content_success_v2("
+                    "id,pipeline_run_id,ai_step_run_id,document_version_id,provider,model,"
+                    "environment,model_profile_version,prompt_version,schema_version,"
+                    "success_kind,succeeded_at) VALUES("
+                    ":id,:run,:step,:version,'deepseek','deepseek-v4-flash','acceptance',"
+                    "'t11-model-v1','t11-verify-v1','verify-v2-output-v1',"
+                    "'APPROVED_CONTENT',:now)"
+                ),
+                {
+                    "id": uuid7(),
+                    "run": pipeline_run_id,
+                    "step": verify_step_id,
+                    "version": version_id,
+                    "now": NOW,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO automatic_publication_authority_v2("
+                    "id,event_id,item_id,document_version_id,verify_step_run_id,"
+                    "accepted_claim_set_sha256,authority_epoch,created_at) VALUES("
+                    ":id,:event,:item,:version,:step,:claim_hash,1,:now)"
+                ),
+                {
+                    "id": authority_id,
+                    "event": event_id,
+                    "item": item_id,
+                    "version": version_id,
+                    "step": verify_step_id,
+                    "claim_hash": claim_set_hash,
+                    "now": NOW,
+                },
+            )
+            publication_id, revision_id = uuid7(), uuid7()
+            publisher_id = uuid7()
+            await connection.execute(
+                text(
+                    "INSERT INTO publication("
+                    "id,item_id,current_revision_id,status,published_at,withdrawn_at,updated_at) "
+                    "VALUES(:id,:item,NULL,'PUBLISHED',:now,NULL,:now)"
+                ),
+                {"id": publication_id, "item": item_id, "now": NOW},
+            )
+            evaluation = json.dumps(
+                {"fixture": "t11-verified-automatic-authority"}, sort_keys=True
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO publication_revision("
+                    "id,publication_id,revision_number,document_version_id,source_policy_id,"
+                    "source_policy_sha256,review_task_id,automatic_authority_id,"
+                    "snapshot,evaluation,evaluation_sha256,action,valid,created_by,"
+                    "created_at) VALUES("
+                    ":id,:publication,1,:version,:policy,:policy_hash,NULL,:authority,"
+                    "'{}'::jsonb,CAST(:evaluation AS jsonb),:evaluation_hash,"
+                    "'PUBLISH',true,:actor,:now)"
+                ),
+                {
+                    "id": revision_id,
+                    "publication": publication_id,
+                    "version": version_id,
+                    "policy": source_policy_id,
+                    "policy_hash": source_policy_hash,
+                    "authority": authority_id,
+                    "evaluation": evaluation,
+                    "evaluation_hash": sha256(evaluation.encode()).hexdigest(),
+                    "actor": publisher_id,
+                    "now": NOW,
+                },
+            )
+            await connection.execute(
+                text(
+                    "UPDATE publication SET current_revision_id=:revision "
+                    "WHERE id=:publication"
+                ),
+                {"revision": revision_id, "publication": publication_id},
+            )
             await connection.execute(
                 text(
                     "INSERT INTO intelligence_projection_v2(event_id,document_version_id,"
                     "projection_kind,primary_type,risk_tier,payload,appendix_payload,generation,"
-                    "projected_at) VALUES(:event,:version,'FULL','SAFETY_INTELLIGENCE','R2',"
-                    "'{}'::jsonb,CAST(:appendix AS jsonb),1,:now)"
+                    "projected_at,publication_revision_id,accepted_claim_set_sha256,"
+                    "authority_epoch) VALUES(:event,:version,'FULL','SAFETY_INTELLIGENCE','R2',"
+                    "'{}'::jsonb,CAST(:appendix AS jsonb),1,:now,:revision,:claim_hash,1)"
                 ),
                 {
                     "event": event_id,
                     "version": version_id,
+                    "revision": revision_id,
+                    "claim_hash": claim_set_hash,
                     "appendix": json.dumps(
                         {"event_id": str(event_id), "claims": [claim_payload]}
                     ),
@@ -226,6 +397,11 @@ async def test_reader_appendix_combines_current_facts_and_fails_closed_for_r3() 
             )
         with pytest.raises(ProjectionNotFound):
             await reader.appendix(event_id)
+        async with admin.begin() as connection:
+            await connection.execute(
+                text("DELETE FROM intelligence_projection_v2 WHERE event_id=:event"),
+                {"event": event_id},
+            )
     finally:
         await reader.close()
         await admin.dispose()

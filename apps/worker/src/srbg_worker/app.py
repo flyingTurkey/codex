@@ -1,8 +1,10 @@
 """Celery application and process health task."""
 
 import asyncio
+import json
 import logging
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 from pathlib import Path
 from typing import Literal, cast
 from uuid import UUID
@@ -12,7 +14,13 @@ from celery.signals import task_failure
 from pydantic import AwareDatetime, BaseModel, ConfigDict, ValidationError
 from redis.asyncio import Redis, from_url
 from sqlalchemy import text
-from srbg_api.ai_pipeline.ai_judgments import SummarizeOutput
+from srbg_api.ai_pipeline.ai_judgments import (
+    AiJudgmentResultType,
+    EvidenceFactInput,
+    VerificationOutput,
+    classify_verification,
+    verification_reason_codes,
+)
 from srbg_api.ai_pipeline.content_preparation import (
     AiContentPreparationService,
     PreparationDocument,
@@ -33,6 +41,7 @@ from srbg_api.document_vault.storage import S3ObjectStore
 from srbg_api.identifiers import uuid7
 from srbg_api.intelligence_v2.ai_runtime import summary_state_for_failure
 from srbg_api.intelligence_v2.autonomous_policy import QualificationPolicyBundle
+from srbg_api.intelligence_v2.content_candidates import StructuredSummaryCandidate
 from srbg_api.intelligence_v2.policy_optimization import (
     PolicyGateRejected,
     PolicyOptimizationService,
@@ -1474,16 +1483,17 @@ async def _handle_ai_content_result(
                 )
                 return {key: str(value) for key, value in unauthorized.items()}
             await repository.settle(reservation_id, response)
-            step_run_id = await repository.append_step(
-                run_id,
-                step,
-                attempt,
-                kind.value,
-                response,
-                request.input_sha256,
-                prompt_version=request.prompt_version,
-                schema_version=request.schema_version,
-            )
+            if step is not AiStep.VERIFY:
+                await repository.append_step(
+                    run_id,
+                    step,
+                    attempt,
+                    kind.value,
+                    response,
+                    request.input_sha256,
+                    prompt_version=request.prompt_version,
+                    schema_version=request.schema_version,
+                )
             await repository.complete_compensation(run_id=run_id, succeeded=True)
             if step is AiStep.CLASSIFY:
                 classification = AutonomousClassificationCandidate.model_validate(response.output)
@@ -1601,25 +1611,69 @@ async def _handle_ai_content_result(
                 )
                 return {"run_id": str(run_id), "status": "SUMMARIZING"}
             if step is AiStep.SUMMARIZE:
-                await repository.record_approved_content_success(
-                    document,
-                    step_run_id=step_run_id,
-                    provider=runtime_provider,
-                    model=runtime_model,
-                    request=request,
-                )
                 candidate_id = await repository.materialize_t06_content_summary(
                     document,
                     request=request,
                     summary=validated,
                 )
-                await repository.append_summary_state(
-                    document,
-                    status="SUCCEEDED",
-                    reason_code="SCHEMA_VALID_APPROVED_CONTENT",
-                    candidate_id=candidate_id,
+                facts = await repository.load_judgment_facts(document)
+                summary = StructuredSummaryCandidate.model_validate(response.output)
+                verify_prepared = _prepare_t06_verify_input(
+                    facts,
+                    summary,
                 )
-                await repository.transition(run_id, "SUCCEEDED")
+                await repository.transition(run_id, "VERIFYING")
+                await _dispatch_ai_attempt(
+                    repository,
+                    run_id=run_id,
+                    step=AiStep.VERIFY,
+                    prepared=verify_prepared,
+                    attempt=1,
+                    kind=AttemptKind.PRIMARY,
+                    network_retries=0,
+                    repair_used=False,
+                )
+                return {
+                    "run_id": str(run_id),
+                    "status": "VERIFYING",
+                    "candidate_id": str(candidate_id),
+                }
+            if step is AiStep.VERIFY:
+                verification = VerificationOutput.model_validate(response.output)
+                result_type = classify_verification(verification)
+                if result_type is not AiJudgmentResultType.AI_JUDGMENT:
+                    await repository.append_step(
+                        run_id,
+                        step,
+                        attempt,
+                        kind.value,
+                        response,
+                        request.input_sha256,
+                        prompt_version=request.prompt_version,
+                        schema_version=request.schema_version,
+                    )
+                    reasons = verification_reason_codes(verification)
+                    reason = reasons[0] if reasons else "VERIFY_SERVER_GATE_REJECTED"
+                    await repository.append_summary_state(
+                        document,
+                        status="BLOCKED",
+                        reason_code=reason,
+                    )
+                    await repository.fail(run_id, "DEGRADED", reason)
+                    return {
+                        "run_id": str(run_id),
+                        "status": "DEGRADED",
+                        "failure_code": reason,
+                    }
+                candidate_id = await repository.complete_verified_content(
+                    document,
+                    response=response,
+                    request=request,
+                    attempt=attempt,
+                    kind=kind.value,
+                    provider=runtime_provider,
+                    model=runtime_model,
+                )
                 return {
                     "run_id": str(run_id),
                     "status": "SUCCEEDED",
@@ -1738,7 +1792,13 @@ async def _handle_ai_content_result(
             await repository.complete_compensation(run_id=run_id, succeeded=False)
         return {"run_id": str(run_id), "status": failure_status}
     except (ModelOutputRejected, ValueError) as error:
-        await repository.settle(reservation_id, None)
+        billable_response: ModelResponse | None = None
+        if result.get("status") == "SUCCEEDED":
+            try:
+                billable_response = ModelResponse.model_validate(result.get("response"))
+            except ValueError:
+                billable_response = None
+        await repository.settle(reservation_id, billable_response)
         code = _safe_ai_error_code(error)
         await repository.append_failed_step(
             run_id,
@@ -1747,6 +1807,7 @@ async def _handle_ai_content_result(
             kind.value,
             code,
             request.input_sha256,
+            billing_response=billable_response,
             prompt_version=request.prompt_version,
             schema_version=request.schema_version,
         )
@@ -1908,10 +1969,36 @@ async def _prepared_for_step(
     facts = await repository.load_judgment_facts(document)
     if step is AiStep.SUMMARIZE:
         return AiContentPreparationService.prepare_summarize_input(facts)
-    summary = SummarizeOutput.model_validate(
+    summary = StructuredSummaryCandidate.model_validate(
         await repository.successful_output(run_id, AiStep.SUMMARIZE)
     )
-    return AiContentPreparationService.prepare_verify_input(facts, summary)
+    return _prepare_t06_verify_input(facts, summary)
+
+
+def _prepare_t06_verify_input(
+    facts: list[EvidenceFactInput],
+    summary: StructuredSummaryCandidate,
+) -> PreparedDocumentInput:
+    payload = {
+        "accepted_claims": [fact.model_dump(mode="json") for fact in facts],
+        "summary_candidate": summary.model_dump(mode="json"),
+    }
+    prompt = (
+        "<evidence_bound_verification>\n"
+        + json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n</evidence_bound_verification>"
+    )
+    return PreparedDocumentInput(
+        text=prompt,
+        input_sha256=sha256(prompt.encode()).hexdigest(),
+        anchors={},
+        block_ids=(),
+    )
 
 
 async def _dispatch_ai_attempt(
@@ -1980,6 +2067,8 @@ async def _dispatch_ai_attempt(
 
 
 def _safe_ai_error_code(error: Exception) -> str:
+    if isinstance(error, ModelOutputRejected):
+        return error.code
     value = str(error).strip()
     if value in {
         "AI01_PILOT_SCOPE_DENIED",
@@ -2435,6 +2524,8 @@ async def _drain_publication_projections() -> dict[str, int]:
         ):
             processed += 1
         while processed < 150 and await service.process_ai_projection_refresh_once():
+            processed += 1
+        while processed < 150 and await service.process_projection_rebuild_once():
             processed += 1
         return {"processed": processed}
     finally:

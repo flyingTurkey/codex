@@ -2424,6 +2424,10 @@ class EventMetadataProjectionV2(ContractModel):
 class EventFullProjectionV2(ContractModel):
     projection_kind: Literal["FULL"] = "FULL"
     event_id: UUID
+    document_version_id: UUID
+    publication_revision_id: UUID
+    accepted_claim_set_sha256: str = Field(pattern="^[a-f0-9]{64}$")
+    authority_epoch: int = Field(ge=1)
     title: str = Field(min_length=1, max_length=500)
     primary_type: PrimaryIntelligenceType
     facets: IntelligenceFacetsV2

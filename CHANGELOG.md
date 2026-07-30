@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-07-30 (Phase 3 minimal trustworthy Event slice)
+
+- Closed the Phase 2 proven gap between accepted AI content and Reader visibility: the real Worker now continues from `SUMMARIZE` through deterministic `VERIFY`, and atomically persists the verified step, accepted SourceExcerpt, approved-content success, terminal handoff, and projection outbox. A billable provider response is still settled and recorded when callback validation fails.
+- Added stable evidence-anchor rejection codes and kept claim/evidence bidirectional validation at the same callback boundary used by a real provider. The deterministic acceptance adapter uses the production Prompt, JSON Schema, Pydantic, evidence locator, failure classification, token, and cost interfaces without public-network or real-model access.
+- Added linear migration `0055_phase3_trustworthy_event` from `0054_policy_optimization`. Automatic publication is bound to current VERIFY authority, accepted-claim hash, current SourceStream definition/config hash, authority epoch, and Owner veto; Publisher and Worker receive only the narrow locking/loading commands required by their existing responsibilities.
+- Made `PublicationService` the sole automatic FULL publication path and committed publication revision, Reader projection, search projection, suppression matches, and publication decision in one Publisher transaction. Reader visibility now revalidates the exact current revision and authority epoch; stale projection writes cannot move visibility time backwards.
+- Added a disposable PostgreSQL/Redis/private-MinIO vertical acceptance that enters through the real SourceAdapter and raw-first flow, reaches `/api/v2/feed` and Event Reader, proves replay idempotency, R3/R4 non-leakage, machine-organized status, Owner veto/restore, and `0054 -> 0055 -> 0054 -> 0055` data/ACL replay.
+- Extended the risk classifier so migration, AI, content, publication, and integration changes automatically select `phase3-trustworthy-event-test`; no stop/drain plane, governed replay UI, dashboard, advanced Feed filtering, campaign ledger, multi-source expansion, or live connectivity was added.
+
 ## 2026-07-29 (Phase 1 authority cleanup)
 
 - Reframed `AGENTS.md` around durable product, architecture, evidence, publication, security and UI boundaries. Behavior changes remain test-first, while documentation and mechanical work use proportionate checks; validation now follows path risk and exact-SHA evidence instead of unconditional full-suite reruns.

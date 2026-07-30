@@ -1,7 +1,12 @@
+import asyncio
 from uuid import UUID
 
 import pytest
-from srbg_api.ai_pipeline.gateway import ModelOutputRejected
+from srbg_api.ai_pipeline.gateway import (
+    ControlledModelGateway,
+    MockProvider,
+    ModelOutputRejected,
+)
 from srbg_api.intelligence_v2.content_candidates import (
     AcceptedClaimInput,
     ClaimEvidenceInput,
@@ -87,3 +92,14 @@ def test_real_content_output_is_locally_schema_validated_and_extra_authority_is_
         validate_content_summary_output(
             _output() | {"publication_status": "PUBLISHED"}, request=request
         )
+
+
+def test_gateway_output_can_be_revalidated_at_the_worker_callback_boundary() -> None:
+    request = build_content_summary_request(_claims(), current_document_version_id=VERSION_ID)
+    response = asyncio.run(
+        ControlledModelGateway(MockProvider({request.step: _output()})).generate(request)
+    )
+
+    validated = validate_content_summary_output(response.output, request=request)
+
+    assert validated.visible_character_count == 300

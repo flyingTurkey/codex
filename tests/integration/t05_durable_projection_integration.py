@@ -1,7 +1,7 @@
 import json
 import os
 from base64 import b64decode
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from time import time
 from urllib.parse import parse_qs, urlsplit
@@ -65,6 +65,29 @@ async def test_full_r3_r4_archive_and_retry_are_durable_and_fail_closed() -> Non
                 )
             )
             assert source_id is not None
+            source_policy_id = uuid7()
+            source_policy_document = json.dumps(
+                {"fixture": "t05-publication-authority"}, sort_keys=True
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO source_policy("
+                    "id,source_id,policy_version,status,document,document_sha256,valid_until,"
+                    "created_by,created_at) VALUES("
+                    ":id,:source,:version,'VALID',CAST(:document AS jsonb),:hash,"
+                    ":valid_until,:actor,:now)"
+                ),
+                {
+                    "id": source_policy_id,
+                    "source": source_id,
+                    "version": f"t05-{source_policy_id}",
+                    "document": source_policy_document,
+                    "hash": sha256(source_policy_document.encode()).hexdigest(),
+                    "valid_until": NOW + timedelta(days=365),
+                    "actor": OWNER_ID,
+                    "now": NOW,
+                },
+            )
             raw_id = uuid7()
             document_id = uuid7()
             version_id = uuid7()
@@ -250,6 +273,72 @@ async def test_full_r3_r4_archive_and_retry_are_durable_and_fail_closed() -> Non
                     "VALUES(:id,:version_id,'SHADOW','SUCCEEDED',repeat('a',64),:now,:now)"
                 ),
                 {"id": run_id, "version_id": fixture["version_id"], "now": NOW},
+            )
+            verify_registry = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT "
+                            "(SELECT id FROM ai_prompt_version WHERE step='VERIFY' "
+                            "ORDER BY created_at DESC,id DESC LIMIT 1) AS prompt_id,"
+                            "(SELECT id FROM ai_schema_version WHERE step='VERIFY' "
+                            "ORDER BY created_at DESC,id DESC LIMIT 1) AS schema_id,"
+                            "(SELECT id FROM ai_model_profile "
+                            "ORDER BY created_at DESC,id DESC LIMIT 1) AS model_id"
+                        )
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            assert all(verify_registry.values())
+            verify_step_id = uuid7()
+            await connection.execute(
+                text(
+                    "INSERT INTO ai_step_run("
+                    "id,pipeline_run_id,step,attempt,prompt_version_id,schema_version_id,"
+                    "model_profile_id,input_sha256,raw_output,validated_output,status,created_at) "
+                    "VALUES(:id,:run,'VERIFY',1,:prompt,:schema,:model,:hash,"
+                    "CAST(:output AS text),CAST(:output AS jsonb),'SUCCEEDED',:now)"
+                ),
+                {
+                    "id": verify_step_id,
+                    "run": run_id,
+                    "prompt": verify_registry["prompt_id"],
+                    "schema": verify_registry["schema_id"],
+                    "model": verify_registry["model_id"],
+                    "hash": current_claim_hash,
+                    "output": json.dumps(
+                        {
+                            "unsupported_claims": [],
+                            "number_or_date_conflicts": [],
+                            "legal_responsibility_or_causal_overreach": [],
+                            "enterprise_claims_missing_attribution": [],
+                            "stale_or_superseded_evidence": False,
+                            "prompt_injection_risk": False,
+                            "candidate_decision": "PASS_TO_SERVER_GATE",
+                        }
+                    ),
+                    "now": NOW,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO ai_approved_content_success_v2("
+                    "id,pipeline_run_id,ai_step_run_id,document_version_id,provider,model,"
+                    "environment,model_profile_version,prompt_version,schema_version,"
+                    "success_kind,succeeded_at) VALUES("
+                    ":id,:run,:step,:version,'deepseek','deepseek-v4-flash','acceptance',"
+                    "'t05-model-v1','t05-verify-v1','verify-v2-output-v1',"
+                    "'APPROVED_CONTENT',:now)"
+                ),
+                {
+                    "id": uuid7(),
+                    "run": run_id,
+                    "step": verify_step_id,
+                    "version": fixture["version_id"],
+                    "now": NOW,
+                },
             )
             await connection.execute(
                 text(

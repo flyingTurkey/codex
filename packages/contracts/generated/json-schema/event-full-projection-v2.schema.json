@@ -520,6 +520,11 @@
   },
   "additionalProperties": false,
   "properties": {
+    "accepted_claim_set_sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Accepted Claim Set Sha256",
+      "type": "string"
+    },
     "ai_summary": {
       "$ref": "#/$defs/AiSummaryV2"
     },
@@ -530,6 +535,11 @@
       "maxItems": 100,
       "title": "Attachments",
       "type": "array"
+    },
+    "authority_epoch": {
+      "minimum": 1,
+      "title": "Authority Epoch",
+      "type": "integer"
     },
     "claim_basis": {
       "items": {
@@ -552,6 +562,11 @@
       ],
       "default": null,
       "title": "Correction Alert"
+    },
+    "document_version_id": {
+      "format": "uuid",
+      "title": "Document Version Id",
+      "type": "string"
     },
     "event_id": {
       "format": "uuid",
@@ -611,6 +626,11 @@
       "title": "Projection Kind",
       "type": "string"
     },
+    "publication_revision_id": {
+      "format": "uuid",
+      "title": "Publication Revision Id",
+      "type": "string"
+    },
     "search_explanation": {
       "anyOf": [
         {
@@ -649,6 +669,10 @@
   },
   "required": [
     "event_id",
+    "document_version_id",
+    "publication_revision_id",
+    "accepted_claim_set_sha256",
+    "authority_epoch",
     "title",
     "primary_type",
     "facets",

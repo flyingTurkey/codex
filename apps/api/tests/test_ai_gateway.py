@@ -1,6 +1,8 @@
 import asyncio
 import json
+from collections.abc import Callable
 from hashlib import sha256
+from typing import Any
 
 import pytest
 from srbg_api.ai_pipeline.contracts import (
@@ -173,6 +175,122 @@ def test_extract_rejects_forged_evidence_id_and_unsupported_critical_fact() -> N
                 )
             )
         )
+
+
+@pytest.mark.parametrize(
+    ("mutate", "expected_code"),
+    [
+        (
+            lambda output: output["evidence"][0].update(
+                {"evidence_id": "evidence-forged"}
+            ),
+            "EVIDENCE_ID_NOT_ISSUED",
+        ),
+        (
+            lambda output: output["evidence"][0].update(
+                {"document_block_id": "block-forged"}
+            ),
+            "EVIDENCE_BLOCK_MISMATCH",
+        ),
+        (
+            lambda output: output["evidence"][0]["locator"].update(
+                {"value": "9:18"}
+            ),
+            "EVIDENCE_LOCATOR_MISMATCH",
+        ),
+        (
+            lambda output: output["evidence"][0].update({"excerpt": "不存在的摘录"}),
+            "EVIDENCE_EXCERPT_MISMATCH",
+        ),
+        (
+            lambda output: output["evidence"][0].update(
+                {"supports": ["claim-unknown"]}
+            ),
+            "EVIDENCE_SUPPORT_UNKNOWN_CLAIM",
+        ),
+        (
+            lambda output: output["claims"][0].update(
+                {"evidence_ids": ["evidence-unknown"]}
+            ),
+            "CLAIM_UNKNOWN_EVIDENCE",
+        ),
+        (
+            lambda output: output["evidence"][0].update({"supports": ["claim-2"]}),
+            "CLAIM_EVIDENCE_NOT_BIDIRECTIONAL",
+        ),
+    ],
+)
+def test_extract_rejections_expose_stable_non_content_error_codes(
+    mutate: Callable[[dict[str, Any]], object],
+    expected_code: str,
+) -> None:
+    output = {
+        "claims": [
+            {
+                "claim_id": "claim-1",
+                "field": "injury_count",
+                "value": 1,
+                "claim_status": "VERIFIED_CANDIDATE",
+                "confidence": 0.99,
+                "evidence_ids": ["evidence-allowed"],
+            },
+            {
+                "claim_id": "claim-2",
+                "field": "title",
+                "value": "事故通报",
+                "claim_status": "VERIFIED_CANDIDATE",
+                "confidence": 0.99,
+                "evidence_ids": ["evidence-title"],
+            },
+        ],
+        "evidence": [
+            {
+                "evidence_id": "evidence-allowed",
+                "document_block_id": "block-1",
+                "locator": {"type": "TEXT_RANGE", "value": "0:9"},
+                "excerpt": "事故造成一人受伤。",
+                "supports": ["claim-1"],
+            },
+            {
+                "evidence_id": "evidence-title",
+                "document_block_id": "block-2",
+                "locator": {"type": "TEXT_RANGE", "value": "0:4"},
+                "excerpt": "事故通报",
+                "supports": ["claim-2"],
+            },
+        ],
+        "security": {
+            "prompt_injection_detected": False,
+            "prompt_injection_status": "NONE",
+            "suspicious_patterns": [],
+        },
+    }
+    mutate(output)
+    provider = MockProvider({AiStep.EXTRACT: output})
+    request = _request(AiStep.EXTRACT, provider.schema_for(AiStep.EXTRACT)).model_copy(
+        update={
+            "evidence_anchors": {
+                "evidence-allowed": EvidenceAnchor(
+                    evidence_id="evidence-allowed",
+                    document_block_id="block-1",
+                    normalized_text="事故造成一人受伤。",
+                    locator_value="0:9",
+                ),
+                "evidence-title": EvidenceAnchor(
+                    evidence_id="evidence-title",
+                    document_block_id="block-2",
+                    normalized_text="事故通报",
+                    locator_value="0:4",
+                ),
+            }
+        }
+    )
+
+    with pytest.raises(ModelOutputRejected) as exc_info:
+        asyncio.run(ControlledModelGateway(provider).generate(request))
+
+    assert exc_info.value.code == expected_code
+    assert "事故造成" not in str(exc_info.value)
 
 
 def test_prompt_injection_text_remains_untrusted_data() -> None:

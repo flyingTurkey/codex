@@ -10,13 +10,17 @@ from typing import Any, cast
 from uuid import UUID
 
 import pytest
+import srbg_worker.app as worker_app
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 from srbg_api.acquisition.contracts import FetchResult, SourceCheckpoint
 from srbg_api.ai_pipeline.content_preparation import (
+    AiContentPreparationService,
     production_policy_for,
 )
 from srbg_api.ai_pipeline.contracts import AiStep
+from srbg_api.ai_pipeline.gateway import ControlledModelGateway, MockProvider
+from srbg_api.ai_pipeline.runtime import AttemptKind
 from srbg_api.config import Settings
 from srbg_api.document_vault.storage import S3ObjectStore
 from srbg_api.identifiers import uuid7
@@ -41,7 +45,7 @@ from srbg_api.intelligence_v2.technical_exceptions import (
     TechnicalExceptionConflict,
 )
 from srbg_api.publication.repository import PostgresPublicationRepository
-from srbg_api.publication.service import PublicationService
+from srbg_api.publication.service import PublicationDenied, PublicationService
 from srbg_api.scheduling.service import PostgresSchedulingService
 from srbg_api.source_registry.controlled_stream import (
     AdmissionGates,
@@ -503,6 +507,482 @@ async def acquire_through_live_source_stream(
     )
 
 
+async def test_phase3_minimal_trustworthy_event_slice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    admin = create_async_engine(os.environ["SRBG_TEST_ADMIN_DATABASE_URL"])
+    worker = create_async_engine(os.environ["SRBG_WORKER_DATABASE_URL"])
+    publisher = create_async_engine(os.environ["SRBG_PUBLICATION_DATABASE_URL"])
+    projection_reader = create_async_engine(os.environ["SRBG_PROJECTION_DATABASE_URL"])
+    now = datetime.now(UTC)
+    excerpt = (
+        "Construction machinery completed direct highway work before the section opened to traffic."
+    )
+    pending: list[dict[str, Any]] = []
+
+    def repository_factory() -> PostgresAiPreparationRepository:
+        return PostgresAiPreparationRepository(
+            engine=create_async_engine(os.environ["SRBG_WORKER_DATABASE_URL"]),
+            object_store=S3ObjectStore(Settings()),
+            parser=cast(Any, object()),
+            environment="acceptance",
+            max_document_bytes=1024 * 1024,
+        )
+
+    async def capture_dispatch(
+        repository: PostgresAiPreparationRepository,
+        *,
+        run_id: UUID,
+        step: AiStep,
+        prepared: Any,
+        attempt: int,
+        kind: AttemptKind,
+        network_retries: int,
+        repair_used: bool,
+        repair_code: str | None = None,
+        countdown_seconds: int = 0,
+        request_override: Any = None,
+        policy: QualificationPolicyBundle | None = None,
+        semantic_recheck: bool = False,
+        decision_attempt: int | None = None,
+    ) -> None:
+        del (
+            repair_code,
+            countdown_seconds,
+        )
+        request = request_override or AiContentPreparationService.build_request(
+            step,
+            prepared,
+            policy=policy if step is AiStep.CLASSIFY else None,
+            semantic_recheck=semantic_recheck,
+        )
+        assert await repository.authorize_model_call(run_id)
+        reservation_id = await repository.reserve(run_id, step, attempt)
+        pending.append(
+            {
+                "run_id": run_id,
+                "step": step,
+                "attempt": attempt,
+                "kind": kind,
+                "network_retries": network_retries,
+                "repair_used": repair_used,
+                "reservation_id": reservation_id,
+                "request": request,
+                "semantic_recheck": semantic_recheck,
+                "decision_attempt": decision_attempt,
+            }
+        )
+
+    monkeypatch.setattr(worker_app, "_ai_repository", repository_factory)
+    monkeypatch.setattr(worker_app, "_dispatch_ai_attempt", capture_dispatch)
+
+    try:
+        acquired = await acquire_through_live_source_stream(
+            admin=admin,
+            worker=worker,
+            excerpt=excerpt,
+            now=now,
+        )
+        started = await worker_app._start_ai_content_preparation(acquired.pipeline_run_id)
+        assert started["status"] == "CLASSIFYING"
+        async with admin.connect() as connection:
+            block_id = await connection.scalar(
+                text(
+                    "SELECT block.id FROM document_text_block block "
+                    "JOIN document_page page ON page.id=block.document_page_id "
+                    "WHERE page.document_version_id=:version "
+                    "ORDER BY page.page_number,block.block_index LIMIT 1"
+                ),
+                {"version": acquired.document_version_id},
+            )
+        assert block_id is not None
+
+        completed_steps: list[AiStep] = []
+        callback_results: list[dict[str, Any]] = []
+        while pending:
+            dispatch = pending.pop(0)
+            request = dispatch["request"]
+            assert request.step is dispatch["step"]
+            if request.step is AiStep.CLASSIFY:
+                output = {
+                    "direct_relevance": "RELEVANT",
+                    "core_new_fact": (
+                        "Construction machinery completed work before a highway "
+                        "section opened to traffic."
+                    ),
+                    "primary_type": "INDUSTRY_UPDATE",
+                    "engineering_objects": ["HIGHWAY"],
+                    "specialty_facets": [],
+                    "equipment_domains": ["CONSTRUCTION_MACHINERY"],
+                    "content_form": "OPERATION_UPDATE",
+                    "evidence_locators": [str(block_id)],
+                    "ambiguity_indicators": [],
+                    "security_signals": [],
+                    "confidence": 0.99,
+                }
+            elif request.step is AiStep.EXTRACT:
+                evidence_id, anchor = next(iter(request.evidence_anchors.items()))
+                output = {
+                    "claims": [
+                        {
+                            "claim_id": "phase3-claim-1",
+                            "field": "deployment_scope",
+                            "value": "direct highway work",
+                            "claim_status": "REPORTED_CLAIM",
+                            "confidence": 0.99,
+                            "evidence_ids": [evidence_id],
+                        }
+                    ],
+                    "evidence": [
+                        {
+                            "evidence_id": evidence_id,
+                            "document_block_id": anchor.document_block_id,
+                            "locator": {
+                                "type": "HTML_PARAGRAPH",
+                                "value": anchor.locator_value,
+                            },
+                            "excerpt": anchor.normalized_text,
+                            "supports": ["phase3-claim-1"],
+                        }
+                    ],
+                    "security": {
+                        "prompt_injection_detected": False,
+                        "prompt_injection_status": "NONE",
+                        "suspicious_patterns": [],
+                    },
+                }
+            elif request.step is AiStep.SUMMARIZE:
+                claim_id = json.loads(request.user_prompt)["accepted_claims"][0]["claim_id"]
+                paragraph = "该公开实施记录表明项目已采用施工机械数字化监测。" * 4
+                output = {
+                    "paragraphs": [
+                        {
+                            "kind": "FACT",
+                            "section": "WHAT_HAPPENED",
+                            "text": paragraph,
+                            "claim_ids": [claim_id],
+                        },
+                        {
+                            "kind": "JUDGMENT",
+                            "section": "ENGINEERING_IMPACT",
+                            "text": "该做法可能改善施工状态的可追溯性，效果仍需持续数据验证。" * 4,
+                            "judgment_type": "ENGINEERING_SIGNIFICANCE",
+                        },
+                        {
+                            "kind": "JUDGMENT",
+                            "section": "LIMITATIONS_AND_FOLLOW_UP",
+                            "text": "当前证据仅支持已部署及存在实施记录，不支持推断量化成效。" * 4,
+                            "judgment_type": "LIMITATION_AND_FOLLOW_UP",
+                        },
+                    ]
+                }
+            else:
+                assert request.step is AiStep.VERIFY
+                output = {
+                    "unsupported_claims": [],
+                    "number_or_date_conflicts": [],
+                    "legal_responsibility_or_causal_overreach": [],
+                    "enterprise_claims_missing_attribution": [],
+                    "stale_or_superseded_evidence": False,
+                    "prompt_injection_risk": False,
+                    "candidate_decision": "PASS_TO_SERVER_GATE",
+                }
+            response = await ControlledModelGateway(MockProvider({request.step: output})).generate(
+                request
+            )
+            result = await worker_app._handle_ai_content_result(
+                result={
+                    "status": "SUCCEEDED",
+                    "runtime_provider": "deepseek",
+                    "runtime_model": "deepseek-v4-flash",
+                    "response": response.model_dump(mode="json"),
+                },
+                run_id=dispatch["run_id"],
+                step=dispatch["step"],
+                attempt=dispatch["attempt"],
+                kind=dispatch["kind"],
+                network_retries=dispatch["network_retries"],
+                repair_used=dispatch["repair_used"],
+                reservation_id=dispatch["reservation_id"],
+                semantic_recheck=dispatch["semantic_recheck"],
+                decision_attempt=dispatch["decision_attempt"],
+            )
+            completed_steps.append(request.step)
+            callback_results.append(result)
+        async with admin.connect() as connection:
+            recorded_errors = list(
+                await connection.scalars(
+                    text(
+                        "SELECT error_code FROM ai_step_run "
+                        "WHERE pipeline_run_id=:run AND error_code IS NOT NULL "
+                        "ORDER BY created_at"
+                    ),
+                    {"run": acquired.pipeline_run_id},
+                )
+            )
+        assert completed_steps == [
+            AiStep.CLASSIFY,
+            AiStep.EXTRACT,
+            AiStep.SUMMARIZE,
+            AiStep.VERIFY,
+        ], {"callbacks": callback_results, "errors": recorded_errors}
+        assert result["status"] == "SUCCEEDED"
+
+        publication = PublicationService(
+            repository=PostgresPublicationRepository(publisher),
+            gate=cast(Any, object()),
+            now=lambda: now + timedelta(minutes=1),
+        )
+        async with admin.connect() as connection:
+            event_id = await connection.scalar(
+                text(
+                    "SELECT binding.event_id FROM event_identity_binding binding "
+                    "JOIN intelligence_item item ON item.id=binding.item_id "
+                    "WHERE item.current_document_version_id=:version"
+                ),
+                {"version": acquired.document_version_id},
+            )
+        assert event_id is not None
+        assert await publication.process_ai_projection_refresh_once()
+        assert await publication.process_ai_projection_refresh_once()
+        assert not await publication.process_ai_projection_refresh_once()
+        reader = PostgresV2IntelligenceService(
+            projection_reader,
+            publisher,
+            S3ObjectStore(Settings()),
+        )
+        feed = await reader.feed(limit=20, primary_type=None, cursor=None)
+        async with admin.connect() as connection:
+            projection_diagnostics = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT projection.projection_kind,"
+                            "projection.publication_revision_id,"
+                            "publication.current_revision_id,"
+                            "revision.automatic_authority_id,"
+                            "authority.event_id AS authority_event_id,"
+                            "projection.event_id,"
+                            "projection.authority_epoch,"
+                            "(SELECT count(*) FROM visible_intelligence_projection_v2) "
+                            "AS visible_count "
+                            "FROM intelligence_projection_v2 projection "
+                            "LEFT JOIN publication_revision revision "
+                            "ON revision.id=projection.publication_revision_id "
+                            "LEFT JOIN publication "
+                            "ON publication.current_revision_id=revision.id "
+                            "LEFT JOIN automatic_publication_authority_v2 authority "
+                            "ON authority.id=revision.automatic_authority_id"
+                        )
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            refresh_diagnostics = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT status,attempt_count,last_error_code "
+                            "FROM ai_projection_refresh_outbox_v2"
+                        )
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        assert feed.items, {
+            "projection": projection_diagnostics,
+            "refresh": refresh_diagnostics,
+        }
+        item = next(
+            entry
+            for entry in feed.items
+            if entry.document_version_id == acquired.document_version_id
+        )
+        detail = await reader.event(item.event_id)
+        assert detail == item
+        assert item.human_reviewed is False
+        assert item.ai_summary.status.value == "SUCCEEDED"
+        assert item.source_excerpt.claim_ids == item.ai_summary.claim_ids
+        assert item.first_discovered_at is not None
+        assert item.first_discovered_at.tzinfo is not None
+
+        async with admin.connect() as connection:
+            invariants = (
+                (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT
+                              (SELECT count(*) FROM raw_object raw
+                                JOIN document_version version
+                                  ON version.raw_object_id=raw.id
+                                WHERE version.id=:version) AS raw_count,
+                              (SELECT count(*) FROM claim
+                                WHERE document_version_id=:version) AS claim_count,
+                              (SELECT count(*) FROM claim_evidence
+                                WHERE document_version_id=:version) AS evidence_count,
+                              (SELECT count(*) FROM ai_step_run
+                                WHERE pipeline_run_id=:run AND step='VERIFY'
+                                  AND status='SUCCEEDED') AS verify_count,
+                              (SELECT count(*) FROM automatic_publication_authority_v2
+                                WHERE document_version_id=:version) AS authority_count,
+                              (SELECT count(*) FROM publication_revision
+                                WHERE document_version_id=:version
+                                  AND automatic_authority_id IS NOT NULL) AS revision_count
+                            """
+                        ),
+                        {
+                            "version": acquired.document_version_id,
+                            "run": acquired.pipeline_run_id,
+                        },
+                    )
+                )
+                .mappings()
+                .one()
+            )
+        assert dict(invariants) == {
+            "raw_count": 1,
+            "claim_count": 1,
+            "evidence_count": 1,
+            "verify_count": 1,
+            "authority_count": 1,
+            "revision_count": 1,
+        }
+
+        await publication.refresh_v2_projection(
+            event_id=item.event_id,
+            document_version_id=acquired.document_version_id,
+        )
+        await publication.refresh_v2_projection(
+            event_id=item.event_id,
+            document_version_id=acquired.document_version_id,
+        )
+        async with admin.connect() as connection:
+            replay_counts = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT "
+                            "(SELECT count(*) FROM automatic_publication_authority_v2 "
+                            "WHERE document_version_id=:version) AS authorities,"
+                            "(SELECT count(*) FROM publication_revision "
+                            "WHERE document_version_id=:version "
+                            "AND automatic_authority_id IS NOT NULL) AS revisions,"
+                            "(SELECT count(*) FROM intelligence_projection_v2 "
+                            "WHERE document_version_id=:version) AS projections"
+                        ),
+                        {"version": acquired.document_version_id},
+                    )
+                )
+                .mappings()
+                .one()
+            )
+        assert dict(replay_counts) == {
+            "authorities": 1,
+            "revisions": 1,
+            "projections": 1,
+        }
+
+        async with admin.begin() as connection:
+            await connection.execute(
+                text(
+                    "UPDATE intelligence_item SET risk_level='R3',"
+                    "publication_risk_tier='R3' "
+                    "WHERE current_document_version_id=:version"
+                ),
+                {"version": acquired.document_version_id},
+            )
+        await publication.refresh_v2_projection(
+            event_id=item.event_id,
+            document_version_id=acquired.document_version_id,
+        )
+        metadata_only = await reader.event(item.event_id)
+        assert metadata_only.projection_kind == "R3_METADATA"
+        assert not hasattr(metadata_only, "source_excerpt")
+        assert not hasattr(metadata_only, "ai_summary")
+
+        async with admin.begin() as connection:
+            await connection.execute(
+                text(
+                    "UPDATE intelligence_item SET risk_level='R4',"
+                    "publication_risk_tier='R4' "
+                    "WHERE current_document_version_id=:version"
+                ),
+                {"version": acquired.document_version_id},
+            )
+        with pytest.raises(PublicationDenied):
+            await publication.refresh_v2_projection(
+                event_id=item.event_id,
+                document_version_id=acquired.document_version_id,
+            )
+        with pytest.raises(ProjectionNotFound):
+            await reader.event(item.event_id)
+
+        async with admin.begin() as connection:
+            await connection.execute(
+                text(
+                    "UPDATE intelligence_item SET risk_level='R1',"
+                    "publication_risk_tier='R1' "
+                    "WHERE current_document_version_id=:version"
+                ),
+                {"version": acquired.document_version_id},
+            )
+        await publication.refresh_v2_projection(
+            event_id=item.event_id,
+            document_version_id=acquired.document_version_id,
+        )
+        assert (await reader.event(item.event_id)).projection_kind == "FULL"
+
+        owner_id = uuid7()
+        assert (
+            await publication.command_event_publication_control(
+                event_id=item.event_id,
+                owner_id=owner_id,
+                owner_veto=True,
+                reason_code="OWNER_REJECTED_AUTOMATIC_PUBLICATION",
+            )
+            == 2
+        )
+        with pytest.raises(ProjectionNotFound):
+            await reader.event(item.event_id)
+        assert await publication.process_projection_rebuild_once()
+        assert not await publication.process_projection_rebuild_once()
+        assert (
+            await publication.command_event_publication_control(
+                event_id=item.event_id,
+                owner_id=owner_id,
+                owner_veto=False,
+                reason_code="OWNER_RESTORED_AUTOMATIC_PUBLICATION",
+            )
+            == 3
+        )
+        assert await publication.process_projection_rebuild_once()
+        restored = await reader.event(item.event_id)
+        assert restored.authority_epoch == 3
+        assert restored.publication_revision_id != item.publication_revision_id
+        assert not await publication.process_projection_rebuild_once()
+
+        replay_handoff = await SourceContentOutboxExecutor(
+            gateway=PostgresSourceContentGateway(engine=worker)
+        ).run(acquired.outbox_id)
+        assert replay_handoff is None
+        async with admin.connect() as connection:
+            assert (
+                await connection.scalar(
+                    text("SELECT count(*) FROM ai_pipeline_run WHERE document_version_id=:version"),
+                    {"version": acquired.document_version_id},
+                )
+                == 1
+            )
+    finally:
+        await admin.dispose()
+        await worker.dispose()
+        await publisher.dispose()
+        await projection_reader.dispose()
+
+
 async def test_filtered_decision_is_idempotent_and_has_no_reader_materialization() -> None:
     admin = create_async_engine(os.environ["SRBG_TEST_ADMIN_DATABASE_URL"])
     worker = create_async_engine(os.environ["SRBG_WORKER_DATABASE_URL"])
@@ -854,6 +1334,8 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
             },
         )
         assert count == 1
+        await repository.transition(run_id, "EVIDENCE_GATING")
+        await repository.transition(run_id, "SUMMARIZING")
         claims = await PostgresContentCandidateRepository(worker).load_active_claims(version_id)
         assert len(claims) == 1
         paragraph = "x" * 100
@@ -889,29 +1371,57 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
         candidate_id = await repository.materialize_t06_content_summary(
             document, request=summary_request, summary=summary
         )
-        await repository.append_summary_state(
-            document,
-            status="SUCCEEDED",
-            reason_code="SCHEMA_VALID_APPROVED_CONTENT",
-            candidate_id=candidate_id,
+        await repository.transition(run_id, "VERIFYING")
+        verify_input = worker_app._prepare_t06_verify_input(
+            await repository.load_judgment_facts(document),
+            summary,
         )
+        verify_request = AiContentPreparationService.build_request(
+            AiStep.VERIFY,
+            verify_input,
+        )
+        verify_response = await ControlledModelGateway(
+            MockProvider(
+                {
+                    AiStep.VERIFY: {
+                        "unsupported_claims": [],
+                        "number_or_date_conflicts": [],
+                        "legal_responsibility_or_causal_overreach": [],
+                        "enterprise_claims_missing_attribution": [],
+                        "stale_or_superseded_evidence": False,
+                        "prompt_injection_risk": False,
+                        "candidate_decision": "PASS_TO_SERVER_GATE",
+                    }
+                }
+            )
+        ).generate(verify_request)
+        completed_candidate_id = await repository.complete_verified_content(
+            document,
+            response=verify_response,
+            request=verify_request,
+            attempt=1,
+            kind=AttemptKind.PRIMARY.value,
+            provider="deepseek",
+            model="deepseek-v4-flash",
+        )
+        assert completed_candidate_id == candidate_id
         publication = PublicationService(
             repository=PostgresPublicationRepository(publisher),
             gate=cast(Any, object()),
             now=lambda: now + timedelta(minutes=1),
         )
-        for _ in range(4):
+        for _ in range(2):
             assert await publication.process_ai_projection_refresh_once() is True
-            async with admin.connect() as connection:
-                projected = await connection.scalar(
-                    text(
-                        "SELECT EXISTS(SELECT 1 FROM intelligence_projection_v2 "
-                        "WHERE document_version_id=:version)"
-                    ),
-                    {"version": version_id},
-                )
-            if projected:
-                break
+        assert await publication.process_ai_projection_refresh_once() is False
+        async with admin.connect() as connection:
+            projected = await connection.scalar(
+                text(
+                    "SELECT EXISTS(SELECT 1 FROM intelligence_projection_v2 "
+                    "WHERE document_version_id=:version)"
+                ),
+                {"version": version_id},
+            )
+        assert projected
         async with admin.connect() as connection:
             projection = (
                 (
@@ -1453,10 +1963,44 @@ async def test_accepted_decision_reaches_v2_feed_through_evidence_and_publicatio
         resolved_safety = await safety_service.get_exception(safety_exception.id)
         assert resolved_safety.status == "RESOLVED"
         if safety_action == "OWNER_ALLOWED":
+            async with admin.connect() as connection:
+                visibility = (
+                    (
+                        await connection.execute(
+                            text(
+                                "SELECT projection.publication_revision_id,"
+                                "publication.current_revision_id,revision.valid,"
+                                "authority.authority_epoch AS authority_epoch,"
+                                "projection.authority_epoch AS projection_epoch,"
+                                "(SELECT count(*) FROM owner_exception_v2 exception "
+                                "WHERE exception.kind='SAFETY' AND exception.status='OPEN' "
+                                "AND exception.document_version_id=:version) AS open_safety,"
+                                "(SELECT count(*) FROM event_suppression_match_v2 match "
+                                "JOIN feed_suppression_effective_v2 rule "
+                                "ON rule.scope=match.scope AND rule.target_key=match.target_key "
+                                "WHERE match.event_id=:event AND (rule.revoked_at IS NULL "
+                                "OR projection.projected_at<=rule.revoked_at)) AS suppression,"
+                                "(SELECT count(*) FROM visible_intelligence_projection_v2 "
+                                "WHERE event_id=:event) AS visible "
+                                "FROM intelligence_projection_v2 projection "
+                                "LEFT JOIN publication_revision revision "
+                                "ON revision.id=projection.publication_revision_id "
+                                "LEFT JOIN publication "
+                                "ON publication.current_revision_id=revision.id "
+                                "LEFT JOIN automatic_publication_authority_v2 authority "
+                                "ON authority.id=revision.automatic_authority_id "
+                                "WHERE projection.event_id=:event"
+                            ),
+                            {"event": event_id, "version": version_id},
+                        )
+                    )
+                    .mappings()
+                    .one()
+                )
             assert any(
                 item.event_id == event_id
                 for item in (await reader.feed(limit=20, primary_type=None, cursor=None)).items
-            )
+            ), dict(visibility)
         else:
             assert all(
                 item.event_id != event_id
@@ -1738,8 +2282,7 @@ async def test_technical_failure_retries_survive_restart_and_owner_recovery_is_i
             )
             rebound_pipeline_run_id = await connection.scalar(
                 text(
-                    "SELECT safe_metadata->>'pipeline_run_id' "
-                    "FROM owner_exception_v2 WHERE id=:id"
+                    "SELECT safe_metadata->>'pipeline_run_id' FROM owner_exception_v2 WHERE id=:id"
                 ),
                 {"id": exception.id},
             )
@@ -2084,10 +2627,7 @@ async def test_policy_switch_freezes_run_and_rollback_restores_champion() -> Non
         )
         async with admin.connect() as connection:
             challenger_bundle_id = await connection.scalar(
-                text(
-                    "SELECT id FROM qualification_policy_bundle_v2 "
-                    "WHERE bundle_sha256=:digest"
-                ),
+                text("SELECT id FROM qualification_policy_bundle_v2 WHERE bundle_sha256=:digest"),
                 {"digest": challenger.identity.bundle_sha256},
             )
         canary_runs = [(uuid7(), True), (uuid7(), False)]
@@ -2118,10 +2658,7 @@ async def test_policy_switch_freezes_run_and_rollback_restores_champion() -> Non
             canary_statuses = dict(
                 (
                     await connection.execute(
-                        text(
-                            "SELECT id,status FROM ai_pipeline_run "
-                            "WHERE id=ANY(:ids)"
-                        ),
+                        text("SELECT id,status FROM ai_pipeline_run WHERE id=ANY(:ids)"),
                         {"ids": [run_id for run_id, _ in canary_runs]},
                     )
                 ).all()
@@ -2201,17 +2738,11 @@ async def test_policy_switch_freezes_run_and_rollback_restores_champion() -> Non
         assert frozen.identity.bundle_sha256 == champion.identity.bundle_sha256
         async with admin.connect() as connection:
             champion_bundle_id = await connection.scalar(
-                text(
-                    "SELECT id FROM qualification_policy_bundle_v2 "
-                    "WHERE bundle_sha256=:digest"
-                ),
+                text("SELECT id FROM qualification_policy_bundle_v2 WHERE bundle_sha256=:digest"),
                 {"digest": champion.identity.bundle_sha256},
             )
             challenger_bundle_id = await connection.scalar(
-                text(
-                    "SELECT id FROM qualification_policy_bundle_v2 "
-                    "WHERE bundle_sha256=:digest"
-                ),
+                text("SELECT id FROM qualification_policy_bundle_v2 WHERE bundle_sha256=:digest"),
                 {"digest": challenger.identity.bundle_sha256},
             )
         assert promoted.policy_bundle_id == challenger_bundle_id

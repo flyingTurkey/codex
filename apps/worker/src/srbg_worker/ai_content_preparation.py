@@ -865,7 +865,6 @@ class PostgresAiPreparationRepository:
         version_id = document.document_version_id
         claims = await candidate_repository.load_active_claims(version_id)
         request = build_content_summary_request(claims, current_document_version_id=version_id)
-        await candidate_repository.append_source_excerpt(claims, document_version_id=version_id)
         if append_processing:
             await self.append_summary_state(
                 document,
@@ -1260,66 +1259,348 @@ class PostgresAiPreparationRepository:
         if response is not None and not await self.authorize_model_call(run_id):
             raise PermissionError("AI_RUNTIME_AUTHORIZATION_DENIED")
         async with self._engine.begin() as connection:
-            registry = (
+            step_run_id = await self._append_step_row_in_connection(
+                connection,
+                run_id=run_id,
+                step=step,
+                attempt=attempt,
+                kind=kind,
+                response=response,
+                status=status,
+                error_code=error_code,
+                input_sha256=input_sha256,
+                billing_response=billing_response,
+                prompt_version=prompt_version,
+                schema_version=schema_version,
+            )
+        return step_run_id
+
+    async def _append_step_row_in_connection(
+        self,
+        connection: Any,
+        *,
+        run_id: UUID,
+        step: AiStep,
+        attempt: int,
+        kind: str,
+        response: ModelResponse | None,
+        status: str,
+        error_code: str | None,
+        input_sha256: str | None,
+        billing_response: ModelResponse | None,
+        prompt_version: str | None,
+        schema_version: str | None,
+    ) -> UUID:
+        registry = (
+            (
+                await connection.execute(
+                    text(_REGISTRY_SQL),
+                    {
+                        "prompt_version": prompt_version
+                        or (
+                            f"pers07-{step.value.lower()}-v1"
+                            if step in {AiStep.SUMMARIZE, AiStep.VERIFY}
+                            else f"ai01-{step.value.lower()}-v1"
+                        ),
+                        "schema_version": schema_version
+                        or (
+                            f"{step.value.lower()}-output-v2"
+                            if step in {AiStep.SUMMARIZE, AiStep.VERIFY}
+                            else f"{step.value.lower()}-output-v1"
+                        ),
+                        "model_version": _MODEL_PROFILE_VERSION,
+                    },
+                )
+            )
+            .mappings()
+            .one()
+        )
+        input_hash = input_sha256 or await connection.scalar(
+            text("SELECT input_sha256 FROM ai_pipeline_run WHERE id=:run_id"),
+            {"run_id": run_id},
+        )
+        usage_source = response or billing_response
+        usage = usage_source.usage if usage_source is not None else None
+        step_run_id = uuid7()
+        await connection.execute(
+            text(_INSERT_STEP_SQL),
+            {
+                "id": step_run_id,
+                "run_id": run_id,
+                "step": step.value,
+                "attempt": attempt,
+                "prompt_id": registry["prompt_id"],
+                "schema_id": registry["schema_id"],
+                "model_id": registry["model_id"],
+                "input_hash": input_hash,
+                "raw_output": response.raw_output if response else None,
+                "validated_output": (
+                    json.dumps(response.output, ensure_ascii=False) if response else None
+                ),
+                "status": status,
+                "input_tokens": usage.input_tokens if usage else 0,
+                "output_tokens": usage.output_tokens if usage else 0,
+                "cache_hit": usage.cache_hit_tokens if usage else 0,
+                "cache_miss": usage.cache_miss_tokens if usage else 0,
+                "cost": usage_source.cost_microusd if usage_source else 0,
+                "latency": usage_source.latency_ms if usage_source else 0,
+                "request_id": usage_source.provider_request_id if usage_source else None,
+                "finish_reason": usage_source.finish_reason if usage_source else None,
+                "kind": kind,
+                "error_code": error_code,
+            },
+        )
+        return step_run_id
+
+    async def complete_verified_content(
+        self,
+        document: PreparationDocument,
+        *,
+        response: ModelResponse,
+        request: ModelRequest,
+        attempt: int,
+        kind: str,
+        provider: str,
+        model: str,
+    ) -> UUID:
+        """Atomically persist VERIFY, evidence excerpt, handoff and projection outbox."""
+
+        if provider != "deepseek" or model != "deepseek-v4-flash":
+            raise RuntimeError("RUNTIME_PROVIDER_CONFIG_MISMATCH")
+        if not await self.authorize_model_call(
+            document.run_id,
+            document_version_id=document.document_version_id,
+        ):
+            raise PermissionError("AI_RUNTIME_AUTHORIZATION_DENIED")
+        now = datetime.now(UTC)
+        async with self._engine.begin() as connection:
+            pipeline_status = await connection.scalar(
+                text(
+                    "SELECT status FROM ai_pipeline_run "
+                    "WHERE id=:run_id AND document_version_id=:version_id "
+                    "FOR UPDATE"
+                ),
+                {
+                    "run_id": document.run_id,
+                    "version_id": document.document_version_id,
+                },
+            )
+            if pipeline_status != "VERIFYING":
+                raise RuntimeError("VERIFY_HANDOFF_STATE_CONFLICT")
+            handoff_status = await connection.scalar(
+                text("SELECT lock_source_content_ai_handoff(:run_id,:version_id)"),
+                {
+                    "run_id": document.run_id,
+                    "version_id": document.document_version_id,
+                },
+            )
+            if handoff_status != "WAITING_AI":
+                raise RuntimeError("VERIFY_HANDOFF_NOT_CURRENT")
+            authority = (
                 (
                     await connection.execute(
-                        text(_REGISTRY_SQL),
+                        text(
+                            """
+                            SELECT candidate.id AS candidate_id,candidate.event_id,
+                              candidate.accepted_claim_set_sha256,
+                              candidate.source_excerpt,candidate.claim_ids,
+                              candidate.source_excerpt_claim_ids,
+                              candidate.evidence_locators,candidate.claim_basis,
+                              COALESCE(array_agg(claim.id ORDER BY claim.id)
+                                FILTER (WHERE claim.id IS NOT NULL),'{}'::uuid[])
+                                AS current_claim_ids
+                            FROM ai_pipeline_run run
+                            JOIN document_version version
+                              ON version.id=run.document_version_id
+                             AND version.execution_domain IN ('TRIAL','PRODUCTION')
+                            JOIN document document
+                              ON document.id=version.document_id
+                             AND document.current_version_id=version.id
+                            JOIN source source ON source.id=document.source_id
+                            JOIN content_preparation_candidate_v2 candidate
+                              ON candidate.document_version_id=version.id
+                            LEFT JOIN content_preparation_invalidation_v2 invalidation
+                              ON invalidation.candidate_id=candidate.id
+                            LEFT JOIN claim
+                              ON claim.document_version_id=version.id
+                             AND claim.verification_status='ACCEPTED'
+                             AND (
+                               COALESCE(claim.acceptance_method,'HUMAN_REVIEW')
+                                 <>'AUTOMATED_EVIDENCE_GATE'
+                               OR 'ACTIVE'=(SELECT state.state
+                                 FROM automatic_evidence_fact_state_event state
+                                 WHERE state.claim_id=claim.id
+                                 ORDER BY state.created_at DESC,state.id DESC LIMIT 1)
+                             )
+                            WHERE run.id=:run_id
+                              AND run.document_version_id=:version_id
+                              AND invalidation.id IS NULL AND source.desired_enabled
+                              AND source.manual_disabled_at IS NULL
+                              AND source.runtime_state='RUNNING'
+                              AND 'ADMIT'=(SELECT assessment.verdict
+                                FROM source_admission_assessment_v2 assessment
+                                WHERE assessment.source_id=source.id
+                                ORDER BY assessment.assessed_at DESC,assessment.id DESC
+                                LIMIT 1)
+                            GROUP BY candidate.id
+                            ORDER BY candidate.created_at DESC,candidate.id DESC
+                            LIMIT 1
+                            """
+                        ),
                         {
-                            "prompt_version": prompt_version
-                            or (
-                                f"pers07-{step.value.lower()}-v1"
-                                if step in {AiStep.SUMMARIZE, AiStep.VERIFY}
-                                else f"ai01-{step.value.lower()}-v1"
-                            ),
-                            "schema_version": schema_version
-                            or (
-                                f"{step.value.lower()}-output-v2"
-                                if step in {AiStep.SUMMARIZE, AiStep.VERIFY}
-                                else f"{step.value.lower()}-output-v1"
-                            ),
-                            "model_version": _MODEL_PROFILE_VERSION,
+                            "run_id": document.run_id,
+                            "version_id": document.document_version_id,
                         },
                     )
                 )
                 .mappings()
                 .one()
             )
-            input_hash = input_sha256 or await connection.scalar(
-                text("SELECT input_sha256 FROM ai_pipeline_run WHERE id=:run_id"),
-                {"run_id": run_id},
+            if list(authority["claim_ids"]) != list(authority["current_claim_ids"]):
+                raise RuntimeError("VERIFY_ACCEPTED_CLAIM_SET_CHANGED")
+            verify_step_run_id = await self._append_step_row_in_connection(
+                connection,
+                run_id=document.run_id,
+                step=AiStep.VERIFY,
+                attempt=attempt,
+                kind=kind,
+                response=response,
+                status="SUCCEEDED",
+                error_code=None,
+                input_sha256=request.input_sha256,
+                billing_response=None,
+                prompt_version=request.prompt_version,
+                schema_version=request.schema_version,
             )
-            usage_source = response or billing_response
-            usage = usage_source.usage if usage_source is not None else None
-            step_run_id = uuid7()
+            excerpt_id = uuid7()
             await connection.execute(
-                text(_INSERT_STEP_SQL),
+                text(
+                    """
+                    INSERT INTO source_excerpt_version_v2(
+                      id,event_id,document_version_id,accepted_claim_set_sha256,
+                      source_excerpt,accepted_claim_ids,source_excerpt_claim_ids,
+                      evidence_locators,claim_basis,created_at
+                    ) VALUES(
+                      :id,:event_id,:version_id,:claim_hash,:excerpt,:accepted_ids,
+                      :excerpt_ids,:locators,:basis,:now
+                    ) ON CONFLICT(document_version_id,accepted_claim_set_sha256) DO NOTHING
+                    """
+                ),
                 {
-                    "id": step_run_id,
-                    "run_id": run_id,
-                    "step": step.value,
-                    "attempt": attempt,
-                    "prompt_id": registry["prompt_id"],
-                    "schema_id": registry["schema_id"],
-                    "model_id": registry["model_id"],
-                    "input_hash": input_hash,
-                    "raw_output": response.raw_output if response else None,
-                    "validated_output": (
-                        json.dumps(response.output, ensure_ascii=False) if response else None
-                    ),
-                    "status": status,
-                    "input_tokens": usage.input_tokens if usage else 0,
-                    "output_tokens": usage.output_tokens if usage else 0,
-                    "cache_hit": usage.cache_hit_tokens if usage else 0,
-                    "cache_miss": usage.cache_miss_tokens if usage else 0,
-                    "cost": usage_source.cost_microusd if usage_source else 0,
-                    "latency": usage_source.latency_ms if usage_source else 0,
-                    "request_id": usage_source.provider_request_id if usage_source else None,
-                    "finish_reason": usage_source.finish_reason if usage_source else None,
-                    "kind": kind,
-                    "error_code": error_code,
+                    "id": excerpt_id,
+                    "event_id": authority["event_id"],
+                    "version_id": document.document_version_id,
+                    "claim_hash": authority["accepted_claim_set_sha256"],
+                    "excerpt": authority["source_excerpt"],
+                    "accepted_ids": list(authority["claim_ids"]),
+                    "excerpt_ids": list(authority["source_excerpt_claim_ids"]),
+                    "locators": list(authority["evidence_locators"]),
+                    "basis": list(authority["claim_basis"]),
+                    "now": now,
                 },
             )
-        return step_run_id
+            success_id = await connection.scalar(
+                text(
+                    """
+                    INSERT INTO ai_approved_content_success_v2(
+                      id,pipeline_run_id,ai_step_run_id,document_version_id,provider,model,
+                      environment,model_profile_version,prompt_version,schema_version,
+                      success_kind,succeeded_at
+                    )
+                    SELECT :id,run.id,step.id,run.document_version_id,:provider,:model,
+                      :environment,profile.version,prompt.version,schema.version,
+                      'APPROVED_CONTENT',:now
+                    FROM ai_pipeline_run run
+                    JOIN ai_step_run step
+                      ON step.id=:step_id AND step.pipeline_run_id=run.id
+                    JOIN ai_model_profile profile ON profile.id=step.model_profile_id
+                    JOIN ai_prompt_version prompt ON prompt.id=step.prompt_version_id
+                    JOIN ai_schema_version schema ON schema.id=step.schema_version_id
+                    JOIN source_content_outbox handoff ON handoff.pipeline_run_id=run.id
+                    JOIN document_version version ON version.id=run.document_version_id
+                    JOIN raw_object raw ON raw.id=version.raw_object_id
+                    JOIN document document ON document.id=version.document_id
+                    WHERE run.id=:run_id AND step.step='VERIFY'
+                      AND step.status='SUCCEEDED' AND handoff.status='WAITING_AI'
+                      AND document.current_version_id=version.id
+                      AND raw.scan_status='CLEAN'
+                      AND EXISTS(SELECT 1 FROM raw_object_security_fact security
+                        WHERE security.raw_object_id=raw.id AND security.status='CLEAN')
+                      AND NOT EXISTS(SELECT 1 FROM raw_object_security_fact security
+                        WHERE security.raw_object_id=raw.id
+                          AND security.status IN ('REJECTED','QUARANTINED'))
+                    ON CONFLICT(ai_step_run_id) DO NOTHING
+                    RETURNING id
+                    """
+                ),
+                {
+                    "id": uuid7(),
+                    "run_id": document.run_id,
+                    "step_id": verify_step_run_id,
+                    "provider": provider,
+                    "model": model,
+                    "environment": self._environment,
+                    "now": now,
+                },
+            )
+            if success_id is None:
+                raise RuntimeError("APPROVED_CONTENT_SUCCESS_NOT_AUTHORIZED")
+            state_id = uuid7()
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO ai_summary_state_event_v2(
+                      id,event_id,document_version_id,pipeline_run_id,candidate_id,status,
+                      reason_code,created_at
+                    ) VALUES(
+                      :id,:event_id,:version_id,:run_id,:candidate_id,'SUCCEEDED',
+                      'VERIFY_PASSED_SERVER_GATE',:now
+                    )
+                    """
+                ),
+                {
+                    "id": state_id,
+                    "event_id": authority["event_id"],
+                    "version_id": document.document_version_id,
+                    "run_id": document.run_id,
+                    "candidate_id": authority["candidate_id"],
+                    "now": now,
+                },
+            )
+            await connection.execute(
+                text(
+                    """
+                    INSERT INTO ai_projection_refresh_outbox_v2(
+                      id,event_id,document_version_id,summary_state_event_id,status,
+                      attempt_count,available_at,last_error_code,created_at,updated_at
+                    ) VALUES(
+                      :id,:event_id,:version_id,:state_id,'PENDING',0,:now,NULL,:now,:now
+                    )
+                    """
+                ),
+                {
+                    "id": uuid7(),
+                    "event_id": authority["event_id"],
+                    "version_id": document.document_version_id,
+                    "state_id": state_id,
+                    "now": now,
+                },
+            )
+            updated = await connection.execute(
+                text(
+                    "UPDATE ai_pipeline_run SET status='SUCCEEDED',completed_at=:now "
+                    "WHERE id=:run_id AND status='VERIFYING'"
+                ),
+                {"run_id": document.run_id, "now": now},
+            )
+            if updated.rowcount != 1:
+                raise RuntimeError("VERIFY_PIPELINE_STATE_CONFLICT")
+            await connection.execute(
+                text("SELECT finalize_source_content_ai_run(:run_id,'SUCCEEDED',NULL,:now)"),
+                {"run_id": document.run_id, "now": now},
+            )
+        T06_AI_SUMMARY_STATE_TRANSITIONS.labels(state="SUCCEEDED").inc()
+        return cast(UUID, authority["candidate_id"])
 
     async def materialize(
         self,
@@ -2364,6 +2645,7 @@ def _policy_bundle_from_facts(facts: RowMapping) -> QualificationPolicyBundle:
         bundle_sha256=str(facts["bundle_sha256"]),
         policy_payload=facts["policy_payload"],
     )
+
 
 _BLOCKS_SQL = """
 SELECT block.id AS block_id,page.page_number,block.block_kind,block.normalized_text,

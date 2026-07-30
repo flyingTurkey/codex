@@ -303,7 +303,7 @@ def test_ci_uses_the_current_autonomous_content_integration_gate() -> None:
     )[0]
 
     assert "safety-case-test:" not in makefile
-    assert "verify_autonomous_policy_migration.py" in target
+    assert "verify_phase3_trustworthy_event_migration.py" in target
     assert "tests/integration/t41_autonomous_content_integration.py" in target
     assert (
         "migration-test: migration-head-check autonomous-content-integration-test"

@@ -12,6 +12,8 @@ from srbg_contracts import (
 EVENT_ID = UUID("019f7c00-0000-7000-8000-000000000601")
 CASE_ID = UUID("019f7c00-0000-7000-8000-000000000602")
 CLAIM_ID = UUID("019f7c00-0000-7000-8000-000000000603")
+DOCUMENT_VERSION_ID = UUID("019f7c00-0000-7000-8000-000000000604")
+PUBLICATION_REVISION_ID = UUID("019f7c00-0000-7000-8000-000000000605")
 
 
 def test_r3_is_an_exact_metadata_whitelist_with_nullable_times() -> None:
@@ -53,6 +55,10 @@ def test_full_separates_official_source_from_human_review_and_uses_structured_su
         {
             "projection_kind": "FULL",
             "event_id": EVENT_ID,
+            "document_version_id": DOCUMENT_VERSION_ID,
+            "publication_revision_id": PUBLICATION_REVISION_ID,
+            "accepted_claim_set_sha256": "a" * 64,
+            "authority_epoch": 1,
             "title": "某铁路隧道开展隐患整治",
             "primary_type": "SAFETY_INTELLIGENCE",
             "facets": {"engineering_objects": ["RAILWAY", "TUNNEL"]},
@@ -100,6 +106,8 @@ def test_full_separates_official_source_from_human_review_and_uses_structured_su
 
     assert projection.source.official is True
     assert projection.human_reviewed is False
+    assert projection.publication_revision_id == PUBLICATION_REVISION_ID
+    assert projection.accepted_claim_set_sha256 == "a" * 64
     assert projection.ai_summary.paragraphs[0].kind == "FACT"
 
 

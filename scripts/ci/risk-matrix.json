@@ -19,10 +19,12 @@
       "apps/api/**/*.py",
       "apps/worker/**/*.py",
       "packages/contracts/**/*.py",
+      "scripts/*.py",
       "scripts/**/*.py",
       "tests/**/*.py"
     ],
     "integration": [
+      "scripts/run_isolated_integration.py",
       "tests/integration/**"
     ],
     "contract": [
@@ -35,7 +37,8 @@
     "migration": [
       "apps/api/alembic.ini",
       "apps/api/alembic/**",
-      "apps/api/migrations/**"
+      "apps/api/migrations/**",
+      "scripts/verify_*_migration.py"
     ],
     "docker": [
       ".dockerignore",

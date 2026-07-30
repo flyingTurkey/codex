@@ -134,6 +134,18 @@ class PublicationRepository(Protocol):
 
     async def process_ai_projection_refresh_once(self, *, processed_at: datetime) -> bool: ...
 
+    async def process_projection_rebuild_once(self, *, processed_at: datetime) -> bool: ...
+
+    async def command_event_publication_control(
+        self,
+        *,
+        event_id: UUID,
+        owner_id: UUID,
+        owner_veto: bool,
+        reason_code: str,
+        created_at: datetime,
+    ) -> int: ...
+
     async def correct_automatic_relationship(
         self,
         *,
@@ -259,6 +271,24 @@ class PublicationService:
             projected_at=self._now(),
         )
 
+    async def command_event_publication_control(
+        self,
+        *,
+        event_id: UUID,
+        owner_id: UUID,
+        owner_veto: bool,
+        reason_code: str,
+    ) -> int:
+        """Advance the event authority epoch and fail the old projection closed."""
+
+        return await self._repository.command_event_publication_control(
+            event_id=event_id,
+            owner_id=owner_id,
+            owner_veto=owner_veto,
+            reason_code=reason_code,
+            created_at=self._now(),
+        )
+
     async def list_feed_suppressions(
         self, *, active_only: bool
     ) -> list[FeedSuppressionRuleView]:
@@ -360,6 +390,11 @@ class PublicationService:
         """Consume one AI state handoff through the sole projection writer."""
 
         return await self._repository.process_ai_projection_refresh_once(processed_at=self._now())
+
+    async def process_projection_rebuild_once(self) -> bool:
+        """Consume one authority/document invalidation rebuild request."""
+
+        return await self._repository.process_projection_rebuild_once(processed_at=self._now())
 
     async def correct_automatic_relationship(
         self, event_id: UUID, *, payload: OwnerRelationshipCorrectionRequest, owner_id: UUID
