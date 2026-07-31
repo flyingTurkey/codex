@@ -651,6 +651,29 @@ def test_phase4_live_document_lookup_uses_personal_stream_authority() -> None:
     assert "JOIN fetch_record record" not in live
 
 
+def test_phase4_live_ai_evidence_uses_registry_versions_and_incremental_cost() -> None:
+    runner = (ROOT / "scripts/run_phase4_real_event_acceptance.py").read_text(
+        encoding="utf-8"
+    )
+    live = (ROOT / "tests/live/test_phase4_real_event_acceptance.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "prompt.version AS prompt_version" in live
+    assert "schema.version AS schema_version" in live
+    assert "model.model AS model" in live
+    assert "JOIN ai_prompt_version prompt" in live
+    assert "ON prompt.id=step.prompt_version_id" in live
+    assert "JOIN ai_schema_version schema ON schema.id=step.schema_version_id" in live
+    assert "JOIN ai_model_profile model ON model.id=step.model_profile_id" in live
+    assert 'report["model_call_usage"] = model_call_usage' in live
+    assert 'report["ai_cost_microusd"] = sum(' in live
+    assert "MAX_AI_COST_MICROUSD = 50_000" in live
+    assert "MODEL_CALL_RESERVATION_MICROUSD = 12_000" in live
+    assert "reserve_controlled_ai_budget(" in live
+    assert "budget_microusd=50000" in runner
+
+
 def test_web_image_keeps_versioned_esbuild_binaries_isolated_and_cached() -> None:
     workspace = (ROOT / "pnpm-workspace.yaml").read_text(encoding="utf-8")
     dockerfile = (ROOT / "infra/compose/Dockerfile.web").read_text(encoding="utf-8")

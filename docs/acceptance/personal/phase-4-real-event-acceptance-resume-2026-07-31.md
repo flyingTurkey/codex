@@ -221,6 +221,45 @@ This record does not authorize a formal database write or begin Phase 5.
     evidence. Phase 4 remains `NO_GO` until the repaired SHA passes all
     required gates, same-SHA CI, and a complete same-document live rerun.
 
+31. Repair candidate `f90e83ff3dea7c263f7e54e3e21b6dcbe9794126`
+    passed `check-fast`, full local `check-pr`, its one exact-SHA
+    `check-release`, and same-SHA GitHub Actions run `30671708583`. The
+    same-document live rerun used isolated project
+    `srbg-phase4-1aaa1acd5dea`, fetched the same list and detail with HTTP
+    `200`, persisted Document `019fba6c-585a-70eb-9fe6-d41829e5266c`,
+    DocumentVersion `019fba6c-585a-7157-932b-55d95e10a409`, raw object
+    `019fba6c-584a-71a5-9087-79243483e9ea`, and raw SHA-256
+    `d9a6b24932b45a23ba79c7e8a61ee7d09b17c81c6536747782db1a687ade2832`.
+    It made two successful real DeepSeek requests, then stopped before
+    PublicationService because the acceptance report selected nonexistent
+    `ai_step_run.prompt_version`, `schema_version`, and `model` columns rather
+    than joining their version registries through the stored foreign keys.
+    Append-only evidence
+    `.cache/phase4-evidence/f90e83ff3dea7c263f7e54e3e21b6dcbe9794126-1aaa1acd5dea.json`
+    records this `ProgrammingError`, two model calls, zero active database
+    tasks, zero Redis keys, and a successful drain. The error occurred before
+    the report's aggregate query, so the immutable evidence truthfully omits
+    an exact cost instead of inventing one; the controlled-run database cap
+    proves a worst-case total no greater than 80,000 micro-USD. Teardown
+    removed every scoped container, volume, and network. The result is
+    `NO_GO`; Feed/Reader and replay did not run, the formal database stage is
+    not authorized, and Phase 5 remains unstarted.
+
+32. The next focused repair joins `ai_step_run` to the authoritative prompt,
+    schema, and model registries, and records only token, latency, provider
+    request ID, and cost metadata immediately after every provider response;
+    it never records request or response body text. A focused regression was
+    red before the repair and is green after it. Because the preceding exact
+    cost was lost at the confirmed reporting blocker, the next run cap is
+    reduced from 80,000 to 50,000 micro-USD and each call obtains a 12,000
+    micro-USD reservation through the existing controlled-budget database
+    function before network I/O. The cumulative phase worst-case is therefore
+    130,000 micro-USD; at the observed USD/CNY rate near 6.77 this is about
+    RMB 0.88. This only tightens the authorized budget and does not change the
+    source, document, provider/model, prompts, schemas, deadline, retry limit,
+    publication gates, or original failure evidence. Phase 4 remains
+    `NO_GO` pending all repaired-SHA gates and another same-document rerun.
+
 28. The Owner explicitly authorized abandoning the repeatedly unavailable CCCC
     SourceStream and selecting one compliant replacement without starting Phase
     5. Point-in-time research first rejected Sichuan Transport, CSCEC, and XCMG:

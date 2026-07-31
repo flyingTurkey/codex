@@ -165,7 +165,7 @@ def main() -> int:
             f"sha={release_sha} profile={PROFILE} project={project} "
             f"source_stream_id={SOURCE_STREAM_ID} "
             "source_stream_key=sany-construction-cases "
-            "budget_microusd=80000 deadline_seconds=1500 max_model_calls=8 "
+            "budget_microusd=50000 deadline_seconds=1500 max_model_calls=8 "
             f"network_route={network_route}"
         )
         started = _run(

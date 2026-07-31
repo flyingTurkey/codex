@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from srbg_api.acquisition.contracts import DiscoveryRecord, FetchResult
 from srbg_api.acquisition.live import HttpxTransport
 from srbg_api.ai_pipeline.content_preparation import AiContentPreparationService
-from srbg_api.ai_pipeline.contracts import AiStep
+from srbg_api.ai_pipeline.contracts import AiStep, ModelResponse
 from srbg_api.ai_pipeline.runtime import AttemptKind
 from srbg_api.config import Settings
 from srbg_api.connectors.config import ConnectorKind
@@ -80,7 +80,8 @@ SOURCE_POLICY_VERSION = "t20-sany-construction-machinery-cases-v1"
 MODEL = "deepseek-v4-flash"
 PROVIDER = "deepseek"
 MAX_MODEL_CALLS = 8
-MAX_AI_COST_MICROUSD = 80_000
+MAX_AI_COST_MICROUSD = 50_000
+MODEL_CALL_RESERVATION_MICROUSD = 12_000
 MAX_WALL_SECONDS = 1_500
 RESEARCH_PATH = Path(
     "docs/research/2026-07-31-phase-4-replacement-source-stream.md"
@@ -162,7 +163,7 @@ async def _seed_stream(
             text(
                 "ALTER TABLE personal_controlled_run ADD CONSTRAINT "
                 "phase4_acceptance_ai_cost_limit CHECK("
-                "ai_cost_limit_microusd=80000 AND failure_rate_min_samples=10)"
+                "ai_cost_limit_microusd=50000 AND failure_rate_min_samples=10)"
             )
         )
         await connection.execute(
@@ -489,6 +490,7 @@ async def test_one_controlled_real_industry_update(
     fetch_run_id: UUID | None = None
     pending: list[dict[str, Any]] = []
     model_calls = 0
+    model_call_usage: list[dict[str, Any]] = []
     fixed_stream_id = UUID(os.environ["SRBG_PHASE4_SOURCE_STREAM_ID"])
     original_source_uuid7 = source_repository_module.uuid7
     fixed_stream_id_pending = True
@@ -537,7 +539,24 @@ async def test_one_controlled_real_industry_update(
         )
         if not await repository.authorize_model_call(run_id):
             raise RuntimeError("MODEL_RUNTIME_AUTHORIZATION_DENIED")
-        reservation_id = await repository.reserve(run_id, step, attempt)
+        reservation_id = uuid7()
+        async with worker.begin() as connection:
+            reservation_id = await connection.scalar(
+                text(
+                    "SELECT reservation_id FROM reserve_controlled_ai_budget("
+                    ":id,:run_id,:step,:attempt,12,:cost,:now)"
+                ),
+                {
+                    "id": reservation_id,
+                    "run_id": run_id,
+                    "step": step.value,
+                    "attempt": attempt,
+                    "cost": MODEL_CALL_RESERVATION_MICROUSD,
+                    "now": datetime.now(UTC),
+                },
+            )
+        if not isinstance(reservation_id, UUID):
+            raise RuntimeError("MODEL_BUDGET_RESERVATION_FAILED")
         pending.append(
             {
                 "run_id": run_id,
@@ -677,6 +696,28 @@ async def test_one_controlled_real_industry_update(
             dispatch = pending.pop(0)
             model_calls += 1
             result = await _generate_attempt(dispatch["request"].model_dump(mode="json"))
+            if result.get("status") == "SUCCEEDED":
+                response = ModelResponse.model_validate(result.get("response"))
+                model_call_usage.append(
+                    {
+                        "sequence": model_calls,
+                        "step": dispatch["step"].value,
+                        "attempt": dispatch["attempt"],
+                        "input_tokens": response.usage.input_tokens,
+                        "output_tokens": response.usage.output_tokens,
+                        "cache_hit_tokens": response.usage.cache_hit_tokens,
+                        "cache_miss_tokens": response.usage.cache_miss_tokens,
+                        "cost_microusd": response.cost_microusd,
+                        "latency_ms": response.latency_ms,
+                        "provider_request_id": response.provider_request_id,
+                    }
+                )
+            report["model_calls"] = model_calls
+            report["model_call_usage"] = model_call_usage
+            report["ai_cost_microusd"] = sum(
+                int(entry["cost_microusd"]) for entry in model_call_usage
+            )
+            report["ai_cost_complete"] = len(model_call_usage) == model_calls
             callback = await worker_app._handle_ai_content_result(
                 result=result,
                 run_id=dispatch["run_id"],
@@ -702,10 +743,15 @@ async def test_one_controlled_real_industry_update(
                 (
                     await connection.execute(
                         text(
-                            "SELECT step,status,input_tokens,output_tokens,cost_microusd,"
-                            "prompt_version,schema_version,model "
-                            "FROM ai_step_run WHERE pipeline_run_id=:run "
-                            "ORDER BY created_at,id"
+                            "SELECT step.step,step.status,step.input_tokens,"
+                            "step.output_tokens,step.cost_microusd,"
+                            "prompt.version AS prompt_version,"
+                            "schema.version AS schema_version,model.model AS model "
+                            "FROM ai_step_run step JOIN ai_prompt_version prompt "
+                            "ON prompt.id=step.prompt_version_id "
+                            "JOIN ai_schema_version schema ON schema.id=step.schema_version_id "
+                            "JOIN ai_model_profile model ON model.id=step.model_profile_id "
+                            "WHERE step.pipeline_run_id=:run ORDER BY step.created_at,step.id"
                         ),
                         {"run": handoff.pipeline_run_id},
                     )
@@ -715,7 +761,12 @@ async def test_one_controlled_real_industry_update(
             )
         report["model_calls"] = model_calls
         report["ai_steps"] = [dict(row) for row in step_rows]
-        report["ai_cost_microusd"] = sum(int(row["cost_microusd"]) for row in step_rows)
+        database_cost_microusd = sum(int(row["cost_microusd"]) for row in step_rows)
+        if (
+            not report.get("ai_cost_complete")
+            or database_cost_microusd != report["ai_cost_microusd"]
+        ):
+            raise RuntimeError("AI_COST_EVIDENCE_MISMATCH")
         if (
             pipeline_status != "SUCCEEDED"
             or completed_steps != ["CLASSIFY", "EXTRACT", "SUMMARIZE", "VERIFY"]
