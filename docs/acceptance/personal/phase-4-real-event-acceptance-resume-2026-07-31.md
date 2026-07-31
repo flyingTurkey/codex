@@ -91,18 +91,42 @@ This record does not authorize a formal database write or begin Phase 5.
     A regression test first reproduced and then closed this schema-field
     mismatch. No source admission, robots, terms, rate, budget, publication,
     or formal-database boundary was changed.
+15. Repair candidate `6e4e84a0e1c684717867cdac1a298a7757cf89f1`
+    passed `check-fast`, full `check-pr`, its one exact-SHA `check-release`, and
+    same-SHA GitHub Actions run `30602544512`. An earlier unchanged-SHA
+    `check-pr` stopped at `web-a11y` when the WSL backend returned
+    `Wsl/Service/0x8007274c`; after the authorized Docker restart restored the
+    mounted data root, the full gate passed.
+16. Live profiles `srbg-phase4-48223f725efb` and
+    `srbg-phase4-8167d08d7873` each passed fresh-database bootstrap, migration
+    replay, SourceAdmission, fixed budget and deadline setup, then made the
+    bounded list request to `https://www.ccccltd.cn/news/jcxw/jx/`. The source
+    returned HTTP `521` both before and after the authorized FlClash restart.
+    Each run stopped before discovery, raw-object persistence, document
+    selection, or any model call. No alternate route, second source, access
+    control bypass, or increased budget was attempted.
+17. The latest evidence file records SourceStream ID
+    `019fb785-8785-70d5-921c-10c8bc029549`, controlled run
+    `019fb785-87a5-7ac2-9a04-a6202a0eac76`, fetch run
+    `019fb785-87fa-7cdd-8654-81b4b7881075`, zero discovered/fetched documents,
+    one failed fetch, zero model calls, and blocker
+    `BOUNDED_SOURCE_FETCH_FAILED`. The stop path then hit the existing
+    `manual source disable has priority` protection, so database-level drain
+    was not recorded. Runner teardown nevertheless removed all scoped
+    containers, four named volumes, and the network. This is still `NO_GO`.
 
 ## Current acceptance state
 
-- SourceStream ID: not generated
+- SourceStream ID: `019fb785-8785-70d5-921c-10c8bc029549` (latest isolated run)
 - Document ID: not generated
 - Model calls: `0`
 - Model cost: `0` micro-USD / RMB `0`
 - Feed/Reader: not run
 - Replay: not run
-- Queue/container drain: both stopped live profiles removed all scoped
-  containers and networks; the named-volume profile also removed all four
-  volumes; no live queue or model task was created
+- Queue/container drain: runner teardown removed the latest profile's scoped
+  containers, network, and all four named volumes with zero residual Docker
+  resources; database-level queue drain is **not proven** because the stop path
+  raised before writing that evidence
 - Decision: `NO_GO` until repair gates, same-SHA remote CI, and the complete
   isolated real-content chain all pass
 - Formal database stage: `NOT AUTHORIZED`
