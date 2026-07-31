@@ -484,6 +484,22 @@ def test_phase4_live_runner_uses_project_scoped_ephemeral_volumes() -> None:
     assert '"down", "--volumes", "--remove-orphans"' in runner
 
 
+def test_phase4_live_runner_bootstraps_roles_before_fresh_database_migration() -> None:
+    runner = (ROOT / "scripts/run_phase4_real_event_acceptance.py").read_text(
+        encoding="utf-8"
+    )
+
+    infrastructure_ready = (
+        '[*compose, "up", "--detach", "--wait", "postgres", "redis", "minio"]'
+    )
+    role_bootstrap = '[*compose, "run", "--rm", "--no-deps", "role-bootstrap"]'
+    migration_verifier = '"verify_phase3_trustworthy_event_migration.py"'
+
+    assert role_bootstrap in runner
+    assert runner.index(infrastructure_ready) < runner.index(role_bootstrap)
+    assert runner.index(role_bootstrap) < runner.index(migration_verifier)
+
+
 def test_browser_gates_reuse_the_ready_runtime_without_forced_rebuilds() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 

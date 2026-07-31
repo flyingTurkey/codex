@@ -56,6 +56,21 @@ This record does not authorize a formal database write or begin Phase 5.
    project-scoped named volumes for PostgreSQL, WAL, Redis, and MinIO. A fresh
    diagnostic made all three services healthy and removed all four volumes
    with `down --volumes`.
+10. Candidate `444a31b2d6a30ae7e2a1cde322d9f18dc7583ff3` passed local
+    `check-fast`, full `check-pr`, its one exact-SHA `check-release`, and
+    same-SHA GitHub Actions run `30599938104`. Its live profile
+    `srbg-phase4-6b43c5a2ff1e` made PostgreSQL, Redis, and MinIO healthy, then
+    stopped at the first confirmed blocker while migrating the fresh database:
+    migration `0016` could not grant to missing role `srbg_publisher_login`.
+    The runner had not invoked the existing `role-bootstrap` service. No source
+    request, document selection, model call, queue task, or publication
+    occurred. Cleanup removed all scoped containers, four named volumes, and
+    the network.
+11. The focused repair adds the missing role bootstrap between infrastructure
+    readiness and the unchanged migration verifier. A regression test first
+    reproduced the missing step and then passed. The repair does not edit a
+    migration, weaken an ACL, create a publication, or touch the formal
+    database.
 
 ## Current acceptance state
 
@@ -65,8 +80,9 @@ This record does not authorize a formal database write or begin Phase 5.
 - Model cost: `0` micro-USD / RMB `0`
 - Feed/Reader: not run
 - Replay: not run
-- Queue/container drain: first live profile containers and network removed;
-  no live queue or model task was created
+- Queue/container drain: both stopped live profiles removed all scoped
+  containers and networks; the named-volume profile also removed all four
+  volumes; no live queue or model task was created
 - Decision: `NO_GO` until repair gates, same-SHA remote CI, and the complete
   isolated real-content chain all pass
 - Formal database stage: `NOT AUTHORIZED`

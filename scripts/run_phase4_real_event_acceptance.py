@@ -162,6 +162,12 @@ def main() -> int:
         )
         if started.returncode:
             raise RuntimeError("isolated phase-4 infrastructure failed to start")
+        bootstrapped = _run(
+            [*compose, "run", "--rm", "--no-deps", "role-bootstrap"],
+            environment=environment,
+        )
+        if bootstrapped.returncode:
+            raise RuntimeError("isolated phase-4 database roles failed to bootstrap")
         command = [
             sys.executable,
             "scripts/run_isolated_integration.py",

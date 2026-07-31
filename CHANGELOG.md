@@ -7,7 +7,8 @@
 - Reproduced the fresh-runner CI failure where migration `0016` grants to `srbg_publisher_login` before that role exists. The autonomous migration gate now waits for the existing Compose `role-bootstrap` service before creating its disposable database; no migration, ACL, publication rule, or production database was changed.
 - Made repeated Windows runtime readiness distinguish an already attached system VHD from a not-yet-visible Docker Desktop mount, wait up to ten seconds for bounded propagation, and fail closed instead of trying to attach the same VHD twice.
 - Replaced the Phase 4 runner's Windows/NTFS bind-backed disposable databases with project-scoped PostgreSQL, WAL, Redis, and MinIO named volumes after the first live profile stopped before source access because PostgreSQL could not set `initdb` permissions. The override is acceptance-only and `down --volumes` removes every ephemeral volume.
-- No real source or model request has been made during this resumed attempt. Same-SHA remote CI and the isolated live acceptance remain mandatory before any `PASS`; Phase 5 remains unstarted.
+- After candidate `444a31b2d6a30ae7e2a1cde322d9f18dc7583ff3` passed local gates and same-SHA CI, its live profile reached the fresh migration and stopped at the first confirmed blocker: the Phase 4 runner had not invoked the existing role bootstrap before migration `0016`. The runner now executes that bootstrap before the verifier; no migration or grant rule is weakened.
+- No real source or model request has been made during this resumed attempt. The repaired SHA must pass the complete repair gates, same-SHA remote CI, and the isolated live acceptance before any `PASS`; Phase 5 remains unstarted.
 
 ## 2026-07-30 (Phase 4 controlled real Event acceptance — NO_GO)
 
