@@ -296,3 +296,43 @@ This record does not authorize a formal database write or begin Phase 5.
     networking, other software, or other projects. No new source or model
     request was made while implementing the repair. Phase 4 remains `NO_GO`;
     the formal database stage is not authorized and Phase 5 remains unstarted.
+
+27. Drain-repair candidate `07ddd8e3c41ceb49b244c01635d3e7533efe8c64`
+    passed `check-fast`, full local `check-pr`, its one exact-SHA
+    `check-release`, and same-SHA GitHub Actions run `30634645687`. Two local
+    `check-pr` attempts had first stopped at `web-a11y` when Docker Desktop's
+    Linux Engine and `docker-desktop` WSL control channel returned HTTP `500`
+    and `Wsl/Service/0x8007274c`; after the previously authorized Docker
+    Desktop restart, the same clean SHA passed the complete gate. No FlClash,
+    system-network, VHD layout, or repository change was used to clear it.
+    Live profile `srbg-phase4-819a891c0d5c` then used the same fixed
+    SourceStream, independent DoH, application-scoped SOCKS route, budget,
+    model, deadline, and retry limits. Its one authoritative list request again
+    returned HTTP `521`. Append-only evidence file
+    `.cache/phase4-evidence/07ddd8e3c41ceb49b244c01635d3e7533efe8c64-819a891c0d5c.json`
+    records bounded failure class `HTTP_5XX`, no discovery, no Document, `0`
+    model calls, and `0` cost. The repair is proven: stop/drain records
+    `active_database_tasks=0`, `redis_keys=0`, and `drained=true`; teardown
+    removed every scoped container, all four named volumes, and the network.
+    The fixed official endpoint has now returned the same `521` through both
+    pinned direct and application-scoped VPN paths. No eligible document was
+    selected, so raw object through Reader and replay could not run. Changing
+    to HTTP, proxy-side DNS, an unresearched mirror, a second source, or another
+    unapproved egress would weaken or expand the frozen authorization and was
+    not attempted. This is an honest `NO_GO`: the formal database stage is not
+    authorized and Phase 5 remains unstarted.
+
+### Final resumed acceptance state
+
+- RELEASE_CANDIDATE_SHA: `07ddd8e3c41ceb49b244c01635d3e7533efe8c64`
+- SourceStream ID: `019fb785-8785-70d5-921c-10c8bc029549`
+- Document ID: not generated; the fixed list endpoint returned HTTP `521`
+- Model calls and cost: `0`; `0` micro-USD / RMB `0`
+- Full chain: stopped at the authoritative list fetch with `HTTP_5XX`; raw
+  object through Event Reader did not run
+- Feed/Reader: not generated / not run
+- Replay: not run because no document, Event, or publication existed
+- Queue/resource drain: `PASS` (`0` active database tasks, `0` Redis keys,
+  and no scoped Docker container, volume, or network)
+- Decision: `NO_GO`
+- Formal database stage: `NOT AUTHORIZED`; Phase 5 remains unstarted
