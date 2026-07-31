@@ -641,6 +641,16 @@ def test_phase4_live_transport_accounts_requests_in_the_authoritative_schedule()
     assert 'report["fetch_failure_reason"]' in live
 
 
+def test_phase4_live_document_lookup_uses_personal_stream_authority() -> None:
+    live = (ROOT / "tests/live/test_phase4_real_event_acceptance.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "JOIN document_version version" in live
+    assert "JOIN source_content_outbox outbox" in live
+    assert "JOIN fetch_record record" not in live
+
+
 def test_web_image_keeps_versioned_esbuild_binaries_isolated_and_cached() -> None:
     workspace = (ROOT / "pnpm-workspace.yaml").read_text(encoding="utf-8")
     dockerfile = (ROOT / "infra/compose/Dockerfile.web").read_text(encoding="utf-8")

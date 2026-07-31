@@ -180,6 +180,47 @@ This record does not authorize a formal database write or begin Phase 5.
 - Decision: `NO_GO`
 - Formal database stage: `NOT AUTHORIZED`; Phase 5 remains unstarted
 
+### Continued acceptance facts — 2026-08-01
+
+28. With the Owner's bounded authorization, the exact forty running
+    `overseas-*` containers were stopped without deleting any container,
+    image, network, or volume. FlClash, FlClashCore,
+    `quant_stock_postgres`, the formal SRBG database and its data volumes,
+    and Windows network configuration were not stopped or changed. Candidate
+    `5c9c4d164c4ba8c90104752034d3fb2b481cfa87` then passed `check-fast`, the
+    full local `check-pr`, its one exact-SHA `check-release`, and same-SHA
+    GitHub Actions run `30670556527`. This confirmed that shared Docker/WSL
+    resource pressure from the concurrent overseas workloads, rather than a
+    retained repository workaround, was the local gate blocker.
+
+29. The first Sany replacement-source live run used isolated project
+    `srbg-phase4-995bcb2118f5`, fixed SourceStream
+    `019fb870-06f4-7227-a03e-a6b11dcbf91e`, fixed document
+    `https://www.sanygroup.com/case/16504.html`, process-scoped SOCKS routing,
+    the pinned DeepSeek provider/model, the 80,000-micro-USD cap, 1,500-second
+    deadline, and eight-call limit. Append-only evidence
+    `.cache/phase4-evidence/5c9c4d164c4ba8c90104752034d3fb2b481cfa87-995bcb2118f5.json`
+    records two successful HTTP requests, one discovered and fetched detail,
+    722,120 response bytes, and no fetch failure class. The first confirmed
+    blocker was `NoResultFound`: the acceptance lookup joined the personal
+    stream's authoritative DocumentVersion and outbox to the unrelated legacy
+    `fetch_record` table, which this runtime does not create. No model request
+    occurred (`model_calls=0`, cost `0`), Feed/Reader and replay did not run,
+    and the database/Redis drain passed with zero active tasks and keys.
+    Teardown removed every scoped container, all four scoped volumes, and the
+    scoped network. This immutable live result is `NO_GO`; it does not
+    authorize the formal database stage or Phase 5.
+
+30. A focused guard was red before the minimal repair and proves that the
+    personal-stream live lookup uses `document`, its current
+    `document_version`, and `source_content_outbox` without the unused legacy
+    `fetch_record` join. The repair removes only that join and its two unused
+    selected fields. It does not change production persistence, source
+    admission, robots or terms controls, network routing, model settings,
+    budget, publication gates, the fixed document, or the original failure
+    evidence. Phase 4 remains `NO_GO` until the repaired SHA passes all
+    required gates, same-SHA CI, and a complete same-document live rerun.
+
 28. The Owner explicitly authorized abandoning the repeatedly unavailable CCCC
     SourceStream and selecting one compliant replacement without starting Phase
     5. Point-in-time research first rejected Sichuan Transport, CSCEC, and XCMG:
