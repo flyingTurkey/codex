@@ -143,3 +143,39 @@ This record does not authorize a formal database write or begin Phase 5.
 - Decision: `NO_GO` until repair gates, same-SHA remote CI, and the complete
   isolated real-content chain all pass
 - Formal database stage: `NOT AUTHORIZED`
+
+## Continuation result at candidate `44aafabc` (append-only)
+
+19. Repair candidate `44aafabc7d827d4d0d8caf3cecd8876003c94731`
+    passed `check-fast`, full `check-pr`, its one exact-SHA `check-release`, and
+    same-SHA GitHub Actions run `30622910103`. Live profile
+    `srbg-phase4-8014e1b372f9` passed fresh role bootstrap, the full
+    `0054 -> 0055 -> 0054 -> 0055` migration replay, SourceAdmission, and the
+    frozen budget/deadline setup. Its single bounded list fetch to
+    `https://www.ccccltd.cn/news/jcxw/jx/` again received HTTP `521`. The run
+    stopped at `BOUNDED_SOURCE_FETCH_FAILED` before discovery, raw-object
+    persistence, document selection, or model use. Unique evidence file
+    `.cache/phase4-evidence/44aafabc7d827d4d0d8caf3cecd8876003c94731-8014e1b372f9.json`
+    records fixed SourceStream ID `019fb785-8785-70d5-921c-10c8bc029549`,
+    controlled run `019fb7ae-aaee-7432-82f6-f95341241a3a`, fetch run
+    `019fb7ae-ab61-7d0b-a526-14dcc2f3c722`, zero discovered/fetched documents,
+    zero model calls, and zero model cost. The repaired stop path records
+    `active_database_tasks=0`, `redis_keys=0`, and `drained=true`; teardown
+    removed every scoped container, all four named volumes, and the network.
+    No alternate route, second source, access-control bypass, direct SQL
+    publication, or increased budget was attempted.
+
+### Latest acceptance state
+
+- RELEASE_CANDIDATE_SHA: `44aafabc7d827d4d0d8caf3cecd8876003c94731`
+- SourceStream ID: `019fb785-8785-70d5-921c-10c8bc029549`
+- Document ID: not generated; the source failed before discovery
+- Model calls and cost: `0`; `0` micro-USD / RMB `0`
+- Full chain: stopped at list fetch with HTTP `521`; raw object through Reader
+  did not run
+- Feed/Reader: not generated / not run
+- Replay: not run because no document or publication existed
+- Queue/resource drain: `PASS` (`0` active database tasks, `0` Redis keys,
+  no scoped Docker containers, volumes, or network)
+- Decision: `NO_GO`
+- Formal database stage: `NOT AUTHORIZED`; Phase 5 remains unstarted
