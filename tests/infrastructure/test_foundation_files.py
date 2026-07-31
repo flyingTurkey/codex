@@ -500,6 +500,16 @@ def test_phase4_live_runner_bootstraps_roles_before_fresh_database_migration() -
     assert runner.index(role_bootstrap) < runner.index(migration_verifier)
 
 
+def test_phase4_live_stream_keeps_host_and_path_authority_in_their_schema_fields() -> None:
+    live_test = (
+        ROOT / "tests/live/test_phase4_real_event_acceptance.py"
+    ).read_text(encoding="utf-8")
+
+    assert '"boundary": SOURCE_HOST' in live_test
+    assert '"path": SOURCE_PATH_PREFIX' in live_test
+    assert '"boundary": f"{SOURCE_HOST}{SOURCE_PATH_PREFIX}"' not in live_test
+
+
 def test_browser_gates_reuse_the_ready_runtime_without_forced_rebuilds() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 

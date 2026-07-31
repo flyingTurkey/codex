@@ -189,7 +189,7 @@ async def _seed_stream(
                 "key": SOURCE_STREAM_KEY,
                 "name": SOURCE_STREAM_KEY,
                 "policy": SOURCE_POLICY_VERSION,
-                "boundary": f"{SOURCE_HOST}{SOURCE_PATH_PREFIX}",
+                "boundary": SOURCE_HOST,
                 "host": SOURCE_HOST,
                 "hash": config_hash,
                 "stream": stream_id,

@@ -71,6 +71,26 @@ This record does not authorize a formal database write or begin Phase 5.
     reproduced the missing step and then passed. The repair does not edit a
     migration, weaken an ACL, create a publication, or touch the formal
     database.
+12. Repair candidate `d367f92fef010bd18f0a62517685a8447c0d098a` passed
+    `check-fast`, full `check-pr`, its one exact-SHA `check-release`, and
+    same-SHA GitHub Actions run `30601429684`. A first `check-pr` attempt was
+    invalidated when Docker Desktop rebuilt the runtime during Playwright and
+    pages returned `ERR_CONNECTION_REFUSED`; after the authorized Docker
+    restart, the unchanged SHA passed the complete gate.
+13. Live profile `srbg-phase4-410842f04a73` passed role bootstrap and the full
+    `0054 -> 0055 -> 0054 -> 0055` migration replay, then stopped before any
+    public-network request because the acceptance seed attempted to store
+    `www.ccccltd.cn/news/jcxw/jx/` in the host-only
+    `source_stream.authorization_boundary`. PostgreSQL correctly rejected it
+    with `ck_source_stream_boundary`. Evidence file
+    `.cache/phase4-evidence/d367f92fef010bd18f0a62517685a8447c0d098a.json`
+    records `NO_GO`, zero model calls, and a drained queue. Cleanup removed all
+    scoped containers, four named volumes, and the network.
+14. The focused repair keeps `www.ccccltd.cn` in the host authority field and
+    retains `/news/jcxw/jx/` in the existing controlled-run `path_prefix`.
+    A regression test first reproduced and then closed this schema-field
+    mismatch. No source admission, robots, terms, rate, budget, publication,
+    or formal-database boundary was changed.
 
 ## Current acceptance state
 
