@@ -37,6 +37,11 @@ This record does not authorize a formal database write or begin Phase 5.
    running the existing isolated migration verifier. It does not edit
    migrations, bypass grants, alter publication authority, or write a formal
    database.
+6. A later local `check-pr` reached `web-a11y` after the repaired migration
+   gate and E2E had run, then failed because a single Docker Desktop mount
+   visibility probe tried to attach the already attached VHD again. A separate
+   bounded repair now checks the system mount, waits up to ten seconds for
+   Docker Desktop visibility, and fails closed without a duplicate attach.
 
 ## Current acceptance state
 

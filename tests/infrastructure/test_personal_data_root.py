@@ -70,6 +70,16 @@ def test_windows_mount_readiness_repairs_the_actual_isolated_observability_root(
     assert "-DataRoot \"$(SRBG_DATA_ROOT)\"" in makefile
 
 
+def test_windows_mount_readiness_waits_for_an_already_attached_vhd() -> None:
+    script = MOUNT_SCRIPT.read_text(encoding="utf-8")
+
+    assert "$systemMountBase = '/mnt/wsl/SRBGDataDisk'" in script
+    assert "& $wsl --system --user root --exec sh -lc" in script
+    assert "$mountVisibilityAttempts = 20" in script
+    assert "Start-Sleep -Milliseconds 500" in script
+    assert "mounted VHD is not visible to docker-desktop" in script
+
+
 def test_ci_integration_uses_an_explicit_ephemeral_data_root() -> None:
     workflow = CI_WORKFLOW.read_text(encoding="utf-8")
 

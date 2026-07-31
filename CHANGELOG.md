@@ -5,6 +5,7 @@
 - Preserved the original Phase 4 `NO_GO` record unchanged and resumed only after the Owner restated that `NO_GO` cannot unlock Phase 5.
 - Repaired the isolated data-root readiness boundary so Prometheus and Grafana permissions are applied to the configured `SRBG_DATA_ROOT`, not an unrelated default path; the frozen repair candidate passed local `check-fast`, `check-pr`, and exact-SHA `check-release`.
 - Reproduced the fresh-runner CI failure where migration `0016` grants to `srbg_publisher_login` before that role exists. The autonomous migration gate now waits for the existing Compose `role-bootstrap` service before creating its disposable database; no migration, ACL, publication rule, or production database was changed.
+- Made repeated Windows runtime readiness distinguish an already attached system VHD from a not-yet-visible Docker Desktop mount, wait up to ten seconds for bounded propagation, and fail closed instead of trying to attach the same VHD twice.
 - No real source or model request has been made during this resumed attempt. Same-SHA remote CI and the isolated live acceptance remain mandatory before any `PASS`; Phase 5 remains unstarted.
 
 ## 2026-07-30 (Phase 4 controlled real Event acceptance — NO_GO)

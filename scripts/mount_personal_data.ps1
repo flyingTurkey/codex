@@ -8,10 +8,20 @@ $expectedRoot = [IO.Path]::GetFullPath('D:\SRBGData')
 $resolvedVhd = [IO.Path]::GetFullPath($VhdPath)
 $mountName = 'SRBGDataDisk'
 $mountBase = '/mnt/host/wsl/SRBGDataDisk'
+$systemMountBase = '/mnt/wsl/SRBGDataDisk'
 $mountRoot = $DataRoot.TrimEnd('/')
+$mountVisibilityAttempts = 20
 $sysnativeWsl = Join-Path $env:SystemRoot 'Sysnative\wsl.exe'
 $system32Wsl = Join-Path $env:SystemRoot 'System32\wsl.exe'
 $wsl = if (Test-Path -LiteralPath $sysnativeWsl) { $sysnativeWsl } else { $system32Wsl }
+
+function Test-DockerMountVisible {
+    $ErrorActionPreference = 'Continue'
+    & $wsl -d docker-desktop -- sh -lc "test -d '$mountBase'" 2>$null
+    $exitCode = $LASTEXITCODE
+    $ErrorActionPreference = 'Stop'
+    return $exitCode -eq 0
+}
 
 try {
     if (-not $resolvedVhd.StartsWith($expectedRoot + [IO.Path]::DirectorySeparatorChar)) {
@@ -25,17 +35,32 @@ try {
     }
 
     # wsl.exe --mount --vhd is invoked through the absolute system path below.
-    $ErrorActionPreference = 'Continue'
-    & $wsl -d docker-desktop -- sh -lc "test -d '$mountBase'" 2>$null
-    $mountedExitCode = $LASTEXITCODE
-    $ErrorActionPreference = 'Stop'
-    if ($mountedExitCode -ne 0) {
+    $mountVisible = Test-DockerMountVisible
+    if (-not $mountVisible) {
         $ErrorActionPreference = 'Continue'
-        & $wsl --mount --vhd $resolvedVhd --name $mountName 2>$null
-        $mountExitCode = $LASTEXITCODE
+        & $wsl --system --user root --exec sh -lc "test -d '$systemMountBase'" 2>$null
+        $systemMountExitCode = $LASTEXITCODE
         $ErrorActionPreference = 'Stop'
-        if ($mountExitCode -ne 0) {
-            throw 'wsl.exe --mount --vhd failed'
+        if ($systemMountExitCode -ne 0) {
+            $ErrorActionPreference = 'Continue'
+            & $wsl --mount --vhd $resolvedVhd --name $mountName 2>$null
+            $mountExitCode = $LASTEXITCODE
+            $ErrorActionPreference = 'Stop'
+            if ($mountExitCode -ne 0) {
+                throw 'wsl.exe --mount --vhd failed'
+            }
+        }
+        for ($attempt = 1; $attempt -le $mountVisibilityAttempts; $attempt++) {
+            $mountVisible = Test-DockerMountVisible
+            if ($mountVisible) {
+                break
+            }
+            if ($attempt -lt $mountVisibilityAttempts) {
+                Start-Sleep -Milliseconds 500
+            }
+        }
+        if (-not $mountVisible) {
+            throw 'mounted VHD is not visible to docker-desktop'
         }
     }
 
