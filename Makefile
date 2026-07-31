@@ -270,7 +270,7 @@ security-check:
 	$(PNPM) audit --prod --audit-level high
 	$(UV) run python scripts/prepare_security_scan.py
 	docker run --rm -v "$(CURDIR)/.cache/trivy-input:/workspace:ro" -w /workspace \
-		$(TRIVY_IMAGE) fs --scanners secret,misconfig --exit-code 1 \
+		$(TRIVY_IMAGE) fs --scanners secret,misconfig --parallel 1 --exit-code 1 \
 		--severity HIGH,CRITICAL --skip-version-check .
 
 smoke:

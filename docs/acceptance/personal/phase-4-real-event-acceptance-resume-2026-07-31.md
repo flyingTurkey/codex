@@ -213,6 +213,25 @@ This record does not authorize a formal database write or begin Phase 5.
     MinIO, Docker stack, VPN, source, model, budget, formal database, or
     publication path. Phase 4 remains `NO_GO`; Phase 5 remains unstarted.
 
+30. MinIO-console repair candidate `23df096d88fc60085beed0f84bbeb89e596abc76`
+    passed `check-fast`, but its complete `check-pr` attempts exposed only
+    external gate failures: first PyPI closed one TLS connection during
+    `pip-audit`; the next run passed dependency audit but Trivy reported
+    `cannot allocate memory` and BuildKit returned RPC `EOF`; after the
+    previously authorized Docker Desktop restart, Trivy again failed with the
+    same allocation error. Code, migration, contract, and unit assertions were
+    green before each stop. Docker Desktop had 15.44 GiB shared by multiple
+    active user projects; stopping those projects was not authorized. Trivy
+    documents `--parallel` with default 5, so the minimal repair fixes its
+    scanning concurrency at 1 while preserving the same Git-delivery input,
+    `secret,misconfig` scanners, HIGH/CRITICAL severity, and exit-on-finding
+    behavior. A focused regression was red before the change. The full security
+    target then scanned 1,311 files and passed with zero findings without
+    stopping another project. No source/model request, document, publication,
+    model cost, formal-database write, or Phase 5 work occurred. Phase 4 remains
+    `NO_GO` pending the new repair SHA's complete gates, same-SHA CI, and live
+    rerun of the unchanged fixed document.
+
 ## Trusted DNS repair authorization (append-only)
 
 20. The Owner authorized an application-scoped repair after confirming it

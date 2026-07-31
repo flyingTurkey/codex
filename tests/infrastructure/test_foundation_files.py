@@ -641,6 +641,8 @@ def test_security_scan_uses_only_git_delivery_files() -> None:
 
     assert "$(UV) run python scripts/prepare_security_scan.py" in makefile
     assert '-v "$(CURDIR)/.cache/trivy-input:/workspace:ro"' in makefile
+    assert "--scanners secret,misconfig --parallel 1 --exit-code 1" in makefile
+    assert "--severity HIGH,CRITICAL" in makefile
     assert "TRIVY_SKIP_DIRS" not in makefile
 
 
