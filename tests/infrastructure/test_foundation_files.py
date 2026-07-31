@@ -555,6 +555,8 @@ def test_phase4_live_stop_closes_stream_authority_before_drain() -> None:
     assert "patch_personal_source" not in stop
     assert "UPDATE fetch_schedule SET status='PAUSED'" in stop
     assert "UPDATE source SET runtime_state='STOPPED',enabled=false" in stop
+    assert "cancel_ineligible(" in stop
+    assert "fetch_run_id" in stop
 
 
 def test_browser_gates_reuse_the_ready_runtime_without_forced_rebuilds() -> None:

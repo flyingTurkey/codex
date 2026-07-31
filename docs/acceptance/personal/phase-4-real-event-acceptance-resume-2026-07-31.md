@@ -272,3 +272,27 @@ This record does not authorize a formal database write or begin Phase 5.
     projects. No source or model request was made while implementing this
     repair. Phase 4 remains `NO_GO` pending the repaired SHA's complete gates,
     same-SHA CI, and full isolated live chain; Phase 5 remains unstarted.
+
+26. Repair candidate `5f4446ec704ea7286182b1b250d5bca8f9116ff0`
+    passed `check-fast`, full local `check-pr`, its one exact-SHA
+    `check-release`, and same-SHA GitHub Actions run `30632033996`. Live
+    profile `srbg-phase4-474bdfb25a58` used the process-scoped SOCKS route;
+    both independent DoH queries succeeded and the fixed CCCC list URL
+    returned HTTP `521`. Append-only evidence file
+    `.cache/phase4-evidence/5f4446ec704ea7286182b1b250d5bca8f9116ff0-474bdfb25a58.json`
+    records one authoritative request, bounded failure class `HTTP_5XX`, no
+    discovery or document, `0` model calls, and `0` cost. It also records
+    `active_database_tasks=1`, `redis_keys=0`, and `drained=false`: the 5xx
+    result was correctly placed in `RETRY_WAIT`, but the acceptance stop path
+    paused its schedule without cancelling that now-ineligible run. Although
+    runner teardown subsequently removed every scoped container, all four
+    named volumes, and the network, physical deletion does not rewrite the
+    failed database-level drain result. The next minimal repair calls the
+    existing scheduling authority to cancel only the exact unleased fetch run
+    after Owner intent, schedule, and source authority have been closed, then
+    counts remaining work. Its focused regression was red before the repair
+    and now passes. It does not change HTTP classification, retry policy,
+    source access, proxy behavior, budget, AI, publication, FlClash, Windows
+    networking, other software, or other projects. No new source or model
+    request was made while implementing the repair. Phase 4 remains `NO_GO`;
+    the formal database stage is not authorized and Phase 5 remains unstarted.

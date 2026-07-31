@@ -361,6 +361,7 @@ async def _stop_and_drain(
     stream_id: UUID | None,
     owner_id: UUID | None,
     controlled_run_id: UUID | None,
+    fetch_run_id: UUID | None,
 ) -> dict[str, Any]:
     stopped_at = datetime.now(UTC)
     if source_id is not None and stream_id is not None and owner_id is not None:
@@ -400,34 +401,43 @@ async def _stop_and_drain(
                     ),
                     {"run": controlled_run_id, "now": stopped_at},
                 )
-                active = int(
-                    await connection.scalar(
-                        text(
-                            "SELECT "
-                            "(SELECT count(*) FROM fetch_run WHERE controlled_run_id=:run "
-                            "AND status IN ('PENDING_DISPATCH','DISPATCHED','RUNNING',"
-                            "'RETRY_WAIT'))+"
-                            "(SELECT count(*) FROM ai_pipeline_run WHERE controlled_run_id=:run "
-                            "AND status IN ('QUEUED','CLASSIFYING','EXTRACTING','SUMMARIZING',"
-                            "'VERIFYING'))+"
-                            "(SELECT count(*) FROM ai_budget_reservation "
-                            "WHERE controlled_run_id=:run AND billing_status='RESERVED')"
-                        ),
-                        {"run": controlled_run_id},
-                    )
-                    or 0
-                )
-                await connection.execute(
+    if source_id is not None and fetch_run_id is not None:
+        scheduling = PostgresSchedulingService(admin)
+        await scheduling.cancel_ineligible(
+            source_id=source_id,
+            run_id=fetch_run_id,
+            now=stopped_at,
+        )
+    if controlled_run_id is not None:
+        async with admin.begin() as connection:
+            active = int(
+                await connection.scalar(
                     text(
-                        "UPDATE personal_controlled_run SET state=:state,updated_at=:now "
-                        "WHERE id=:run AND state='STOPPING'"
+                        "SELECT "
+                        "(SELECT count(*) FROM fetch_run WHERE controlled_run_id=:run "
+                        "AND status IN ('PENDING_DISPATCH','DISPATCHED','RUNNING',"
+                        "'RETRY_WAIT'))+"
+                        "(SELECT count(*) FROM ai_pipeline_run WHERE controlled_run_id=:run "
+                        "AND status IN ('QUEUED','CLASSIFYING','EXTRACTING','SUMMARIZING',"
+                        "'VERIFYING'))+"
+                        "(SELECT count(*) FROM ai_budget_reservation "
+                        "WHERE controlled_run_id=:run AND billing_status='RESERVED')"
                     ),
-                    {
-                        "run": controlled_run_id,
-                        "state": "COMPLETED" if active == 0 else "FAILED",
-                        "now": stopped_at,
-                    },
+                    {"run": controlled_run_id},
                 )
+                or 0
+            )
+            await connection.execute(
+                text(
+                    "UPDATE personal_controlled_run SET state=:state,updated_at=:now "
+                    "WHERE id=:run AND state='STOPPING'"
+                ),
+                {
+                    "run": controlled_run_id,
+                    "state": "COMPLETED" if active == 0 else "FAILED",
+                    "now": stopped_at,
+                },
+            )
     redis_url = os.environ["SRBG_REDIS_URL"]
     client = redis.from_url(redis_url, decode_responses=False)
     try:
@@ -471,6 +481,7 @@ async def test_one_controlled_real_industry_update(
     stream_id: UUID | None = None
     owner_id: UUID | None = None
     controlled_run_id: UUID | None = None
+    fetch_run_id: UUID | None = None
     pending: list[dict[str, Any]] = []
     model_calls = 0
     fixed_stream_id = UUID(os.environ["SRBG_PHASE4_SOURCE_STREAM_ID"])
@@ -556,6 +567,7 @@ async def test_one_controlled_real_industry_update(
         claimed = await scheduling.claim_due(now=started_at)
         if claimed is None or claimed.source_id != source_id:
             raise RuntimeError("SOURCE_SCHEDULE_NOT_CLAIMED")
+        fetch_run_id = claimed.run_id
         gateway = PostgresRuntimeGateway(
             Settings(database_url=os.environ["SRBG_WORKER_DATABASE_URL"]),
             engine=worker,
@@ -882,6 +894,7 @@ async def test_one_controlled_real_industry_update(
                 stream_id=stream_id,
                 owner_id=owner_id,
                 controlled_run_id=controlled_run_id,
+                fetch_run_id=fetch_run_id,
             )
             if report["status"] == "PASS" and not report["queue_drain"]["drained"]:
                 report["status"] = "NO_GO"
