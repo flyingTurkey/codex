@@ -34,7 +34,7 @@ export SRBG_DATA_ROOT
 export MINIO_ROOT_USER MINIO_ROOT_PASSWORD
 export SRBG_API_DB_PASSWORD SRBG_PUBLISHER_DB_PASSWORD SRBG_PROJECTION_DB_PASSWORD
 export SRBG_S3_BUCKET SRBG_S3_REGION SRBG_EXTERNAL_IO_TIMEOUT_SECONDS
-COMPOSE = docker compose --project-directory . -f infra/compose/compose.yaml
+COMPOSE = docker compose --parallel 1 --project-directory . -f infra/compose/compose.yaml
 COMPOSE_WORKFLOW_PROFILES = --profile automation --profile discovery --profile ai
 COMPOSE_FULL_PROFILES = $(COMPOSE_WORKFLOW_PROFILES) --profile observability
 COMPOSE_LITE_PROFILES = --profile automation

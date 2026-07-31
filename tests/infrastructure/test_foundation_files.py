@@ -233,6 +233,21 @@ def test_makefile_offers_lite_runtime_without_disabling_execution_plane() -> Non
     )
 
 
+def test_makefile_bounds_compose_parallelism_for_shared_docker_desktop() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+
+    assert _make_variable_words(makefile, "COMPOSE") == (
+        "docker",
+        "compose",
+        "--parallel",
+        "1",
+        "--project-directory",
+        ".",
+        "-f",
+        "infra/compose/compose.yaml",
+    )
+
+
 def test_source_upload_runtime_requires_private_healthy_clamav() -> None:
     compose = (ROOT / "infra/compose/compose.yaml").read_text(encoding="utf-8")
 
@@ -452,8 +467,14 @@ def test_project_tool_caches_are_kept_inside_the_workspace() -> None:
 def test_compose_commands_use_repository_as_project_directory() -> None:
     compose = (ROOT / "infra/compose/compose.yaml").read_text(encoding="utf-8")
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    compose_words = _make_variable_words(makefile, "COMPOSE")
 
-    assert "docker compose --project-directory . -f infra/compose/compose.yaml" in makefile
+    assert compose_words[-4:] == (
+        "--project-directory",
+        ".",
+        "-f",
+        "infra/compose/compose.yaml",
+    )
     assert "-include .env" in makefile
     assert "export WEB_PORT API_PORT" in makefile
     assert COMPOSE[:5] == ["docker", "compose", "--project-directory", ".", "-f"]

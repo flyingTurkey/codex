@@ -232,6 +232,25 @@ This record does not authorize a formal database write or begin Phase 5.
     `NO_GO` pending the new repair SHA's complete gates, same-SHA CI, and live
     rerun of the unchanged fixed document.
 
+31. Trivy-concurrency candidate `04a24175db77f9a2b0d43fd74885d1dabcca775e`
+    passed `check-fast` and the unchanged security target, but its complete
+    `check-pr` did not pass: Compose v5 delegated the multi-service build to
+    Buildx Bake, Docker and read-only Docker checks stopped responding, and
+    the gate produced no new output for approximately 30 minutes. The exact
+    `make`/risk-matrix/Compose/Buildx process tree was terminated and the
+    result remains a failed gate, not evidence of success. Docker's supported
+    repository-scoped `--parallel 1` option is now fixed in the common Compose
+    command. A focused regression was red before that repair and passes after
+    it; Compose configuration renders successfully. This changes neither
+    Docker Desktop's global configuration nor another project's containers,
+    network, volumes, images, or internet access, and it does not touch
+    FlClash, Windows networking, SourceAdmission, the source, the model,
+    budget, publication gates, or the formal database. No new live source or
+    model request occurred; cumulative model calls and cost remain zero.
+    Phase 4 remains `NO_GO` pending a clean repair commit, complete prescribed
+    gates, same-SHA CI, and rerun of the unchanged Sany document. Phase 5
+    remains unstarted.
+
 ## Trusted DNS repair authorization (append-only)
 
 20. The Owner authorized an application-scoped repair after confirming it
