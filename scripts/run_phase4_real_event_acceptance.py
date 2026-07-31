@@ -13,6 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PROFILE = "phase4-real-event"
 CONFIRMATION = "I_UNDERSTAND"
+SOURCE_STREAM_ID = "019fb785-8785-70d5-921c-10c8bc029549"
 
 
 def _run(
@@ -103,7 +104,9 @@ def main() -> int:
     project = f"srbg-phase4-{token}"
     run_root = (ROOT / ".cache" / "phase4-runs" / token).resolve()
     data_root = run_root / "data"
-    evidence = (ROOT / ".cache" / "phase4-evidence" / f"{release_sha}.json").resolve()
+    evidence = (
+        ROOT / ".cache" / "phase4-evidence" / f"{release_sha}-{token}.json"
+    ).resolve()
     data_root.mkdir(parents=True, exist_ok=False)
     evidence.parent.mkdir(parents=True, exist_ok=True)
     ports = {
@@ -129,6 +132,7 @@ def main() -> int:
             "SRBG_EXTERNAL_IO_TIMEOUT_SECONDS": "10",
             "SRBG_PHASE4_LIVE_CONFIRM": CONFIRMATION,
             "SRBG_PHASE4_RELEASE_CANDIDATE_SHA": release_sha,
+            "SRBG_PHASE4_SOURCE_STREAM_ID": SOURCE_STREAM_ID,
             "SRBG_PHASE4_EVIDENCE_OUTPUT": str(evidence),
             "SRBG_AI_PROVIDER": "deepseek",
             "SRBG_AI_ENVIRONMENT": "acceptance",
@@ -153,6 +157,7 @@ def main() -> int:
         print(
             "phase4_preflight_ok "
             f"sha={release_sha} profile={PROFILE} project={project} "
+            f"source_stream_id={SOURCE_STREAM_ID} "
             "source_stream_key=cccc-project-briefs "
             "budget_microusd=80000 deadline_seconds=1500 max_model_calls=8"
         )

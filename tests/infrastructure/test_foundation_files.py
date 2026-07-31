@@ -484,6 +484,19 @@ def test_phase4_live_runner_uses_project_scoped_ephemeral_volumes() -> None:
     assert '"down", "--volumes", "--remove-orphans"' in runner
 
 
+def test_phase4_live_evidence_is_unique_per_run_and_never_overwritten() -> None:
+    runner = (ROOT / "scripts/run_phase4_real_event_acceptance.py").read_text(
+        encoding="utf-8"
+    )
+    live_test = (
+        ROOT / "tests/live/test_phase4_real_event_acceptance.py"
+    ).read_text(encoding="utf-8")
+
+    assert 'f"{release_sha}-{token}.json"' in runner
+    assert 'f"{release_sha}.json"' not in runner
+    assert 'path.open("x", encoding="utf-8")' in live_test
+
+
 def test_phase4_live_runner_bootstraps_roles_before_fresh_database_migration() -> None:
     runner = (ROOT / "scripts/run_phase4_real_event_acceptance.py").read_text(
         encoding="utf-8"
@@ -508,6 +521,40 @@ def test_phase4_live_stream_keeps_host_and_path_authority_in_their_schema_fields
     assert '"boundary": SOURCE_HOST' in live_test
     assert '"path": SOURCE_PATH_PREFIX' in live_test
     assert '"boundary": f"{SOURCE_HOST}{SOURCE_PATH_PREFIX}"' not in live_test
+
+
+def test_phase4_live_source_stream_id_is_fixed_before_network_io() -> None:
+    runner = (ROOT / "scripts/run_phase4_real_event_acceptance.py").read_text(
+        encoding="utf-8"
+    )
+    live_test = (
+        ROOT / "tests/live/test_phase4_real_event_acceptance.py"
+    ).read_text(encoding="utf-8")
+
+    assert (
+        'SOURCE_STREAM_ID = "019fb785-8785-70d5-921c-10c8bc029549"'
+        in runner
+    )
+    assert '"SRBG_PHASE4_SOURCE_STREAM_ID": SOURCE_STREAM_ID' in runner
+    assert 'fixed_stream_id = UUID(os.environ["SRBG_PHASE4_SOURCE_STREAM_ID"])' in live_test
+    assert "if stream_id != fixed_stream_id:" in live_test
+    assert 'raise RuntimeError("SOURCE_STREAM_ID_NOT_FIXED")' in live_test
+
+
+def test_phase4_live_stop_closes_stream_authority_before_drain() -> None:
+    live_test = (
+        ROOT / "tests/live/test_phase4_real_event_acceptance.py"
+    ).read_text(encoding="utf-8")
+    stop = live_test.split("async def _stop_and_drain(", 1)[1].split(
+        "async def test_one_controlled_real_industry_update", 1
+    )[0]
+
+    assert "record_owner_intent(" in stop
+    assert "desired_enabled=False" in stop
+    assert 'request_id=f"phase4-stop-{controlled_run_id or stream_id}"' in stop
+    assert "patch_personal_source" not in stop
+    assert "UPDATE fetch_schedule SET status='PAUSED'" in stop
+    assert "UPDATE source SET runtime_state='STOPPED',enabled=false" in stop
 
 
 def test_browser_gates_reuse_the_ready_runtime_without_forced_rebuilds() -> None:

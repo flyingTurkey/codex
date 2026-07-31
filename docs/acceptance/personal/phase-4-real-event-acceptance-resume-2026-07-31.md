@@ -114,6 +114,19 @@ This record does not authorize a formal database write or begin Phase 5.
     `manual source disable has priority` protection, so database-level drain
     was not recorded. Runner teardown nevertheless removed all scoped
     containers, four named volumes, and the network. This is still `NO_GO`.
+18. The Owner authorized continuation to close the documented blockers and
+    complete Phase 4, without automatically starting the next phase. Three
+    acceptance-integrity regressions were reproduced before implementation:
+    same-SHA reruns reused one evidence filename; SourceStream UUID was not
+    fixed across fresh runs; and failure teardown mixed a personal manual
+    disable with a still-running controlled source. The focused repair gives
+    each run a unique evidence filename and exclusive-create writer, pins
+    SourceStream ID `019fb785-8785-70d5-921c-10c8bc029549` before network I/O,
+    and closes runtime authority through a deterministic disabled owner intent
+    before pausing the schedule and stopping the isolated source. It does not
+    edit SourceAdmission, robots, terms, rate, budget, publication, or formal
+    database rules. All three focused tests and the complete foundation file
+    pass; no new public-network or model request was made during this repair.
 
 ## Current acceptance state
 

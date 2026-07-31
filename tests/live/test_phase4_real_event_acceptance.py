@@ -16,6 +16,7 @@ from uuid import UUID
 
 import pytest
 import redis.asyncio as redis
+import srbg_api.source_registry.repository as source_repository_module
 import srbg_worker.app as worker_app
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
@@ -47,7 +48,6 @@ from srbg_api.source_registry.v2_rollout import (
 from srbg_contracts import (
     EventFullProjectionV2,
     PersonalSourceCreateRequest,
-    PersonalSourcePatchRequest,
 )
 from srbg_worker.ai_app import _generate_attempt
 from srbg_worker.ai_content_preparation import PostgresAiPreparationRepository
@@ -113,10 +113,10 @@ def _evidence_path() -> Path:
 def _write_report(report: dict[str, Any]) -> None:
     path = _evidence_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    with path.open("x", encoding="utf-8") as output:
+        output.write(
+            json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+        )
 
 
 async def _seed_stream(
@@ -361,51 +361,72 @@ async def _stop_and_drain(
     owner_id: UUID | None,
     controlled_run_id: UUID | None,
 ) -> dict[str, Any]:
+    stopped_at = datetime.now(UTC)
     if source_id is not None and stream_id is not None and owner_id is not None:
-        await SourceVaultRepository(admin).patch_personal_source(
-            source_id,
-            PersonalSourcePatchRequest(desired_enabled=False),
+        await PostgresControlledStreamRepository(
+            admin, now=lambda: stopped_at
+        ).record_owner_intent(
+            source_id=source_id,
+            source_stream_id=stream_id,
+            desired_enabled=False,
             actor_id=owner_id,
-            request_id=f"phase4-stop-{uuid7().hex}",
-            now=datetime.now(UTC),
+            request_id=f"phase4-stop-{controlled_run_id or stream_id}",
         )
     active = 0
-    if controlled_run_id is not None:
+    if source_id is not None or controlled_run_id is not None:
         async with admin.begin() as connection:
-            await connection.execute(
-                text(
-                    "UPDATE personal_controlled_run SET state='STOPPING',"
-                    "stop_reason='ACCEPTANCE_COMPLETE',updated_at=now() "
-                    "WHERE id=:run AND state IN ('PREPARING','ARMED','RUNNING','PAUSED')"
-                ),
-                {"run": controlled_run_id},
-            )
-            active = int(
-                await connection.scalar(
+            if source_id is not None:
+                await connection.execute(
                     text(
-                        "SELECT "
-                        "(SELECT count(*) FROM fetch_run WHERE controlled_run_id=:run "
-                        "AND status IN ('PENDING_DISPATCH','DISPATCHED','RUNNING','RETRY_WAIT'))+"
-                        "(SELECT count(*) FROM ai_pipeline_run WHERE controlled_run_id=:run "
-                        "AND status IN ('QUEUED','CLASSIFYING','EXTRACTING','SUMMARIZING',"
-                        "'VERIFYING'))+"
-                        "(SELECT count(*) FROM ai_budget_reservation "
-                        "WHERE controlled_run_id=:run AND billing_status='RESERVED')"
+                        "UPDATE fetch_schedule SET status='PAUSED',updated_at=:now "
+                        "WHERE source_id=:source AND authority_mode='PERSONAL_STREAM'"
                     ),
-                    {"run": controlled_run_id},
+                    {"source": source_id, "now": stopped_at},
                 )
-                or 0
-            )
-            await connection.execute(
-                text(
-                    "UPDATE personal_controlled_run SET state=:state,updated_at=now() "
-                    "WHERE id=:run AND state='STOPPING'"
-                ),
-                {
-                    "run": controlled_run_id,
-                    "state": "COMPLETED" if active == 0 else "FAILED",
-                },
-            )
+                await connection.execute(
+                    text(
+                        "UPDATE source SET runtime_state='STOPPED',enabled=false,"
+                        "updated_at=:now WHERE id=:source AND desired_enabled=false"
+                    ),
+                    {"source": source_id, "now": stopped_at},
+                )
+            if controlled_run_id is not None:
+                await connection.execute(
+                    text(
+                        "UPDATE personal_controlled_run SET state='STOPPING',"
+                        "stop_reason='ACCEPTANCE_COMPLETE',updated_at=:now "
+                        "WHERE id=:run AND state IN ('PREPARING','ARMED','RUNNING','PAUSED')"
+                    ),
+                    {"run": controlled_run_id, "now": stopped_at},
+                )
+                active = int(
+                    await connection.scalar(
+                        text(
+                            "SELECT "
+                            "(SELECT count(*) FROM fetch_run WHERE controlled_run_id=:run "
+                            "AND status IN ('PENDING_DISPATCH','DISPATCHED','RUNNING',"
+                            "'RETRY_WAIT'))+"
+                            "(SELECT count(*) FROM ai_pipeline_run WHERE controlled_run_id=:run "
+                            "AND status IN ('QUEUED','CLASSIFYING','EXTRACTING','SUMMARIZING',"
+                            "'VERIFYING'))+"
+                            "(SELECT count(*) FROM ai_budget_reservation "
+                            "WHERE controlled_run_id=:run AND billing_status='RESERVED')"
+                        ),
+                        {"run": controlled_run_id},
+                    )
+                    or 0
+                )
+                await connection.execute(
+                    text(
+                        "UPDATE personal_controlled_run SET state=:state,updated_at=:now "
+                        "WHERE id=:run AND state='STOPPING'"
+                    ),
+                    {
+                        "run": controlled_run_id,
+                        "state": "COMPLETED" if active == 0 else "FAILED",
+                        "now": stopped_at,
+                    },
+                )
     redis_url = os.environ["SRBG_REDIS_URL"]
     client = redis.from_url(redis_url, decode_responses=False)
     try:
@@ -446,6 +467,18 @@ async def test_one_controlled_real_industry_update(
     controlled_run_id: UUID | None = None
     pending: list[dict[str, Any]] = []
     model_calls = 0
+    fixed_stream_id = UUID(os.environ["SRBG_PHASE4_SOURCE_STREAM_ID"])
+    original_source_uuid7 = source_repository_module.uuid7
+    fixed_stream_id_pending = True
+
+    def phase4_source_uuid7() -> UUID:
+        nonlocal fixed_stream_id_pending
+        if fixed_stream_id_pending:
+            fixed_stream_id_pending = False
+            return fixed_stream_id
+        return original_source_uuid7()
+
+    monkeypatch.setattr(source_repository_module, "uuid7", phase4_source_uuid7)
 
     def repository_factory() -> PostgresAiPreparationRepository:
         return PostgresAiPreparationRepository(
@@ -506,6 +539,8 @@ async def test_one_controlled_real_industry_update(
             admin,
             now=started_at,
         )
+        if stream_id != fixed_stream_id:
+            raise RuntimeError("SOURCE_STREAM_ID_NOT_FIXED")
         report["source_id"] = str(source_id)
         report["source_stream_id"] = str(stream_id)
         report["controlled_run_id"] = str(controlled_run_id)
