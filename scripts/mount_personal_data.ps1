@@ -11,16 +11,34 @@ $mountBase = '/mnt/host/wsl/SRBGDataDisk'
 $systemMountBase = '/mnt/wsl/SRBGDataDisk'
 $mountRoot = $DataRoot.TrimEnd('/')
 $mountVisibilityAttempts = 20
+$mountProbeImage = 'redis:7.4.7-alpine3.21'
 $sysnativeWsl = Join-Path $env:SystemRoot 'Sysnative\wsl.exe'
 $system32Wsl = Join-Path $env:SystemRoot 'System32\wsl.exe'
 $wsl = if (Test-Path -LiteralPath $sysnativeWsl) { $sysnativeWsl } else { $system32Wsl }
 
-function Test-DockerMountVisible {
+function Invoke-DockerMountCommand {
+    param(
+        [string]$Source,
+        [string]$Command,
+        [switch]$ReadOnly
+    )
+
     $ErrorActionPreference = 'Continue'
-    & $wsl -d docker-desktop -- sh -lc "test -d '$mountBase'" 2>$null
+    $bindMount = "type=bind,src=$Source,dst=/probe"
+    if ($ReadOnly) {
+        $bindMount += ',readonly'
+    }
+    & docker run --rm --mount $bindMount --entrypoint sh $mountProbeImage -lc $Command *> $null
     $exitCode = $LASTEXITCODE
     $ErrorActionPreference = 'Stop'
-    return $exitCode -eq 0
+    return $exitCode
+}
+
+function Test-DockerMountVisible {
+    return (Invoke-DockerMountCommand `
+        -Source $mountBase `
+        -Command "test -d '/probe'" `
+        -ReadOnly) -eq 0
 }
 
 try {
@@ -64,27 +82,29 @@ try {
         }
     }
 
-    $ErrorActionPreference = 'Continue'
-    & $wsl -d docker-desktop -- sh -lc (
-        "test -d '$mountRoot/postgres' && " +
-        "test -d '$mountRoot/postgres-wal' && " +
-        "test -d '$mountRoot/minio' && " +
-        "test -d '$mountRoot/anchor-minio' && " +
-        "test -d '$mountRoot/redis' && " +
-        "test -d '$mountRoot/prometheus' && " +
-        "test -d '$mountRoot/grafana'"
-    ) 2>$null
-    $verifyExitCode = $LASTEXITCODE
-    $ErrorActionPreference = 'Stop'
+    $verifyExitCode = Invoke-DockerMountCommand `
+        -Source $mountRoot `
+        -Command (
+            "test -d '/probe/postgres' && " +
+            "test -d '/probe/postgres-wal' && " +
+            "test -d '/probe/minio' && " +
+            "test -d '/probe/anchor-minio' && " +
+            "test -d '/probe/redis' && " +
+            "test -d '/probe/prometheus' && " +
+            "test -d '/probe/grafana'"
+        ) `
+        -ReadOnly
     if ($verifyExitCode -ne 0) {
-        throw 'mounted VHD is missing required service directories'
+        throw 'Docker Engine could not verify mounted VHD service directories'
     }
-    & $wsl -d docker-desktop -u root -- sh -lc (
-        "chown 65534:65534 '$mountRoot/prometheus' && " +
-        "chown 472:0 '$mountRoot/grafana' && " +
-        "chmod 0750 '$mountRoot/prometheus' '$mountRoot/grafana'"
-    )
-    if ($LASTEXITCODE -ne 0) {
+    $permissionExitCode = Invoke-DockerMountCommand `
+        -Source $mountRoot `
+        -Command (
+            "chown 65534:65534 '/probe/prometheus' && " +
+            "chown 472:0 '/probe/grafana' && " +
+            "chmod 0750 '/probe/prometheus' '/probe/grafana'"
+        )
+    if ($permissionExitCode -ne 0) {
         throw 'observability data permissions could not be restored'
     }
     Write-Output "Personal data root ready: $mountRoot"

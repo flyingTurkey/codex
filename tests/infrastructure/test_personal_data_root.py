@@ -63,9 +63,9 @@ def test_windows_mount_readiness_repairs_the_actual_isolated_observability_root(
 
     assert '[string]$DataRoot = \'/mnt/host/wsl/SRBGDataDisk/srv\'' in script
     assert "PERSONAL_DATA_ROOT_REJECTED" in script
-    assert "chown 65534:65534 '$mountRoot/prometheus'" in script
-    assert "chown 472:0 '$mountRoot/grafana'" in script
-    assert "chmod 0750 '$mountRoot/prometheus' '$mountRoot/grafana'" in script
+    assert "chown 65534:65534 '/probe/prometheus'" in script
+    assert "chown 472:0 '/probe/grafana'" in script
+    assert "chmod 0750 '/probe/prometheus' '/probe/grafana'" in script
     assert "SRBG_DATA_ROOT ?= /mnt/host/wsl/SRBGDataDisk/srv" in makefile
     assert "-DataRoot \"$(SRBG_DATA_ROOT)\"" in makefile
 
@@ -78,6 +78,17 @@ def test_windows_mount_readiness_waits_for_an_already_attached_vhd() -> None:
     assert "$mountVisibilityAttempts = 20" in script
     assert "Start-Sleep -Milliseconds 500" in script
     assert "mounted VHD is not visible to docker-desktop" in script
+
+
+def test_windows_mount_readiness_uses_docker_engine_after_vhd_attachment() -> None:
+    script = MOUNT_SCRIPT.read_text(encoding="utf-8")
+
+    assert "$mountProbeImage = 'redis:7.4.7-alpine3.21'" in script
+    assert "& docker run --rm --mount $bindMount --entrypoint sh" in script
+    assert "-d docker-desktop" not in script
+    assert "test -d '/probe/postgres'" in script
+    assert "chown 65534:65534 '/probe/prometheus'" in script
+    assert "chown 472:0 '/probe/grafana'" in script
 
 
 def test_ci_integration_uses_an_explicit_ephemeral_data_root() -> None:

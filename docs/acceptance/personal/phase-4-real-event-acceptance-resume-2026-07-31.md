@@ -251,6 +251,29 @@ This record does not authorize a formal database write or begin Phase 5.
     gates, same-SHA CI, and rerun of the unchanged Sany document. Phase 5
     remains unstarted.
 
+32. Compose-serialization candidate
+    `d92f5a608826c2923f526e9f84ee7e56ba1064dc` passed `check-fast` and
+    eliminated the prior Buildx hang: `check-pr` advanced through the
+    integration and security gates and exited in approximately four minutes.
+    Its first confirmed blocker was `personal-data-ready`, where direct
+    `wsl -d docker-desktop` control calls returned
+    `Wsl/Service/0x8007274c`; the script incorrectly reported that persisted
+    service directories were missing. Read-only diagnosis proved the VHD and
+    all seven isolated directories were present and readable through Docker.
+    Three WSL probes each failed after approximately 30 seconds, while three
+    Docker Engine probes against the same path all passed in 0.6--2.2 seconds.
+    The minimal repair therefore uses the Docker Engine only to verify an
+    already attached VHD and restore Prometheus/Grafana permissions; the
+    system WSL path remains the sole authority when a VHD actually needs to be
+    mounted. The regression was red before the change, seven focused tests
+    now pass, and the real readiness command completes successfully. No VHD
+    data, Docker global setting, other project, FlClash/network setting,
+    source, model, budget, publication gate, or formal database was changed.
+    No live source/model request occurred, so cumulative model calls and cost
+    remain zero. Phase 4 remains `NO_GO` pending the new repair SHA's complete
+    prescribed gates, same-SHA CI, and unchanged-document live rerun; Phase 5
+    remains unstarted.
+
 ## Trusted DNS repair authorization (append-only)
 
 20. The Owner authorized an application-scoped repair after confirming it
