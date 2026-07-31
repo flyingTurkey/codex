@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PROFILE = "phase4-real-event"
 CONFIRMATION = "I_UNDERSTAND"
-SOURCE_STREAM_ID = "019fb785-8785-70d5-921c-10c8bc029549"
+SOURCE_STREAM_ID = "019fb870-06f4-7227-a03e-a6b11dcbf91e"
 
 
 def _run(
@@ -163,7 +163,7 @@ def main() -> int:
             "phase4_preflight_ok "
             f"sha={release_sha} profile={PROFILE} project={project} "
             f"source_stream_id={SOURCE_STREAM_ID} "
-            "source_stream_key=cccc-project-briefs "
+            "source_stream_key=sany-construction-cases "
             "budget_microusd=80000 deadline_seconds=1500 max_model_calls=8 "
             f"network_route={network_route}"
         )

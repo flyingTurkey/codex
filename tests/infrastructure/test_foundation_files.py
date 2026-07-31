@@ -523,7 +523,7 @@ def test_phase4_live_stream_keeps_host_and_path_authority_in_their_schema_fields
     assert '"boundary": f"{SOURCE_HOST}{SOURCE_PATH_PREFIX}"' not in live_test
 
 
-def test_phase4_live_source_stream_id_is_fixed_before_network_io() -> None:
+def test_phase4_live_replacement_source_and_document_are_fixed_before_network_io() -> None:
     runner = (ROOT / "scripts/run_phase4_real_event_acceptance.py").read_text(
         encoding="utf-8"
     )
@@ -532,13 +532,22 @@ def test_phase4_live_source_stream_id_is_fixed_before_network_io() -> None:
     ).read_text(encoding="utf-8")
 
     assert (
-        'SOURCE_STREAM_ID = "019fb785-8785-70d5-921c-10c8bc029549"'
+        'SOURCE_STREAM_ID = "019fb870-06f4-7227-a03e-a6b11dcbf91e"'
         in runner
     )
+    assert 'source_stream_key=sany-construction-cases' in runner
     assert '"SRBG_PHASE4_SOURCE_STREAM_ID": SOURCE_STREAM_ID' in runner
     assert 'fixed_stream_id = UUID(os.environ["SRBG_PHASE4_SOURCE_STREAM_ID"])' in live_test
     assert "if stream_id != fixed_stream_id:" in live_test
     assert 'raise RuntimeError("SOURCE_STREAM_ID_NOT_FIXED")' in live_test
+    assert (
+        'FIXED_DOCUMENT_URL = "https://www.sanygroup.com/case/16504.html"'
+        in live_test
+    )
+    assert 'raise RuntimeError("FIXED_DOCUMENT_NOT_DISCOVERED")' in live_test
+    assert '"item_selector": "div.case-list"' in live_test
+    assert '"link_selector": "a"' in live_test
+    assert '"title_selector": "h3"' in live_test
 
 
 def test_phase4_live_stop_closes_stream_authority_before_drain() -> None:

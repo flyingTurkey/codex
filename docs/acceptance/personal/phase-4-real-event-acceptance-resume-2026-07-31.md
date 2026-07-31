@@ -180,6 +180,24 @@ This record does not authorize a formal database write or begin Phase 5.
 - Decision: `NO_GO`
 - Formal database stage: `NOT AUTHORIZED`; Phase 5 remains unstarted
 
+28. The Owner explicitly authorized abandoning the repeatedly unavailable CCCC
+    SourceStream and selecting one compliant replacement without starting Phase
+    5. Point-in-time research first rejected Sichuan Transport, CSCEC, and XCMG:
+    each has authoritative `VERIFIED_RESTRICTED` legal evidence that ADR-0005
+    maps to `PAUSE`, so a private-use scope cannot rewrite it to `ADMIT`. The
+    sole replacement is the existing `ENT-009` `sany-construction-cases`
+    research stream. Its official list, fixed detail `/case/16504.html`,
+    robots, and legal-statement pages currently return HTTPS `200`; the existing
+    machine record marks robots, terms, and copyright evidence `VERIFIED`, and
+    the legal statement permits personal noncommercial use while prohibiting
+    public full-text/media redistribution. The acceptance profile now fixes new
+    SourceStream ID `019fb870-06f4-7227-a03e-a6b11dcbf91e`, discovers only the
+    same fixed document through the real list parser, and labels its evidence as
+    manufacturer claims. No model call, database acceptance run, publication,
+    formal-database write, or Phase 5 work occurred while preparing this repair.
+    It remains `NO_GO` until the repair SHA passes `check-fast`, full `check-pr`,
+    one `check-release`, same-SHA remote CI, and the complete isolated live chain.
+
 ## Trusted DNS repair authorization (append-only)
 
 20. The Owner authorized an application-scoped repair after confirming it

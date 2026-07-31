@@ -71,18 +71,19 @@ pytestmark = [
     ),
 ]
 
-COLLECTION_URL = "https://www.ccccltd.cn/news/jcxw/jx/"
-SOURCE_STREAM_KEY = "cccc-project-briefs"
-SOURCE_HOST = "www.ccccltd.cn"
-SOURCE_PATH_PREFIX = "/news/jcxw/jx/"
-SOURCE_POLICY_VERSION = "t29-cccc-project-first-party-v1"
+COLLECTION_URL = "https://www.sanygroup.com/case/"
+FIXED_DOCUMENT_URL = "https://www.sanygroup.com/case/16504.html"
+SOURCE_STREAM_KEY = "sany-construction-cases"
+SOURCE_HOST = "www.sanygroup.com"
+SOURCE_PATH_PREFIX = "/case/"
+SOURCE_POLICY_VERSION = "t20-sany-construction-machinery-cases-v1"
 MODEL = "deepseek-v4-flash"
 PROVIDER = "deepseek"
 MAX_MODEL_CALLS = 8
 MAX_AI_COST_MICROUSD = 80_000
 MAX_WALL_SECONDS = 1_500
 RESEARCH_PATH = Path(
-    "docs/codex-kit/assets/validation/t29_cabr_cccc_source_stream_discovery.json"
+    "docs/research/2026-07-31-phase-4-replacement-source-stream.md"
 )
 RESEARCH_SHA256 = sha256(RESEARCH_PATH.read_bytes()).hexdigest()
 
@@ -93,15 +94,18 @@ class _CleanAcceptanceScanner:
             raise ValueError("empty content cannot pass the acceptance scanner")
 
 
-class _SingleRecordListDetailConnector(ListDetailConnector):
-    """Acceptance-only cap applied after the frozen production parser validates the list."""
+class _FixedDocumentListDetailConnector(ListDetailConnector):
+    """Require the frozen document to remain the first bounded list result."""
 
     def discover(
         self,
         fetched: FetchResult,
         config: dict[str, object],
     ) -> tuple[DiscoveryRecord, ...]:
-        return super().discover(fetched, config)[:1]
+        records = super().discover(fetched, config)
+        if len(records) != 1 or records[0].url != FIXED_DOCUMENT_URL:
+            raise RuntimeError("FIXED_DOCUMENT_NOT_DISCOVERED")
+        return records
 
 
 def _evidence_path() -> Path:
@@ -139,9 +143,9 @@ async def _seed_stream(
     config = {
         "allowed_hosts": [SOURCE_HOST],
         "list_url": COLLECTION_URL,
-        "item_selector": "a",
+        "item_selector": "div.case-list",
         "link_selector": "a",
-        "title_selector": "a",
+        "title_selector": "h3",
     }
     config_json = json.dumps(config, sort_keys=True, separators=(",", ":"))
     config_hash = sha256(config_json.encode()).hexdigest()
@@ -475,6 +479,7 @@ async def test_one_controlled_real_industry_update(
             if Settings().acquisition_socks5_proxy_url is not None
             else "PINNED_DIRECT"
         ),
+        "fixed_document_url": FIXED_DOCUMENT_URL,
         "started_at": started_at.isoformat(),
     }
     source_id: UUID | None = None
@@ -594,7 +599,7 @@ async def test_one_controlled_real_industry_update(
             ),
             parsers={
                 **CONNECTOR_PARSERS,
-                ConnectorKind.LIST_DETAIL: _SingleRecordListDetailConnector(),
+                ConnectorKind.LIST_DETAIL: _FixedDocumentListDetailConnector(),
             },
             max_document_bytes=2 * 1024 * 1024,
             authority_heartbeat_seconds=5,
@@ -644,6 +649,8 @@ async def test_one_controlled_real_industry_update(
                 .mappings()
                 .one()
             )
+        if document["canonical_url"] != FIXED_DOCUMENT_URL:
+            raise RuntimeError("FIXED_DOCUMENT_URL_MISMATCH")
         report.update(
             {
                 "document_id": str(document["document_id"]),
