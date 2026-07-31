@@ -249,3 +249,26 @@ This record does not authorize a formal database write or begin Phase 5.
     request was made while implementing it. Phase 4 remains `NO_GO` until a
     repaired SHA passes every required gate, same-SHA CI, and the complete
     isolated live chain.
+
+25. Repair candidate `15ea564aa1764a7436697e178ea63486f34d69a5`
+    passed `check-fast`, full local `check-pr`, its one exact-SHA
+    `check-release`, and same-SHA GitHub Actions run `30630659102`. Live
+    profile `srbg-phase4-30e9513ec6d9` enabled the optional route only through
+    its process environment. Independent DoH resolution succeeded, but the
+    source transport failed before an HTTP response, discovery, raw-object
+    persistence, document selection, or model use. Evidence file
+    `.cache/phase4-evidence/15ea564aa1764a7436697e178ea63486f34d69a5-30e9513ec6d9.json`
+    records the fixed SourceStream, `0` model calls, `0` cost, and a successful
+    drain with zero database tasks and Redis keys; teardown removed all scoped
+    containers, volumes, and the network. The live harness had omitted the
+    production runtime's existing request/response accounting callbacks, so
+    failure settlement rejected the transport's request count and masked the
+    original bounded transport classification. A focused regression was red
+    before the minimal repair. The harness now reserves each physical request
+    in the authoritative schedule, records response bytes, and appends the
+    persisted bounded `fetch_run.failure_class` to failure evidence. It does
+    not change proxy behavior, SourceAdmission, robots, terms, rate, budget,
+    publication, FlClash, Windows networking, other software, or other
+    projects. No source or model request was made while implementing this
+    repair. Phase 4 remains `NO_GO` pending the repaired SHA's complete gates,
+    same-SHA CI, and full isolated live chain; Phase 5 remains unstarted.

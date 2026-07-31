@@ -574,6 +574,10 @@ async def test_one_controlled_real_industry_update(
                 transport=HttpxTransport(
                     socks5_proxy_url=Settings().acquisition_socks5_proxy_url
                 ),
+                before_request=lambda url: gateway.reserve_request(binding, url=url),
+                after_response=lambda url, response_bytes: gateway.record_response_bytes(
+                    binding, url=url, response_bytes=response_bytes
+                ),
                 attempt_observer=observer,
             ),
             parsers={
@@ -591,8 +595,19 @@ async def test_one_controlled_real_industry_update(
             "request_count": fetch.request_count,
             "response_bytes": fetch.response_bytes,
         }
+        async with admin.connect() as connection:
+            fetch_failure_reason = await connection.scalar(
+                text("SELECT failure_class FROM fetch_run WHERE id=:run"),
+                {"run": claimed.run_id},
+            )
+        report["fetch_failure_reason"] = (
+            str(fetch_failure_reason) if fetch_failure_reason is not None else None
+        )
         if fetch.discovered_count != 1 or fetch.fetched_count != 1 or fetch.failed_count:
-            raise RuntimeError("BOUNDED_SOURCE_FETCH_FAILED")
+            raise RuntimeError(
+                "BOUNDED_SOURCE_FETCH_FAILED:"
+                f"{report['fetch_failure_reason'] or 'UNKNOWN'}"
+            )
 
         async with admin.connect() as connection:
             document = (

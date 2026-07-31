@@ -591,6 +591,16 @@ def test_web_e2e_gate_does_not_mutate_versioned_acceptance_assets() -> None:
         )
 
 
+def test_phase4_live_transport_accounts_requests_in_the_authoritative_schedule() -> None:
+    live = (ROOT / "tests/live/test_phase4_real_event_acceptance.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "before_request=lambda url: gateway.reserve_request(binding, url=url)" in live
+    assert "gateway.record_response_bytes(" in live
+    assert 'report["fetch_failure_reason"]' in live
+
+
 def test_web_image_keeps_versioned_esbuild_binaries_isolated_and_cached() -> None:
     workspace = (ROOT / "pnpm-workspace.yaml").read_text(encoding="utf-8")
     dockerfile = (ROOT / "infra/compose/Dockerfile.web").read_text(encoding="utf-8")
