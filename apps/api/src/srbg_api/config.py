@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
@@ -39,6 +40,8 @@ class Settings(BaseSettings):
     pdf_parser_timeout_seconds: float = Field(default=120.0, gt=0, le=600)
     ocr_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
     external_io_timeout_seconds: float = Field(default=2.0, gt=0, le=30)
+    acquisition_doh_url: str = "https://dns.alidns.com/dns-query"
+    acquisition_doh_bootstrap_address: str = "223.5.5.5"
     ai_secret_dir: Path = Path(".secrets/ai")
     openalex_api_key: SecretStr | None = None
     academic_contact: str = Field(default="data-platform@srbg.local", min_length=3, max_length=320)
@@ -76,6 +79,28 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def reject_demo_cursor_key_in_production(self) -> Settings:
+        doh_endpoint = urlsplit(self.acquisition_doh_url)
+        if (
+            doh_endpoint.scheme != "https"
+            or doh_endpoint.hostname is None
+            or doh_endpoint.path != "/dns-query"
+            or doh_endpoint.port not in {None, 443}
+            or doh_endpoint.username is not None
+            or doh_endpoint.password is not None
+            or doh_endpoint.query
+            or doh_endpoint.fragment
+        ):
+            raise ValueError("trusted DNS endpoint must be an exact HTTPS /dns-query URL")
+        try:
+            doh_bootstrap = ipaddress.ip_address(self.acquisition_doh_bootstrap_address)
+        except ValueError as error:
+            raise ValueError("trusted DNS bootstrap address must be a public IP") from error
+        if (
+            not doh_bootstrap.is_global
+            or doh_bootstrap.is_multicast
+            or doh_bootstrap.is_reserved
+        ):
+            raise ValueError("trusted DNS bootstrap address must be a direct public IP")
         baidu_endpoint = urlsplit(self.baidu_search_api_url)
         if (
             baidu_endpoint.scheme != "https"

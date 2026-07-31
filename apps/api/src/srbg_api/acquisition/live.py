@@ -1,13 +1,18 @@
 """Production DNS, clock, and HTTP transport implementations."""
 
 import asyncio
+import ipaddress
 import socket
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from time import monotonic
-from typing import Any
+from typing import Any, Protocol
 from urllib.parse import urlsplit
 
+import dns.exception
+import dns.message
+import dns.rcode
+import dns.rdatatype
 import httpcore2
 import httpx2 as httpx
 
@@ -39,6 +44,189 @@ class SystemResolver:
         addresses = tuple(sorted({str(result[4][0]) for result in results}))
         if len(addresses) > MAX_VALIDATED_DNS_ADDRESSES:
             raise OSError("source hostname returned too many DNS addresses")
+        return addresses
+
+
+class _DohLookup(Protocol):
+    async def resolve(
+        self,
+        hostname: str,
+        record_type: str,
+        *,
+        timeout_seconds: float,
+    ) -> tuple[str, ...]: ...
+
+
+DEFAULT_ACQUISITION_DOH_URL = "https://dns.alidns.com/dns-query"
+DEFAULT_ACQUISITION_DOH_BOOTSTRAP_ADDRESS = "223.5.5.5"
+MAX_DNS_MESSAGE_BYTES = 65_535
+
+
+class _DohWireSender(Protocol):
+    async def exchange(
+        self,
+        endpoint_url: str,
+        bootstrap_address: str,
+        query_wire: bytes,
+        *,
+        timeout_seconds: float,
+    ) -> bytes: ...
+
+
+class _Httpx2DohWireSender:
+    async def exchange(
+        self,
+        endpoint_url: str,
+        bootstrap_address: str,
+        query_wire: bytes,
+        *,
+        timeout_seconds: float,
+    ) -> bytes:
+        hostname = urlsplit(endpoint_url).hostname
+        if hostname is None:
+            raise OSError("trusted DNS endpoint has no hostname")
+        validated_ips = frozenset({bootstrap_address})
+        network_backend = _PinnedNetworkBackend(
+            expected_hostname=hostname,
+            validated_ips=validated_ips,
+        )
+        transport = _PinnedHttpxTransport(network_backend)
+        try:
+            async with httpx.AsyncClient(
+                transport=transport,
+                follow_redirects=False,
+                trust_env=False,
+            ) as client:
+                async with client.stream(
+                    "POST",
+                    endpoint_url,
+                    headers={
+                        "Accept": "application/dns-message",
+                        "Content-Type": "application/dns-message",
+                    },
+                    content=query_wire,
+                    timeout=timeout_seconds,
+                ) as response:
+                    peer_ip = _peer_ip(response.extensions)
+                    if peer_ip not in validated_ips:
+                        raise OSError("trusted DNS peer did not match its bootstrap address")
+                    content = await read_bounded_body(
+                        response.aiter_bytes(),
+                        content_length=response.headers.get("content-length"),
+                        max_response_bytes=MAX_DNS_MESSAGE_BYTES,
+                    )
+                    content_type = response.headers.get("content-type", "").split(";", 1)[0]
+                    if not 200 <= response.status_code < 300:
+                        raise OSError("trusted DNS endpoint returned a rejected status")
+                    if content_type.strip().casefold() != "application/dns-message":
+                        raise OSError("trusted DNS endpoint returned an invalid content type")
+                    return content
+        except ResponseTooLarge:
+            raise
+        except httpx.HTTPError as error:
+            raise OSError("trusted DNS HTTPS request failed") from error
+
+
+class Rfc8484DohLookup:
+    def __init__(
+        self,
+        *,
+        endpoint_url: str,
+        bootstrap_address: str,
+        sender: _DohWireSender | None = None,
+    ) -> None:
+        endpoint = urlsplit(endpoint_url)
+        if (
+            endpoint.scheme != "https"
+            or endpoint.hostname is None
+            or endpoint.path != "/dns-query"
+            or endpoint.port not in {None, 443}
+            or endpoint.username is not None
+            or endpoint.password is not None
+            or endpoint.query
+            or endpoint.fragment
+        ):
+            raise ValueError("trusted DNS endpoint must be an exact HTTPS /dns-query URL")
+        bootstrap = ipaddress.ip_address(bootstrap_address)
+        if not bootstrap.is_global or bootstrap.is_multicast or bootstrap.is_reserved:
+            raise ValueError("trusted DNS bootstrap address must be a direct public IP")
+        self._endpoint_url = endpoint_url
+        self._bootstrap_address = str(bootstrap)
+        self._sender = sender or _Httpx2DohWireSender()
+
+    async def resolve(
+        self,
+        hostname: str,
+        record_type: str,
+        *,
+        timeout_seconds: float,
+    ) -> tuple[str, ...]:
+        if record_type not in {"A", "AAAA"}:
+            raise ValueError("trusted DNS record type is not allowed")
+        query = dns.message.make_query(hostname, record_type)
+        response_wire = await self._sender.exchange(
+            self._endpoint_url,
+            self._bootstrap_address,
+            query.to_wire(),
+            timeout_seconds=timeout_seconds,
+        )
+        try:
+            response = dns.message.from_wire(response_wire)
+        except dns.exception.DNSException as error:
+            raise OSError("trusted DNS returned an invalid wire response") from error
+        if not query.is_response(response):
+            raise OSError("trusted DNS response did not match its query")
+        response_code = response.rcode()
+        if response_code == dns.rcode.NXDOMAIN:
+            raise OSError("trusted DNS reported that the source hostname does not exist")
+        if response_code != dns.rcode.NOERROR:
+            raise OSError("trusted DNS returned a rejected response code")
+        expected_type = dns.rdatatype.from_text(record_type)
+        addresses: list[str] = []
+        for answer in response.answer:
+            if answer.rdtype != expected_type:
+                continue
+            for record in answer:
+                address = getattr(record, "address", None)
+                if isinstance(address, str):
+                    addresses.append(address)
+        return tuple(addresses)
+
+
+class IndependentDohResolver:
+    """Resolve acquisition origins without consulting VPN-controlled system DNS."""
+
+    def __init__(
+        self,
+        *,
+        lookup: _DohLookup | None = None,
+        endpoint_url: str = DEFAULT_ACQUISITION_DOH_URL,
+        bootstrap_address: str = DEFAULT_ACQUISITION_DOH_BOOTSTRAP_ADDRESS,
+    ) -> None:
+        self._lookup = lookup or Rfc8484DohLookup(
+            endpoint_url=endpoint_url,
+            bootstrap_address=bootstrap_address,
+        )
+
+    async def resolve(
+        self,
+        hostname: str,
+        *,
+        timeout_seconds: float,
+    ) -> tuple[str, ...]:
+        normalized = hostname.rstrip(".").casefold()
+        try:
+            ipv4, ipv6 = await asyncio.gather(
+                self._lookup.resolve(normalized, "A", timeout_seconds=timeout_seconds),
+                self._lookup.resolve(normalized, "AAAA", timeout_seconds=timeout_seconds),
+            )
+        except Exception as error:
+            raise OSError("trusted DNS resolution failed") from error
+        addresses = tuple(sorted(set((*ipv4, *ipv6))))
+        if not addresses:
+            raise OSError("trusted DNS returned no source addresses")
+        if len(addresses) > MAX_VALIDATED_DNS_ADDRESSES:
+            raise OSError("source hostname returned too many trusted DNS addresses")
         return addresses
 
 

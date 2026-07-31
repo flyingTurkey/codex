@@ -14,6 +14,7 @@ from celery.signals import task_failure
 from pydantic import AwareDatetime, BaseModel, ConfigDict, ValidationError
 from redis.asyncio import Redis, from_url
 from sqlalchemy import text
+from srbg_api.acquisition.live import IndependentDohResolver
 from srbg_api.ai_pipeline.ai_judgments import (
     AiJudgmentResultType,
     EvidenceFactInput,
@@ -149,6 +150,15 @@ configure_logging()
 settings = get_settings()
 logger = logging.getLogger("srbg.worker")
 celery_app = Celery("srbg-worker", broker=settings.redis_url, backend=settings.redis_url)
+
+
+def _acquisition_resolver() -> IndependentDohResolver:
+    return IndependentDohResolver(
+        endpoint_url=settings.acquisition_doh_url,
+        bootstrap_address=settings.acquisition_doh_bootstrap_address,
+    )
+
+
 celery_app.conf.update(
     enable_utc=True,
     timezone="UTC",
@@ -858,7 +868,7 @@ async def _execute_personal_source_discovery_cycle(discovery_run_id: UUID) -> di
                     channel=channel,
                     stream_type=stream_type,
                 ),
-                probe=SafeDiscoveryTargetProbe(settings),
+                probe=SafeDiscoveryTargetProbe(settings, resolver=_acquisition_resolver()),
                 gateway=discovery_gateway,
                 occurrence_tracker=occurrence_tracker,
                 max_candidates_per_run=50,
@@ -927,7 +937,7 @@ async def _execute_automated_source_discovery_query(
     provider = BaiduSearchProvider(
         api_url=BAIDU_SEARCH_API_URL,
         api_key=api_key.get_secret_value(),
-        transport=PinnedBaiduJsonTransport(),
+        transport=PinnedBaiduJsonTransport(resolver=_acquisition_resolver()),
         budget_ledger=PostgresMonthlyBudgetLedger(
             engine,
             provider="BAIDU_SEARCH",
@@ -951,7 +961,7 @@ async def _execute_automated_source_discovery_query(
         outcome = await DiscoveryExecutor(
             enabled=True,
             provider=provider,
-            probe=SafeDiscoveryTargetProbe(settings),
+            probe=SafeDiscoveryTargetProbe(settings, resolver=_acquisition_resolver()),
             gateway=gateway,
             occurrence_tracker=occurrence_tracker,
         ).run(
@@ -990,9 +1000,11 @@ async def _execute_source_fetch(source_id: UUID, run_id: UUID) -> dict[str, obje
     gateway = PostgresRuntimeGateway(settings)
 
     def live_transport(binding: RuntimeBinding) -> LiveRuntimeTransport:
+        resolver = _acquisition_resolver()
         if binding.controlled_run_id is None:
             return LiveRuntimeTransport(
                 binding,
+                resolver=resolver,
                 before_request=lambda url: gateway.reserve_request(binding, url=url),
                 after_response=lambda url, response_bytes: gateway.record_response_bytes(
                     binding, url=url, response_bytes=response_bytes
@@ -1000,6 +1012,7 @@ async def _execute_source_fetch(source_id: UUID, run_id: UUID) -> dict[str, obje
             )
         return LiveRuntimeTransport(
             binding,
+            resolver=resolver,
             before_request=lambda url: gateway.reserve_request(binding, url=url),
             after_response=lambda url, response_bytes: gateway.record_response_bytes(
                 binding, url=url, response_bytes=response_bytes
@@ -2102,7 +2115,7 @@ async def _dispatch_or_execute_personal_source_probe(
             return {"dispatched": len(pending_ids)}
         outcome = await PersonalProbeExecutor(
             gateway=gateway,
-            fetcher=SafePersonalProbeFetcher(engine),
+            fetcher=SafePersonalProbeFetcher(engine, resolver=_acquisition_resolver()),
             object_store=S3ObjectStore(settings),
         ).run(probe_run_id)
         return {"probe_run_id": str(probe_run_id), "status": outcome}

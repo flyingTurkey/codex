@@ -15,8 +15,8 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 from srbg_api.acquisition.contracts import SourceCheckpoint
-from srbg_api.acquisition.http import FetchPolicy, ResilientHttpClient, SsrfRejected
-from srbg_api.acquisition.live import HttpxTransport, SystemClock, SystemResolver
+from srbg_api.acquisition.http import FetchPolicy, ResilientHttpClient, Resolver, SsrfRejected
+from srbg_api.acquisition.live import HttpxTransport, IndependentDohResolver, SystemClock
 from srbg_api.identifiers import uuid7
 from srbg_api.observability import PERSONAL_SOURCE_PROBES
 from srbg_api.personal_source_probe import DetectionResult, ProbeDetectionError, detect_streams
@@ -177,8 +177,14 @@ def _probe_timeout_seconds(binding: PersonalProbeBinding) -> int:
 class SafePersonalProbeFetcher:
     """Robots-aware fetcher using the shared DNS-pinned HTTP boundary."""
 
-    def __init__(self, engine: AsyncEngine | None = None) -> None:
+    def __init__(
+        self,
+        engine: AsyncEngine | None = None,
+        *,
+        resolver: Resolver | None = None,
+    ) -> None:
         self._engine = engine
+        self._resolver = resolver or IndependentDohResolver()
 
     async def fetch(
         self,
@@ -205,7 +211,7 @@ class SafePersonalProbeFetcher:
         )
         client = ResilientHttpClient(
             _policy(allowed_host, max_bytes=MAX_RESPONSE_BYTES, redirects=3),
-            resolver=SystemResolver(),
+            resolver=self._resolver,
             transport=transport,
             clock=SystemClock(),
             attempt_observer=observer,
@@ -252,7 +258,7 @@ class SafePersonalProbeFetcher:
         )
         client = ResilientHttpClient(
             _policy(host, max_bytes=512 * 1024, redirects=1),
-            resolver=SystemResolver(),
+            resolver=self._resolver,
             transport=transport,
             clock=SystemClock(),
             attempt_observer=observer,

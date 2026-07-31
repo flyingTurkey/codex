@@ -29,7 +29,7 @@ from srbg_api.acquisition.http import (
     read_bounded_body,
 )
 from srbg_api.acquisition.live import (
-    SystemResolver,
+    IndependentDohResolver,
     _peer_ip,
     _PinnedHttpxTransport,
     _PinnedNetworkBackend,
@@ -129,7 +129,7 @@ class PinnedBaiduJsonTransport:
         resolver: Resolver | None = None,
         sender: PinnedJsonSender | None = None,
     ) -> None:
-        self._resolver = resolver or SystemResolver()
+        self._resolver = resolver or IndependentDohResolver()
         self._sender = sender or _HttpxPinnedJsonSender()
 
     async def post_json(

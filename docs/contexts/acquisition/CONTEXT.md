@@ -24,6 +24,16 @@ _Avoid_: Enable switch
 A pause or retirement caused by a hard-gate failure or repeated soft-quality failure.
 _Avoid_: Fetch error
 
+**TrustedDnsResolution**:
+An application-owned RFC 8484 lookup used to obtain the real public A/AAAA
+set before an acquisition socket is opened. Operating-system and VPN DNS are
+not authority because transparent VPNs may return synthetic addresses. The
+configured DoH endpoint is authenticated with TLS and a public bootstrap IP;
+failure never falls back to system DNS. The existing SSRF policy still rejects
+non-public answers, pins the validated set for the request, revalidates every
+redirect, and requires the connected peer to match.
+_Avoid_: VPN DNS, fake-IP allowlist
+
 **ContentRelevance**:
 A SourceStream research assessment of `DIRECT` or `FILTERED`; it describes the stream's expected filtering burden and never qualifies an individual document.
 _Avoid_: DirectRelevance, publication eligibility

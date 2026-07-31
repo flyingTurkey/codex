@@ -25,7 +25,7 @@ from srbg_api.acquisition.http import (
     ResilientHttpClient,
     Resolver,
 )
-from srbg_api.acquisition.live import HttpxTransport, SystemClock, SystemResolver
+from srbg_api.acquisition.live import HttpxTransport, IndependentDohResolver, SystemClock
 from srbg_api.config import Settings
 from srbg_api.personal_search import SearchBudgetExceeded, SearchQuery, SearchResult
 from srbg_contracts import SourceContentDomain, SourceIndustry
@@ -463,7 +463,7 @@ class SafeDiscoveryTargetProbe:
         clock: Clock | None = None,
     ) -> None:
         self._settings = settings
-        self._resolver = resolver or SystemResolver()
+        self._resolver = resolver or IndependentDohResolver()
         self._transport_factory = transport_factory or HttpxTransport
         self._clock = clock or SystemClock()
 

@@ -18,7 +18,8 @@ from srbg_api.acquisition.contracts import (
     SourceAdapter,
     SourceCheckpoint,
 )
-from srbg_api.acquisition.http import FetchPolicy
+from srbg_api.acquisition.http import FetchPolicy, HttpResponse
+from srbg_api.acquisition.live import IndependentDohResolver
 from srbg_api.config import Settings
 from srbg_api.connectors.config import ConnectorKind
 from srbg_api.connectors.parsers import ConnectorRequest, DeclarativeParser, RssAtomConnector
@@ -556,6 +557,77 @@ async def test_live_transport_counts_and_reserves_each_physical_request(
 
 
 @pytest.mark.asyncio
+async def test_live_transport_pins_requests_to_the_injected_trusted_resolver() -> None:
+    class TrustedResolver:
+        async def resolve(
+            self,
+            hostname: str,
+            *,
+            timeout_seconds: float,
+        ) -> tuple[str, ...]:
+            assert hostname == "source.example.test"
+            assert timeout_seconds == 5
+            return ("93.184.216.34",)
+
+    class RecordingTransport:
+        def __init__(self) -> None:
+            self.validated: list[frozenset[str]] = []
+
+        async def request(
+            self,
+            url: str,
+            *,
+            headers: dict[str, str],
+            timeout_seconds: float,
+            max_response_bytes: int,
+            validated_ips: frozenset[str],
+        ) -> HttpResponse:
+            del url, headers, timeout_seconds, max_response_bytes
+            self.validated.append(validated_ips)
+            return HttpResponse(
+                status_code=200,
+                headers={"content-type": "text/plain"},
+                content=b"ok",
+                peer_ip="93.184.216.34",
+            )
+
+        async def close(self) -> None:
+            return None
+
+    binding = replace(
+        _binding(),
+        fetch_policy=FetchPolicy(
+            allowed_hosts=("source.example.test",),
+            timeout_seconds=5,
+            max_attempts=1,
+            base_backoff_seconds=0,
+            rate_limit_per_minute=1,
+            minimum_interval_seconds=1,
+            circuit_failure_threshold=3,
+            circuit_reset_seconds=30,
+            max_redirects=0,
+            user_agent="SRBGSourceAdapter/17",
+        ),
+    )
+    physical = RecordingTransport()
+    transport = LiveRuntimeTransport(
+        binding,
+        resolver=TrustedResolver(),
+        transport=physical,
+    )
+
+    fetched = await transport.fetch(
+        "https://source.example.test/feed.xml",
+        checkpoint=SourceCheckpoint(),
+        accept="text/plain",
+        exact_redirect_host="source.example.test",
+    )
+
+    assert fetched.content == b"ok"
+    assert physical.validated == [frozenset({"93.184.216.34"})]
+
+
+@pytest.mark.asyncio
 async def test_revoked_after_lease_records_authorization_failure_without_network() -> None:
     gateway = RecordingGateway(None)
     transport = RejectingTransport()
@@ -991,10 +1063,12 @@ def test_celery_source_task_runs_the_runtime_executor(
             self,
             binding: RuntimeBinding,
             *,
+            resolver: Any,
             before_request: Any,
             after_response: Any,
         ) -> None:
             self.binding = binding
+            self.resolver = resolver
             self.before_request = before_request
             self.after_response = after_response
 
@@ -1025,6 +1099,7 @@ def test_celery_source_task_runs_the_runtime_executor(
         live_transport.after_response("https://source.example.test/feed.xml", 4096)
     )
     assert live_transport.binding == binding
+    assert isinstance(live_transport.resolver, IndependentDohResolver)
     assert gateway.reservations == [(binding, "https://source.example.test/feed.xml")]
     assert gateway.responses == [
         (binding, "https://source.example.test/feed.xml", 4096)

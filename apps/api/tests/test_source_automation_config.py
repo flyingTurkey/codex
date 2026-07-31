@@ -20,6 +20,20 @@ def test_free_discovery_is_enabled_by_default_and_baidu_is_opt_in() -> None:
     assert settings.baidu_search_budget_alert_bps == 8_000
 
 
+def test_acquisition_uses_one_platform_level_authenticated_doh_resolver() -> None:
+    settings = _settings()
+
+    assert settings.acquisition_doh_url == "https://dns.alidns.com/dns-query"
+    assert settings.acquisition_doh_bootstrap_address == "223.5.5.5"
+
+    with pytest.raises(ValidationError, match="trusted DNS endpoint"):
+        _settings(acquisition_doh_url="http://dns.example.test/dns-query")
+    with pytest.raises(ValidationError, match="trusted DNS endpoint"):
+        _settings(acquisition_doh_url="https://dns.example.test/dns-query?name=source")
+    with pytest.raises(ValidationError, match="bootstrap"):
+        _settings(acquisition_doh_bootstrap_address="127.0.0.1")
+
+
 def test_baidu_without_secret_skips_search_but_endpoint_remains_pinned() -> None:
     assert _settings(baidu_search_enabled=True).baidu_search_api_key is None
     empty = _settings(baidu_search_enabled=True, baidu_search_api_key=SecretStr(""))

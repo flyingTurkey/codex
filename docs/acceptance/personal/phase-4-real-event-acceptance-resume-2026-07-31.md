@@ -179,3 +179,33 @@ This record does not authorize a formal database write or begin Phase 5.
   no scoped Docker containers, volumes, or network)
 - Decision: `NO_GO`
 - Formal database stage: `NOT AUTHORIZED`; Phase 5 remains unstarted
+
+## Trusted DNS repair authorization (append-only)
+
+20. The Owner authorized an application-scoped repair after confirming it
+    will not modify FlClash, Windows DNS, adapters, proxy, routes, firewall,
+    hosts, other software, or other projects. Diagnosis proved the system
+    resolver returned changing `28.0.0.x` synthetic addresses while the
+    FlClash Meta Tunnel owned the default route. The repair adds an
+    authenticated RFC 8484 resolver with a fixed public bootstrap address,
+    makes its endpoint a single platform-level setting, and injects it into
+    source runtime, personal probes, discovery probes, and the existing pinned
+    paid-search transport. DoH failure does not fall back to system DNS; the
+    existing public-IP, DNS-rebinding, redirect, response-size, deadline, and
+    connected-peer checks remain unchanged. Resolver and runtime tests were
+    red before implementation and the focused suite now passes. No source
+    page or model request was made while implementing this repair. Phase 4
+    remains `NO_GO` until the new SHA completes every repair gate, same-SHA CI,
+    and the complete isolated real-content chain.
+
+21. The first bounded DoH integration check failed closed before source HTTP
+    because available `dnspython 2.8.0` attempted an unavailable HTTP/3 path
+    and then expected the separate `httpx` package. The repair did not add a
+    second HTTP client: dnspython now only creates and validates RFC 8484 DNS
+    wire messages, while the repository's existing `httpx2` pinned transport
+    performs authenticated HTTPS to the fixed public bootstrap address with a
+    bounded response and peer check. A regression test was red before this
+    change. The next DNS-only check resolved `www.ccccltd.cn` to real public
+    addresses `27.155.113.133` and `240e:95c:806:40::403`, rather than the
+    FlClash synthetic `28.0.0.x` range. No source HTTP or model request was
+    made by either DNS check.

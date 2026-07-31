@@ -43,8 +43,10 @@ from srbg_api.acquisition.http import (
     HttpStatusError,
     PhysicalAttemptObserver,
     ResilientHttpClient,
+    Resolver,
+    Transport,
 )
-from srbg_api.acquisition.live import HttpxTransport, SystemClock, SystemResolver
+from srbg_api.acquisition.live import HttpxTransport, IndependentDohResolver, SystemClock
 from srbg_api.config import Settings
 from srbg_api.connectors.config import (
     ConnectorConfigRejected,
@@ -211,6 +213,10 @@ class RuntimeTransport(Protocol):
         exact_redirect_host: str,
     ) -> FetchResult: ...
 
+    async def close(self) -> None: ...
+
+
+class _CloseablePhysicalTransport(Transport, Protocol):
     async def close(self) -> None: ...
 
 
@@ -684,6 +690,8 @@ class LiveRuntimeTransport:
         self,
         binding: RuntimeBinding,
         *,
+        resolver: Resolver | None = None,
+        transport: _CloseablePhysicalTransport | None = None,
         before_request: Callable[[str], Awaitable[None]] | None = None,
         after_response: Callable[[str, int], Awaitable[None]] | None = None,
         attempt_observer: PhysicalAttemptObserver | None = None,
@@ -696,8 +704,8 @@ class LiveRuntimeTransport:
         self._attempt_observer = attempt_observer
         self._request_count = 0
         self._clients: dict[str, ResilientHttpClient] = {}
-        self._transport = HttpxTransport()
-        self._resolver = SystemResolver()
+        self._transport = transport or HttpxTransport()
+        self._resolver = resolver or IndependentDohResolver()
         self._clock = SystemClock()
 
     @property
