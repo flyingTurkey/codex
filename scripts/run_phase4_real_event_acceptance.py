@@ -154,12 +154,18 @@ def main() -> int:
     exit_code = 1
     try:
         environment["SRBG_AI_API_KEY"] = _load_key()
+        network_route = (
+            "PINNED_LOCAL_SOCKS5"
+            if environment.get("SRBG_ACQUISITION_SOCKS5_PROXY_URL")
+            else "PINNED_DIRECT"
+        )
         print(
             "phase4_preflight_ok "
             f"sha={release_sha} profile={PROFILE} project={project} "
             f"source_stream_id={SOURCE_STREAM_ID} "
             "source_stream_key=cccc-project-briefs "
-            "budget_microusd=80000 deadline_seconds=1500 max_model_calls=8"
+            "budget_microusd=80000 deadline_seconds=1500 max_model_calls=8 "
+            f"network_route={network_route}"
         )
         started = _run(
             [*compose, "up", "--detach", "--wait", "postgres", "redis", "minio"],

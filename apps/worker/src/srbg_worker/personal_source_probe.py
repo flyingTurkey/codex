@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -182,9 +183,11 @@ class SafePersonalProbeFetcher:
         engine: AsyncEngine | None = None,
         *,
         resolver: Resolver | None = None,
+        transport_factory: Callable[[], HttpxTransport] | None = None,
     ) -> None:
         self._engine = engine
         self._resolver = resolver or IndependentDohResolver()
+        self._transport_factory = transport_factory or HttpxTransport
 
     async def fetch(
         self,
@@ -201,7 +204,7 @@ class SafePersonalProbeFetcher:
             controlled_run_id=controlled_run_id,
             source_id=source_id,
         )
-        transport = HttpxTransport()
+        transport = self._transport_factory()
         observer = (
             ControlledRunAttemptObserver(
                 self._engine, run_id=controlled_run_id, source_id=source_id, purpose=purpose
@@ -245,7 +248,7 @@ class SafePersonalProbeFetcher:
         source_id: UUID | None,
     ) -> None:
         robots_url = f"https://{host}/robots.txt"
-        transport = HttpxTransport()
+        transport = self._transport_factory()
         observer = (
             ControlledRunAttemptObserver(
                 self._engine,

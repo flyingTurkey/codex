@@ -21,6 +21,7 @@ import srbg_worker.app as worker_app
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from srbg_api.acquisition.contracts import DiscoveryRecord, FetchResult
+from srbg_api.acquisition.live import HttpxTransport
 from srbg_api.ai_pipeline.content_preparation import AiContentPreparationService
 from srbg_api.ai_pipeline.contracts import AiStep
 from srbg_api.ai_pipeline.runtime import AttemptKind
@@ -459,6 +460,11 @@ async def test_one_controlled_real_industry_update(
         "max_ai_cost_microusd": MAX_AI_COST_MICROUSD,
         "max_wall_seconds": MAX_WALL_SECONDS,
         "max_model_calls": MAX_MODEL_CALLS,
+        "network_route": (
+            "PINNED_LOCAL_SOCKS5"
+            if Settings().acquisition_socks5_proxy_url is not None
+            else "PINNED_DIRECT"
+        ),
         "started_at": started_at.isoformat(),
     }
     source_id: UUID | None = None
@@ -565,6 +571,9 @@ async def test_one_controlled_real_industry_update(
             gateway=gateway,
             transport_factory=lambda binding: LiveRuntimeTransport(
                 binding,
+                transport=HttpxTransport(
+                    socks5_proxy_url=Settings().acquisition_socks5_proxy_url
+                ),
                 attempt_observer=observer,
             ),
             parsers={

@@ -8,7 +8,7 @@ from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     external_io_timeout_seconds: float = Field(default=2.0, gt=0, le=30)
     acquisition_doh_url: str = "https://dns.alidns.com/dns-query"
     acquisition_doh_bootstrap_address: str = "223.5.5.5"
+    acquisition_socks5_proxy_url: str | None = None
     ai_secret_dir: Path = Path(".secrets/ai")
     openalex_api_key: SecretStr | None = None
     academic_contact: str = Field(default="data-platform@srbg.local", min_length=3, max_length=320)
@@ -77,6 +78,11 @@ class Settings(BaseSettings):
     item_api_deprecation_at: datetime = datetime(2026, 7, 15, tzinfo=UTC)
     item_api_sunset_at: datetime | None = None
 
+    @field_validator("acquisition_socks5_proxy_url", mode="before")
+    @classmethod
+    def empty_acquisition_proxy_is_disabled(cls, value: object) -> object:
+        return None if value == "" else value
+
     @model_validator(mode="after")
     def reject_demo_cursor_key_in_production(self) -> Settings:
         doh_endpoint = urlsplit(self.acquisition_doh_url)
@@ -101,6 +107,31 @@ class Settings(BaseSettings):
             or doh_bootstrap.is_reserved
         ):
             raise ValueError("trusted DNS bootstrap address must be a direct public IP")
+        if self.acquisition_socks5_proxy_url is not None:
+            try:
+                proxy = urlsplit(self.acquisition_socks5_proxy_url)
+                proxy_port = proxy.port
+                proxy_hostname = (proxy.hostname or "").casefold()
+                proxy_is_local = proxy_hostname == "host.docker.internal"
+                if not proxy_is_local:
+                    proxy_is_local = ipaddress.ip_address(proxy_hostname).is_loopback
+            except ValueError as error:
+                raise ValueError(
+                    "acquisition proxy must be an exact loopback SOCKS5 URL or Docker host gateway"
+                ) from error
+            if (
+                proxy.scheme != "socks5"
+                or not proxy_is_local
+                or proxy_port is None
+                or proxy.username is not None
+                or proxy.password is not None
+                or proxy.path not in {"", "/"}
+                or proxy.query
+                or proxy.fragment
+            ):
+                raise ValueError(
+                    "acquisition proxy must be an exact loopback SOCKS5 URL or Docker host gateway"
+                )
         baidu_endpoint = urlsplit(self.baidu_search_api_url)
         if (
             baidu_endpoint.scheme != "https"

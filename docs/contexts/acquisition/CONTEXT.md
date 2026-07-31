@@ -34,6 +34,16 @@ non-public answers, pins the validated set for the request, revalidates every
 redirect, and requires the connected peer to match.
 _Avoid_: VPN DNS, fake-IP allowlist
 
+**PinnedLocalProxyRoute**:
+An explicit, optional application setting that tunnels a prevalidated public
+target IP through an unauthenticated SOCKS5 endpoint on loopback or the Docker
+host gateway. The proxy never resolves the source hostname: independent DoH
+and the SSRF boundary choose the exact public IP, while TLS SNI and certificate
+validation retain the original source hostname. The setting is disabled by
+default and does not read or modify operating-system, browser, VPN, route,
+firewall, or other-application proxy configuration.
+_Avoid_: system proxy inheritance, proxy-side DNS, per-domain VPN rule
+
 **ContentRelevance**:
 A SourceStream research assessment of `DIRECT` or `FILTERED`; it describes the stream's expected filtering burden and never qualifies an individual document.
 _Avoid_: DirectRelevance, publication eligibility

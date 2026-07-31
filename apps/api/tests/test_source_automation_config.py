@@ -34,6 +34,28 @@ def test_acquisition_uses_one_platform_level_authenticated_doh_resolver() -> Non
         _settings(acquisition_doh_bootstrap_address="127.0.0.1")
 
 
+def test_acquisition_proxy_is_explicit_optional_and_loopback_only() -> None:
+    assert _settings().acquisition_socks5_proxy_url is None
+    assert _settings(acquisition_socks5_proxy_url="").acquisition_socks5_proxy_url is None
+    assert (
+        _settings(
+            acquisition_socks5_proxy_url="socks5://127.0.0.1:7890"
+        ).acquisition_socks5_proxy_url
+        == "socks5://127.0.0.1:7890"
+    )
+    assert (
+        _settings(
+            acquisition_socks5_proxy_url="socks5://host.docker.internal:7890"
+        ).acquisition_socks5_proxy_url
+        == "socks5://host.docker.internal:7890"
+    )
+
+    with pytest.raises(ValidationError, match="loopback SOCKS5"):
+        _settings(acquisition_socks5_proxy_url="socks5://proxy.example.test:7890")
+    with pytest.raises(ValidationError, match="loopback SOCKS5"):
+        _settings(acquisition_socks5_proxy_url="socks5://user:secret@127.0.0.1:7890")
+
+
 def test_baidu_without_secret_skips_search_but_endpoint_remains_pinned() -> None:
     assert _settings(baidu_search_enabled=True).baidu_search_api_key is None
     empty = _settings(baidu_search_enabled=True, baidu_search_api_key=SecretStr(""))

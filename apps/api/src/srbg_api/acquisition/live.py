@@ -3,6 +3,7 @@
 import asyncio
 import ipaddress
 import socket
+import ssl
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from time import monotonic
@@ -242,6 +243,11 @@ class SystemClock:
 
 
 class HttpxTransport:
+    def __init__(self, *, socks5_proxy_url: str | None = None) -> None:
+        self._network_delegate = (
+            _Socks5ProxyBackend(socks5_proxy_url) if socks5_proxy_url is not None else None
+        )
+
     async def request(
         self,
         url: str,
@@ -257,6 +263,7 @@ class HttpxTransport:
         network_backend = _PinnedNetworkBackend(
             expected_hostname=hostname,
             validated_ips=validated_ips,
+            delegate=self._network_delegate,
         )
         transport = _PinnedHttpxTransport(network_backend)
         try:
@@ -297,6 +304,207 @@ class _PinnedHttpxTransport(httpx.AsyncHTTPTransport):
     def __init__(self, network_backend: httpcore2.AsyncNetworkBackend) -> None:
         super().__init__(trust_env=False)
         self._pool._network_backend = network_backend
+
+
+class _PinnedProxyStream(httpcore2.AsyncNetworkStream):
+    """Expose the exact SOCKS CONNECT target as the verified logical peer."""
+
+    def __init__(
+        self,
+        stream: httpcore2.AsyncNetworkStream,
+        *,
+        target_address: str,
+        target_port: int,
+    ) -> None:
+        self._stream = stream
+        self._target_address = target_address
+        self._target_port = target_port
+
+    async def read(
+        self,
+        max_bytes: int,
+        timeout: float | None = None,  # noqa: ASYNC109 - httpcore stream protocol
+    ) -> bytes:
+        return await self._stream.read(max_bytes, timeout)
+
+    async def write(
+        self,
+        buffer: bytes,
+        timeout: float | None = None,  # noqa: ASYNC109 - httpcore stream protocol
+    ) -> None:
+        await self._stream.write(buffer, timeout)
+
+    async def aclose(self) -> None:
+        await self._stream.aclose()
+
+    async def start_tls(
+        self,
+        ssl_context: ssl.SSLContext,
+        server_hostname: str | None = None,
+        timeout: float | None = None,  # noqa: ASYNC109 - httpcore stream protocol
+    ) -> httpcore2.AsyncNetworkStream:
+        tls_stream = await self._stream.start_tls(
+            ssl_context,
+            server_hostname=server_hostname,
+            timeout=timeout,
+        )
+        return _PinnedProxyStream(
+            tls_stream,
+            target_address=self._target_address,
+            target_port=self._target_port,
+        )
+
+    def get_extra_info(self, info: str) -> Any:
+        if info == "server_addr":
+            return (self._target_address, self._target_port)
+        return self._stream.get_extra_info(info)
+
+
+class _Socks5ProxyBackend(httpcore2.AsyncNetworkBackend):
+    """Open a SOCKS5 tunnel to a prevalidated IP through one local proxy."""
+
+    def __init__(
+        self,
+        proxy_url: str,
+        *,
+        delegate: httpcore2.AsyncNetworkBackend | None = None,
+    ) -> None:
+        try:
+            parsed = urlsplit(proxy_url)
+            proxy_port = parsed.port
+            proxy_hostname = (parsed.hostname or "").casefold()
+            if proxy_hostname == "host.docker.internal":
+                proxy_address = proxy_hostname
+            else:
+                parsed_proxy_address = ipaddress.ip_address(proxy_hostname)
+                if not parsed_proxy_address.is_loopback:
+                    raise ValueError("proxy address is not local")
+                proxy_address = str(parsed_proxy_address)
+        except ValueError as error:
+            raise ValueError(
+                "acquisition proxy must be an exact loopback SOCKS5 URL or Docker host gateway"
+            ) from error
+        if (
+            parsed.scheme != "socks5"
+            or proxy_port is None
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError(
+                "acquisition proxy must be an exact loopback SOCKS5 URL or Docker host gateway"
+            )
+        self._proxy_address = proxy_address
+        self._proxy_port = proxy_port
+        self._delegate = delegate or httpcore2.AnyIOBackend()
+
+    async def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,  # noqa: ASYNC109 - httpcore backend protocol
+        local_address: str | None = None,
+        socket_options: Iterable[httpcore2.SOCKET_OPTION] | None = None,
+    ) -> httpcore2.AsyncNetworkStream:
+        try:
+            target = ipaddress.ip_address(host)
+        except ValueError as error:
+            raise httpcore2.ConnectError("SOCKS5 refused an unpinned target hostname") from error
+        started_at = monotonic()
+        stream = await self._delegate.connect_tcp(
+            self._proxy_address,
+            self._proxy_port,
+            timeout=timeout,
+            local_address=local_address,
+            socket_options=socket_options,
+        )
+        try:
+            await stream.write(b"\x05\x01\x00", _remaining_timeout(timeout, started_at))
+            greeting = await _read_exact(
+                stream,
+                2,
+                timeout_seconds=_remaining_timeout(timeout, started_at),
+            )
+            if greeting != b"\x05\x00":
+                raise httpcore2.ConnectError("SOCKS5 proxy rejected no-auth negotiation")
+            address_type = b"\x01" if target.version == 4 else b"\x04"
+            request = (
+                b"\x05\x01\x00"
+                + address_type
+                + target.packed
+                + port.to_bytes(2, byteorder="big")
+            )
+            await stream.write(request, _remaining_timeout(timeout, started_at))
+            reply = await _read_exact(
+                stream,
+                4,
+                timeout_seconds=_remaining_timeout(timeout, started_at),
+            )
+            if reply[:3] != b"\x05\x00\x00":
+                raise httpcore2.ConnectError("SOCKS5 proxy rejected the pinned target")
+            reply_address_bytes = {1: 4, 4: 16}.get(reply[3])
+            if reply_address_bytes is None:
+                if reply[3] != 3:
+                    raise httpcore2.ConnectError("SOCKS5 proxy returned an invalid address type")
+                length = await _read_exact(
+                    stream,
+                    1,
+                    timeout_seconds=_remaining_timeout(timeout, started_at),
+                )
+                reply_address_bytes = length[0]
+            await _read_exact(
+                stream,
+                reply_address_bytes + 2,
+                timeout_seconds=_remaining_timeout(timeout, started_at),
+            )
+        except BaseException:
+            await stream.aclose()
+            raise
+        return _PinnedProxyStream(
+            stream,
+            target_address=str(target),
+            target_port=port,
+        )
+
+    async def connect_unix_socket(
+        self,
+        path: str,
+        timeout: float | None = None,  # noqa: ASYNC109 - httpcore backend protocol
+        socket_options: Iterable[httpcore2.SOCKET_OPTION] | None = None,
+    ) -> httpcore2.AsyncNetworkStream:
+        del path, timeout, socket_options
+        raise httpcore2.ConnectError("Unix sockets are forbidden for acquisition proxying")
+
+    async def sleep(self, seconds: float) -> None:
+        await self._delegate.sleep(seconds)
+
+
+async def _read_exact(
+    stream: httpcore2.AsyncNetworkStream,
+    size: int,
+    *,
+    timeout_seconds: float | None,
+) -> bytes:
+    chunks: list[bytes] = []
+    remaining = size
+    while remaining:
+        chunk = await stream.read(remaining, timeout_seconds)
+        if not chunk:
+            raise httpcore2.ConnectError("SOCKS5 proxy closed during negotiation")
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    return b"".join(chunks)
+
+
+def _remaining_timeout(timeout: float | None, started_at: float) -> float | None:
+    if timeout is None:
+        return None
+    remaining = timeout - (monotonic() - started_at)
+    if remaining <= 0:
+        raise httpcore2.ConnectTimeout("SOCKS5 negotiation exhausted its deadline")
+    return remaining
 
 
 class _PinnedNetworkBackend(httpcore2.AsyncNetworkBackend):

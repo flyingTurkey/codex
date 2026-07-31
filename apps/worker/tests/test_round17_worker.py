@@ -19,7 +19,7 @@ from srbg_api.acquisition.contracts import (
     SourceCheckpoint,
 )
 from srbg_api.acquisition.http import FetchPolicy, HttpResponse
-from srbg_api.acquisition.live import IndependentDohResolver
+from srbg_api.acquisition.live import HttpxTransport, IndependentDohResolver
 from srbg_api.config import Settings
 from srbg_api.connectors.config import ConnectorKind
 from srbg_api.connectors.parsers import ConnectorRequest, DeclarativeParser, RssAtomConnector
@@ -1064,11 +1064,13 @@ def test_celery_source_task_runs_the_runtime_executor(
             binding: RuntimeBinding,
             *,
             resolver: Any,
+            transport: Any,
             before_request: Any,
             after_response: Any,
         ) -> None:
             self.binding = binding
             self.resolver = resolver
+            self.transport = transport
             self.before_request = before_request
             self.after_response = after_response
 
@@ -1081,9 +1083,11 @@ def test_celery_source_task_runs_the_runtime_executor(
             return RuntimeRunResult(True, False, 2, 1, 1, 3, 4096)
 
     gateway = FakeGateway()
+    physical_transport = HttpxTransport(socks5_proxy_url="socks5://127.0.0.1:7890")
     monkeypatch.setattr(worker, "PostgresRuntimeGateway", lambda _settings: gateway)
     monkeypatch.setattr(worker, "RuntimeFetchExecutor", FakeExecutor)
     monkeypatch.setattr(worker, "LiveRuntimeTransport", FakeLiveTransport)
+    monkeypatch.setattr(worker, "_acquisition_transport", lambda: physical_transport)
 
     result = worker.celery_app.tasks["srbg.source.fetch"].run(
         source_id=str(SOURCE_ID),
@@ -1100,6 +1104,7 @@ def test_celery_source_task_runs_the_runtime_executor(
     )
     assert live_transport.binding == binding
     assert isinstance(live_transport.resolver, IndependentDohResolver)
+    assert live_transport.transport is physical_transport
     assert gateway.reservations == [(binding, "https://source.example.test/feed.xml")]
     assert gateway.responses == [
         (binding, "https://source.example.test/feed.xml", 4096)

@@ -8,7 +8,7 @@ institution origin, server-owned classification, and cryptographic target eviden
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from hashlib import sha256
@@ -459,7 +459,7 @@ class SafeDiscoveryTargetProbe:
         settings: Settings,
         *,
         resolver: Resolver | None = None,
-        transport_factory: type[_ClosableTransport] | None = None,
+        transport_factory: Callable[[], _ClosableTransport] | None = None,
         clock: Clock | None = None,
     ) -> None:
         self._settings = settings

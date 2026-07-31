@@ -223,3 +223,29 @@ This record does not authorize a formal database write or begin Phase 5.
     publication gate, source rule, budget, or formal database was widened or
     changed. Phase 4 remains `NO_GO` pending the repaired SHA's complete local
     gates, one release gate, same-SHA remote CI, and full isolated live chain.
+
+23. Repair candidate `345b6e4fad7aae360fe0566bfe3eda99546a4fbd`
+    passed `check-fast`, full local `check-pr`, its one exact-SHA
+    `check-release`, and same-SHA GitHub Actions run `30629105327`. Live
+    profile `srbg-phase4-b700daaf3a3a` used the independent authenticated DoH
+    path successfully, then its one bounded direct request to the fixed CCCC
+    list URL still received HTTP `521`. It stopped before discovery, raw
+    persistence, document selection, or model use. Evidence file
+    `.cache/phase4-evidence/345b6e4fad7aae360fe0566bfe3eda99546a4fbd-b700daaf3a3a.json`
+    records SourceStream `019fb785-8785-70d5-921c-10c8bc029549`, zero model
+    calls and cost, and a successful drain with zero database tasks and Redis
+    keys; teardown removed all scoped containers, volumes, and network. This
+    remains `NO_GO`.
+
+24. The next repair is application-scoped and does not edit FlClash, Windows
+    DNS, system proxy, routes, firewall, hosts, or other projects. An explicit
+    optional local SOCKS5 route tunnels only an independently resolved,
+    SSRF-approved public target IP; the proxy never resolves the source
+    hostname, and TLS still authenticates the original hostname. The setting
+    accepts only loopback or the Docker host gateway, forbids credentials, is
+    disabled by default, and does not inherit system proxy state. Protocol,
+    pinning, configuration, and production-composition tests were red before
+    implementation and pass after the minimal repair. No source or model
+    request was made while implementing it. Phase 4 remains `NO_GO` until a
+    repaired SHA passes every required gate, same-SHA CI, and the complete
+    isolated live chain.

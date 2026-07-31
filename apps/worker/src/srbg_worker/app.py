@@ -14,7 +14,7 @@ from celery.signals import task_failure
 from pydantic import AwareDatetime, BaseModel, ConfigDict, ValidationError
 from redis.asyncio import Redis, from_url
 from sqlalchemy import text
-from srbg_api.acquisition.live import IndependentDohResolver
+from srbg_api.acquisition.live import HttpxTransport, IndependentDohResolver
 from srbg_api.ai_pipeline.ai_judgments import (
     AiJudgmentResultType,
     EvidenceFactInput,
@@ -157,6 +157,10 @@ def _acquisition_resolver() -> IndependentDohResolver:
         endpoint_url=settings.acquisition_doh_url,
         bootstrap_address=settings.acquisition_doh_bootstrap_address,
     )
+
+
+def _acquisition_transport() -> HttpxTransport:
+    return HttpxTransport(socks5_proxy_url=settings.acquisition_socks5_proxy_url)
 
 
 celery_app.conf.update(
@@ -868,7 +872,11 @@ async def _execute_personal_source_discovery_cycle(discovery_run_id: UUID) -> di
                     channel=channel,
                     stream_type=stream_type,
                 ),
-                probe=SafeDiscoveryTargetProbe(settings, resolver=_acquisition_resolver()),
+                probe=SafeDiscoveryTargetProbe(
+                    settings,
+                    resolver=_acquisition_resolver(),
+                    transport_factory=_acquisition_transport,
+                ),
                 gateway=discovery_gateway,
                 occurrence_tracker=occurrence_tracker,
                 max_candidates_per_run=50,
@@ -961,7 +969,11 @@ async def _execute_automated_source_discovery_query(
         outcome = await DiscoveryExecutor(
             enabled=True,
             provider=provider,
-            probe=SafeDiscoveryTargetProbe(settings, resolver=_acquisition_resolver()),
+            probe=SafeDiscoveryTargetProbe(
+                settings,
+                resolver=_acquisition_resolver(),
+                transport_factory=_acquisition_transport,
+            ),
             gateway=gateway,
             occurrence_tracker=occurrence_tracker,
         ).run(
@@ -1005,6 +1017,7 @@ async def _execute_source_fetch(source_id: UUID, run_id: UUID) -> dict[str, obje
             return LiveRuntimeTransport(
                 binding,
                 resolver=resolver,
+                transport=_acquisition_transport(),
                 before_request=lambda url: gateway.reserve_request(binding, url=url),
                 after_response=lambda url, response_bytes: gateway.record_response_bytes(
                     binding, url=url, response_bytes=response_bytes
@@ -1013,6 +1026,7 @@ async def _execute_source_fetch(source_id: UUID, run_id: UUID) -> dict[str, obje
         return LiveRuntimeTransport(
             binding,
             resolver=resolver,
+            transport=_acquisition_transport(),
             before_request=lambda url: gateway.reserve_request(binding, url=url),
             after_response=lambda url, response_bytes: gateway.record_response_bytes(
                 binding, url=url, response_bytes=response_bytes
@@ -2115,7 +2129,11 @@ async def _dispatch_or_execute_personal_source_probe(
             return {"dispatched": len(pending_ids)}
         outcome = await PersonalProbeExecutor(
             gateway=gateway,
-            fetcher=SafePersonalProbeFetcher(engine, resolver=_acquisition_resolver()),
+            fetcher=SafePersonalProbeFetcher(
+                engine,
+                resolver=_acquisition_resolver(),
+                transport_factory=_acquisition_transport,
+            ),
             object_store=S3ObjectStore(settings),
         ).run(probe_run_id)
         return {"probe_run_id": str(probe_run_id), "status": outcome}
