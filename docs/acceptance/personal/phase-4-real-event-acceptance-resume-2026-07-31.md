@@ -42,6 +42,20 @@ This record does not authorize a formal database write or begin Phase 5.
    visibility probe tried to attach the already attached VHD again. A separate
    bounded repair now checks the system mount, waits up to ten seconds for
    Docker Desktop visibility, and fails closed without a duplicate attach.
+7. Candidate `1a0d50ac60096afd0ba5b8ed03f54f98c9de7de4` passed local
+   `check-fast`, `check-pr`, its one exact-SHA `check-release`, and same-SHA
+   GitHub Actions run `30598821805`.
+8. The first isolated live profile
+   `srbg-phase4-a275aa5df82d` stopped before any source or model request because
+   its fresh PostgreSQL bind mount could not satisfy `initdb` permissions.
+   The project containers and network were removed. No document was selected,
+   so the same-document replay obligation had not yet begun.
+9. A focused diagnostic reproduced PostgreSQL
+   `initdb: could not change permissions ... Operation not permitted` on the
+   Windows/NTFS bind. The acceptance-only Compose override now uses
+   project-scoped named volumes for PostgreSQL, WAL, Redis, and MinIO. A fresh
+   diagnostic made all three services healthy and removed all four volumes
+   with `down --volumes`.
 
 ## Current acceptance state
 
@@ -51,7 +65,8 @@ This record does not authorize a formal database write or begin Phase 5.
 - Model cost: `0` micro-USD / RMB `0`
 - Feed/Reader: not run
 - Replay: not run
-- Queue drain: no live queue created
+- Queue/container drain: first live profile containers and network removed;
+  no live queue or model task was created
 - Decision: `NO_GO` until repair gates, same-SHA remote CI, and the complete
   isolated real-content chain all pass
 - Formal database stage: `NOT AUTHORIZED`

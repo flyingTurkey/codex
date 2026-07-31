@@ -463,6 +463,27 @@ def test_compose_commands_use_repository_as_project_directory() -> None:
     assert "context: ../.." not in compose
 
 
+def test_phase4_live_runner_uses_project_scoped_ephemeral_volumes() -> None:
+    runner = (ROOT / "scripts/run_phase4_real_event_acceptance.py").read_text(
+        encoding="utf-8"
+    )
+    override = (ROOT / "infra/compose/compose.phase4.yaml").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'str(ROOT / "infra" / "compose" / "compose.phase4.yaml")' in runner
+    for service, target in (
+        ("phase4-postgres", "/var/lib/postgresql/data"),
+        ("phase4-postgres-wal", "/wal-archive"),
+        ("phase4-redis", "/data"),
+        ("phase4-minio", "/data"),
+    ):
+        assert f"- {service}:{target}" in override
+        assert f"  {service}:" in override
+    assert "${SRBG_DATA_ROOT" not in override
+    assert '"down", "--volumes", "--remove-orphans"' in runner
+
+
 def test_browser_gates_reuse_the_ready_runtime_without_forced_rebuilds() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 

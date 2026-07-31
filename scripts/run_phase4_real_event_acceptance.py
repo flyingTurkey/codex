@@ -144,6 +144,8 @@ def main() -> int:
         str(ROOT),
         "--file",
         str(ROOT / "infra" / "compose" / "compose.yaml"),
+        "--file",
+        str(ROOT / "infra" / "compose" / "compose.phase4.yaml"),
     ]
     exit_code = 1
     try:

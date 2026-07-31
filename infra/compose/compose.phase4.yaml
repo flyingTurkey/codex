@@ -1,0 +1,17 @@
+services:
+  postgres:
+    volumes:
+      - phase4-postgres:/var/lib/postgresql/data
+      - phase4-postgres-wal:/wal-archive
+  redis:
+    volumes:
+      - phase4-redis:/data
+  minio:
+    volumes:
+      - phase4-minio:/data
+
+volumes:
+  phase4-postgres:
+  phase4-postgres-wal:
+  phase4-redis:
+  phase4-minio:
