@@ -674,6 +674,19 @@ def test_phase4_live_ai_evidence_uses_registry_versions_and_incremental_cost() -
     assert "budget_microusd=50000" in runner
 
 
+def test_phase4_live_binds_all_ai_worker_services_to_the_worker_role() -> None:
+    live = (ROOT / "tests/live/test_phase4_real_event_acceptance.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'monkeypatch.setattr(worker_app, "_ai_repository", repository_factory)' in live
+    assert (
+        'monkeypatch.setattr(\n'
+        '        worker_app, "_technical_retry_coordinator", coordinator_factory\n'
+        "    )"
+    ) in live
+
+
 def test_web_image_keeps_versioned_esbuild_binaries_isolated_and_cached() -> None:
     workspace = (ROOT / "pnpm-workspace.yaml").read_text(encoding="utf-8")
     dockerfile = (ROOT / "infra/compose/Dockerfile.web").read_text(encoding="utf-8")

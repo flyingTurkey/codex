@@ -62,6 +62,7 @@ from srbg_worker.source_runtime import (
     PostgresRuntimeGateway,
     RuntimeFetchExecutor,
 )
+from srbg_worker.technical_exceptions import PostgresTechnicalRetryCoordinator
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -513,6 +514,11 @@ async def test_one_controlled_real_industry_update(
             max_document_bytes=2 * 1024 * 1024,
         )
 
+    def coordinator_factory() -> PostgresTechnicalRetryCoordinator:
+        return PostgresTechnicalRetryCoordinator(
+            engine=create_async_engine(os.environ["SRBG_WORKER_DATABASE_URL"])
+        )
+
     async def capture_dispatch(
         repository: PostgresAiPreparationRepository,
         *,
@@ -573,6 +579,9 @@ async def test_one_controlled_real_industry_update(
         )
 
     monkeypatch.setattr(worker_app, "_ai_repository", repository_factory)
+    monkeypatch.setattr(
+        worker_app, "_technical_retry_coordinator", coordinator_factory
+    )
     monkeypatch.setattr(worker_app, "_dispatch_ai_attempt", capture_dispatch)
 
     try:

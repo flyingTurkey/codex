@@ -260,6 +260,35 @@ This record does not authorize a formal database write or begin Phase 5.
     publication gates, or original failure evidence. Phase 4 remains
     `NO_GO` pending all repaired-SHA gates and another same-document rerun.
 
+33. Repair candidate `b22f0105add2cedd5d0d509e00e611d44f523824`
+    passed `check-fast`, full local `check-pr`, its one exact-SHA
+    `check-release`, and same-SHA GitHub Actions run `30672612169`. Live
+    project `srbg-phase4-d58695895425` again fetched and persisted the fixed
+    document, with Document `019fba7d-cc39-7f22-b808-d2088b290a2f`,
+    DocumentVersion `019fba7d-cc39-7eb4-82e7-f6d28758a67b`, and raw SHA-256
+    `2ac2f414c58081216a92d41fddc08acfd919751403f8f0372be09dc7176cc7f9`.
+    It stopped before a model request when the technical-retry coordinator
+    queried `ai_compensation_run_v2` through the API runtime database URL and
+    correctly received `InsufficientPrivilegeError`. Evidence
+    `.cache/phase4-evidence/b22f0105add2cedd5d0d509e00e611d44f523824-d58695895425.json`
+    records `model_calls=0`, the 50,000-micro-USD cap, zero active database
+    tasks, zero Redis keys, and a successful drain; teardown removed every
+    scoped container, volume, and network. This is `NO_GO`; publication,
+    Feed/Reader, and replay did not run, and Phase 5 remains unstarted.
+
+34. A zero-network disposable-database diagnosis proved that the fresh random
+    Worker login inherits `srbg_worker_role`, has the historical
+    `ai_compensation_run_v2` `SELECT`, and can execute the same direct read.
+    The failed permission was therefore not a migration ACL gap: the live
+    harness had rebound `_ai_repository` to `SRBG_WORKER_DATABASE_URL` but had
+    left `_technical_retry_coordinator` on the default API runtime engine. A
+    focused regression was red before the minimal repair and is green after
+    it. The harness now binds both Worker services to separately managed
+    engines using the same isolated Worker URL. No role, grant, migration,
+    production service, source, budget, model, or publication gate changes.
+    Phase 4 remains `NO_GO` pending the repaired-SHA gates and same-document
+    rerun.
+
 28. The Owner explicitly authorized abandoning the repeatedly unavailable CCCC
     SourceStream and selecting one compliant replacement without starting Phase
     5. Point-in-time research first rejected Sichuan Transport, CSCEC, and XCMG:
