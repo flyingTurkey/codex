@@ -274,6 +274,46 @@ This record does not authorize a formal database write or begin Phase 5.
     prescribed gates, same-SHA CI, and unchanged-document live rerun; Phase 5
     remains unstarted.
 
+33. VHD-readiness repair candidate
+    `eef54b79f14ecebf8a88a89ca0e4a343c320ed27` passed `check-fast`; its
+    real readiness check also completed through Docker Engine, proving the
+    preceding WSL-control repair. Its full `check-pr` did not pass. After
+    approximately 30 minutes with no output, the exact gate process was
+    stopped; its process tree showed Compose v5 had delegated the full
+    multi-service build to one Buildx Bake invocation, and a read-only Docker
+    API probe also timed out. The common Compose `--parallel 1` limit controls
+    Engine calls but does not serialize targets inside Compose v5's mandatory
+    Bake implementation.
+
+34. A bounded, uncommitted diagnosis then submitted one Compose service per
+    process. PostgreSQL and the Python migration image completed, but the Web
+    image alone made the Docker Engine unavailable. A repository-named
+    `docker-container` builder with BuildKit solver parallelism 1 progressed
+    through the Node base image and all 903 pnpm packages before Engine EOF.
+    A final attempt additionally capped only that builder at 3 GiB and pnpm at
+    four network requests/one child process; it still timed out. After the
+    authorized Docker restart, authoritative container state reported
+    `OOMKilled=false`, exit 128, cgroup `device or resource busy`, and repeated
+    BuildKit healthcheck timeouts. No supported project-scoped concurrency or
+    memory limit produced a valid image, so the unverified implementation was
+    completely reverted. Both temporary builders and only their disposable
+    caches were removed. Other projects, business volumes, FlClash, Windows
+    networking, the fixed Sany SourceStream, SourceAdmission, model settings,
+    publication gates, and the formal database were untouched.
+
+35. This is a new honest `NO_GO` before live source access. Cumulative source
+    requests, model calls, and model cost since switching to Sany remain zero;
+    no Document, claim, evidence, SourceExcerpt, publication, Feed item,
+    Reader projection, or replay was created. The first confirmed blocker is
+    the shared Docker Desktop/WSL runtime failing the mandatory local
+    `check-pr` Web image build. Continuing requires an explicitly authorized
+    external-state change: temporarily pause unrelated Docker workloads,
+    increase/reconfigure Docker Desktop resources, or run the gates on a
+    separate isolated Docker host. Until one option is authorized and the
+    repaired SHA completes `check-pr`, one `check-release`, same-SHA CI, and
+    the unchanged-document live rerun, Phase 4 remains `NO_GO`; the formal
+    database stage is not authorized and Phase 5 remains unstarted.
+
 ## Trusted DNS repair authorization (append-only)
 
 20. The Owner authorized an application-scoped repair after confirming it
