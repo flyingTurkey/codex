@@ -198,6 +198,21 @@ This record does not authorize a formal database write or begin Phase 5.
     It remains `NO_GO` until the repair SHA passes `check-fast`, full `check-pr`,
     one `check-release`, same-SHA remote CI, and the complete isolated live chain.
 
+29. Replacement-source candidate `73b631cce156894f1b44daf06cd1a37ad0d525b5`
+    passed `check-fast`, full local `check-pr`, its one exact-SHA
+    `check-release`, and same-SHA GitHub Actions run `30637221408`. Live project
+    `srbg-phase4-60425e4e01bd` stopped before source access because Compose read
+    the normal stack's `.env` value `MINIO_CONSOLE_PORT=29001`, already owned by
+    `srbg-issue40-minio-1`; the acceptance runner had randomized PostgreSQL,
+    Redis, MinIO API, and anchor MinIO ports but not the MinIO console port. It
+    made no source or model request, generated no document or publication, and
+    incurred zero model cost. Teardown removed all three containers, all four
+    project-scoped volumes, and the project network. A focused regression was
+    red before the minimal repair and now requires a separately allocated
+    `MINIO_CONSOLE_PORT`. The repair does not stop or reconfigure the existing
+    MinIO, Docker stack, VPN, source, model, budget, formal database, or
+    publication path. Phase 4 remains `NO_GO`; Phase 5 remains unstarted.
+
 ## Trusted DNS repair authorization (append-only)
 
 20. The Owner authorized an application-scoped repair after confirming it

@@ -113,6 +113,7 @@ def main() -> int:
         "POSTGRES_PORT": _free_port(),
         "REDIS_PORT": _free_port(),
         "MINIO_PORT": _free_port(),
+        "MINIO_CONSOLE_PORT": _free_port(),
         "ANCHOR_MINIO_PORT": _free_port(),
     }
     environment = dict(os.environ)

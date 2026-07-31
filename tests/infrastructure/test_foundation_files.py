@@ -484,6 +484,14 @@ def test_phase4_live_runner_uses_project_scoped_ephemeral_volumes() -> None:
     assert '"down", "--volumes", "--remove-orphans"' in runner
 
 
+def test_phase4_live_runner_isolates_the_minio_console_port_from_dotenv() -> None:
+    runner = (ROOT / "scripts/run_phase4_real_event_acceptance.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert '"MINIO_CONSOLE_PORT": _free_port()' in runner
+
+
 def test_phase4_live_evidence_is_unique_per_run_and_never_overwritten() -> None:
     runner = (ROOT / "scripts/run_phase4_real_event_acceptance.py").read_text(
         encoding="utf-8"
