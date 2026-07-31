@@ -529,6 +529,7 @@ pdf-ocr-test:
 
 autonomous-content-integration-test:
 	$(COMPOSE) up --detach --wait postgres minio
+	$(COMPOSE) run --rm --no-deps role-bootstrap
 	$(UV) run python scripts/run_isolated_integration.py \
 		--migration-verifier verify_phase3_trustworthy_event_migration.py -- \
 		tests/integration/t41_autonomous_content_integration.py -q

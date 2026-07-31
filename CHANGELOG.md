@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-07-31 (Phase 4 controlled real Event acceptance — resumed)
+
+- Preserved the original Phase 4 `NO_GO` record unchanged and resumed only after the Owner restated that `NO_GO` cannot unlock Phase 5.
+- Repaired the isolated data-root readiness boundary so Prometheus and Grafana permissions are applied to the configured `SRBG_DATA_ROOT`, not an unrelated default path; the frozen repair candidate passed local `check-fast`, `check-pr`, and exact-SHA `check-release`.
+- Reproduced the fresh-runner CI failure where migration `0016` grants to `srbg_publisher_login` before that role exists. The autonomous migration gate now waits for the existing Compose `role-bootstrap` service before creating its disposable database; no migration, ACL, publication rule, or production database was changed.
+- No real source or model request has been made during this resumed attempt. Same-SHA remote CI and the isolated live acceptance remain mandatory before any `PASS`; Phase 5 remains unstarted.
+
 ## 2026-07-30 (Phase 4 controlled real Event acceptance — NO_GO)
 
 - Added a guarded, one-document `phase4-real-event` live profile for a researched `cccc-project-briefs` SourceStream, fresh isolated PostgreSQL/Redis/MinIO resources, fixed DeepSeek model settings, an 80,000-micro-USD fail-closed cap, a 25-minute wall deadline, replay checks, and append-only evidence output. Ordinary pytest partitions collect but never execute the live profile.

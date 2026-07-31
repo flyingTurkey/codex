@@ -303,6 +303,8 @@ def test_ci_uses_the_current_autonomous_content_integration_gate() -> None:
     )[0]
 
     assert "safety-case-test:" not in makefile
+    assert "$(COMPOSE) up --detach --wait postgres minio" in target
+    assert "$(COMPOSE) run --rm --no-deps role-bootstrap" in target
     assert "verify_phase3_trustworthy_event_migration.py" in target
     assert "tests/integration/t41_autonomous_content_integration.py" in target
     assert (
