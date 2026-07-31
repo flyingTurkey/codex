@@ -329,7 +329,7 @@ def upgrade() -> None:
         "GRANT UPDATE (replayable,reconstruction_status,blocked_reason,resolved_at) "
         "ON failed_task TO srbg_worker_role"
     )
-    op.execute("GRANT SELECT, INSERT, UPDATE ON retention_execution TO srbg_publisher_login")
+    op.execute("GRANT SELECT, INSERT, UPDATE ON retention_execution TO srbg_publication_writer")
     op.execute(
         "REVOKE ALL ON fetch_schedule, source_health_snapshot, source_anomaly, retention_execution FROM srbg_projection_reader"
     )

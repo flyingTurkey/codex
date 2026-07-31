@@ -209,3 +209,17 @@ This record does not authorize a formal database write or begin Phase 5.
     addresses `27.155.113.133` and `240e:95c:806:40::403`, rather than the
     FlClash synthetic `28.0.0.x` range. No source HTTP or model request was
     made by either DNS check.
+
+22. Repair candidate `b3392699dc47692db69a6b9f78f2c3edbcbdbcbd`
+    passed `check-fast`, full local `check-pr`, and its one exact-SHA
+    `check-release`, but same-SHA GitHub Actions run `30628202345` failed on a
+    fresh PostgreSQL cluster before any live acceptance request. Migration
+    `0016_scheduling_health_replay` granted `retention_execution` directly to
+    deployment login `srbg_publisher_login`, which was absent in that fresh
+    cluster even though the migration-owned `srbg_publication_writer` role
+    existed. A regression test reproduced the direct-login dependency before
+    the minimal repair changed that grant to `srbg_publication_writer`.
+    Disposable publisher logins inherit that same role, so no ACL capability,
+    publication gate, source rule, budget, or formal database was widened or
+    changed. Phase 4 remains `NO_GO` pending the repaired SHA's complete local
+    gates, one release gate, same-SHA remote CI, and full isolated live chain.

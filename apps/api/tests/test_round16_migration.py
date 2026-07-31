@@ -19,3 +19,13 @@ def test_round16_migration_has_authoritative_scheduler_and_safe_replay_schema() 
     assert "srbg_projection_reader" in source
     assert "REVOKE ALL" in source
     assert "0016_DOWNGRADE_BLOCKED" in source
+
+
+def test_round16_migration_grants_retention_to_the_publication_role() -> None:
+    source = MIGRATION.read_text(encoding="utf-8")
+
+    assert (
+        "GRANT SELECT, INSERT, UPDATE ON retention_execution TO srbg_publication_writer"
+        in source
+    )
+    assert "TO srbg_publisher_login" not in source
