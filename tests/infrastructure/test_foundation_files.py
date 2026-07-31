@@ -687,6 +687,18 @@ def test_phase4_live_binds_all_ai_worker_services_to_the_worker_role() -> None:
     ) in live
 
 
+def test_phase4_live_zero_model_calls_are_complete_cost_evidence() -> None:
+    live = (ROOT / "tests/live/test_phase4_real_event_acceptance.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'report["model_calls"] = 0' in live
+    assert 'report["model_call_usage"] = model_call_usage' in live
+    assert 'report["ai_cost_microusd"] = 0' in live
+    assert 'report["ai_cost_complete"] = True' in live
+    assert 'report["pipeline_status"] = str(pipeline_status)' in live
+
+
 def test_web_image_keeps_versioned_esbuild_binaries_isolated_and_cached() -> None:
     workspace = (ROOT / "pnpm-workspace.yaml").read_text(encoding="utf-8")
     dockerfile = (ROOT / "infra/compose/Dockerfile.web").read_text(encoding="utf-8")

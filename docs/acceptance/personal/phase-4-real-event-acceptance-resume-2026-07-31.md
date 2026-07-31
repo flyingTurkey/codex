@@ -289,6 +289,32 @@ This record does not authorize a formal database write or begin Phase 5.
     Phase 4 remains `NO_GO` pending the repaired-SHA gates and same-document
     rerun.
 
+35. Repair candidate `becb925bb1ede775740cdbabf61fbdae47b5b9e3`
+    passed `check-fast`, full local `check-pr`, its one exact-SHA
+    `check-release`, and same-SHA GitHub Actions run `30673409756`. Live
+    project `srbg-phase4-397a837d0fcc` fetched and persisted the same document
+    as Document `019fba8d-c6a3-7ba7-97a7-5b715ee6ec19`, DocumentVersion
+    `019fba8d-c6a3-7a63-ab5c-d128ec96f564`, with raw SHA-256
+    `94e6cbba868858f0559b4d6ca8b43bd6a935d2558b81db741097b4873ad60e7a`.
+    The Worker-role repair was proven: the technical-retry coordinator ran and
+    appended a `TECHNICAL_RETRY` transition. No provider request was made.
+    Append-only evidence
+    `.cache/phase4-evidence/becb925bb1ede775740cdbabf61fbdae47b5b9e3-397a837d0fcc.json`
+    records `model_calls=0`, but the report then mislabeled zero-call evidence
+    as `AI_COST_EVIDENCE_MISMATCH` because `ai_cost_complete` had not been
+    initialized before the first call. It records zero active database tasks,
+    zero Redis keys, and successful drain; teardown removed every scoped
+    resource. This is `NO_GO`; publication, Feed/Reader, and replay did not
+    run, and Phase 5 remains unstarted.
+
+36. A focused reporting regression was red before the minimal repair and is
+    green after it. The live report now starts with a complete zero-call,
+    zero-cost snapshot and saves the authoritative pipeline status before cost
+    consistency checks. It changes no runtime decision, retry, role, source,
+    model, budget, or publication behavior. Phase 4 remains `NO_GO` pending
+    the repaired-SHA gates and same-document rerun; the next result will expose
+    the actual pipeline terminal state rather than a reporting-layer mismatch.
+
 28. The Owner explicitly authorized abandoning the repeatedly unavailable CCCC
     SourceStream and selecting one compliant replacement without starting Phase
     5. Point-in-time research first rejected Sichuan Transport, CSCEC, and XCMG:

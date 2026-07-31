@@ -492,6 +492,10 @@ async def test_one_controlled_real_industry_update(
     pending: list[dict[str, Any]] = []
     model_calls = 0
     model_call_usage: list[dict[str, Any]] = []
+    report["model_calls"] = 0
+    report["model_call_usage"] = model_call_usage
+    report["ai_cost_microusd"] = 0
+    report["ai_cost_complete"] = True
     fixed_stream_id = UUID(os.environ["SRBG_PHASE4_SOURCE_STREAM_ID"])
     original_source_uuid7 = source_repository_module.uuid7
     fixed_stream_id_pending = True
@@ -768,6 +772,7 @@ async def test_one_controlled_real_industry_update(
                 .mappings()
                 .all()
             )
+        report["pipeline_status"] = str(pipeline_status)
         report["model_calls"] = model_calls
         report["ai_steps"] = [dict(row) for row in step_rows]
         database_cost_microusd = sum(int(row["cost_microusd"]) for row in step_rows)
