@@ -983,3 +983,59 @@ This record does not authorize a formal database write or begin Phase 5.
     at most 145,583 micro-USD, approximately RMB 0.99 at USD/CNY 6.77. Phase 4
     remains `NO_GO` pending the repair SHA's prescribed gates, same-SHA CI, and
     same-document full-chain rerun; Phase 5 remains unstarted.
+
+57. Repair candidate `0394ae8817f58ab52ceb086031c341e11777fb20`
+    passed `check-fast`, full `check-pr`, its sole exact-SHA `check-release`,
+    and same-SHA GitHub Actions run `30687920536`. Fresh isolated project
+    `srbg-phase4-597c17269393` then fetched the fixed CJHT list and detail with
+    two successful requests and persisted raw object
+    `019fbc0a-5b34-79de-b449-622dda76316d`, Document
+    `019fbc0a-5b3d-7544-8dd4-2dbe44cf6c01`, and DocumentVersion
+    `019fbc0a-5b3d-77a1-b4e0-54518e664a09`. Raw SHA-256 is
+    `7a493cd05eff48cc4c9f38fdf8316be62f80b0f74765ccde702327651dfef664`;
+    acquisition and first discovery were both
+    `2026-08-01T06:37:03.132287+00:00`. SourceAdmission was `ADMIT`, and the
+    unchanged production qualification returned `AUTO_ACCEPTED`,
+    `POLICY_ACCEPTED`, `INDUSTRY_UPDATE`, valid axes, and valid evidence
+    locators.
+
+58. The run made three real `deepseek-v4-flash` calls. CLASSIFY succeeded with
+    5,202 input and 165 output tokens and settled 564 micro-USD; the original
+    EXTRACT and its sole repair both received provider HTTP `200` but failed
+    the unchanged local `extract-output-v1` Schema. The stable
+    `MODEL_OUTPUT_REJECTED` repair allowed the pipeline to persist its real
+    `DEGRADED` state instead of failing database finalization. Because rejected
+    provider payloads still exposed no reconstructable usage rows, the
+    immutable acceptance correctly stopped first at
+    `AI_COST_EVIDENCE_MISMATCH` with `ai_cost_complete=false`. Source-published
+    time remained `MISSING`; no accepted claim, SourceExcerpt, publication,
+    Feed item, Reader, or replay was created. Stop/drain recorded zero active
+    database tasks and zero Redis keys, and teardown removed every scoped
+    container, volume, and network. Evidence is
+    `.cache/phase4-evidence/0394ae8817f58ab52ceb086031c341e11777fb20-597c17269393.json`.
+
+59. Phase cumulative model calls are now 12. Using the already recorded prior
+    conservative bound, the preceding three-call reservation bound, and this
+    run's full 28,000-micro-USD cap gives a phase-wide worst case of 145,583
+    micro-USD, approximately RMB 0.99 at USD/CNY 6.77. The remaining allowance
+    is less than the fixed 12,000-micro-USD reservation required for one more
+    provider call, so another full-chain rerun cannot be authorized without
+    exceeding the Owner's RMB 1 phase limit. This is an honest `NO_GO`; Phase 5
+    and formal database writes remain unstarted.
+
+### Latest controlled acceptance state - candidate 0394ae8
+
+- RELEASE_CANDIDATE_SHA: `0394ae8817f58ab52ceb086031c341e11777fb20`
+- SourceStream ID: `019fbbb0-b1f6-7e3f-97c0-20e4c16616c5`
+- Document ID: `019fbc0a-5b3d-7544-8dd4-2dbe44cf6c01`
+- Model calls/cost: `3`; exactly reconstructed `564` micro-USD in this run,
+  with `ai_cost_complete=false`; phase cumulative calls `12` and conservative
+  phase cost at most `145,583` micro-USD
+- Full chain: source through production qualification passed; EXTRACT and its
+  sole repair failed the unchanged Schema, so the pipeline was `DEGRADED`
+- Feed/Reader: not generated / not run
+- Replay: not run; zero duplication not established
+- Queue/resource drain: `PASS` (`0` active database tasks, `0` Redis keys,
+  and no scoped Docker container, volume, or network)
+- Decision: `NO_GO`
+- Formal database stage: `NOT AUTHORIZED`; Phase 5 remains unstarted
