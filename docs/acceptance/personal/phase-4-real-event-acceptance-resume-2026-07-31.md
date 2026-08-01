@@ -1067,3 +1067,28 @@ This record does not authorize a formal database write or begin Phase 5.
     AI pipeline or publication. No production module or `/sources` UI code was
     changed. Phase 4 remains `NO_GO` until the narrowed profile passes on a
     frozen SHA; Phase 5 remains unstarted.
+
+62. Candidate `022f7f19bec3e7ec2338b4d8e27ea6f5a256052a` passed
+    `check-fast`, full `check-pr`, its sole exact-SHA `check-release`, and
+    same-SHA GitHub Actions run `30695430085`. Isolated project
+    `srbg-phase4-a2c45fa93d35` then admitted the fixed CJHT stream, made exactly
+    two successful source requests, discovered and fetched one document, and
+    persisted raw object `019fbcd8-215c-70ac-9a93-28d668169f62`, Document
+    `019fbcd8-2167-7ad0-9f85-c4d8be2a38dc`, and DocumentVersion
+    `019fbcd8-2167-77f1-bbfc-7dd234b021dc`. Raw SHA-256 is
+    `f9e83cecd6db4f49a6faf5a1cd3670029079b42b493cc849e0c8b31e56cb05f7`;
+    acquisition and first discovery were both
+    `2026-08-01T10:21:48.741806+00:00`. The fetch retained the exact controlled
+    run authority. Model calls and cost were zero. Queue drain recorded zero
+    active database tasks and zero Redis keys, and scoped teardown passed.
+
+63. The first `/sources` projection read did not run because the acceptance
+    harness passed a bare object to `SourceRegistryService`, whose existing
+    constructor requires its document-vault dependency to expose `metrics`.
+    The immutable evidence file records `AttributeError` and remains
+    `.cache/phase4-evidence/022f7f19bec3e7ec2338b4d8e27ea6f5a256052a-a2c45fa93d35.json`.
+    This is `NO_GO`, not a source failure. The focused repair supplies a tiny
+    metrics-bearing read-only acceptance adapter; it changes no production
+    module, source behavior, `/sources` UI, model, publication rule, or formal
+    data. Phase 4 remains `NO_GO` pending repaired-SHA gates and the same
+    narrowed live rerun; Phase 5 remains unstarted.

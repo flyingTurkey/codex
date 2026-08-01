@@ -77,6 +77,12 @@ class _CleanAcceptanceScanner:
             raise ValueError("empty content cannot pass the acceptance scanner")
 
 
+class _SourceDisplayDocumentVault:
+    """Satisfy the read-only source module's metrics-bearing dependency."""
+
+    metrics = object()
+
+
 class _FixedDocumentListDetailConnector(ListDetailConnector):
     """Require the frozen document to remain the first bounded list result."""
 
@@ -557,7 +563,7 @@ async def test_one_controlled_source_display(monkeypatch: pytest.MonkeyPatch) ->
         )
 
         source_registry = SourceRegistryService(
-            SourceVaultRepository(admin), cast(Any, object())
+            SourceVaultRepository(admin), cast(Any, _SourceDisplayDocumentVault())
         )
         sources = await source_registry.list_personal_sources()
         visible_source = next((item for item in sources if item.id == source_id), None)
