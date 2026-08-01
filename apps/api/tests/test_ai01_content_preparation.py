@@ -8,13 +8,18 @@ import pytest
 from pydantic import ValidationError
 from srbg_api.ai_pipeline.budget import BudgetDisabled, BudgetPolicy, compute_cost_microusd
 from srbg_api.ai_pipeline.catalog import ProviderCode, provider_capability
-from srbg_api.ai_pipeline.contracts import AiStep, ModelRequest
+from srbg_api.ai_pipeline.content_preparation import AiContentPreparationService
+from srbg_api.ai_pipeline.contracts import AiStep, EvidenceAnchor, ModelRequest
 from srbg_api.ai_pipeline.gateway import (
     ControlledModelGateway,
     DeepSeekProvider,
     ModelOutputRejected,
 )
-from srbg_api.ai_pipeline.preparation import DocumentBlock, prepare_document_input
+from srbg_api.ai_pipeline.preparation import (
+    DocumentBlock,
+    PreparedDocumentInput,
+    prepare_document_input,
+)
 from srbg_api.ai_pipeline.runtime import AttemptKind, ResilientStepExecutor, TransientModelError
 from srbg_api.ai_pipeline.secrets import LocalAiSecretStore, SecretStorageDisabled
 
@@ -124,9 +129,7 @@ def test_deepseek_accepts_the_versioned_server_profile_but_sends_catalog_model()
             "usage": {"prompt_tokens": 20, "completion_tokens": 10},
         }
     )
-    request = _request().model_copy(
-        update={"model_profile": "ai01-deepseek-deepseek-v4-flash-v1"}
-    )
+    request = _request().model_copy(update={"model_profile": "ai01-deepseek-deepseek-v4-flash-v1"})
 
     asyncio.run(ControlledModelGateway(DeepSeekProvider(client=client)).generate(request))
 
@@ -230,6 +233,36 @@ def test_document_input_preserves_whole_blocks_and_issues_pdf_locators() -> None
     anchor = next(iter(prepared.anchors.values()))
     assert anchor.page_number == 2
     assert anchor.locator_value == "page=2&box=10,20,30,40"
+
+
+def test_extract_request_gives_model_the_server_issued_evidence_contract() -> None:
+    prepared = PreparedDocumentInput(
+        text="title and source fact",
+        input_sha256=sha256(b"title and source fact").hexdigest(),
+        anchors={
+            "evidence-allowed": EvidenceAnchor(
+                evidence_id="evidence-allowed",
+                document_block_id="block-7",
+                normalized_text="title and source fact",
+                page_number=1,
+                locator_value="page=1&box=0,0,800000,1000",
+            )
+        },
+        block_ids=("block-7",),
+    )
+
+    request = AiContentPreparationService.build_request(AiStep.EXTRACT, prepared)
+
+    assert request.prompt_version == "ai01-extract-v2"
+    assert '"evidence_id":"evidence-allowed"' in request.user_prompt
+    assert '"document_block_id":"block-7"' in request.user_prompt
+    assert '"locator_value":"page=1&box=0,0,800000,1000"' in request.user_prompt
+    assert "Use only evidence_id values from the server-issued catalog" in request.user_prompt
+    assert "evidence_ids and supports must be bidirectional" in request.user_prompt
+    assert '"claims"' in request.user_prompt
+    assert '"evidence"' in request.user_prompt
+    assert '"security"' in request.user_prompt
+    assert request.user_prompt.endswith("<document>\ntitle and source fact\n</document>")
 
 
 def test_resilient_executor_bounds_network_retries_and_one_repair() -> None:

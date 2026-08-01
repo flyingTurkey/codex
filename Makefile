@@ -206,6 +206,7 @@ phase5-formal-migration-test:
 		--migration-verifier verify_phase5_formal_reconciliation_migration.py -- \
 		apps/api/tests/test_0057_phase5_formal_reconciliation_migration.py \
 		apps/api/tests/test_0058_phase5_technical_exception_acl_migration.py \
+		apps/api/tests/test_0059_phase5_extract_prompt_v2_migration.py \
 		tests/integration/t41_autonomous_content_integration.py::test_phase5_formal_snapshot_sql_compiles_against_authoritative_schema \
 		tests/live/test_phase5_formal_one_day.py -q
 
@@ -217,6 +218,9 @@ isolated-integration-test:
 	$(COMPOSE) up --detach --wait postgres minio redis
 	$(UV) run python scripts/run_isolated_integration.py \
 		--migration-verifier verify_phase4_controlled_handoff_migration.py -- \
+		apps/api/tests/test_0056_phase4_controlled_handoff_migration.py -q
+	$(UV) run python scripts/run_isolated_integration.py \
+		--migration-verifier verify_phase5_formal_reconciliation_migration.py -- \
 		tests/integration/t05_durable_projection_integration.py \
 		tests/integration/t07_controlled_stream_integration.py \
 		tests/integration/t11_reader_appendix_integration.py \
@@ -226,6 +230,9 @@ phase3-trustworthy-event-test:
 	$(COMPOSE) up --detach --wait postgres minio redis
 	$(UV) run python scripts/run_isolated_integration.py \
 		--migration-verifier verify_phase3_trustworthy_event_migration.py -- \
+		apps/api/tests/test_0055_phase3_trustworthy_event_migration.py -q
+	$(UV) run python scripts/run_isolated_integration.py \
+		--migration-verifier verify_phase5_formal_reconciliation_migration.py -- \
 		tests/integration/t41_autonomous_content_integration.py::test_phase3_minimal_trustworthy_event_slice -q
 
 publication-adversarial:
@@ -551,6 +558,9 @@ autonomous-content-integration-test:
 	$(COMPOSE) run --rm --no-deps role-bootstrap
 	$(UV) run python scripts/run_isolated_integration.py \
 		--migration-verifier verify_phase4_controlled_handoff_migration.py -- \
+		apps/api/tests/test_0056_phase4_controlled_handoff_migration.py -q
+	$(UV) run python scripts/run_isolated_integration.py \
+		--migration-verifier verify_phase5_formal_reconciliation_migration.py -- \
 		tests/integration/t41_autonomous_content_integration.py -q
 
 digital-case-test:

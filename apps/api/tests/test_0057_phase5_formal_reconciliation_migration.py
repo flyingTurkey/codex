@@ -15,7 +15,7 @@ VERIFIER = Path("scripts/verify_phase5_formal_reconciliation_migration.py")
 def test_formal_crossref_sibling_reconciles_to_one_forward_head() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
 
-    assert script.get_heads() == ["0058_phase5_technical_exception_acl"]
+    assert script.get_heads() == ["0059_phase5_extract_prompt_v2"]
     assert script.get_revision("0055_crossref_metadata_admission") is not None
     assert script.get_revision("0056_phase4_controlled_handoff") is not None
 
@@ -37,7 +37,7 @@ def test_formal_reconciliation_verifier_uses_the_disposable_legacy_seam() -> Non
     source = VERIFIER.read_text(encoding="utf-8")
 
     assert '_LEGACY = "0055_crossref_metadata_admission"' in source
-    assert '_HEAD = "0058_phase5_technical_exception_acl"' in source
+    assert '_HEAD = "0059_phase5_extract_prompt_v2"' in source
     assert "command.upgrade(config, _HEAD)" in source
     assert "command.downgrade(config, _BASE)" in source
     assert "command.stamp(config, _LEGACY)" in source

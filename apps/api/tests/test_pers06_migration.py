@@ -8,7 +8,7 @@ MIGRATION = Path("apps/api/migrations/versions/0026_automatic_evidence_facts.py"
 
 def test_pers06_remains_in_the_single_head_chain_after_pers05() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
-    assert script.get_current_head() == "0058_phase5_technical_exception_acl"
+    assert script.get_current_head() == "0059_phase5_extract_prompt_v2"
     revision = script.get_revision("0026_automatic_evidence_facts")
     assert revision is not None
     assert revision.down_revision == "0025_personal_source_discovery"

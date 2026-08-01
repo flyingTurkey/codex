@@ -18,7 +18,10 @@ from sqlalchemy.ext.asyncio import create_async_engine
 _DISPOSABLE_DATABASE = re.compile(r"srbg_it_[0-9a-f]{24}\Z")
 _BASE = "0054_policy_optimization"
 _LEGACY = "0055_crossref_metadata_admission"
-_HEAD = "0058_phase5_technical_exception_acl"
+_HEAD = "0059_phase5_extract_prompt_v2"
+_EXTRACTION_PROMPT_SHA256 = (
+    "5ea472bb24ac60cbce944b4ce86257419244e63e75f35fe8d4b046593950f50b"
+)
 
 
 def _isolated_database_url() -> str:
@@ -146,6 +149,23 @@ async def _verify_reconciled_head(database_url: str) -> None:
             )
             if bool(api_can_write_compensation):
                 raise RuntimeError("0058_TECHNICAL_EXCEPTION_API_WRITE_LEAK")
+
+            extraction_prompt = (
+                await connection.execute(
+                    text(
+                        "SELECT id::text,prompt_sha256,"
+                        "task_prompt LIKE '%<server_issued_evidence_catalog>%' "
+                        "FROM ai_prompt_version "
+                        "WHERE step='EXTRACT' AND version='ai01-extract-v2'"
+                    )
+                )
+            ).one_or_none()
+            if extraction_prompt is None or tuple(extraction_prompt) != (
+                "019fbe20-0000-7000-8000-000000000101",
+                _EXTRACTION_PROMPT_SHA256,
+                True,
+            ):
+                raise RuntimeError("0059_EXTRACTION_PROMPT_REGISTRY_INVALID")
     finally:
         await engine.dispose()
 
@@ -175,6 +195,14 @@ async def _verify_clean_base(database_url: str) -> None:
                     )
                 )
             )
+            assert not bool(
+                await connection.scalar(
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM ai_prompt_version "
+                        "WHERE step='EXTRACT' AND version='ai01-extract-v2')"
+                    )
+                )
+            )
     finally:
         await engine.dispose()
 
@@ -193,7 +221,7 @@ def main() -> None:
     asyncio.run(_verify_reconciled_head(database_url))
     print(
         "Phase-5 formal migration replay passed: "
-        "0055_crossref sibling -> 0058 single head with narrow API read"
+        "0055_crossref sibling -> 0059 single head with API read and extraction prompt v2"
     )
 
 
