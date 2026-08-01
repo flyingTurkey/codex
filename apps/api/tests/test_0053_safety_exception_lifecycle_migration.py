@@ -10,7 +10,7 @@ VERIFIER = Path("scripts/verify_autonomous_policy_migration.py")
 def test_safety_exception_lifecycle_is_the_single_linear_head() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
 
-    assert script.get_heads() == ["0059_phase5_extract_prompt_v2"]
+    assert script.get_heads() == ["0060_phase5_extract_prompt_v3"]
     source = MIGRATION.read_text(encoding="utf-8")
     assert 'revision = "0053_safety_exception_lifecycle"' in source
     assert 'down_revision = "0052_feed_suppression_projection"' in source

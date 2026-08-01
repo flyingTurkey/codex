@@ -235,7 +235,7 @@ def test_document_input_preserves_whole_blocks_and_issues_pdf_locators() -> None
     assert anchor.locator_value == "page=2&box=10,20,30,40"
 
 
-def test_extract_request_gives_model_the_server_issued_evidence_contract() -> None:
+def test_extract_request_gives_model_atomic_server_issued_source_blocks() -> None:
     prepared = PreparedDocumentInput(
         text="title and source fact",
         input_sha256=sha256(b"title and source fact").hexdigest(),
@@ -253,16 +253,18 @@ def test_extract_request_gives_model_the_server_issued_evidence_contract() -> No
 
     request = AiContentPreparationService.build_request(AiStep.EXTRACT, prepared)
 
-    assert request.prompt_version == "ai01-extract-v2"
+    assert request.prompt_version == "ai01-extract-v3"
     assert '"evidence_id":"evidence-allowed"' in request.user_prompt
     assert '"document_block_id":"block-7"' in request.user_prompt
     assert '"locator_value":"page=1&box=0,0,800000,1000"' in request.user_prompt
-    assert "Use only evidence_id values from the server-issued catalog" in request.user_prompt
+    assert '"text":"title and source fact"' in request.user_prompt
+    assert "Use each source block as one indivisible mapping" in request.user_prompt
     assert "evidence_ids and supports must be bidirectional" in request.user_prompt
     assert '"claims"' in request.user_prompt
     assert '"evidence"' in request.user_prompt
     assert '"security"' in request.user_prompt
-    assert request.user_prompt.endswith("<document>\ntitle and source fact\n</document>")
+    assert "<document>" not in request.user_prompt
+    assert request.user_prompt.endswith("</server_issued_source_blocks>")
 
 
 def test_resilient_executor_bounds_network_retries_and_one_repair() -> None:

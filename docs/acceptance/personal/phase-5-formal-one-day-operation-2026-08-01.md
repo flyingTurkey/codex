@@ -48,7 +48,7 @@
 - SourceStream 继续使用既有 1 request/minute、SSRF/robots/条款/熔断门禁；
 - 到期后先关闭 Owner 来源意图并停止调度，再排空请求、fetch、content outbox、AI、预算 reservation 和发布投影工作。
 
-最终 `phase5-formal-one-day` profile 只读复核正式 PostgreSQL 和回环接口，并读取 append-only 周期样本。它要求：revision 精确为 `0059_phase5_extract_prompt_v2`、当前固定预算逐项一致、8 小时覆盖且采样间隔不超过 30 分钟、恰好一个 run source 且只产生目标 SourceStream 的 fetch、其他来源 fetch 为零、发布内容仅为 R1/R2 `INDUSTRY_UPDATE`、至少一条发现/抓取/解析/AI 成功/发布、accepted claims 与 evidence links 可追溯、零重复、零静默失败、零永久悬挂、所有未发布版本有非空 reason codes、费用不超正式上限、Worker 重启后的启动时间变化及恢复、`/all`、`/api/v2/feed` 和 Event 详情均实际包含该 Event。快照 SQL 必须在一次性 0059 PostgreSQL 上编译执行，不以字符串或 mock 替代 schema 验证。
+最终 `phase5-formal-one-day` profile 只读复核正式 PostgreSQL 和回环接口，并读取 append-only 周期样本。它要求：revision 精确为 `0060_phase5_extract_prompt_v3`、当前固定预算逐项一致、8 小时覆盖且采样间隔不超过 30 分钟、恰好一个 run source 且只产生目标 SourceStream 的 fetch、其他来源 fetch 为零、发布内容仅为 R1/R2 `INDUSTRY_UPDATE`、至少一条发现/抓取/解析/AI 成功/发布、accepted claims 与 evidence links 可追溯、零重复、零静默失败、零永久悬挂、所有未发布版本有非空 reason codes、费用不超正式上限、Worker 重启后的启动时间变化及恢复、`/all`、`/api/v2/feed` 和 Event 详情均实际包含该 Event。快照 SQL 必须在一次性 0060 PostgreSQL 上编译执行，不以字符串或 mock 替代 schema 验证。
 
 ## 第一次正式预运行 NO_GO 与最小 ACL 修复
 
@@ -65,6 +65,8 @@
 第二次预运行 `019fbe14-295e-7e6e-938d-8d7433e013f8` 于 `2026-08-01T16:07:00Z` 启动，只运行 `RES-004` 的 SourceStream `3697f145-dcdd-791d-8242-c97409e997af`，真实文章《单侧堆载下被动负斜桩工程特性试验》完成发现、抓取、解析和 `AUTO_ACCEPTED`，但两个 EXTRACT 尝试均明确为 `MODEL_OUTPUT_REJECTED`，没有 accepted claim、publication 或 Event。运行在三分钟内 fail-close 为 `FAILED/FORMAL_EXTRACTION_PROMPT_DEFECT`；来源意图关闭、计划暂停、来源状态为 `STOPPED`，七个 Writer 停止，两项临时 Windows 计划任务精确移除。
 
 根因不是内容选择：DeepSeek 适配器只向服务商声明 `json_object`；旧 EXTRACT 请求的用户消息只有文档正文，既没有提取 Schema，也没有服务端签发的 `evidence_id → document_block_id/locator` 映射。非旁路本地证据门禁要求模型返回精确签发的 evidence ID，因此模型不可能从旧请求推导出合法输出。最小修复新增版本化 `ai01-extract-v2`，把未改变的提取 Schema 和精确签发的证据目录放入有界任务信封；模型、Schema、证据校验、发布权威、来源策略、Compose 和 `dev-lite` 均未放宽或改变。新 head 为 `0059_phase5_extract_prompt_v2`，其 downgrade 在已有 durable step 使用时 fail-closed。该变更尚须完成候选门禁、隔离真实 Prompt 评估、新 pre-0059 备份/恢复、正式迁移和全新的八小时窗口；本次预运行不计入最终 PASS。
+
+候选 `5e2ae370d303af4b0dd688a2e989957513e21622` 已通过 fast、PR、quality、唯一一次 release 和同 SHA GitHub Actions `30709429791`。但正式迁移前的隔离真实模型评估仍 fail-closed：`ai01-extract-v2` 返回的四组 evidence 映射中三组完全正确，一组把已签发 evidence ID 与相邻 source block 的 block ID/locator 交叉组合，本地门禁以 `EVIDENCE_BLOCK_MISMATCH` 拒绝。正式数据库因此保持 `0058`，所有 Writer 继续停止，未制作或应用 pre-0059 迁移。最小后继 `ai01-extract-v3`/`0060_phase5_extract_prompt_v3` 把每个 `evidence_id + document_block_id + locator_value + text` 固结为单个不可拆分 source-block 记录并移除分离正文；0059 身份保留不改写。新候选仍须重新完成门禁、隔离真实评估、新 pre-0060 备份/恢复、正式迁移和全新八小时窗口。
 
 ## transfer 与运行模式决策（待真实窗口收口）
 

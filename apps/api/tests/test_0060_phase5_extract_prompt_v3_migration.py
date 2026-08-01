@@ -12,37 +12,34 @@ from srbg_api.ai_pipeline.content_preparation import (
     EXTRACTION_TASK_PROMPT_TEMPLATE,
 )
 
-MIGRATION = Path("apps/api/migrations/versions/0059_phase5_extract_prompt_v2.py")
+MIGRATION = Path("apps/api/migrations/versions/0060_phase5_extract_prompt_v3.py")
 
 
 def _migration_module() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("phase5_extract_prompt_v2", MIGRATION)
+    spec = importlib.util.spec_from_file_location("phase5_extract_prompt_v3", MIGRATION)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-def test_phase5_extract_prompt_v2_precedes_the_current_head() -> None:
+def test_phase5_extract_prompt_v3_is_the_single_head() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
 
-    assert script.get_revision("0060_phase5_extract_prompt_v3").down_revision == (
-        "0059_phase5_extract_prompt_v2"
-    )
+    assert script.get_heads() == ["0060_phase5_extract_prompt_v3"]
 
 
-def test_registered_v2_prompt_is_preserved_as_historical_identity() -> None:
+def test_registered_prompt_identity_matches_the_runtime_template() -> None:
     migration = _migration_module()
 
-    assert migration.PROMPT_VERSION == "ai01-extract-v2"
-    assert migration.PROMPT_VERSION != EXTRACTION_PROMPT_VERSION
+    assert migration.PROMPT_VERSION == EXTRACTION_PROMPT_VERSION
     assert migration.SYSTEM_PROMPT == EXTRACTION_SYSTEM_PROMPT
-    assert migration.TASK_PROMPT != EXTRACTION_TASK_PROMPT_TEMPLATE
+    assert migration.TASK_PROMPT == EXTRACTION_TASK_PROMPT_TEMPLATE
 
 
 def test_prompt_downgrade_is_blocked_after_durable_use() -> None:
     source = MIGRATION.read_text(encoding="utf-8")
 
-    assert 'down_revision = "0058_phase5_technical_exception_acl"' in source
-    assert "0059_DOWNGRADE_BLOCKED: extraction prompt has durable uses" in source
+    assert 'down_revision = "0059_phase5_extract_prompt_v2"' in source
+    assert "0060_DOWNGRADE_BLOCKED: extraction prompt has durable uses" in source
     assert "JOIN ai_prompt_version prompt ON prompt.id=step.prompt_version_id" in source

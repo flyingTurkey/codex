@@ -18,9 +18,12 @@ from sqlalchemy.ext.asyncio import create_async_engine
 _DISPOSABLE_DATABASE = re.compile(r"srbg_it_[0-9a-f]{24}\Z")
 _BASE = "0054_policy_optimization"
 _LEGACY = "0055_crossref_metadata_admission"
-_HEAD = "0059_phase5_extract_prompt_v2"
-_EXTRACTION_PROMPT_SHA256 = (
+_HEAD = "0060_phase5_extract_prompt_v3"
+_EXTRACTION_PROMPT_V2_SHA256 = (
     "5ea472bb24ac60cbce944b4ce86257419244e63e75f35fe8d4b046593950f50b"
+)
+_EXTRACTION_PROMPT_V3_SHA256 = (
+    "9d5b0abb411d30286f89556e8b638eea3f130e3d49e03fbaa75c98f0b4971a8d"
 )
 
 
@@ -150,7 +153,7 @@ async def _verify_reconciled_head(database_url: str) -> None:
             if bool(api_can_write_compensation):
                 raise RuntimeError("0058_TECHNICAL_EXCEPTION_API_WRITE_LEAK")
 
-            extraction_prompt = (
+            extraction_prompt_v2 = (
                 await connection.execute(
                     text(
                         "SELECT id::text,prompt_sha256,"
@@ -160,12 +163,30 @@ async def _verify_reconciled_head(database_url: str) -> None:
                     )
                 )
             ).one_or_none()
-            if extraction_prompt is None or tuple(extraction_prompt) != (
+            if extraction_prompt_v2 is None or tuple(extraction_prompt_v2) != (
                 "019fbe20-0000-7000-8000-000000000101",
-                _EXTRACTION_PROMPT_SHA256,
+                _EXTRACTION_PROMPT_V2_SHA256,
                 True,
             ):
                 raise RuntimeError("0059_EXTRACTION_PROMPT_REGISTRY_INVALID")
+            extraction_prompt_v3 = (
+                await connection.execute(
+                    text(
+                        "SELECT id::text,prompt_sha256,"
+                        "task_prompt LIKE '%<server_issued_source_blocks>%',"
+                        "task_prompt NOT LIKE '%<document>%' "
+                        "FROM ai_prompt_version "
+                        "WHERE step='EXTRACT' AND version='ai01-extract-v3'"
+                    )
+                )
+            ).one_or_none()
+            if extraction_prompt_v3 is None or tuple(extraction_prompt_v3) != (
+                "019fbe30-0000-7000-8000-000000000101",
+                _EXTRACTION_PROMPT_V3_SHA256,
+                True,
+                True,
+            ):
+                raise RuntimeError("0060_EXTRACTION_PROMPT_REGISTRY_INVALID")
     finally:
         await engine.dispose()
 
@@ -199,6 +220,14 @@ async def _verify_clean_base(database_url: str) -> None:
                 await connection.scalar(
                     text(
                         "SELECT EXISTS(SELECT 1 FROM ai_prompt_version "
+                        "WHERE step='EXTRACT' AND version='ai01-extract-v3')"
+                    )
+                )
+            )
+            assert not bool(
+                await connection.scalar(
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM ai_prompt_version "
                         "WHERE step='EXTRACT' AND version='ai01-extract-v2')"
                     )
                 )
@@ -221,7 +250,7 @@ def main() -> None:
     asyncio.run(_verify_reconciled_head(database_url))
     print(
         "Phase-5 formal migration replay passed: "
-        "0055_crossref sibling -> 0059 single head with API read and extraction prompt v2"
+        "0055_crossref sibling -> 0060 single head with API read and atomic extraction v3"
     )
 
 

@@ -36,7 +36,7 @@ def _passing_samples() -> list[dict[str, object]]:
 
 def _passing_final() -> dict[str, object]:
     return {
-        "database_revision": "0059_phase5_extract_prompt_v2",
+        "database_revision": "0060_phase5_extract_prompt_v3",
         "run": {
             "state": "COMPLETED",
             "stop_reason": "WORKDAY_COMPLETE",

@@ -13,7 +13,7 @@ MIGRATION = Path(
 def test_phase5_acl_repair_is_the_single_head() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
 
-    assert script.get_heads() == ["0059_phase5_extract_prompt_v2"]
+    assert script.get_heads() == ["0060_phase5_extract_prompt_v3"]
 
 
 def test_phase5_acl_repair_grants_only_the_required_api_read() -> None:

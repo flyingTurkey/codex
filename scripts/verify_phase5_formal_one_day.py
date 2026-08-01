@@ -19,7 +19,7 @@ from uuid import UUID
 
 FORMAL_PROJECT = "srbg-intelligence"
 FORMAL_POSTGRES = f"{FORMAL_PROJECT}-postgres-1"
-EXPECTED_REVISION = "0059_phase5_extract_prompt_v2"
+EXPECTED_REVISION = "0060_phase5_extract_prompt_v3"
 EXPECTED_RUN_LIMITS = {
     "request_limit": 80,
     "byte_limit": 157_286_400,

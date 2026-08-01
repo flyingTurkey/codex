@@ -8,7 +8,7 @@ MIGRATION = Path("apps/api/migrations/versions/0025_personal_source_discovery.py
 
 def test_pers05_is_the_single_head_after_pers04() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
-    assert script.get_current_head() == "0059_phase5_extract_prompt_v2"
+    assert script.get_current_head() == "0060_phase5_extract_prompt_v3"
     revision = script.get_revision("0025_personal_source_discovery")
     assert revision is not None
     assert revision.down_revision == "0024_automatic_source_profiles"

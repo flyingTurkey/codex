@@ -9,7 +9,7 @@ MIGRATION = Path("apps/api/migrations/versions/0055_phase3_trustworthy_event.py"
 def test_phase3_trustworthy_event_is_the_single_linear_head() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
 
-    assert script.get_heads() == ["0059_phase5_extract_prompt_v2"]
+    assert script.get_heads() == ["0060_phase5_extract_prompt_v3"]
     source = MIGRATION.read_text(encoding="utf-8")
     assert 'revision = "0055_phase3_trustworthy_event"' in source
     assert 'down_revision = "0054_policy_optimization"' in source
