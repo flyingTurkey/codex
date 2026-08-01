@@ -28,11 +28,11 @@ def test_source_handoff_propagates_the_authoritative_controlled_run() -> None:
     assert "TO srbg_worker_role" in source
 
 
-def test_phase4_live_fails_closed_before_model_use_if_control_link_is_lost() -> None:
+def test_phase4_source_display_fails_closed_before_fetch_if_control_link_is_lost() -> None:
     source = LIVE_ACCEPTANCE.read_text(encoding="utf-8")
 
-    assert 'report["pipeline_controlled_run_id"]' in source
-    assert "AI_PIPELINE_CONTROLLED_RUN_MISMATCH" in source
+    assert 'report["fetch_controlled_run_id"]' in source
+    assert "FETCH_CONTROLLED_RUN_MISMATCH" in source
 
 
 def test_controlled_handoff_downgrade_restores_the_previous_function() -> None:

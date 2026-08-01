@@ -449,6 +449,16 @@ async def test_one_controlled_source_display(monkeypatch: pytest.MonkeyPatch) ->
         if claimed is None or claimed.source_id != source_id:
             raise RuntimeError("SOURCE_SCHEDULE_NOT_CLAIMED")
         fetch_run_id = claimed.run_id
+        async with admin.connect() as connection:
+            fetch_controlled_run_id = await connection.scalar(
+                text("SELECT controlled_run_id FROM fetch_run WHERE id=:run"),
+                {"run": claimed.run_id},
+            )
+        report["fetch_controlled_run_id"] = (
+            str(fetch_controlled_run_id) if fetch_controlled_run_id is not None else None
+        )
+        if fetch_controlled_run_id != controlled_run_id:
+            raise RuntimeError("FETCH_CONTROLLED_RUN_MISMATCH")
         gateway = PostgresRuntimeGateway(
             Settings(database_url=os.environ["SRBG_WORKER_DATABASE_URL"]),
             engine=worker,
