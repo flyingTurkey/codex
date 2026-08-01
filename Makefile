@@ -292,7 +292,7 @@ intelligence-v2-engineering-campaign:
 		--evidence-root "$(V2_CLOSEOUT_EVIDENCE_ROOT)"
 
 security-check:
-	$(UV) run pip-audit
+	$(UV) run pip-audit --skip-editable
 	$(PNPM) audit --prod --audit-level high
 	$(UV) run python scripts/prepare_security_scan.py
 	docker run --rm -v "$(CURDIR)/.cache/trivy-input:/workspace:ro" -w /workspace \

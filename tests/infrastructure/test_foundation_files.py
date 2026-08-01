@@ -310,6 +310,13 @@ def test_makefile_exposes_required_quality_and_runtime_targets() -> None:
     assert "$(UV) run python scripts/check_contract_generation.py" in makefile
 
 
+def test_security_gate_skips_unpublished_editable_workspace_packages() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    target = makefile.split("security-check:", 1)[1].split("\n\n", 1)[0]
+
+    assert "pip-audit --skip-editable" in target
+
+
 def test_ci_uses_the_current_autonomous_content_integration_gate() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
