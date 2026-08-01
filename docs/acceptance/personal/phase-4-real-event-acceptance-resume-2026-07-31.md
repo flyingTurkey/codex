@@ -315,6 +315,35 @@ This record does not authorize a formal database write or begin Phase 5.
     the repaired-SHA gates and same-document rerun; the next result will expose
     the actual pipeline terminal state rather than a reporting-layer mismatch.
 
+37. Repair candidate `31302b2f2fa999ee5415ef7ab3701a2c31f694c3`
+    passed `check-fast`, full local `check-pr`, its one exact-SHA
+    `check-release`, and same-SHA GitHub Actions run `30674091274`. Live
+    project `srbg-phase4-0bd7a38a20f7` fetched the fixed list and detail with
+    HTTP `200`, persisted Document `019fba9c-8fad-7556-9a2f-45da1ccea96e`,
+    DocumentVersion `019fba9c-8fad-7c0f-b3e9-dac1c2bfd0c4`, raw object
+    `019fba9c-8f9c-7c9a-a2ca-1981300fcc31`, and raw SHA-256
+    `204a61fd936697be808f3150c26e5179d6be61b3c1c934261da36598efb80e82`.
+    Append-only evidence
+    `.cache/phase4-evidence/31302b2f2fa999ee5415ef7ab3701a2c31f694c3-0bd7a38a20f7.json`
+    records the first confirmed blocker
+    `AI_PIPELINE_NOT_SUCCEEDED_CLASSIFYING`, zero model calls, zero cost, zero
+    active database tasks, zero Redis keys, and a successful drain; teardown
+    removed every scoped container, volume, and network. The controlled
+    `fetch_run` carries the run authority, but the policy-bound
+    `handoff_source_content_to_ai` function created its `ai_pipeline_run`
+    without copying `controlled_run_id`. The earlier 80,000-micro-USD path had
+    consequently fallen back to the generic AI ledger; the tightened
+    50,000-micro-USD acceptance reservation correctly failed closed instead
+    of making an unbounded provider request. Four focused regressions were red
+    before the minimal repair and now pass. The new linear Alembic head copies
+    only that existing fetch-run authority through the same narrow handoff and
+    restores the previous function on downgrade; live acceptance verifies the
+    binding before model use. No source, document, provider/model, prompt,
+    schema, deadline, retry limit, publication gate, formal database, FlClash,
+    or system-network setting is changed. This immutable result remains
+    `NO_GO`; Phase 5 remains unstarted pending the repair gates, same-SHA CI,
+    and a complete same-document rerun.
+
 28. The Owner explicitly authorized abandoning the repeatedly unavailable CCCC
     SourceStream and selecting one compliant replacement without starting Phase
     5. Point-in-time research first rejected Sichuan Transport, CSCEC, and XCMG:

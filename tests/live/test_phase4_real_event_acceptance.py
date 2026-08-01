@@ -699,6 +699,19 @@ async def test_one_controlled_real_industry_update(
             raise RuntimeError("SOURCE_CONTENT_HANDOFF_FAILED")
         report["pipeline_run_id"] = str(handoff.pipeline_run_id)
 
+        async with admin.connect() as connection:
+            pipeline_controlled_run_id = await connection.scalar(
+                text("SELECT controlled_run_id FROM ai_pipeline_run WHERE id=:run"),
+                {"run": handoff.pipeline_run_id},
+            )
+        report["pipeline_controlled_run_id"] = (
+            str(pipeline_controlled_run_id)
+            if pipeline_controlled_run_id is not None
+            else None
+        )
+        if pipeline_controlled_run_id != controlled_run_id:
+            raise RuntimeError("AI_PIPELINE_CONTROLLED_RUN_MISMATCH")
+
         await worker_app._start_ai_content_preparation(handoff.pipeline_run_id)
         completed_steps: list[str] = []
         while pending:
