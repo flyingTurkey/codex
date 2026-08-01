@@ -560,27 +560,23 @@ def test_phase4_live_replacement_source_and_document_are_fixed_before_network_io
         ROOT / "tests/live/test_phase4_real_event_acceptance.py"
     ).read_text(encoding="utf-8")
 
-    assert (
-        'SOURCE_STREAM_ID = "019fb870-06f4-7227-a03e-a6b11dcbf91e"'
-        in runner
-    )
-    assert 'source_stream_key=sany-construction-cases' in runner
+    assert 'SOURCE_STREAM_ID = "019fbbb0-b1f6-7e3f-97c0-20e4c16616c5"' in runner
+    assert "source_stream_key=CJHT_CURRENT_ISSUE" in runner
     assert '"SRBG_PHASE4_SOURCE_STREAM_ID": SOURCE_STREAM_ID' in runner
     assert 'fixed_stream_id = UUID(os.environ["SRBG_PHASE4_SOURCE_STREAM_ID"])' in live_test
     assert "if stream_id != fixed_stream_id:" in live_test
     assert 'raise RuntimeError("SOURCE_STREAM_ID_NOT_FIXED")' in live_test
+    assert 'COLLECTION_URL = "https://zgglxb.chd.edu.cn/CN/current"' in live_test
     assert (
-        'COLLECTION_URL = "https://www.sanygroup.com/case/dlid-7/gongclx-/year-/"'
-        in live_test
-    )
-    assert (
-        'FIXED_DOCUMENT_URL = "https://www.sanygroup.com/case/16434.html"'
-        in live_test
+        'FIXED_DOCUMENT_URL = "https://zgglxb.chd.edu.cn/CN/'
+        '10.19721/j.cnki.1001-7372.2026.07.016"' in live_test
     )
     assert 'raise RuntimeError("FIXED_DOCUMENT_NOT_DISCOVERED")' in live_test
-    assert '"item_selector": "div.case-list"' in live_test
+    assert '"item_selector": "#art5465"' in live_test
     assert '"link_selector": "a"' in live_test
-    assert '"title_selector": "h3"' in live_test
+    assert '"title_selector": "a"' in live_test
+    assert 'SOURCE_PATH_PREFIX = "/CN/"' in live_test
+    assert "2026-08-01-phase-4-high-signal-replacement-source.md" in live_test
 
 
 def test_phase4_live_stop_closes_stream_authority_before_drain() -> None:
@@ -672,10 +668,10 @@ def test_phase4_live_ai_evidence_uses_registry_versions_and_incremental_cost() -
     assert "JOIN ai_model_profile model ON model.id=step.model_profile_id" in live
     assert 'report["model_call_usage"] = model_call_usage' in live
     assert 'report["ai_cost_microusd"] = sum(' in live
-    assert "MAX_AI_COST_MICROUSD = 50_000" in live
+    assert "MAX_AI_COST_MICROUSD = 40_000" in live
     assert "MODEL_CALL_RESERVATION_MICROUSD = 12_000" in live
     assert "reserve_controlled_ai_budget(" in live
-    assert "budget_microusd=50000" in runner
+    assert "budget_microusd=40000" in runner
 
 
 def test_phase4_live_binds_all_ai_worker_services_to_the_worker_role() -> None:
@@ -701,6 +697,24 @@ def test_phase4_live_zero_model_calls_are_complete_cost_evidence() -> None:
     assert 'report["ai_cost_microusd"] = 0' in live
     assert 'report["ai_cost_complete"] = True' in live
     assert 'report["pipeline_status"] = str(pipeline_status)' in live
+
+
+def test_phase4_live_failure_evidence_keeps_bounded_qualification_diagnostics() -> None:
+    live = (ROOT / "tests/live/test_phase4_real_event_acceptance.py").read_text(encoding="utf-8")
+
+    assert "async def _capture_decision_diagnostics(" in live
+    assert "decision.reason_codes,decision.rule_signals" in live
+    assert 'report["qualification_reason_codes"]' in live
+    assert 'report["qualification_rule_signals"]' in live
+    assert 'report["source_published_at_evidence"]' in live
+    assert '"status": "NOT_REACHED"' in live
+    assert "await _capture_decision_diagnostics(" in live
+    assert (
+        "model_candidate"
+        not in live.split("async def _capture_decision_diagnostics(", 1)[1].split(
+            "async def test_one_controlled_real_industry_update", 1
+        )[0]
+    )
 
 
 def test_web_image_keeps_versioned_esbuild_binaries_isolated_and_cached() -> None:

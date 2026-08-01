@@ -74,20 +74,20 @@ pytestmark = [
     ),
 ]
 
-COLLECTION_URL = "https://www.sanygroup.com/case/dlid-7/gongclx-/year-/"
-FIXED_DOCUMENT_URL = "https://www.sanygroup.com/case/16434.html"
-SOURCE_STREAM_KEY = "sany-construction-cases"
-SOURCE_HOST = "www.sanygroup.com"
-SOURCE_PATH_PREFIX = "/case/"
-SOURCE_POLICY_VERSION = "t20-sany-construction-machinery-cases-v1"
+COLLECTION_URL = "https://zgglxb.chd.edu.cn/CN/current"
+FIXED_DOCUMENT_URL = "https://zgglxb.chd.edu.cn/CN/10.19721/j.cnki.1001-7372.2026.07.016"
+SOURCE_STREAM_KEY = "CJHT_CURRENT_ISSUE"
+SOURCE_HOST = "zgglxb.chd.edu.cn"
+SOURCE_PATH_PREFIX = "/CN/"
+SOURCE_POLICY_VERSION = "t18-stream-discovery-w4-v1"
 MODEL = "deepseek-v4-flash"
 PROVIDER = "deepseek"
 MAX_MODEL_CALLS = 8
-MAX_AI_COST_MICROUSD = 50_000
+MAX_AI_COST_MICROUSD = 40_000
 MODEL_CALL_RESERVATION_MICROUSD = 12_000
 MAX_WALL_SECONDS = 1_500
 RESEARCH_PATH = Path(
-    "docs/research/2026-07-31-phase-4-replacement-source-stream.md"
+    "docs/research/2026-08-01-phase-4-high-signal-replacement-source.md"
 )
 RESEARCH_SHA256 = sha256(RESEARCH_PATH.read_bytes()).hexdigest()
 
@@ -147,9 +147,9 @@ async def _seed_stream(
     config = {
         "allowed_hosts": [SOURCE_HOST],
         "list_url": COLLECTION_URL,
-        "item_selector": "div.case-list",
+        "item_selector": "#art5465",
         "link_selector": "a",
-        "title_selector": "h3",
+        "title_selector": "a",
     }
     config_json = json.dumps(config, sort_keys=True, separators=(",", ":"))
     config_hash = sha256(config_json.encode()).hexdigest()
@@ -166,7 +166,7 @@ async def _seed_stream(
             text(
                 "ALTER TABLE personal_controlled_run ADD CONSTRAINT "
                 "phase4_acceptance_ai_cost_limit CHECK("
-                "ai_cost_limit_microusd=50000 AND failure_rate_min_samples=10)"
+                "ai_cost_limit_microusd=40000 AND failure_rate_min_samples=10)"
             )
         )
         await connection.execute(
@@ -459,6 +459,59 @@ async def _stop_and_drain(
     }
 
 
+async def _capture_decision_diagnostics(
+    admin: AsyncEngine,
+    *,
+    report: dict[str, Any],
+    document_version_id: UUID | None,
+) -> None:
+    """Keep bounded decision facts without recording source or model content."""
+
+    if document_version_id is None:
+        return
+    async with admin.connect() as connection:
+        decision = (
+            (
+                await connection.execute(
+                    text(
+                        "SELECT decision.disposition,"
+                        "decision.reason_codes,decision.rule_signals,"
+                        "(SELECT source_published_at FROM intelligence_item "
+                        "WHERE current_document_version_id=:version LIMIT 1) "
+                        "AS source_published_at,"
+                        "EXISTS(SELECT 1 FROM claim accepted_claim "
+                        "JOIN automatic_evidence_acceptance acceptance "
+                        "ON acceptance.claim_id=accepted_claim.id "
+                        "WHERE accepted_claim.document_version_id=:version "
+                        "AND accepted_claim.claim_type='published_at') "
+                        "AS published_at_accepted "
+                        "FROM automated_qualification_decision_v2 decision "
+                        "WHERE decision.document_version_id=:version "
+                        "ORDER BY decision.decided_at DESC,decision.id DESC LIMIT 1"
+                    ),
+                    {"version": document_version_id},
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+    if decision is None:
+        return
+    report["qualification_disposition"] = str(decision["disposition"])
+    report["qualification_reason_codes"] = list(decision["reason_codes"])
+    report["qualification_rule_signals"] = decision["rule_signals"]
+    published_at = decision["source_published_at"]
+    published_at_status = "NOT_REACHED"
+    if published_at is not None and bool(decision["published_at_accepted"]):
+        published_at_status = "ACCEPTED_EVIDENCE_BACKED"
+    elif decision["disposition"] == "AUTO_ACCEPTED":
+        published_at_status = "MISSING"
+    report["source_published_at_evidence"] = {
+        "status": published_at_status,
+        "value": published_at.isoformat() if published_at is not None else None,
+    }
+
+
 async def test_one_controlled_real_industry_update(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -485,12 +538,16 @@ async def test_one_controlled_real_industry_update(
         ),
         "fixed_document_url": FIXED_DOCUMENT_URL,
         "started_at": started_at.isoformat(),
+        "qualification_reason_codes": [],
+        "qualification_rule_signals": {},
+        "source_published_at_evidence": {"status": "NOT_REACHED", "value": None},
     }
     source_id: UUID | None = None
     stream_id: UUID | None = None
     owner_id: UUID | None = None
     controlled_run_id: UUID | None = None
     fetch_run_id: UUID | None = None
+    document_version_id: UUID | None = None
     pending: list[dict[str, Any]] = []
     model_calls = 0
     model_call_usage: list[dict[str, Any]] = []
@@ -683,6 +740,7 @@ async def test_one_controlled_real_industry_update(
             )
         if document["canonical_url"] != FIXED_DOCUMENT_URL:
             raise RuntimeError("FIXED_DOCUMENT_URL_MISMATCH")
+        document_version_id = document["version_id"]
         report.update(
             {
                 "document_id": str(document["document_id"]),
@@ -692,6 +750,12 @@ async def test_one_controlled_real_industry_update(
                 "original_url": document["canonical_url"],
                 "acquired_at": document["acquired_at"].isoformat(),
                 "first_discovered_at": document["first_discovered_at"].isoformat(),
+                "pre_model_screening": {
+                    "fixed_url_match": True,
+                    "bounded_path_match": True,
+                    "research_sha256": RESEARCH_SHA256,
+                    "passed": True,
+                },
             }
         )
         handoff = await SourceContentOutboxExecutor(
@@ -987,6 +1051,18 @@ async def test_one_controlled_real_industry_update(
         raise
     finally:
         try:
+            try:
+                await _capture_decision_diagnostics(
+                    admin,
+                    report=report,
+                    document_version_id=document_version_id,
+                )
+            except Exception as diagnostics_error:
+                report["decision_diagnostics_error"] = type(diagnostics_error).__name__
+                if report["status"] == "PASS":
+                    report["status"] = "NO_GO"
+                    report["first_blocker"] = "DecisionDiagnosticsFailed"
+                    report["first_blocker_code"] = "DECISION_DIAGNOSTICS_FAILED"
             report["queue_drain"] = await _stop_and_drain(
                 admin,
                 source_id=source_id,

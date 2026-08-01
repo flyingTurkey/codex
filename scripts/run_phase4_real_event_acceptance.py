@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PROFILE = "phase4-real-event"
 CONFIRMATION = "I_UNDERSTAND"
-SOURCE_STREAM_ID = "019fb870-06f4-7227-a03e-a6b11dcbf91e"
+SOURCE_STREAM_ID = "019fbbb0-b1f6-7e3f-97c0-20e4c16616c5"
 
 
 def require_complete_model_chain(
@@ -179,8 +179,8 @@ def main() -> int:
             "phase4_preflight_ok "
             f"sha={release_sha} profile={PROFILE} project={project} "
             f"source_stream_id={SOURCE_STREAM_ID} "
-            "source_stream_key=sany-construction-cases "
-            "budget_microusd=50000 deadline_seconds=1500 max_model_calls=8 "
+            "source_stream_key=CJHT_CURRENT_ISSUE "
+            "budget_microusd=40000 deadline_seconds=1500 max_model_calls=8 "
             f"network_route={network_route}"
         )
         started = _run(

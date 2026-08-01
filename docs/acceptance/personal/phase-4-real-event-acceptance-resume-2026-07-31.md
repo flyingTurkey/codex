@@ -846,3 +846,32 @@ This record does not authorize a formal database write or begin Phase 5.
   and no scoped Docker container, volume, or network)
 - Decision: `NO_GO`
 - Formal database stage: `NOT AUTHORIZED`; Phase 5 remains unstarted
+
+47. On 2026-08-01 the Owner authorized the recommended low-code Phase 4
+    optimization. Research rejected the National Energy Administration coal
+    stream because its list and detail paths would force the controlled-run
+    authority prefix to `/`. The sole replacement is the already researched
+    `CJHT_CURRENT_ISSUE` stream on `zgglxb.chd.edu.cn`, whose list and frozen
+    article both remain under `/CN/`. The fixed article is
+    “静动荷载下公路超大跨径管拱形钢波纹管涵洞的力学特性”, published
+    `2026-07-30`; its official HTML exposes title, abstract, and publication
+    metadata without PDF, login, CAPTCHA, paywall, or cross-host access.
+    Point-in-time production-path checks resolved the host to public address
+    `202.117.65.29`, received HTTP `200` for list, detail, and robots, and
+    confirmed the frozen DOM item and explicit wildcard `Allow: /`. No model
+    or database was used during research.
+
+48. The acceptance-only repair freezes SourceStream
+    `019fbbb0-b1f6-7e3f-97c0-20e4c16616c5`, the exact list and detail URLs,
+    existing `LIST_DETAIL` selectors, provider/model, 25-minute deadline,
+    eight-call ceiling, and a reduced 40,000-micro-USD run cap. Before model
+    dispatch it requires the fixed URL and narrow research boundary. Failure
+    evidence now reads only persisted qualification `reason_codes`,
+    `rule_signals`, and the evidence-backed publication-date state; it does
+    not record source body, raw model output, or secrets. Production
+    qualification, Prompt, Schema, model behavior, evidence acceptance,
+    PublicationService, formal data, Docker networking, and FlClash remain
+    unchanged. Focused tests were red before these minimal harness changes and
+    now pass. Phase 4 remains `NO_GO` pending the repair SHA's required gates,
+    same-SHA CI, and one complete isolated live chain; Phase 5 remains
+    unstarted.

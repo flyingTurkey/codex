@@ -2,6 +2,7 @@
 
 ## 2026-07-31 (Phase 4 controlled real Event acceptance — resumed)
 
+- After two real Sany documents were honestly `AUTO_FILTERED`, replaced the marketing stream with the already researched `CJHT_CURRENT_ISSUE` official journal stream and froze one published highway-culvert research article under the narrow shared `/CN/` boundary. The acceptance-only harness keeps production qualification, Prompt, Schema, model, SourceAdmission, and publication gates unchanged; it lowers the next-run cap to 40,000 micro-USD and records bounded qualification reason codes, rule signals, and evidence-backed publication-date status without source body or model output. No model, database, publication, or Phase 5 action occurred while preparing this repair.
 - Preserved the original Phase 4 `NO_GO` record unchanged and resumed only after the Owner restated that `NO_GO` cannot unlock Phase 5.
 - Repaired the isolated data-root readiness boundary so Prometheus and Grafana permissions are applied to the configured `SRBG_DATA_ROOT`, not an unrelated default path; the frozen repair candidate passed local `check-fast`, `check-pr`, and exact-SHA `check-release`.
 - Reproduced the fresh-runner CI failure where migration `0016` grants to `srbg_publisher_login` before that role exists. The autonomous migration gate now waits for the existing Compose `role-bootstrap` service before creating its disposable database; no migration, ACL, publication rule, or production database was changed.
