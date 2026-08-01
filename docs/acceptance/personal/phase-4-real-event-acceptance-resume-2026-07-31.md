@@ -915,3 +915,31 @@ This record does not authorize a formal database write or begin Phase 5.
     before the repair and is green afterward. Phase 4 remains `NO_GO` pending
     the repair SHA's prescribed gates, same-SHA CI, and the same-document live
     rerun; Phase 5 remains unstarted.
+
+52. Repair candidate `561c8c96ed170519610a8e47b29fd8df6c899b51`
+    passed `check-fast`, full `check-pr`, its one exact-SHA `check-release`, and
+    same-SHA GitHub Actions run `30686440110`. Two subsequent isolated live
+    projects, `srbg-phase4-a7a5bd6d924d` and
+    `srbg-phase4-f1dca258bcd0`, each stopped before receiving a source response.
+    Their append-only evidence files record `BOUNDED_SOURCE_FETCH_FAILED:DNS`,
+    zero discovered/fetched documents, zero model calls, zero cost, zero active
+    database tasks, zero Redis keys, and complete scoped Docker teardown. The
+    files are `.cache/phase4-evidence/561c8c96ed170519610a8e47b29fd8df6c899b51-a7a5bd6d924d.json`
+    and `.cache/phase4-evidence/561c8c96ed170519610a8e47b29fd8df6c899b51-f1dca258bcd0.json`.
+    Both are honest `NO_GO` results; Phase 5 remains unstarted.
+
+53. Bounded, no-body diagnostics proved that the persisted `DNS` class is
+    coarse rather than causal: RFC 8484 A/AAAA resolution returned the fixed
+    public `202.117.65.29` address, SOCKS and hostname-validated TLS completed,
+    and the production HTTP path exposed an intermittent `httpx2.ConnectError`
+    before any response. A later traced request through the identical pinned
+    route returned HTTP `200` and 157,509 bytes without logging content. The
+    profile had no retry because both `max_attempts` and its exact list/detail
+    request budget were exhausted at the first transport failure. The focused
+    repair therefore freezes two attempts and three total physical requests:
+    at most one transport retry while preserving one SourceStream, one frozen
+    document, one request per minute, the 25-minute deadline, the unchanged
+    model budget, and all public-network, SourceAdmission, evidence, and
+    publication gates. Production retry behavior, FlClash, system networking,
+    formal data, and Phase 5 are unchanged. Phase 4 remains `NO_GO` pending the
+    new repair SHA's prescribed gates, same-SHA CI, and same-document live run.

@@ -86,6 +86,8 @@ MAX_MODEL_CALLS = 8
 MAX_AI_COST_MICROUSD = 40_000
 MODEL_CALL_RESERVATION_MICROUSD = 12_000
 MAX_WALL_SECONDS = 1_500
+MAX_FETCH_ATTEMPTS = 2
+MAX_SOURCE_REQUESTS = 3
 RESEARCH_PATH = Path(
     "docs/research/2026-08-01-phase-4-high-signal-replacement-source.md"
 )
@@ -213,13 +215,16 @@ async def _seed_stream(
                 "rate_limit_per_minute,daily_request_budget,daily_byte_budget,"
                 "requests_used,bytes_used,budget_window_started_at,version,updated_at) "
                 "VALUES(:schedule,:source,:stream,:config,'PERSONAL_STREAM','PERSONAL',"
-                "'PAUSED',86400,:now,1,1,1,0,'CLOSED',86400,1,2,5242880,0,0,:now,1,:now)"
+                "'PAUSED',86400,:now,1,1,:max_attempts,0,'CLOSED',86400,1,"
+                ":request_budget,5242880,0,0,:now,1,:now)"
             ),
             {
                 "schedule": schedule_id,
                 "source": source.id,
                 "stream": stream_id,
                 "config": config_id,
+                "max_attempts": MAX_FETCH_ATTEMPTS,
+                "request_budget": MAX_SOURCE_REQUESTS,
                 "now": now,
             },
         )
