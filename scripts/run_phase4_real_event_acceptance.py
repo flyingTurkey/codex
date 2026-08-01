@@ -1,4 +1,4 @@
-"""Guard and execute the one-shot phase-4 real event acceptance profile."""
+"""Guard and execute the one-shot phase-4 source-display acceptance profile."""
 
 from __future__ import annotations
 
@@ -11,24 +11,33 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PROFILE = "phase4-real-event"
+PROFILE = "phase4-source-display"
 CONFIRMATION = "I_UNDERSTAND"
 SOURCE_STREAM_ID = "019fbbb0-b1f6-7e3f-97c0-20e4c16616c5"
 
 
-def require_complete_model_chain(
+def require_source_display_projection(
     *,
-    qualification_disposition: str,
-    completed_steps: list[str],
+    source_visible: bool,
+    stream_visible: bool,
+    normalized_url: str,
+    expected_url: str,
+    last_successful_fetch_at: object | None,
+    last_content_discovered_at: object | None,
+    discovered_count: int,
+    fetched_count: int,
+    failed_count: int,
 ) -> None:
-    if qualification_disposition != "AUTO_ACCEPTED":
-        raise RuntimeError(
-            f"QUALIFICATION_NOT_AUTO_ACCEPTED_{qualification_disposition or 'MISSING'}"
-        )
-    classify_count = 2 if completed_steps[:2] == ["CLASSIFY", "CLASSIFY"] else 1
-    expected = ["CLASSIFY"] * classify_count + ["EXTRACT", "SUMMARIZE", "VERIFY"]
-    if completed_steps != expected:
-        raise RuntimeError("AI_MODEL_CHAIN_INCOMPLETE")
+    if not source_visible:
+        raise RuntimeError("SOURCE_NOT_VISIBLE_ON_SOURCES")
+    if not stream_visible or normalized_url != expected_url:
+        raise RuntimeError("SOURCE_STREAM_NOT_VISIBLE_ON_SOURCES")
+    if last_successful_fetch_at is None or last_content_discovered_at is None:
+        raise RuntimeError("SOURCE_FETCH_NOT_VISIBLE_ON_SOURCES")
+    if discovered_count != 1 or fetched_count != 1:
+        raise RuntimeError("SOURCE_FETCH_NOT_VISIBLE_ON_SOURCES")
+    if failed_count != 0:
+        raise RuntimeError("SOURCE_FETCH_NOT_SUCCESSFUL_ON_SOURCES")
 
 
 def _run(
@@ -51,7 +60,7 @@ def _required_preflight() -> str:
     if os.environ.get("LIVE_CONFIRM") != CONFIRMATION:
         raise RuntimeError("LIVE_CONFIRM must be I_UNDERSTAND")
     if os.environ.get("LIVE_ACCEPTANCE_PROFILE") != PROFILE:
-        raise RuntimeError("LIVE_ACCEPTANCE_PROFILE must be phase4-real-event")
+        raise RuntimeError("LIVE_ACCEPTANCE_PROFILE must be phase4-source-display")
     expected = os.environ.get("RELEASE_CANDIDATE_SHA", "")
     actual = _run(["git", "rev-parse", "HEAD"], capture=True).stdout.strip()
     if len(expected) != 40 or expected != actual:
@@ -69,39 +78,6 @@ def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
         listener.bind(("127.0.0.1", 0))
         return int(listener.getsockname()[1])
-
-
-def _load_key() -> str:
-    source_volume = os.environ.get(
-        "SRBG_PHASE4_SECRET_SOURCE_VOLUME",
-        "srbg-intelligence_ai-secrets",
-    )
-    inspected = _run(["docker", "volume", "inspect", source_volume], capture=True)
-    if inspected.returncode:
-        raise RuntimeError("approved DeepSeek secret volume is unavailable")
-    result = _run(
-        [
-            "docker",
-            "run",
-            "--rm",
-            "--network",
-            "none",
-            "--volume",
-            f"{source_volume}:/run/approved-secret:ro",
-            "alpine:3.21",
-            "sh",
-            "-c",
-            "test -s /run/approved-secret/deepseek.key && "
-            "cat /run/approved-secret/deepseek.key",
-        ],
-        capture=True,
-    )
-    key = result.stdout
-    if result.returncode or not 20 <= len(key) <= 4096 or any(
-        character in key for character in "\r\n\x00"
-    ):
-        raise RuntimeError("approved DeepSeek secret is invalid")
-    return key
 
 
 def _validated_cleanup(path: Path) -> None:
@@ -150,9 +126,6 @@ def main() -> int:
             "SRBG_PHASE4_RELEASE_CANDIDATE_SHA": release_sha,
             "SRBG_PHASE4_SOURCE_STREAM_ID": SOURCE_STREAM_ID,
             "SRBG_PHASE4_EVIDENCE_OUTPUT": str(evidence),
-            "SRBG_AI_PROVIDER": "deepseek",
-            "SRBG_AI_ENVIRONMENT": "acceptance",
-            "SRBG_AI_TIMEOUT_SECONDS": "30",
         }
     )
     compose = [
@@ -169,7 +142,6 @@ def main() -> int:
     ]
     exit_code = 1
     try:
-        environment["SRBG_AI_API_KEY"] = _load_key()
         network_route = (
             "PINNED_LOCAL_SOCKS5"
             if environment.get("SRBG_ACQUISITION_SOCKS5_PROXY_URL")
@@ -180,7 +152,7 @@ def main() -> int:
             f"sha={release_sha} profile={PROFILE} project={project} "
             f"source_stream_id={SOURCE_STREAM_ID} "
             "source_stream_key=CJHT_CURRENT_ISSUE "
-            "budget_microusd=28000 deadline_seconds=1500 max_model_calls=8 "
+            "deadline_seconds=600 model_calls=0 ai_cost_microusd=0 "
             f"network_route={network_route}"
         )
         started = _run(
@@ -202,7 +174,7 @@ def main() -> int:
             "verify_phase4_controlled_handoff_migration.py",
             "--",
             "tests/live/test_phase4_real_event_acceptance.py::"
-            "test_one_controlled_real_industry_update",
+            "test_one_controlled_source_display",
             "-q",
             "-s",
         ]
@@ -213,7 +185,6 @@ def main() -> int:
             f"project={project}"
         )
     finally:
-        environment.pop("SRBG_AI_API_KEY", None)
         _run([*compose, "down", "--volumes", "--remove-orphans"], environment=environment)
         _validated_cleanup(run_root)
     return exit_code

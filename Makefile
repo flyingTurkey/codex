@@ -222,7 +222,7 @@ web-build:
 	$(PNPM) --filter @srbg/web build
 
 live-acceptance:
-ifeq ($(LIVE_ACCEPTANCE_PROFILE),phase4-real-event)
+ifeq ($(LIVE_ACCEPTANCE_PROFILE),phase4-source-display)
 	$(UV) run python scripts/run_phase4_real_event_acceptance.py
 else
 	$(MAKE) dev

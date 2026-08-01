@@ -1039,3 +1039,31 @@ This record does not authorize a formal database write or begin Phase 5.
   and no scoped Docker container, volume, or network)
 - Decision: `NO_GO`
 - Formal database stage: `NOT AUTHORIZED`; Phase 5 remains unstarted
+
+60. On 2026-08-01 the Owner explicitly superseded the prior Phase 4 exit
+    definition. Phase 4 now asks only whether one researched and admitted real
+    SourceStream can collect its fixed document and display its source/runtime
+    facts through `/sources`. The required chain is SourceAdmission, bounded
+    list/detail fetch, immutable raw object, DocumentVersion, the existing
+    source-registry list/activity projection consumed by `/sources`, and a
+    drained isolated environment. AI classification/extraction/verification,
+    accepted claims/evidence, SourceExcerpt, PublicationService, authority or
+    revision, `/api/v2/feed`, Event Reader, and replay are no longer Phase 4
+    criteria. Their absence in a source-display run is therefore not a
+    failure. This scope change does not authorize formal database writes or
+    start Phase 5.
+
+61. The acceptance profile is renamed `phase4-source-display`. It retains the
+    fixed `CJHT_CURRENT_ISSUE` SourceStream ID and URLs, research evidence,
+    SourceAdmission, public-network safety, one-request-per-minute rate limit,
+    two fetch attempts, three physical request slots, private raw storage,
+    append-only evidence, hard deadline, queue drain, and scoped teardown. It
+    now stops after DocumentVersion persistence and reads the same
+    `SourceRegistryService` Interface used by `/api/v1/sources` and
+    `/api/v1/sources/{source_id}/activity`. PASS requires the source and stream
+    to be visible, both latest-fetch timestamps to be present, and the run
+    summary to report exactly one discovered, one fetched, and zero failed.
+    The profile loads no DeepSeek secret, makes zero model calls, and creates no
+    AI pipeline or publication. No production module or `/sources` UI code was
+    changed. Phase 4 remains `NO_GO` until the narrowed profile passes on a
+    frozen SHA; Phase 5 remains unstarted.

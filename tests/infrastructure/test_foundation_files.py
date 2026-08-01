@@ -584,7 +584,7 @@ def test_phase4_live_stop_closes_stream_authority_before_drain() -> None:
         ROOT / "tests/live/test_phase4_real_event_acceptance.py"
     ).read_text(encoding="utf-8")
     stop = live_test.split("async def _stop_and_drain(", 1)[1].split(
-        "async def test_one_controlled_real_industry_update", 1
+        "async def test_one_controlled_source_display", 1
     )[0]
 
     assert "record_owner_intent(" in stop
@@ -651,7 +651,7 @@ def test_phase4_live_document_lookup_uses_personal_stream_authority() -> None:
     assert "JOIN fetch_record record" not in live
 
 
-def test_phase4_live_ai_evidence_uses_registry_versions_and_incremental_cost() -> None:
+def test_phase4_live_uses_sources_projection_without_content_publication() -> None:
     runner = (ROOT / "scripts/run_phase4_real_event_acceptance.py").read_text(
         encoding="utf-8"
     )
@@ -659,62 +659,45 @@ def test_phase4_live_ai_evidence_uses_registry_versions_and_incremental_cost() -
         encoding="utf-8"
     )
 
-    assert "prompt.version AS prompt_version" in live
-    assert "schema.version AS schema_version" in live
-    assert "model.model AS model" in live
-    assert "JOIN ai_prompt_version prompt" in live
-    assert "ON prompt.id=step.prompt_version_id" in live
-    assert "JOIN ai_schema_version schema ON schema.id=step.schema_version_id" in live
-    assert "JOIN ai_model_profile model ON model.id=step.model_profile_id" in live
-    assert 'report["model_call_usage"] = model_call_usage' in live
-    assert 'report["ai_cost_microusd"] = sum(' in live
-    assert "MAX_AI_COST_MICROUSD = 28_000" in live
-    assert "MODEL_CALL_RESERVATION_MICROUSD = 12_000" in live
-    assert "reserve_controlled_ai_budget(" in live
-    assert "budget_microusd=28000" in runner
+    assert "SourceRegistryService(" in live
+    assert "await source_registry.list_personal_sources()" in live
+    assert "await source_registry.get_personal_source_activity(" in live
+    assert 'report["sources_projection"]' in live
+    assert "_generate_attempt" not in live
+    assert "PublicationService" not in live
+    assert "PostgresV2IntelligenceService" not in live
+    assert "SRBG_AI_API_KEY" not in runner
+    assert "model_calls=0 ai_cost_microusd=0" in runner
 
 
-def test_phase4_live_binds_all_ai_worker_services_to_the_worker_role() -> None:
+def test_phase4_live_does_not_create_an_ai_pipeline_or_source_handoff() -> None:
     live = (ROOT / "tests/live/test_phase4_real_event_acceptance.py").read_text(
         encoding="utf-8"
     )
 
-    assert 'monkeypatch.setattr(worker_app, "_ai_repository", repository_factory)' in live
-    assert (
-        'monkeypatch.setattr(\n'
-        '        worker_app, "_technical_retry_coordinator", coordinator_factory\n'
-        "    )"
-    ) in live
+    assert "SourceContentOutboxExecutor" not in live
+    assert "ai_pipeline_run" not in live
+    assert "reserve_controlled_ai_budget" not in live
 
 
-def test_phase4_live_zero_model_calls_are_complete_cost_evidence() -> None:
+def test_phase4_live_records_zero_model_calls_and_cost() -> None:
     live = (ROOT / "tests/live/test_phase4_real_event_acceptance.py").read_text(
         encoding="utf-8"
     )
 
-    assert 'report["model_calls"] = 0' in live
-    assert 'report["model_call_usage"] = model_call_usage' in live
-    assert 'report["ai_cost_microusd"] = 0' in live
-    assert 'report["ai_cost_complete"] = True' in live
-    assert 'report["pipeline_status"] = str(pipeline_status)' in live
+    assert '"model_calls": 0' in live
+    assert '"ai_cost_microusd": 0' in live
+    assert '"ai_required": False' in live
+    assert "pipeline_status" not in live
 
 
-def test_phase4_live_failure_evidence_keeps_bounded_qualification_diagnostics() -> None:
+def test_phase4_live_evidence_excludes_source_body_and_model_output() -> None:
     live = (ROOT / "tests/live/test_phase4_real_event_acceptance.py").read_text(encoding="utf-8")
 
-    assert "async def _capture_decision_diagnostics(" in live
-    assert "decision.reason_codes,decision.rule_signals" in live
-    assert 'report["qualification_reason_codes"]' in live
-    assert 'report["qualification_rule_signals"]' in live
-    assert 'report["source_published_at_evidence"]' in live
-    assert '"status": "NOT_REACHED"' in live
-    assert "await _capture_decision_diagnostics(" in live
-    assert (
-        "model_candidate"
-        not in live.split("async def _capture_decision_diagnostics(", 1)[1].split(
-            "async def test_one_controlled_real_industry_update", 1
-        )[0]
-    )
+    assert "response.text" not in live
+    assert "response.content" not in live
+    assert "model_candidate" not in live
+    assert "source_excerpt" not in live
 
 
 def test_web_image_keeps_versioned_esbuild_binaries_isolated_and_cached() -> None:
