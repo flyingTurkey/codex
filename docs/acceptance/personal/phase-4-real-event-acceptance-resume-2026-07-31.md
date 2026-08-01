@@ -776,3 +776,73 @@ This record does not authorize a formal database write or begin Phase 5.
     database, publication, or Phase 5 action occurred during this repair.
     Phase 4 remains `NO_GO` pending the new SHA's prescribed gates, same-SHA
     CI, and the newly frozen document's complete isolated live chain.
+
+43. Repair candidate `2a6095632a3cf6408fb71d1bfa5e83c0c1ce3e1e`
+    passed `check-fast`, the complete local `check-pr`, its one exact-SHA
+    `check-release`, and same-SHA GitHub Actions run `30682236912`. The first
+    `check-pr` attempt stopped at isolated acquisition infrastructure when the
+    Docker Desktop Engine returned HTTP `500`; after explicit Owner authority,
+    Docker Desktop was restarted without deleting any container, image,
+    network, or volume. Local diagnostics identified seventy stuck dashboard
+    `docker stats` requests; closing that UI monitoring tree restored the
+    Engine while preserving the backend and containers. The exact forty
+    `overseas-*` containers were then stopped for the gates under the existing
+    authorization. `quant_stock_postgres` and all FlClash processes remained
+    running. After acceptance, all forty containers were restored and verified
+    running.
+
+44. Isolated live project `srbg-phase4-1452e7d5a834` fixed SourceStream
+    `019fb870-06f4-7227-a03e-a6b11dcbf91e` and document
+    `https://www.sanygroup.com/case/16434.html`. It admitted the researched
+    stream, fetched the exact list and detail with two HTTP `200` requests,
+    persisted raw object `019fbb67-365d-7a99-896b-0eb1870a2270`, Document
+    `019fbb67-366c-71f8-8b80-e649b541f5b2`, and DocumentVersion
+    `019fbb67-366c-7fe9-bc45-8bd6bf3491e3`. Raw SHA-256 is
+    `9f83d3bc4b97e1e2adca5fa2218c9772fc7760a3368fedabf5d0e7fe0cb9555e`;
+    acquisition and first discovery were both
+    `2026-08-01T03:38:51.333752+00:00`. The visible source date
+    `2026.06.30` remained a research observation because the filtered chain did
+    not produce an accepted publication field.
+
+45. AI pipeline `019fbb67-3697-75c3-904c-6252347c015b` made two real,
+    Schema-valid `deepseek-v4-flash` CLASSIFY calls using Prompt
+    `autonomous-classify-2.7.0` and Schema
+    `autonomous-classify-output-2.0.0`. They used 7,679 input and 323 output
+    tokens and settled `728` micro-USD. The one bounded semantic recheck did
+    not satisfy the unchanged production qualification policy, so the
+    persisted disposition was `AUTO_FILTERED` and the first blocker was
+    `QUALIFICATION_NOT_AUTO_ACCEPTED_AUTO_FILTERED`. The pipeline terminal
+    status `SUCCEEDED` describes completed classification work; it is not an
+    acceptance. No accepted claim, accepted evidence locator, SourceExcerpt,
+    EXTRACT, SUMMARIZE, VERIFY, publication authority/revision, Feed item,
+    Reader, or machine-unreviewed label was created. Replay could not run
+    because there was no Event or publication, so zero duplication was not
+    established.
+
+46. The run lasted 65.615 seconds. Stop/drain recorded zero active database
+    tasks and zero Redis keys; teardown removed every scoped container, all
+    four scoped volumes, and the scoped network. Append-only evidence is
+    `.cache/phase4-evidence/2a6095632a3cf6408fb71d1bfa5e83c0c1ce3e1e-1452e7d5a834.json`.
+    Phase cumulative model calls are six. Exact prior cost is unrecoverable,
+    but the prior conservative upper bound plus this settlement is at most
+    `81,583` micro-USD, about RMB `0.55` at the observed USD/CNY rate near
+    `6.77`, below the RMB 1 limit. This is an honest `NO_GO`; no repeated
+    temperature-zero call, qualification weakening, direct SQL publication,
+    formal database write, or Phase 5 action was attempted.
+
+### Latest controlled acceptance state — candidate 2a609563
+
+- RELEASE_CANDIDATE_SHA: `2a6095632a3cf6408fb71d1bfa5e83c0c1ce3e1e`
+- SourceStream ID: `019fb870-06f4-7227-a03e-a6b11dcbf91e`
+- Document ID: `019fbb67-366c-71f8-8b80-e649b541f5b2`
+- Model calls/cost: `2`; `728` micro-USD in this run; phase cumulative calls
+  `6` and conservative cumulative cost at most `81,583` micro-USD
+- Full chain: source through DocumentVersion and bounded qualification ran;
+  qualification was `AUTO_FILTERED`, so accepted claims through Reader did not
+  run
+- Feed/Reader: not generated / not run
+- Replay: not run; zero duplication not established
+- Queue/resource drain: `PASS` (`0` active database tasks, `0` Redis keys,
+  and no scoped Docker container, volume, or network)
+- Decision: `NO_GO`
+- Formal database stage: `NOT AUTHORIZED`; Phase 5 remains unstarted
