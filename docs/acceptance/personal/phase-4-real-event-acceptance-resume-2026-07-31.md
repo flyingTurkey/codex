@@ -1092,3 +1092,50 @@ This record does not authorize a formal database write or begin Phase 5.
     module, source behavior, `/sources` UI, model, publication rule, or formal
     data. Phase 4 remains `NO_GO` pending repaired-SHA gates and the same
     narrowed live rerun; Phase 5 remains unstarted.
+
+64. Repair candidate `9250862f9d09b873296779558ee3bc27f65e0523`
+    passed `check-fast`, full `check-pr`, its sole exact-SHA `check-release`,
+    and same-SHA GitHub Actions run `30696040807`. Fresh isolated project
+    `srbg-phase4-2e2bb612461b` admitted SourceStream
+    `019fbbb0-b1f6-7e3f-97c0-20e4c16616c5`, made exactly two successful
+    source requests, and reported one discovered, one fetched, and zero failed.
+    It persisted raw object `019fbce9-0a92-7035-8472-2baf32e649b5`, Document
+    `019fbce9-0a9d-74dc-aedb-5762f777cb5b`, and DocumentVersion
+    `019fbce9-0a9d-748b-a57f-2ebe7d2be7e0`. Raw SHA-256 is
+    `d665709f0dbe7e43ad24077fed8a5441579e12e3ce60836e23e4d5b69e7fc056`;
+    acquisition and first discovery were both
+    `2026-08-01T10:40:17.019638+00:00`. Fetch authority remained bound to
+    controlled run `019fbce8-1e43-7e13-ab50-6f15acc0bcdc`.
+
+65. The existing source-registry Interface consumed by `/sources` returned
+    `source_visible=true` and `stream_visible=true` for the fixed IDs, stream
+    status `READY`, runtime state `SCHEDULED`, normalized URL
+    `https://zgglxb.chd.edu.cn/CN/current`, and matching successful-fetch and
+    content-discovery timestamps `2026-08-01T10:40:17.069700+00:00`. Its run
+    summary was `SUCCEEDED` with exactly 1/1/0 discovered/fetched/failed. The
+    run made zero model calls, spent zero model cost, and did not create or
+    require an AI pipeline, claims, publication, Feed item, Reader projection,
+    or replay under the superseding Phase 4 definition.
+
+66. Stop/drain recorded zero active database tasks and zero Redis keys. Scoped
+    PostgreSQL, Redis, MinIO containers, volumes, and network were removed.
+    Append-only evidence is
+    `.cache/phase4-evidence/9250862f9d09b873296779558ee3bc27f65e0523-2e2bb612461b.json`.
+    Phase 4 is `PASS` under the Owner-approved source-display definition. This
+    satisfies the prerequisite for the Owner to consider a separately
+    authorized next phase, but it does not itself authorize formal database
+    writes and Phase 5 was not started.
+
+### Latest controlled acceptance state - candidate 9250862
+
+- RELEASE_CANDIDATE_SHA: `9250862f9d09b873296779558ee3bc27f65e0523`
+- SourceStream ID: `019fbbb0-b1f6-7e3f-97c0-20e4c16616c5`
+- Document ID: `019fbce9-0a9d-74dc-aedb-5762f777cb5b`
+- Model calls/cost: `0`; `0` micro-USD
+- Source display: `PASS` (`source_visible=true`, `stream_visible=true`,
+  run summary `SUCCEEDED`, counts `1/1/0`)
+- Queue/resource drain: `PASS` (`0` active database tasks, `0` Redis keys,
+  and no scoped Docker container, volume, or network)
+- Decision: `PASS` under the superseding source-display definition
+- Formal database stage: prerequisite satisfied, but a separate Owner
+  instruction is still required; Phase 5 remains unstarted
