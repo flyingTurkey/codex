@@ -9,7 +9,7 @@ MIGRATION = Path("apps/api/migrations/versions/0054_policy_optimization.py")
 def test_policy_optimization_is_the_single_linear_head() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
 
-    assert script.get_heads() == ["0055_phase3_trustworthy_event"]
+    assert script.get_heads() == ["0056_phase4_controlled_handoff"]
     source = MIGRATION.read_text(encoding="utf-8")
     assert 'revision = "0054_policy_optimization"' in source
     assert 'down_revision = "0053_safety_exception_lifecycle"' in source

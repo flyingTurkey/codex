@@ -344,6 +344,19 @@ This record does not authorize a formal database write or begin Phase 5.
     `NO_GO`; Phase 5 remains unstarted pending the repair gates, same-SHA CI,
     and a complete same-document rerun.
 
+38. The first controlled-handoff repair commit
+    `0874d2e2509e46727b143403b6c571c38f3b056b` stopped at its first
+    `check-fast` blocker before `check-pr`: thirty historical migration tests
+    correctly detected that their hard-coded current-head expectation still
+    named `0055_phase3_trustworthy_event` after the linear `0056` repair was
+    added. No migration behavior, source request, model request, cost, or live
+    resource was involved. The sole follow-up replaces only those current-head
+    expectations with `0056_phase4_controlled_handoff`; it leaves every
+    historical revision/down-revision assertion intact. The complete API test
+    partition then passed with `1124 passed, 26 skipped`. Phase 4 remains
+    `NO_GO` pending a new clean repair SHA's full gates, same-SHA CI, and the
+    same-document live rerun; Phase 5 remains unstarted.
+
 28. The Owner explicitly authorized abandoning the repeatedly unavailable CCCC
     SourceStream and selecting one compliant replacement without starting Phase
     5. Point-in-time research first rejected Sichuan Transport, CSCEC, and XCMG:
