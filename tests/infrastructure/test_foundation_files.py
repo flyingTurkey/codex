@@ -323,7 +323,8 @@ def test_ci_uses_the_current_autonomous_content_integration_gate() -> None:
     assert "verify_phase4_controlled_handoff_migration.py" in target
     assert "tests/integration/t41_autonomous_content_integration.py" in target
     assert (
-        "migration-test: migration-head-check autonomous-content-integration-test"
+        "migration-test: migration-head-check phase5-formal-migration-test "
+        "autonomous-content-integration-test"
         in makefile
     )
     assert "make check-pr" in workflow

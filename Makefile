@@ -44,6 +44,9 @@ UV_CACHE_DIR ?= $(CURDIR)/.cache/uv
 UV_PYTHON_INSTALL_DIR ?= $(CURDIR)/.tools/python
 PLAYWRIGHT_BROWSERS_PATH ?= $(CURDIR)/.cache/ms-playwright
 V2_CLOSEOUT_EVIDENCE_ROOT ?= $(CURDIR)/.cache/intelligence-v2-evidence
+PHASE5_EVIDENCE_ROOT ?= D:/SRBGData/reports/phase5
+PHASE5_RUN_ID ?=
+PHASE5_SOURCE_STREAM_ID ?=
 
 export UV_CACHE_DIR
 export UV_PYTHON_INSTALL_DIR
@@ -57,6 +60,7 @@ export CHECK_MAKE
 	check-fast check-pr check-release check-live diff-check docs-check risk-classifier-test \
 	python-unit-test python-integration-test python-affected-test web-unit-test frontend-fast \
 	contract-fast contract-test pytest-partitions orchestration-test compose-config compose-smoke migration-head-check migration-test \
+	phase5-formal-migration-test \
 	acquisition-integration-test ai-integration-test isolated-integration-test publication-adversarial web-build live-acceptance \
 	security-check smoke \
 	resilience-test fixture-replay quality-gate playwright-browser-ready web-e2e web-a11y source-fixture-test \
@@ -193,7 +197,16 @@ compose-smoke:
 migration-head-check:
 	$(UV) run python scripts/ci/check_migration_heads.py
 
-migration-test: migration-head-check autonomous-content-integration-test
+migration-test: migration-head-check phase5-formal-migration-test autonomous-content-integration-test
+
+phase5-formal-migration-test:
+	$(COMPOSE) up --detach --wait postgres minio
+	$(COMPOSE) run --rm --no-deps role-bootstrap
+	$(UV) run python scripts/run_isolated_integration.py \
+		--migration-verifier verify_phase5_formal_reconciliation_migration.py -- \
+		apps/api/tests/test_0057_phase5_formal_reconciliation_migration.py \
+		tests/integration/t41_autonomous_content_integration.py::test_phase5_formal_snapshot_sql_compiles_against_authoritative_schema \
+		tests/live/test_phase5_formal_one_day.py -q
 
 acquisition-integration-test: t07-source-shadow-test
 
@@ -222,7 +235,12 @@ web-build:
 	$(PNPM) --filter @srbg/web build
 
 live-acceptance:
-ifeq ($(LIVE_ACCEPTANCE_PROFILE),phase4-source-display)
+ifeq ($(LIVE_ACCEPTANCE_PROFILE),phase5-formal-one-day)
+	$(UV) run python scripts/verify_phase5_formal_one_day.py --action verify \
+		--run-id "$(PHASE5_RUN_ID)" \
+		--source-stream-id "$(PHASE5_SOURCE_STREAM_ID)" \
+		--evidence-root "$(PHASE5_EVIDENCE_ROOT)"
+else ifeq ($(LIVE_ACCEPTANCE_PROFILE),phase4-source-display)
 	$(UV) run python scripts/run_phase4_real_event_acceptance.py
 else
 	$(MAKE) dev

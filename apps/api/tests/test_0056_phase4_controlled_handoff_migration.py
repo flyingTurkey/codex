@@ -8,10 +8,10 @@ LIVE_ACCEPTANCE = Path("tests/live/test_phase4_real_event_acceptance.py")
 VERIFIER = Path("scripts/verify_phase4_controlled_handoff_migration.py")
 
 
-def test_phase4_controlled_handoff_is_the_single_linear_head() -> None:
+def test_phase4_controlled_handoff_remains_a_linear_edge() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
 
-    assert script.get_heads() == ["0056_phase4_controlled_handoff"]
+    assert script.get_revision("0056_phase4_controlled_handoff") is not None
     source = MIGRATION.read_text(encoding="utf-8")
     assert 'revision = "0056_phase4_controlled_handoff"' in source
     assert 'down_revision = "0055_phase3_trustworthy_event"' in source

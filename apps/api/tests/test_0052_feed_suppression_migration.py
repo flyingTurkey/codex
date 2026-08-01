@@ -9,7 +9,7 @@ MIGRATION = Path("apps/api/migrations/versions/0052_feed_suppression_projection.
 def test_feed_suppression_projection_is_the_single_linear_head() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
 
-    assert script.get_heads() == ["0056_phase4_controlled_handoff"]
+    assert script.get_heads() == ["0057_phase5_formal_reconciliation"]
     source = MIGRATION.read_text(encoding="utf-8")
     assert 'revision = "0052_feed_suppression_projection"' in source
     assert 'down_revision = "0051_technical_exception_recovery"' in source

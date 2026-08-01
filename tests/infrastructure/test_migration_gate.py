@@ -24,7 +24,10 @@ def test_migration_gate_combines_single_head_and_existing_round_trip_verifier() 
         encoding="utf-8"
     )
 
-    assert "migration-test: migration-head-check autonomous-content-integration-test" in makefile
+    assert (
+        "migration-test: migration-head-check "
+        "phase5-formal-migration-test autonomous-content-integration-test"
+    ) in makefile
     for token in (
         'command.upgrade(config, "0054_policy_optimization")',
         'command.downgrade(config, "0053_safety_exception_lifecycle")',
@@ -33,3 +36,21 @@ def test_migration_gate_combines_single_head_and_existing_round_trip_verifier() 
         "revision_0047_acl",
     ):
         assert token in verifier
+
+
+def test_migration_gate_runs_the_phase5_formal_reconciliation_seam() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    runner = (ROOT / "scripts/run_isolated_integration.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert (
+        "migration-test: migration-head-check "
+        "phase5-formal-migration-test autonomous-content-integration-test"
+    ) in makefile
+    target = makefile.split("phase5-formal-migration-test:", 1)[1].split(
+        "\n\n", 1
+    )[0]
+    assert "verify_phase5_formal_reconciliation_migration.py" in target
+    assert "test_0057_phase5_formal_reconciliation_migration.py" in target
+    assert runner.count('"verify_phase5_formal_reconciliation_migration.py"') == 2

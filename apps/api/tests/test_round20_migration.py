@@ -8,7 +8,7 @@ MIGRATION = Path("apps/api/migrations/versions/0020_ai_content_preparation.py")
 
 def test_round20_remains_in_the_single_head_chain_after_round19() -> None:
     script = ScriptDirectory.from_config(Config("apps/api/alembic.ini"))
-    assert script.get_current_head() == "0056_phase4_controlled_handoff"
+    assert script.get_current_head() == "0057_phase5_formal_reconciliation"
     revision = script.get_revision("0020_ai_content_preparation")
     assert revision is not None
     assert revision.down_revision == "0019_source_content_bridge"

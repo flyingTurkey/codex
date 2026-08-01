@@ -70,6 +70,8 @@ from srbg_worker.source_content_bridge import (
 from srbg_worker.source_runtime import PostgresRuntimeGateway, RuntimeBinding, RuntimeFetchExecutor
 from srbg_worker.technical_exceptions import PostgresTechnicalRetryCoordinator
 
+from scripts.verify_phase5_formal_one_day import _database_snapshot_sql
+
 pytestmark = [
     pytest.mark.asyncio,
     pytest.mark.skipif(
@@ -77,6 +79,24 @@ pytestmark = [
         reason="isolated integration database is required",
     ),
 ]
+
+
+async def test_phase5_formal_snapshot_sql_compiles_against_authoritative_schema() -> None:
+    admin = create_async_engine(os.environ["SRBG_TEST_ADMIN_DATABASE_URL"])
+    try:
+        async with admin.connect() as connection:
+            snapshot = await connection.scalar(
+                text(
+                    _database_snapshot_sql(
+                        UUID("00000000-0000-0000-0000-000000000001"),
+                        UUID("00000000-0000-0000-0000-000000000002"),
+                    )
+                )
+            )
+        assert snapshot["metrics"]["run_stream_count"] == 0
+        assert snapshot["metrics"]["other_primary_types"] == 0
+    finally:
+        await admin.dispose()
 
 
 async def test_feed_suppression_concurrent_activation_has_one_append_only_winner() -> None:

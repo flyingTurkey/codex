@@ -490,6 +490,7 @@ def _migration_command(
         "verify_autonomous_policy_migration.py",
         "verify_phase3_trustworthy_event_migration.py",
         "verify_phase4_controlled_handoff_migration.py",
+        "verify_phase5_formal_reconciliation_migration.py",
     }:
         raise ValueError("migration verifier is not approved")
     return (
@@ -643,6 +644,7 @@ def _parse_args(arguments: Sequence[str] | None) -> tuple[str, tuple[str, ...]]:
             "verify_autonomous_policy_migration.py",
             "verify_phase3_trustworthy_event_migration.py",
             "verify_phase4_controlled_handoff_migration.py",
+            "verify_phase5_formal_reconciliation_migration.py",
         ),
         default="verify_round11_migration.py",
     )
