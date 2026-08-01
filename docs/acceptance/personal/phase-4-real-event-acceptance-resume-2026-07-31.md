@@ -384,6 +384,34 @@ This record does not authorize a formal database write or begin Phase 5.
     or system-network setting changes. This remains `NO_GO`; Phase 5 remains
     unstarted pending the new SHA's complete gates and same-document rerun.
 
+40. Current-head-verifier candidate
+    `5284e1dc6894ca92c62e5750506f048c4be76d10` passed `check-fast`, full
+    local `check-pr`, its one exact-SHA `check-release`, and same-SHA GitHub
+    Actions run `30675777130`. Live project `srbg-phase4-107679df1d12`
+    proved the disposable database's `0055 -> 0056 -> 0055 -> 0056` replay,
+    then the fixed Sany list and detail requests both returned HTTP `200`.
+    Append-only evidence
+    `.cache/phase4-evidence/5284e1dc6894ca92c62e5750506f048c4be76d10-107679df1d12.json`
+    records controlled run `019fbac0-64a0-76de-953a-128cea9d5bee`, fetch run
+    `019fbac0-64f4-7b46-adde-f8aea9ad3ffb`, one discovered record, zero
+    persisted documents, failure class `AUTHORIZATION`, two physical requests,
+    zero model calls, zero cost, and a successful zero-task/zero-key drain;
+    teardown removed every scoped resource. The list response settled
+    379,310 bytes, while the detail response completed at the exact 60-second
+    controlled pacing boundary but was not settled or persisted. The first
+    confirmed defect is not source authorization loss: the detail request had
+    already atomically reserved the second and final allowed request, but the
+    concurrent authority heartbeat reused a query requiring
+    `requests_used < daily_request_budget` and misclassified that legal
+    in-flight reservation as revocation. A focused regression was red before
+    the minimal repair. Continuous authority revalidation now excludes only
+    future request/byte capacity; every new physical request still passes the
+    unchanged atomic schedule-budget reservation, while source enablement,
+    stream/config authority, access state, circuit state, lease, admission,
+    robots, terms, rate limit, AI budget, and publication gates remain
+    fail-closed. This immutable result is `NO_GO`; Phase 5 remains unstarted
+    pending the repair gates, same-SHA CI, and the same-document live rerun.
+
 28. The Owner explicitly authorized abandoning the repeatedly unavailable CCCC
     SourceStream and selecting one compliant replacement without starting Phase
     5. Point-in-time research first rejected Sichuan Transport, CSCEC, and XCMG:

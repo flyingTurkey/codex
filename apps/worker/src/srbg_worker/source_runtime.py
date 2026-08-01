@@ -1881,8 +1881,6 @@ SELECT r.run_origin,r.execution_domain,r.controlled_run_id,NULL::uuid AS policy_
    AND stream.status='READY'
    AND stream.config_sha256=stream_config.config_sha256
    AND fs.access_state='ACCESSIBLE'
-   AND fs.requests_used<fs.daily_request_budget
-   AND fs.bytes_used<fs.daily_byte_budget
    AND fs.circuit_state IN ('CLOSED','HALF_OPEN')
 """
 

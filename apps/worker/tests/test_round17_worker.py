@@ -1332,6 +1332,8 @@ async def test_postgres_binding_requires_personal_stream_authority() -> None:
     assert "source_row.desired_enabled=true" in statement
     assert "source_row.manual_disabled_at IS NULL" in statement
     assert "fs.freshness_slo_seconds" in statement
+    assert "fs.requests_used<fs.daily_request_budget" not in statement
+    assert "fs.bytes_used<fs.daily_byte_budget" not in statement
     assert (
         "fs.interval_seconds=(p.document #>> '{fetch,minimum_interval_seconds}')"
         not in statement
