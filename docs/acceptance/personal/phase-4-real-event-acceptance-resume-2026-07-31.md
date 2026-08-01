@@ -412,6 +412,58 @@ This record does not authorize a formal database write or begin Phase 5.
     fail-closed. This immutable result is `NO_GO`; Phase 5 remains unstarted
     pending the repair gates, same-SHA CI, and the same-document live rerun.
 
+41. Reserved-request repair candidate
+    `cf83f8dd2902a318ceb98b857eea6b3cff9851dc` passed `check-fast`, full
+    local `check-pr`, its one exact-SHA `check-release`, and same-SHA GitHub
+    Actions run `30676605205`. Live project `srbg-phase4-1baa38564a9e`
+    proved the repair: the second and final budgeted request remained
+    authorized through its HTTP `200` response, and the run persisted raw
+    object `019fbad3-5008-7edb-b424-f2d66f128d70`, Document
+    `019fbad3-5018-70ac-9c53-0420a61ee650`, and DocumentVersion
+    `019fbad3-5018-76e0-a27e-9515ca2275ad` with raw SHA-256
+    `dabc30362df43ce044389073577b692e8a2ec20eeee3c50aae4ad2fabc013e0c`.
+    Append-only evidence
+    `.cache/phase4-evidence/cf83f8dd2902a318ceb98b857eea6b3cff9851dc-1baa38564a9e.json`
+    records the original URL, acquisition and first-discovery time, two
+    physical requests, 722,125 settled response bytes, and matching
+    controlled-run authority on AI pipeline
+    `019fbad3-5041-7052-bc10-699ed2b3c831`. Two real, Schema-valid
+    `deepseek-v4-flash` CLASSIFY calls used 6,967 input and 444 output tokens
+    and cost 855 micro-USD in total. The production qualification path used
+    its one bounded semantic recheck and then legitimately terminated the AI
+    pipeline as `SUCCEEDED` without advancing to EXTRACT, SUMMARIZE, VERIFY,
+    accepted claims, or evidence. This is the first confirmed content-level
+    blocker: `AI_PIPELINE_NOT_SUCCEEDED_SUCCEEDED` means the real document did
+    not obtain `AUTO_ACCEPTED` qualification, not that Schema or provider I/O
+    failed. Repeating the same temperature-zero model/prompt/schema/input to
+    cherry-pick a different classification, weakening qualification, changing
+    the frozen prompt, writing publication directly, or substituting another
+    document would violate the controlled acceptance boundary and was not
+    attempted. Publication authority/revision, Feed, Reader, and replay were
+    therefore not created or run. Stop/drain recorded zero active database
+    tasks and zero Redis keys, and teardown removed every scoped container,
+    volume, and network. This result is an honest `NO_GO`; the formal database
+    stage is not authorized and Phase 5 remains unstarted.
+
+### Latest controlled acceptance state
+
+- RELEASE_CANDIDATE_SHA: `cf83f8dd2902a318ceb98b857eea6b3cff9851dc`
+- SourceStream ID: `019fb870-06f4-7227-a03e-a6b11dcbf91e`
+- Document ID: `019fbad3-5018-70ac-9c53-0420a61ee650`
+- Current-run model calls/cost: `2`; `855` micro-USD
+- Phase cumulative model calls/cost: `4`; exact prior cost is unrecoverable,
+  but the immutable prior cap plus current settlement proves no more than
+  `80,855` micro-USD, below RMB 1
+- Full chain: source through DocumentVersion and bounded real qualification
+  ran; qualification produced no accepted claim, so EXTRACT through Reader
+  did not run
+- Feed/Reader: not generated / not run
+- Replay: not run because no Event or publication existed
+- Queue/resource drain: `PASS` (`0` active database tasks, `0` Redis keys,
+  and no scoped Docker container, volume, or network)
+- Decision: `NO_GO`
+- Formal database stage: `NOT AUTHORIZED`; Phase 5 remains unstarted
+
 28. The Owner explicitly authorized abandoning the repeatedly unavailable CCCC
     SourceStream and selecting one compliant replacement without starting Phase
     5. Point-in-time research first rejected Sichuan Transport, CSCEC, and XCMG:
