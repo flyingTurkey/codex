@@ -875,3 +875,43 @@ This record does not authorize a formal database write or begin Phase 5.
     now pass. Phase 4 remains `NO_GO` pending the repair SHA's required gates,
     same-SHA CI, and one complete isolated live chain; Phase 5 remains
     unstarted.
+
+49. Candidate `6e38078d70bb5090f0cc095085e78939d2672a40` passed
+    `check-fast`, full `check-pr`, its one exact-SHA `check-release`, and
+    same-SHA GitHub Actions run `30685661898`. Isolated live project
+    `srbg-phase4-a1f4dbfc994f` then admitted SourceStream
+    `019fbbb0-b1f6-7e3f-97c0-20e4c16616c5`, fetched the fixed list and detail
+    with two successful requests, and persisted raw object
+    `019fbbc7-dda9-7e39-b675-fc4dd0338db9`, Document
+    `019fbbc7-ddb3-7568-bfed-8a0abe6b04c0`, and DocumentVersion
+    `019fbbc7-ddb3-7e59-9cf8-7c05302b8858`. Raw SHA-256 is
+    `2e0e8d0845616473acfc40a464b336cf04ab747a490006fa8c976ada9a101dae`;
+    acquisition and first discovery were both
+    `2026-08-01T05:24:25.620529+00:00`.
+
+50. The unchanged production qualification policy returned `AUTO_FILTERED`
+    before any provider request, with sole reason
+    `RULE_NO_ENGINEERING_COOCCURRENCE` and signal
+    `ENGINEERING_OBJECT_ACTIVITY_COOCCURRENCE_MISSING`. The first blocker was
+    `QUALIFICATION_NOT_AUTO_ACCEPTED_AUTO_FILTERED`; model calls and cost were
+    both zero. No accepted claim, evidence locator, SourceExcerpt, publication,
+    Feed item, Reader, or replay was created. Stop/drain proved zero active
+    database tasks and zero Redis keys, and teardown removed every scoped
+    container, volume, and network. The immutable evidence file is
+    `.cache/phase4-evidence/6e38078d70bb5090f0cc095085e78939d2672a40-a1f4dbfc994f.json`.
+    This is an honest `NO_GO`; Phase 5 remains unstarted.
+
+51. A deterministic production-seam replay reproduced the exact pre-model
+    filter in under one second: the generic HTML parser retained visible
+    paragraphs but discarded the standard `citation_title`,
+    `citation_abstract`, and `citation_publication_date` values that the
+    researched journal page uses for its high-signal public abstract. The
+    focused repair adds only those scholarly fields and their Dublin Core
+    aliases to the existing untrusted text-block stream, deduplicates identical
+    metadata/body values, and versions the parser fingerprint. The qualification
+    vocabulary, model, Prompt, Schema, SourceAdmission, source/path boundary,
+    cost limit, evidence gate, and PublicationService are unchanged. The
+    regression was red with the same `RULE_NO_ENGINEERING_COOCCURRENCE` outcome
+    before the repair and is green afterward. Phase 4 remains `NO_GO` pending
+    the repair SHA's prescribed gates, same-SHA CI, and the same-document live
+    rerun; Phase 5 remains unstarted.

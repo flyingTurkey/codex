@@ -10,7 +10,7 @@ from base64 import b64decode
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from html.parser import HTMLParser
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 from uuid import UUID
 
 from sqlalchemy import text
@@ -61,15 +61,29 @@ logger = logging.getLogger("srbg.worker.ai_content_preparation")
 class _ArticleHtmlParser(HTMLParser):
     _content_tags = frozenset({"p", "li", "h1", "h2", "h3", "h4", "blockquote"})
     _ignored_tags = frozenset({"script", "style", "nav", "footer", "form", "noscript"})
+    _scholarly_metadata: ClassVar[dict[str, str]] = {
+        "citation_title": "title",
+        "dc.title": "title",
+        "citation_abstract": "abstract",
+        "dc.description": "abstract",
+        "citation_publication_date": "publication_date",
+        "dc.date": "publication_date",
+    }
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self._ignored_depth = 0
         self._active: list[str] | None = None
         self.paragraphs: list[str] = []
+        self.metadata: dict[str, str] = {}
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        del attrs
+        values = {name.casefold(): value for name, value in attrs if value is not None}
+        metadata_name = (values.get("name") or values.get("property") or "").casefold()
+        metadata_field = self._scholarly_metadata.get(metadata_name)
+        metadata_value = " ".join(values.get("content", "").split())
+        if metadata_field and metadata_value:
+            self.metadata.setdefault(metadata_field, metadata_value)
         if tag in self._ignored_tags:
             self._ignored_depth += 1
         elif self._ignored_depth == 0 and tag in self._content_tags:
@@ -94,7 +108,13 @@ def parse_html_document(content: bytes) -> ParsedPdfDocument:
 
     parser = _ArticleHtmlParser()
     parser.feed(content.decode("utf-8", errors="replace"))
-    if not parser.paragraphs:
+    metadata = [
+        parser.metadata[field]
+        for field in ("title", "abstract", "publication_date")
+        if field in parser.metadata
+    ]
+    paragraphs = list(dict.fromkeys([*metadata, *parser.paragraphs]))
+    if not paragraphs:
         raise ValueError("HTML_BODY_EMPTY")
     blocks = tuple(
         ParsedTextBlock(
@@ -107,9 +127,9 @@ def parse_html_document(content: bytes) -> ParsedPdfDocument:
             bbox_mpt=(0, index * 1000, 800_000, (index + 1) * 1000),
             confidence_bps=10_000,
         )
-        for index, value in enumerate(parser.paragraphs)
+        for index, value in enumerate(paragraphs)
     )
-    normalized = "\n".join(parser.paragraphs)
+    normalized = "\n".join(paragraphs)
     digest = sha256(normalized.encode()).hexdigest()
     preview = b64decode(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
@@ -132,11 +152,11 @@ def parse_html_document(content: bytes) -> ParsedPdfDocument:
         semantic_body=normalized,
         normalized_text_sha256=digest,
         semantic_body_sha256=digest,
-        metadata_sha256=sha256(b"html-v1").hexdigest(),
+        metadata_sha256=sha256(b"html-scholarly-metadata-v1").hexdigest(),
         ocr_page_count=0,
         ocr_usable_page_count=0,
         low_confidence_critical_count=0,
-        parser_version="srbg-html-paragraph-1.0.0",
+        parser_version="srbg-html-paragraph-1.1.0",
     )
 
 
