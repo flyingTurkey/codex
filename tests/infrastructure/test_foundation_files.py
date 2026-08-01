@@ -570,7 +570,11 @@ def test_phase4_live_replacement_source_and_document_are_fixed_before_network_io
     assert "if stream_id != fixed_stream_id:" in live_test
     assert 'raise RuntimeError("SOURCE_STREAM_ID_NOT_FIXED")' in live_test
     assert (
-        'FIXED_DOCUMENT_URL = "https://www.sanygroup.com/case/16504.html"'
+        'COLLECTION_URL = "https://www.sanygroup.com/case/dlid-7/gongclx-/year-/"'
+        in live_test
+    )
+    assert (
+        'FIXED_DOCUMENT_URL = "https://www.sanygroup.com/case/16434.html"'
         in live_test
     )
     assert 'raise RuntimeError("FIXED_DOCUMENT_NOT_DISCOVERED")' in live_test

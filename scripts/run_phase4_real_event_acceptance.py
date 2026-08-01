@@ -16,6 +16,21 @@ CONFIRMATION = "I_UNDERSTAND"
 SOURCE_STREAM_ID = "019fb870-06f4-7227-a03e-a6b11dcbf91e"
 
 
+def require_complete_model_chain(
+    *,
+    qualification_disposition: str,
+    completed_steps: list[str],
+) -> None:
+    if qualification_disposition != "AUTO_ACCEPTED":
+        raise RuntimeError(
+            f"QUALIFICATION_NOT_AUTO_ACCEPTED_{qualification_disposition or 'MISSING'}"
+        )
+    classify_count = 2 if completed_steps[:2] == ["CLASSIFY", "CLASSIFY"] else 1
+    expected = ["CLASSIFY"] * classify_count + ["EXTRACT", "SUMMARIZE", "VERIFY"]
+    if completed_steps != expected:
+        raise RuntimeError("AI_MODEL_CHAIN_INCOMPLETE")
+
+
 def _run(
     command: list[str],
     *,

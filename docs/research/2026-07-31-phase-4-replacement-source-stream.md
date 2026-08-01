@@ -103,3 +103,32 @@ T20 验收记录后来因当时 Owner 为对应 rollout 票选择中国建筑/�
 ## 结论
 
 切换来源可以避免继续消耗在中国交建 521 上。第四阶段应只切换到 `sany-construction-cases`，重新冻结 SourceStream UUID、代码 SHA、模型/Prompt/Schema、预算和截止时间后，从列表开始执行一次完整隔离闭环。该推荐是“可进入运行前 SourceAdmission 复核”，不是预先宣告 PASS；只有同一文档完成全链路、Reader 可打开、重放零重复且队列排空，第四阶段才可 PASS。
+
+## 2026-08-01 Owner 授权的同流文档重定向（追加）
+
+原固定文档 `/case/16504.html` 已在不可变真实验收记录中得到
+`AUTO_FILTERED`，没有 accepted claims。Owner 随后明确授权降低诊断和代码量，
+在不改变生产资格规则的前提下，继续使用同一个
+`sany-construction-cases` SourceStream，重新固定一篇中心工程事实更明确的文档。
+该授权不改写原 NO_GO，也不授权第二来源、Prompt/Schema/模型变更、人工发布或
+第五阶段。
+
+新的精确列表 URL 是
+`https://www.sanygroup.com/case/dlid-7/gongclx-/year-/`。它是原 `/case/`
+公开列表内的“桩工机械”筛选路径，仍位于既有 `/case/` 授权前缀内。2026-08-01
+通过平台独立 DoH、公共地址校验、TLS 和进程级 SOCKS 只读复核，并使用仓库生产
+`ListDetailConnector` 与原声明式选择器验证：该列表 HTTPS 200，恰好发现一条
+`https://www.sanygroup.com/case/16434.html`，标题为“旋挖施工案例 |
+广州市增城区新塘站综合交通枢纽一体化工程”。
+
+详情页同样 HTTPS 200、`text/html; charset=utf-8`，无登录、验证码或跨主机
+重定向；页面可见日期为 `2026.06.30`。不记录正文的结构信号检查确认页面包含
+旋挖钻机、综合交通枢纽、新塘站、施工、建设和铁路语义。中心事实因此比原
+“就位/助力”标题更明确地表达施工机械直接参与在建工程，但所有施工、能力和
+效果描述仍只能作为 `MANUFACTURER_CLAIM`，是否形成 accepted claims 继续由
+冻结的生产 qualification、EXTRACT/VERIFY 和 PublicationService 决定。
+
+这次只读选文没有模型调用、数据库写入或发布。运行前仍必须固定新代码 SHA、
+同一 SourceStream ID、该精确列表和详情 URL、既有 provider/model/Prompt/Schema、
+预算、截止和最大重试，并重新执行 SourceAdmission。只有完整 live、Feed/Reader、
+重放零重复和排空全部通过，第四阶段才可 PASS。

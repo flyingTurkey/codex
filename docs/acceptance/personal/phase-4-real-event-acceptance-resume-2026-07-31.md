@@ -754,3 +754,25 @@ This record does not authorize a formal database write or begin Phase 5.
   and no scoped Docker container, volume, or network)
 - Decision: `NO_GO`
 - Formal database stage: `NOT AUTHORIZED`; Phase 5 remains unstarted
+
+42. On 2026-08-01 the Owner explicitly authorized the recommended minimal
+    remediation: keep production qualification, Prompt, Schema, model,
+    SourceAdmission, evidence, publication, and formal-database behavior
+    unchanged; correct only the Phase 4 harness's assumption that a complete
+    chain contains exactly one CLASSIFY; and retarget one clearer document
+    inside the already researched `sany-construction-cases` SourceStream. A
+    red/green acceptance-rule test now permits one bounded semantic recheck
+    only when qualification is `AUTO_ACCEPTED` and the remaining steps are
+    exactly EXTRACT, SUMMARIZE, and VERIFY. `AUTO_FILTERED` receives an
+    explicit qualification blocker instead of the contradictory
+    `AI_PIPELINE_NOT_SUCCEEDED_SUCCEEDED` label. The live report reads only
+    the persisted disposition, not model output or body text. Point-in-time
+    research used the production connector against exact filtered list
+    `/case/dlid-7/gongclx-/year-/`, which returned one record:
+    `/case/16434.html`, “旋挖施工案例 | 广州市增城区新塘站综合交通枢纽一体化工程”.
+    The detail was HTTPS `200`, exposed visible date `2026.06.30`, and retained
+    the same host, `/case/` path authority, robots/terms basis, private raw
+    boundary, and manufacturer-claim restriction. No model call, acceptance
+    database, publication, or Phase 5 action occurred during this repair.
+    Phase 4 remains `NO_GO` pending the new SHA's prescribed gates, same-SHA
+    CI, and the newly frozen document's complete isolated live chain.

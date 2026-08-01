@@ -64,6 +64,8 @@ from srbg_worker.source_runtime import (
 )
 from srbg_worker.technical_exceptions import PostgresTechnicalRetryCoordinator
 
+from scripts.run_phase4_real_event_acceptance import require_complete_model_chain
+
 pytestmark = [
     pytest.mark.asyncio,
     pytest.mark.skipif(
@@ -72,8 +74,8 @@ pytestmark = [
     ),
 ]
 
-COLLECTION_URL = "https://www.sanygroup.com/case/"
-FIXED_DOCUMENT_URL = "https://www.sanygroup.com/case/16504.html"
+COLLECTION_URL = "https://www.sanygroup.com/case/dlid-7/gongclx-/year-/"
+FIXED_DOCUMENT_URL = "https://www.sanygroup.com/case/16434.html"
 SOURCE_STREAM_KEY = "sany-construction-cases"
 SOURCE_HOST = "www.sanygroup.com"
 SOURCE_PATH_PREFIX = "/case/"
@@ -765,6 +767,14 @@ async def test_one_controlled_real_industry_update(
                 text("SELECT status FROM ai_pipeline_run WHERE id=:run"),
                 {"run": handoff.pipeline_run_id},
             )
+            qualification_disposition = await connection.scalar(
+                text(
+                    "SELECT disposition FROM automated_qualification_decision_v2 "
+                    "WHERE document_version_id=:version "
+                    "ORDER BY decided_at DESC,id DESC LIMIT 1"
+                ),
+                {"version": document["version_id"]},
+            )
             step_rows = (
                 (
                     await connection.execute(
@@ -786,6 +796,11 @@ async def test_one_controlled_real_industry_update(
                 .all()
             )
         report["pipeline_status"] = str(pipeline_status)
+        report["qualification_disposition"] = (
+            str(qualification_disposition)
+            if qualification_disposition is not None
+            else None
+        )
         report["model_calls"] = model_calls
         report["ai_steps"] = [dict(row) for row in step_rows]
         database_cost_microusd = sum(int(row["cost_microusd"]) for row in step_rows)
@@ -794,11 +809,12 @@ async def test_one_controlled_real_industry_update(
             or database_cost_microusd != report["ai_cost_microusd"]
         ):
             raise RuntimeError("AI_COST_EVIDENCE_MISMATCH")
-        if (
-            pipeline_status != "SUCCEEDED"
-            or completed_steps != ["CLASSIFY", "EXTRACT", "SUMMARIZE", "VERIFY"]
-        ):
+        if pipeline_status != "SUCCEEDED":
             raise RuntimeError(f"AI_PIPELINE_NOT_SUCCEEDED_{pipeline_status}")
+        require_complete_model_chain(
+            qualification_disposition=str(qualification_disposition or ""),
+            completed_steps=completed_steps,
+        )
         if report["ai_cost_microusd"] > MAX_AI_COST_MICROUSD:
             raise RuntimeError("AI_COST_LIMIT_EXCEEDED")
 
