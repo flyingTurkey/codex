@@ -261,7 +261,7 @@ def test_phase3_trustworthy_event_target_uses_isolated_verifier_and_business_tes
         "autonomous-content-integration-test",
     ):
         shared_target = makefile.split(f"{target_name}:", 1)[1].split("\n\n", 1)[0]
-        assert "verify_phase3_trustworthy_event_migration.py" in shared_target
+        assert "verify_phase4_controlled_handoff_migration.py" in shared_target
 
 
 @pytest.mark.parametrize(
@@ -269,6 +269,7 @@ def test_phase3_trustworthy_event_target_uses_isolated_verifier_and_business_tes
     [
         ("scripts/run_isolated_integration.py", "integration"),
         ("scripts/verify_phase3_trustworthy_event_migration.py", "migration"),
+        ("scripts/verify_phase4_controlled_handoff_migration.py", "migration"),
     ],
 )
 def test_isolated_gate_scripts_are_risk_classified(

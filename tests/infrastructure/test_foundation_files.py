@@ -320,7 +320,7 @@ def test_ci_uses_the_current_autonomous_content_integration_gate() -> None:
     assert "safety-case-test:" not in makefile
     assert "$(COMPOSE) up --detach --wait postgres minio" in target
     assert "$(COMPOSE) run --rm --no-deps role-bootstrap" in target
-    assert "verify_phase3_trustworthy_event_migration.py" in target
+    assert "verify_phase4_controlled_handoff_migration.py" in target
     assert "tests/integration/t41_autonomous_content_integration.py" in target
     assert (
         "migration-test: migration-head-check autonomous-content-integration-test"
@@ -535,7 +535,7 @@ def test_phase4_live_runner_bootstraps_roles_before_fresh_database_migration() -
         '[*compose, "up", "--detach", "--wait", "postgres", "redis", "minio"]'
     )
     role_bootstrap = '[*compose, "run", "--rm", "--no-deps", "role-bootstrap"]'
-    migration_verifier = '"verify_phase3_trustworthy_event_migration.py"'
+    migration_verifier = '"verify_phase4_controlled_handoff_migration.py"'
 
     assert role_bootstrap in runner
     assert runner.index(infrastructure_ready) < runner.index(role_bootstrap)

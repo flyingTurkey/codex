@@ -5,6 +5,7 @@ from alembic.script import ScriptDirectory
 
 MIGRATION = Path("apps/api/migrations/versions/0056_phase4_controlled_handoff.py")
 LIVE_ACCEPTANCE = Path("tests/live/test_phase4_real_event_acceptance.py")
+VERIFIER = Path("scripts/verify_phase4_controlled_handoff_migration.py")
 
 
 def test_phase4_controlled_handoff_is_the_single_linear_head() -> None:
@@ -41,3 +42,12 @@ def test_controlled_handoff_downgrade_restores_the_previous_function() -> None:
     assert "_replace_handoff(propagate_controlled_run=True)" in source
     assert "def downgrade()" in source
     assert "_replace_handoff(propagate_controlled_run=False)" in source
+
+
+def test_controlled_handoff_verifier_replays_only_the_new_linear_edge() -> None:
+    source = VERIFIER.read_text(encoding="utf-8")
+
+    assert '_HEAD = "0056_phase4_controlled_handoff"' in source
+    assert '_PREVIOUS = "0055_phase3_trustworthy_event"' in source
+    assert "run.controlled_run_id" in source
+    assert "0055 -> 0056 -> 0055 -> 0056" in source

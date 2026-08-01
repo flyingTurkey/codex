@@ -202,7 +202,7 @@ ai-integration-test: ai-content-preparation-test
 isolated-integration-test:
 	$(COMPOSE) up --detach --wait postgres minio redis
 	$(UV) run python scripts/run_isolated_integration.py \
-		--migration-verifier verify_phase3_trustworthy_event_migration.py -- \
+		--migration-verifier verify_phase4_controlled_handoff_migration.py -- \
 		tests/integration/t05_durable_projection_integration.py \
 		tests/integration/t07_controlled_stream_integration.py \
 		tests/integration/t11_reader_appendix_integration.py \
@@ -531,7 +531,7 @@ autonomous-content-integration-test:
 	$(COMPOSE) up --detach --wait postgres minio
 	$(COMPOSE) run --rm --no-deps role-bootstrap
 	$(UV) run python scripts/run_isolated_integration.py \
-		--migration-verifier verify_phase3_trustworthy_event_migration.py -- \
+		--migration-verifier verify_phase4_controlled_handoff_migration.py -- \
 		tests/integration/t41_autonomous_content_integration.py -q
 
 digital-case-test:

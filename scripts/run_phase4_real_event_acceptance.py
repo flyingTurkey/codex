@@ -184,7 +184,7 @@ def main() -> int:
             sys.executable,
             "scripts/run_isolated_integration.py",
             "--migration-verifier",
-            "verify_phase3_trustworthy_event_migration.py",
+            "verify_phase4_controlled_handoff_migration.py",
             "--",
             "tests/live/test_phase4_real_event_acceptance.py::"
             "test_one_controlled_real_industry_update",

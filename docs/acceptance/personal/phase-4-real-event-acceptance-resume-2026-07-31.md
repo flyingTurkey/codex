@@ -357,6 +357,33 @@ This record does not authorize a formal database write or begin Phase 5.
     `NO_GO` pending a new clean repair SHA's full gates, same-SHA CI, and the
     same-document live rerun; Phase 5 remains unstarted.
 
+39. Repair candidate `062d67f9bff48a37afecaf8ac590672e8d7bb97a`
+    passed `check-fast`, full local `check-pr`, its one exact-SHA
+    `check-release`, and same-SHA GitHub Actions run `30675090026`. Live
+    project `srbg-phase4-48b662ba0ab4` again fetched the fixed list and detail
+    with HTTP `200`, persisted Document
+    `019fbab1-aa1a-78fa-87bb-dbdfd6104825`, DocumentVersion
+    `019fbab1-aa1a-7d09-912b-5615884de79a`, raw object
+    `019fbab1-aa0b-7fa4-8d0e-f795b9bae2b9`, and raw SHA-256
+    `9f208153849463a7c9bca09cb6e3a2b6f85b367a88c0311381ade81fff49c73a`.
+    Append-only evidence
+    `.cache/phase4-evidence/062d67f9bff48a37afecaf8ac590672e8d7bb97a-48b662ba0ab4.json`
+    records `AI_PIPELINE_CONTROLLED_RUN_MISMATCH` with an expected controlled
+    run `019fbab0-bc9b-76ad-8406-dce2bfe13bc2` and a `null` AI-run binding,
+    zero model calls, zero cost, and a successful zero-task/zero-key drain;
+    teardown removed every scoped resource. The fail-closed live assertion
+    worked, but the runner's migration verifier was the Phase 3-specific
+    replay and intentionally ended at `0055`, so the already-gated `0056`
+    repair was never applied to this disposable live database. A focused
+    verifier/runner regression was red before the next repair and is green.
+    The new current-head verifier replays only
+    `0055 -> 0056 -> 0055 -> 0056` and proves the function definition gains,
+    loses, and regains `run.controlled_run_id`; generic current-head integration
+    and Phase 4 live use it, while the Phase 3 gate retains its original
+    verifier. No source, model, budget, publication, formal database, FlClash,
+    or system-network setting changes. This remains `NO_GO`; Phase 5 remains
+    unstarted pending the new SHA's complete gates and same-document rerun.
+
 28. The Owner explicitly authorized abandoning the repeatedly unavailable CCCC
     SourceStream and selecting one compliant replacement without starting Phase
     5. Point-in-time research first rejected Sichuan Transport, CSCEC, and XCMG:
