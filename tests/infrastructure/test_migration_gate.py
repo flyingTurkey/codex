@@ -53,4 +53,5 @@ def test_migration_gate_runs_the_phase5_formal_reconciliation_seam() -> None:
     )[0]
     assert "verify_phase5_formal_reconciliation_migration.py" in target
     assert "test_0057_phase5_formal_reconciliation_migration.py" in target
+    assert "test_0058_phase5_technical_exception_acl_migration.py" in target
     assert runner.count('"verify_phase5_formal_reconciliation_migration.py"') == 2

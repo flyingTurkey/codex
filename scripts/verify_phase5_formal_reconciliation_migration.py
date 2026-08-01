@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 _DISPOSABLE_DATABASE = re.compile(r"srbg_it_[0-9a-f]{24}\Z")
 _BASE = "0054_policy_optimization"
 _LEGACY = "0055_crossref_metadata_admission"
-_HEAD = "0057_phase5_formal_reconciliation"
+_HEAD = "0058_phase5_technical_exception_acl"
 
 
 def _isolated_database_url() -> str:
@@ -125,6 +125,27 @@ async def _verify_reconciled_head(database_url: str) -> None:
             )
             if "run.controlled_run_id" not in handoff:
                 raise RuntimeError("0057_PHASE4_HANDOFF_MISSING")
+
+            api_can_read_compensation = await connection.scalar(
+                text(
+                    "SELECT has_table_privilege("
+                    "'srbg_api_role','ai_compensation_run_v2','SELECT')"
+                )
+            )
+            if not bool(api_can_read_compensation):
+                raise RuntimeError("0058_TECHNICAL_EXCEPTION_API_READ_MISSING")
+            api_can_write_compensation = await connection.scalar(
+                text(
+                    "SELECT has_table_privilege("
+                    "'srbg_api_role','ai_compensation_run_v2','INSERT') OR "
+                    "has_table_privilege("
+                    "'srbg_api_role','ai_compensation_run_v2','UPDATE') OR "
+                    "has_table_privilege("
+                    "'srbg_api_role','ai_compensation_run_v2','DELETE')"
+                )
+            )
+            if bool(api_can_write_compensation):
+                raise RuntimeError("0058_TECHNICAL_EXCEPTION_API_WRITE_LEAK")
     finally:
         await engine.dispose()
 
@@ -146,6 +167,14 @@ async def _verify_clean_base(database_url: str) -> None:
                 )
             )
             assert provenance == 0
+            assert not bool(
+                await connection.scalar(
+                    text(
+                        "SELECT has_table_privilege("
+                        "'srbg_api_role','ai_compensation_run_v2','SELECT')"
+                    )
+                )
+            )
     finally:
         await engine.dispose()
 
@@ -164,7 +193,7 @@ def main() -> None:
     asyncio.run(_verify_reconciled_head(database_url))
     print(
         "Phase-5 formal migration replay passed: "
-        "0055_crossref sibling -> 0057 single head"
+        "0055_crossref sibling -> 0058 single head with narrow API read"
     )
 
 

@@ -36,7 +36,7 @@ def _passing_samples() -> list[dict[str, object]]:
 
 def _passing_final() -> dict[str, object]:
     return {
-        "database_revision": "0057_phase5_formal_reconciliation",
+        "database_revision": "0058_phase5_technical_exception_acl",
         "run": {
             "state": "COMPLETED",
             "stop_reason": "WORKDAY_COMPLETE",

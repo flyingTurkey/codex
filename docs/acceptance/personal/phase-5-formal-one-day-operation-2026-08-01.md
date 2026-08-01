@@ -48,7 +48,15 @@
 - SourceStream 继续使用既有 1 request/minute、SSRF/robots/条款/熔断门禁；
 - 到期后先关闭 Owner 来源意图并停止调度，再排空请求、fetch、content outbox、AI、预算 reservation 和发布投影工作。
 
-最终 `phase5-formal-one-day` profile 只读复核正式 PostgreSQL 和回环接口，并读取 append-only 周期样本。它要求：revision 精确为 `0057_phase5_formal_reconciliation`、当前固定预算逐项一致、8 小时覆盖且采样间隔不超过 30 分钟、恰好一个 run source 且只产生目标 SourceStream 的 fetch、其他来源 fetch 为零、发布内容仅为 R1/R2 `INDUSTRY_UPDATE`、至少一条发现/抓取/解析/AI 成功/发布、accepted claims 与 evidence links 可追溯、零重复、零静默失败、零永久悬挂、所有未发布版本有非空 reason codes、费用不超正式上限、Worker 重启后的启动时间变化及恢复、`/all`、`/api/v2/feed` 和 Event 详情均实际包含该 Event。快照 SQL 已在一次性 0057 PostgreSQL 上编译执行，不以字符串或 mock 替代 schema 验证。
+最终 `phase5-formal-one-day` profile 只读复核正式 PostgreSQL 和回环接口，并读取 append-only 周期样本。它要求：revision 精确为 `0058_phase5_technical_exception_acl`、当前固定预算逐项一致、8 小时覆盖且采样间隔不超过 30 分钟、恰好一个 run source 且只产生目标 SourceStream 的 fetch、其他来源 fetch 为零、发布内容仅为 R1/R2 `INDUSTRY_UPDATE`、至少一条发现/抓取/解析/AI 成功/发布、accepted claims 与 evidence links 可追溯、零重复、零静默失败、零永久悬挂、所有未发布版本有非空 reason codes、费用不超正式上限、Worker 重启后的启动时间变化及恢复、`/all`、`/api/v2/feed` 和 Event 详情均实际包含该 Event。快照 SQL 已在一次性 0058 PostgreSQL 上编译执行，不以字符串或 mock 替代 schema 验证。
+
+## 第一次正式预运行 NO_GO 与最小 ACL 修复
+
+第一次正式预运行使用候选 `f4d2a50a26e9ce9c7b40da34fad9779e7adc9916`、完整 `make dev` profile、唯一来源 `RES-004` 和唯一 SourceStream `3697f145-dcdd-791d-8242-c97409e997af`。受控运行 `019fbdce-8ac5-7608-b94a-d6992e3bc00e` 在 `2026-08-01T14:50:57Z` 开始；真实 fetch `019fbdd0-5608-711e-9c59-c2339304b88c` 成功发现、抓取并解析一篇官方期刊文章。分类得到 `AUTO_ACCEPTED`，但两个未放宽 Schema 的 EXTRACT 尝试都以 `MODEL_OUTPUT_REJECTED` 明确结束，因此没有 accepted claim、publication decision 或可见 Event。该文档保留非空失败原因，没有被手工改状态或绕过 `PublicationService`。
+
+预运行同时证明正式 API 的技术异常协调器每 5 秒失败一次：`srbg_api_role` 缺少对 `ai_compensation_run_v2` 的 `SELECT`，而现有 retry publish 查询必须读取该表。现有 Worker 权限和 `reopen_source_content_ai_run` 权威函数均正确；当前 EXTRACT `DEGRADED` 形态也不满足既有 `TECHNICAL_FAILED/DEAD_LETTER` 受控重放前置条件，所以没有调用或扩大重放行为。七个 Writer 已停止，运行以 `FAILED/FORMAL_API_ACL_DEFECT` 收口，append-only 样本 SHA-256 为 `2C8E4CD9F900700DC949DBD85AB2C943D66C14ED0E4D1BC3448A6E825F20C9ED`，不可变 NO_GO 报告 SHA-256 为 `D1E364DF2B19D893A513EBB48D46EFEC3D94C1B09406C340F8A2BE2FAF2AE17D`。
+
+最小修复 `0058_phase5_technical_exception_acl` 只执行 `GRANT SELECT ON ai_compensation_run_v2 TO srbg_api_role`，downgrade 对称撤销；测试明确禁止 INSERT、UPDATE 或 DELETE 权限。它不修改模型、Prompt、Schema、发布门禁、异常状态机、SourceStream 边界、Compose 或 `dev-lite`。由于新增 migration，正式 0057 状态必须先重新完整备份并在隔离实例恢复验证，随后才能迁移并重新开始独立的八小时正式窗口；第一次预运行不能计入最终 PASS 窗口。
 
 ## transfer 与运行模式决策（待真实窗口收口）
 
@@ -62,8 +70,8 @@
 
 - migration focused tests：PASS；
 - sibling 与 fresh 路径一次性 PostgreSQL replay：PASS；
-- `make check-fast`：PASS（1172 passed / 26 个既有条件 skip；mypy 139 files）；
-- `make check-pr`：PASS（1543 passed / 27 个既有条件 skip；UI 53、Web 106、隔离集成 14、Phase 5 migration/SQL 21）；
+- `make check-fast`：0058 候选 PASS（1174 passed / 26 个既有条件 skip；mypy 139 files）；
+- `make check-pr`：0058 候选 PASS（1545 passed / 27 个既有条件 skip；UI 53、Web 106、隔离集成 14、Phase 5 migration/SQL 23）；
 - 冻结候选、唯一一次 `make check-release`、同 SHA 远端 CI：待完成；
 - 新正式备份及隔离恢复：待完成；
 - 正式迁移、第一条资讯、八小时运行、重启恢复和最终唯一一次 `make check-live`：待完成。

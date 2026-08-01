@@ -205,6 +205,7 @@ phase5-formal-migration-test:
 	$(UV) run python scripts/run_isolated_integration.py \
 		--migration-verifier verify_phase5_formal_reconciliation_migration.py -- \
 		apps/api/tests/test_0057_phase5_formal_reconciliation_migration.py \
+		apps/api/tests/test_0058_phase5_technical_exception_acl_migration.py \
 		tests/integration/t41_autonomous_content_integration.py::test_phase5_formal_snapshot_sql_compiles_against_authoritative_schema \
 		tests/live/test_phase5_formal_one_day.py -q
 
