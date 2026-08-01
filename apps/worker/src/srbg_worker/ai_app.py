@@ -102,7 +102,7 @@ async def _generate_attempt(payload: dict[str, Any]) -> dict[str, Any]:
     except ModelOutputRejected as exc:
         if request.schema_version == "summarize-v2-output-1.0.0":
             return _safe_failure("SUMMARY_SCHEMA_REJECTED")
-        return _safe_failure(str(exc), repairable=True)
+        return _safe_failure(exc.code, repairable=True)
     except (ValueError, RuntimeError) as exc:
         code = str(exc)
         if code not in {

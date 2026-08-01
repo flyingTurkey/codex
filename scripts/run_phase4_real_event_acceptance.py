@@ -180,7 +180,7 @@ def main() -> int:
             f"sha={release_sha} profile={PROFILE} project={project} "
             f"source_stream_id={SOURCE_STREAM_ID} "
             "source_stream_key=CJHT_CURRENT_ISSUE "
-            "budget_microusd=40000 deadline_seconds=1500 max_model_calls=8 "
+            "budget_microusd=28000 deadline_seconds=1500 max_model_calls=8 "
             f"network_route={network_route}"
         )
         started = _run(

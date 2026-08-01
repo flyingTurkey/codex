@@ -943,3 +943,43 @@ This record does not authorize a formal database write or begin Phase 5.
     publication gates. Production retry behavior, FlClash, system networking,
     formal data, and Phase 5 are unchanged. Phase 4 remains `NO_GO` pending the
     new repair SHA's prescribed gates, same-SHA CI, and same-document live run.
+
+54. Candidate `a62c2e0c141a60d1f61a4d9b4813f9b85d58eaa1` passed
+    `check-fast`, full `check-pr`, its one exact-SHA `check-release`, and
+    same-SHA GitHub Actions run `30687195852`. Isolated live project
+    `srbg-phase4-273954c36222` used exactly two successful source requests,
+    persisted raw object `019fbbf4-b0f4-78df-9367-7c2231e08bb2`, Document
+    `019fbbf4-b0fe-7bc3-b12c-7834b52244b6`, and DocumentVersion
+    `019fbbf4-b0fe-7a17-a993-a000b4251560`. Raw SHA-256 is
+    `cc79ea9b28ccf01a6607bef6ae082395724af50c1ba9df85f2b2924491d31cb7`;
+    acquisition and first discovery were both
+    `2026-08-01T06:13:23.296093+00:00`. Production qualification was
+    `AUTO_ACCEPTED` with `POLICY_ACCEPTED`, `INDUSTRY_UPDATE`, valid axes, and
+    valid evidence locators.
+
+55. The run made three real DeepSeek calls. Only the first call's 534
+    micro-USD settlement is exactly present in the immutable report; the other
+    two HTTP `200` responses failed local EXTRACT validation before the harness
+    could reconstruct their token/cost rows, so `ai_cost_complete=false` is
+    preserved. The controlled ledger bounded all three reservations to at most
+    36,000 micro-USD. After one EXTRACT repair was exhausted, the AI subprocess
+    returned the human-readable `ModelOutputRejected` message as `error_code`;
+    its lowercase letters and spaces violated the finalizer's fixed
+    `[A-Z0-9_]{1,80}` contract and masked the real rejection as
+    `AI content finalization input is invalid`. No accepted claim,
+    SourceExcerpt, publication, Feed, Reader, or replay was created;
+    source-published-at remained `MISSING`. Stop/drain and scoped teardown all
+    passed. Evidence is
+    `.cache/phase4-evidence/a62c2e0c141a60d1f61a4d9b4813f9b85d58eaa1-273954c36222.json`.
+    This is `NO_GO`; Phase 5 remains unstarted.
+
+56. The focused repair returns the already defined stable
+    `MODEL_OUTPUT_REJECTED` code instead of the rejection message. It does not
+    change the output Schema, permit invalid claims, add model repair attempts,
+    alter accepted evidence, or bypass PublicationService. The regression is
+    red before and green after the one-line behavior change. The next live cap
+    is reduced from 40,000 to 28,000 micro-USD: prior conservative phase bound
+    81,583 plus this run's 36,000 reservation bound plus the next 28,000 cap is
+    at most 145,583 micro-USD, approximately RMB 0.99 at USD/CNY 6.77. Phase 4
+    remains `NO_GO` pending the repair SHA's prescribed gates, same-SHA CI, and
+    same-document full-chain rerun; Phase 5 remains unstarted.

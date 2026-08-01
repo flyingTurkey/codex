@@ -668,10 +668,10 @@ def test_phase4_live_ai_evidence_uses_registry_versions_and_incremental_cost() -
     assert "JOIN ai_model_profile model ON model.id=step.model_profile_id" in live
     assert 'report["model_call_usage"] = model_call_usage' in live
     assert 'report["ai_cost_microusd"] = sum(' in live
-    assert "MAX_AI_COST_MICROUSD = 40_000" in live
+    assert "MAX_AI_COST_MICROUSD = 28_000" in live
     assert "MODEL_CALL_RESERVATION_MICROUSD = 12_000" in live
     assert "reserve_controlled_ai_budget(" in live
-    assert "budget_microusd=40000" in runner
+    assert "budget_microusd=28000" in runner
 
 
 def test_phase4_live_binds_all_ai_worker_services_to_the_worker_role() -> None:

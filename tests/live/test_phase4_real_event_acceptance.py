@@ -83,7 +83,7 @@ SOURCE_POLICY_VERSION = "t18-stream-discovery-w4-v1"
 MODEL = "deepseek-v4-flash"
 PROVIDER = "deepseek"
 MAX_MODEL_CALLS = 8
-MAX_AI_COST_MICROUSD = 40_000
+MAX_AI_COST_MICROUSD = 28_000
 MODEL_CALL_RESERVATION_MICROUSD = 12_000
 MAX_WALL_SECONDS = 1_500
 MAX_FETCH_ATTEMPTS = 2
@@ -168,7 +168,7 @@ async def _seed_stream(
             text(
                 "ALTER TABLE personal_controlled_run ADD CONSTRAINT "
                 "phase4_acceptance_ai_cost_limit CHECK("
-                "ai_cost_limit_microusd=40000 AND failure_rate_min_samples=10)"
+                "ai_cost_limit_microusd=28000 AND failure_rate_min_samples=10)"
             )
         )
         await connection.execute(
